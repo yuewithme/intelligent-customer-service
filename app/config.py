@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     qdrant_vector_size: int = 1024
     qdrant_distance: str = "COSINE"
     qdrant_trust_env: bool = True
+    qdrant_upsert_batch_size: int = Field(default=128, ge=1)
 
     llm_provider: str = "mock"
     llm_model: str = "deepseek-chat"
@@ -40,6 +41,7 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-m3"
     embedding_api_key: str = ""
     embedding_base_url: str = "https://api.openai.com/v1"
+    embedding_batch_size: int = Field(default=16, ge=1)
 
     rag_top_k: int = Field(default=20, ge=1)
     rag_top_n: int = Field(default=5, ge=1)

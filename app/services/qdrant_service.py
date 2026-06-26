@@ -57,18 +57,22 @@ async def upsert_chunks(points: list[dict[str, Any]]) -> None:
 
         await ensure_collection()
         settings = get_settings()
-        await _client().upsert(
-            collection_name=settings.qdrant_collection,
-            points=[
-                PointStruct(
-                    id=_point_id(point["id"]),
-                    vector=point["vector"],
-                    payload=point["payload"],
-                )
-                for point in points
-            ],
-            wait=True,
-        )
+        client = _client()
+        batch_size = getattr(settings, "qdrant_upsert_batch_size", 128)
+        point_structs = [
+            PointStruct(
+                id=_point_id(point["id"]),
+                vector=point["vector"],
+                payload=point["payload"],
+            )
+            for point in points
+        ]
+        for start in range(0, len(point_structs), batch_size):
+            await client.upsert(
+                collection_name=settings.qdrant_collection,
+                points=point_structs[start : start + batch_size],
+                wait=True,
+            )
     except AppError:
         raise
     except Exception as exc:

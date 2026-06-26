@@ -87,3 +87,47 @@ async def test_bge_provider_encodes_texts_in_batch(monkeypatch):
         "texts": ["首单推进", "试成交"],
         "normalize_embeddings": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_bge_provider_splits_large_batches(monkeypatch):
+    captured_batches = []
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_name: str):
+            pass
+
+        def encode(self, texts: list[str], normalize_embeddings: bool):
+            captured_batches.append(list(texts))
+            return [[float(len(text)), 0.0, 0.0] for text in texts]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
+    )
+    monkeypatch.setattr(
+        embedding_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            embedding_provider="bge",
+            embedding_model="BAAI/bge-m3",
+            qdrant_vector_size=3,
+            embedding_batch_size=2,
+            embedding_api_key="",
+            openai_api_key="",
+            embedding_base_url="https://api.openai.com/v1",
+        ),
+    )
+    embedding_service._bge_model.cache_clear()
+
+    vectors = await embedding_service.embed_texts(["one", "two", "three", "four", "five"])
+
+    assert vectors == [
+        [3.0, 0.0, 0.0],
+        [3.0, 0.0, 0.0],
+        [5.0, 0.0, 0.0],
+        [4.0, 0.0, 0.0],
+        [4.0, 0.0, 0.0],
+    ]
+    assert captured_batches == [["one", "two"], ["three", "four"], ["five"]]

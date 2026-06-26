@@ -110,12 +110,18 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
     settings = get_settings()
     if settings.embedding_provider.lower() == "bge":
         try:
-            vectors = _as_float_lists(
-                _bge_model(settings.embedding_model).encode(
-                    texts,
-                    normalize_embeddings=True,
+            vectors = []
+            batch_size = getattr(settings, "embedding_batch_size", 16)
+            for start in range(0, len(texts), batch_size):
+                batch = texts[start : start + batch_size]
+                vectors.extend(
+                    _as_float_lists(
+                        _bge_model(settings.embedding_model).encode(
+                            batch,
+                            normalize_embeddings=True,
+                        )
+                    )
                 )
-            )
             for vector in vectors:
                 _validate_vector_size(
                     vector,
