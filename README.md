@@ -184,7 +184,19 @@ DEEPSEEK_API_KEY=...
 
 ### Embedding
 
-`EMBEDDING_PROVIDER=mock` 和当前 `bge` 配置使用轻量确定性向量，便于 MVP 离线运行。要调用 OpenAI-compatible embedding API：
+`EMBEDDING_PROVIDER=mock` 使用轻量确定性向量，便于 MVP 离线运行。
+
+本地真实 BGE-M3：
+
+```dotenv
+EMBEDDING_PROVIDER=bge
+EMBEDDING_MODEL=BAAI/bge-m3
+QDRANT_VECTOR_SIZE=1024
+```
+
+`bge` provider 使用 `sentence-transformers` 加载 `BAAI/bge-m3`，输出 1024 维归一化向量。首次运行会从 Hugging Face 下载模型；下载完成后会复用本机缓存。
+
+要调用 OpenAI-compatible embedding API：
 
 ```dotenv
 EMBEDDING_PROVIDER=openai
@@ -193,8 +205,6 @@ EMBEDDING_API_KEY=...
 EMBEDDING_BASE_URL=https://api.openai.com/v1
 QDRANT_VECTOR_SIZE=1536
 ```
-
-若要本地运行真实 `BAAI/bge-m3`，可在 `embedding_service.py` 增加独立的 sentence-transformers provider；不要把模型加载逻辑放进路由。
 
 ## 测试
 
@@ -208,6 +218,6 @@ python -m compileall app
 - 用 Redis 替换微信消息内存去重，并持久化会话历史。
 - 为知识库、租户和权限增加关系数据库模型与管理 API。
 - 增加 DOCX、OCR、表格和结构化章节解析。
-- 接入真实 BGE-M3 与 bge-reranker，支持批量 embedding。
+- 接入 bge-reranker，支持更强的二阶段重排。
 - 增加异步入库任务、状态查询、删除/重建索引和幂等键。
 - 增加微信消息加解密、限流、审计、指标与分布式追踪。
