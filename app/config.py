@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,6 +28,7 @@ class Settings(BaseSettings):
     qdrant_collection: str = "knowledge_chunks"
     qdrant_vector_size: int = 1024
     qdrant_distance: str = "COSINE"
+    qdrant_trust_env: bool = True
 
     llm_provider: str = "mock"
     llm_model: str = "deepseek-chat"
@@ -43,6 +45,8 @@ class Settings(BaseSettings):
     rag_top_n: int = Field(default=5, ge=1)
     chunk_size: int = Field(default=600, ge=1)
     chunk_overlap: int = Field(default=100, ge=0)
+    chunk_strategy: Literal["fixed", "adaptive"] = "fixed"
+    markdown_heading_max_level: int = Field(default=6, ge=1, le=6)
 
     database_url: str = "sqlite:///./rag.db"
     redis_url: str = "redis://localhost:6379/0"
@@ -55,4 +59,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

@@ -119,6 +119,33 @@ page, section, tenant_id, permission, created_at
 
 查询时同时按 `kb_id`、`tenant_id`、`permission` 过滤。
 
+### 文档切分策略
+
+默认使用固定长度切分：
+
+```dotenv
+CHUNK_STRATEGY=fixed
+CHUNK_SIZE=600
+CHUNK_OVERLAP=100
+```
+
+若希望 Markdown 根据标题结构自适应切分，可改为：
+
+```dotenv
+CHUNK_STRATEGY=adaptive
+MARKDOWN_HEADING_MAX_LEVEL=6
+CHUNK_SIZE=1200
+CHUNK_OVERLAP=100
+```
+
+`adaptive` 模式会先按 Markdown 的 `#` 到 `######` 标题分成章节，并把完整标题路径写入 Qdrant 的 `section` 字段，例如：
+
+```text
+员工制度 / 报销管理 / 审批流程
+```
+
+如果单个章节仍超过 `CHUNK_SIZE`，再在该章节内部按固定长度和重叠量二次切分。TXT 和 PDF 暂时继续使用固定长度切分。修改 `.env` 后需要重启 API 服务；已经入库的文档不会自动重新切分，需要重新上传或重建索引。
+
 ## 微信公众平台回调
 
 回调地址：

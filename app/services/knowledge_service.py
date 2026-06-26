@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,8 @@ from app.utils.time import now_iso
 
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".pdf"}
+MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+MARKDOWN_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 
 
 def parse_document(path: Path) -> list[dict[str, Any]]:
@@ -47,6 +50,49 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return chunks
 
 
+def split_markdown_sections(
+    text: str,
+    max_heading_level: int = 6,
+) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    buffer: list[str] = []
+    heading_stack: dict[int, str] = {}
+    current_section: str | None = None
+    active_fence: str | None = None
+
+    def flush() -> None:
+        content = "\n".join(buffer).strip()
+        if content:
+            sections.append({"text": content, "page": None, "section": current_section})
+
+    for line in text.splitlines():
+        fence = MARKDOWN_FENCE_RE.match(line)
+        if fence:
+            marker = fence.group(1)
+            active_fence = None if active_fence == marker else marker
+
+        heading = MARKDOWN_HEADING_RE.match(line) if active_fence is None else None
+        if heading and len(heading.group(1)) <= max_heading_level:
+            flush()
+            buffer = [line]
+            level = len(heading.group(1))
+            title = re.sub(r"\s+#+\s*$", "", heading.group(2)).strip()
+            heading_stack = {
+                saved_level: saved_title
+                for saved_level, saved_title in heading_stack.items()
+                if saved_level < level
+            }
+            heading_stack[level] = title
+            current_section = " / ".join(
+                heading_stack[saved_level] for saved_level in sorted(heading_stack)
+            )
+        else:
+            buffer.append(line)
+
+    flush()
+    return sections
+
+
 async def index_document(
     *,
     path: Path,
@@ -58,12 +104,29 @@ async def index_document(
     settings = get_settings()
     doc_id = generate_id("document")
     parsed_pages = parse_document(path)
+    if path.suffix.lower() == ".md" and settings.chunk_strategy == "adaptive":
+        units = split_markdown_sections(
+            parsed_pages[0]["text"],
+            max_heading_level=settings.markdown_heading_max_level,
+        )
+    else:
+        units = [
+            {"text": page["text"], "page": page["page"], "section": None}
+            for page in parsed_pages
+        ]
+
     records: list[dict[str, Any]] = []
-    for page in parsed_pages:
+    for unit in units:
         for text in chunk_text(
-            page["text"], settings.chunk_size, settings.chunk_overlap
+            unit["text"], settings.chunk_size, settings.chunk_overlap
         ):
-            records.append({"text": text, "page": page["page"]})
+            records.append(
+                {
+                    "text": text,
+                    "page": unit["page"],
+                    "section": unit["section"],
+                }
+            )
 
     vectors = await embedding_service.embed_texts(
         [record["text"] for record in records]
@@ -79,7 +142,7 @@ async def index_document(
             "file_name": original_name,
             "file_type": path.suffix.lower().lstrip("."),
             "page": record["page"],
-            "section": None,
+            "section": record["section"],
             "tenant_id": tenant_id,
             "permission": permission,
             "created_at": now_iso(),
@@ -93,4 +156,3 @@ async def index_document(
         "chunk_count": len(points),
         "status": "indexed",
     }
-

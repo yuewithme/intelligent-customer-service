@@ -20,6 +20,7 @@ def _client():
     return AsyncQdrantClient(
         url=settings.qdrant_url,
         api_key=settings.qdrant_api_key or None,
+        trust_env=settings.qdrant_trust_env,
     )
 
 
