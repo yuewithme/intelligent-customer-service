@@ -54,3 +54,74 @@ class ChatLogModel(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class SceneIndexModel(Base):
+    __tablename__ = "scene_index"
+
+    scene_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    scene_name: Mapped[str] = mapped_column(String(256))
+    scene_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enter_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    typical_user_messages: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exclude_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
+
+
+class QuestionClusterModel(Base):
+    __tablename__ = "question_cluster"
+
+    question_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scene_id: Mapped[str] = mapped_column(String(32), index=True)
+    sub_scene_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    standard_question: Mapped[str] = mapped_column(Text)
+    core_intent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_question_aliases: Mapped[str | None] = mapped_column(Text, nullable=True)
+    positive_examples: Mapped[str | None] = mapped_column(Text, nullable=True)
+    negative_examples: Mapped[str | None] = mapped_column(Text, nullable=True)
+    keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
+    required_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exclude_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confusable_questions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    default_template_id: Mapped[str] = mapped_column(String(64), index=True)
+    confidence_threshold: Mapped[float] = mapped_column(Float, default=0.75)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
+
+
+class TemplateLibraryModel(Base):
+    __tablename__ = "template_library"
+
+    template_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    question_id: Mapped[str] = mapped_column(String(64), index=True)
+    template_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    answer_default: Mapped[str] = mapped_column(Text)
+    answer_goal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    need_slot_filling: Mapped[str] = mapped_column(String(32), default="no")
+    handoff_rule: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
+    version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    change_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class TalkScriptMatchLogModel(Base):
+    __tablename__ = "talk_script_match_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trace_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    customer_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    user_message: Mapped[str] = mapped_column(Text)
+    normalized_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    scene_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    candidate_question_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    matched_question_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    template_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    need_slot_filling: Mapped[bool] = mapped_column(Boolean, default=False)
+    need_human: Mapped[bool] = mapped_column(Boolean, default=False)
+    final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

@@ -62,6 +62,29 @@ DEBUG_API_ENABLED=true
 
 其中意图识别、模板库、意图样本和用户状态都是 mock/内存实现。后续可把模板和意图样本接入 Qdrant，把状态接入 Redis/PostgreSQL，把 `INTENT_LLM_PROVIDER` 切到真实 LLM。
 
+## 确定性话术库
+
+兰花私域固定话术库通过 Excel 导入到 SQLite，命中后直接返回 `template_library.answer_default`，不会走 RAG，也不会让 LLM 生成客服回复。LLM 只用于在候选 `question_id` 中做分类。
+
+导入命令：
+
+```bash
+python -m app.scripts.import_talk_scripts "C:/Users/32456/Downloads/兰花私域MVP确定性话术库_优化版.xlsx"
+```
+
+运行时流程：
+
+```text
+intent_service
+  -> policy_service
+  -> talk_script_matcher
+       matched: 返回固定 answer_default
+       handoff: answer=""，need_human=true，next_action=human_handoff
+       pass_through: 继续原 template/RAG 流程
+```
+
+转人工通知逻辑当前只保留 `human_handoff_service` 接口，暂不真正推送给指定人员。
+
 ## Docker 启动
 
 ```bash

@@ -22,6 +22,7 @@ from app.services.reply_builder import (
 from app.services.rule_guard_service import check_rules
 from app.services.state_service import get_user_state, update_user_state
 from app.services.template_service import render_template, select_template
+from app.talk_script.service import match_talk_script
 from app.utils.logger import log_event
 
 
@@ -141,6 +142,44 @@ async def _build_reply(
     stage_latencies: dict[str, int] | None = None,
 ) -> FinalReply:
     stage_latencies = stage_latencies if stage_latencies is not None else {}
+    if route in {"template_reply", "template_then_rag", "rag_answer"}:
+        stage_started = time.perf_counter()
+        talk_script = await match_talk_script(
+            customer_id=message.user_id,
+            current_message=message.message,
+            trace_id=message.trace_id,
+            session_id=message.session_id,
+            recent_messages=[],
+            customer_tags={"tags": user_state.customer_tags},
+        )
+        stage_latencies["talk_script_ms"] = _elapsed_ms(stage_started)
+        if talk_script.status == "matched":
+            stage_latencies.setdefault("template_ms", 0)
+            stage_latencies.setdefault("rag_ms", 0)
+            return FinalReply(
+                answer=talk_script.answer,
+                reply_type="template",
+                route="template_reply",
+                template_id=talk_script.template_id,
+                need_human=False,
+                metadata={
+                    "talk_script": talk_script.model_dump(),
+                    "score": talk_script.confidence,
+                },
+            )
+        if talk_script.status == "handoff":
+            stage_latencies.setdefault("template_ms", 0)
+            stage_latencies.setdefault("rag_ms", 0)
+            return FinalReply(
+                answer="",
+                reply_type="human",
+                route="human",
+                need_human=True,
+                next_action="human_handoff",
+                metadata={"talk_script": talk_script.model_dump()},
+            )
+    else:
+        stage_latencies.setdefault("talk_script_ms", 0)
     if route == "template_reply":
         stage_started = time.perf_counter()
         template = await select_template(message, intent, user_state)

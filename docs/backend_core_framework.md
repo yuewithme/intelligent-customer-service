@@ -1,0 +1,1109 @@
+# 后端接口与核心逻辑骨架
+
+本文档基于当前项目已有代码整理，用于后续修改后端接口、RAG 主流程、知识库入库流程和微信接入逻辑。
+
+当前后端项目位于 `wechat_rag_bot/`，技术栈为 FastAPI + Pydantic Settings + SQLAlchemy + SQLite + Qdrant + LLM/Embedding Provider。
+
+> 注意：当前源码中的部分中文提示文本存在编码异常。本文按代码意图整理中文说明，实际返回文案以后建议单独统一修正。
+
+## 1. 项目后端结构
+
+```text
+wechat_rag_bot/
+  app/
+    main.py                  # FastAPI 应用入口、路由注册、统一异常响应、健康检查
+    config.py                # 环境变量配置
+    routers/
+      chat.py                # 统一聊天接口 /api/v1/chat
+      knowledge.py           # 知识库上传接口 /api/v1/knowledge/upload
+      templates.py           # 模板创建与搜索接口
+      intent_examples.py     # 意图样本接口
+      state.py               # 用户状态接口
+      debug.py               # 调试接口
+      admin_logs.py          # 客服 AI 日志与质检接口
+      wechat.py              # 微信回调接口 /wechat/callback
+    services/
+      chat_orchestrator.py   # 统一聊天编排主流程
+      channel_service.py     # API/微信消息归一化
+      rule_guard_service.py  # 规则优先拦截
+      intent_service.py      # 意图识别
+      intent_example_service.py # 意图样本召回
+      policy_service.py      # 路由决策
+      talk_script/           # 兰花确定性话术库：Excel 导入、scene/question 匹配、固定话术输出、命中日志
+      template_service.py    # 模板选择与渲染
+      reply_builder.py       # 最终回复组装
+      state_service.py       # 用户状态读写
+      chat_log_service.py    # 聊天日志写入、查询、统计、脱敏
+      rag_service.py         # RAG 主流程
+      knowledge_service.py   # 文档解析、分块、入库
+      embedding_service.py   # Embedding 生成
+      qdrant_service.py      # Qdrant 写入与检索
+      rerank_service.py      # 重排占位逻辑
+      llm_service.py         # LLM 生成回答
+      wechat_service.py      # 微信签名、XML 解析、XML 回复、消息去重
+    schemas/
+      chat.py                # 聊天请求、聊天响应、统一响应
+      common.py              # 错误码、业务异常
+      knowledge.py           # 知识库上传响应结构
+      event.py               # 归一化消息
+      intent.py              # 意图结果
+      policy.py              # 策略决策
+      reply.py               # 最终回复
+      state.py               # 用户状态
+      template.py            # 模板与模板回复
+      log.py                 # 客服 AI 日志响应结构
+    utils/
+      auth.py                # Bearer API Key 鉴权
+      ids.py                 # 业务 ID 生成
+      logger.py              # JSON 日志
+      time.py                # 上海时区时间工具
+    db/
+      session.py             # SQLAlchemy session factory，占位
+      models.py              # SQLAlchemy Base、ChatLogModel
+```
+
+## 2. 应用入口
+
+文件：`wechat_rag_bot/app/main.py`
+
+固定逻辑：
+
+1. 初始化日志。
+2. 创建 FastAPI 应用，标题来自 `APP_NAME`。
+3. 注册 router：
+   - `chat.router`
+   - `knowledge.router`
+   - `templates.router`
+   - `intent_examples.router`
+   - `state.router`
+   - `debug.router`
+   - `admin_logs.router`
+   - `wechat.router`
+4. 注册统一异常处理：
+   - `AppError`
+   - `RequestValidationError`
+   - `StarletteHTTPException`
+   - 未捕获 `Exception`
+5. 暴露健康检查接口 `/health`。
+
+统一 JSON 响应格式：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {}
+}
+```
+
+异常响应也保持同样 envelope：
+
+```json
+{
+  "code": 40000,
+  "message": "请求参数错误",
+  "data": null
+}
+```
+
+## 3. 已有接口清单
+
+### 3.1 健康检查
+
+```http
+GET /health
+```
+
+鉴权：无。
+
+返回：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "status": "ok"
+  }
+}
+```
+
+### 3.2 统一聊天接口
+
+```http
+POST /api/v1/chat
+Authorization: Bearer <API_KEY>
+Content-Type: application/json
+```
+
+文件：`wechat_rag_bot/app/routers/chat.py`
+
+请求体：
+
+```json
+{
+  "channel": "api",
+  "user_id": "user_001",
+  "session_id": null,
+  "message": "用户问题",
+  "kb_id": "kb_default",
+  "metadata": {
+    "tenant_id": "tenant_default",
+    "permission": "public"
+  }
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `channel` | string | 是 | 来源渠道，例如 `api`、`wechat` |
+| `user_id` | string | 是 | 用户 ID |
+| `session_id` | string/null | 否 | 会话 ID；为空时自动生成 |
+| `message` | string | 是 | 用户问题 |
+| `kb_id` | string | 是 | 知识库 ID |
+| `metadata` | object | 否 | 扩展字段，当前用于 `tenant_id`、`permission` |
+
+处理逻辑：
+
+```text
+HTTP 请求
+  -> require_api_key 鉴权
+  -> ChatRequest 校验
+  -> handle_chat(...)
+  -> ChatData 校验
+  -> APIResponse(code=0, message="success", data=...)
+```
+
+成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "answer": "回答内容",
+    "session_id": "sess_xxx",
+    "sources": [
+      {
+        "doc_id": "doc_xxx",
+        "file_name": "xxx.pdf",
+        "page": 1,
+        "section": null,
+        "score": 0.88
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "reply_type": "template",
+    "route": "template_reply",
+    "intent": {},
+    "template": {},
+    "need_human": false,
+    "next_action": null,
+    "trace_id": "req_xxx"
+  }
+}
+```
+
+旧兼容字段为 `answer`、`session_id`、`sources`、`usage`；路由、意图、模板、人工标记和 `trace_id` 为新增观察字段。
+
+### 3.3 知识库上传接口
+
+```http
+POST /api/v1/knowledge/upload
+Authorization: Bearer <API_KEY>
+Content-Type: multipart/form-data
+```
+
+文件：`wechat_rag_bot/app/routers/knowledge.py`
+
+表单字段：
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `file` | file | 是 | 无 | 上传文件 |
+| `kb_id` | string | 是 | 无 | 知识库 ID |
+| `tenant_id` | string | 是 | 无 | 租户 ID |
+| `permission` | string | 否 | `public` | 权限标识 |
+
+支持文件后缀：
+
+```text
+.txt
+.md
+.pdf
+```
+
+处理逻辑：
+
+```text
+HTTP 上传
+  -> require_api_key 鉴权
+  -> 清理原始文件名
+  -> 校验文件后缀
+  -> 保存到 UPLOAD_DIR
+  -> index_document(...)
+  -> 返回入库结果
+```
+
+成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "doc_id": "doc_xxx",
+    "file_name": "原始文件名.pdf",
+    "chunk_count": 12,
+    "status": "indexed"
+  }
+}
+```
+
+### 3.4 模板、意图样本、状态与调试接口
+
+这些接口都使用 Bearer API Key 鉴权，并返回 `code/message/data` envelope。
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /api/v1/templates` | 创建或更新内存模板 |
+| `POST /api/v1/templates/search` | 按消息、意图、阶段、标签搜索模板 |
+| `POST /api/v1/intent-examples` | 写入意图样本 |
+| `GET /api/v1/users/{user_id}/state` | 查询用户状态 |
+| `PATCH /api/v1/users/{user_id}/state` | 更新用户状态 |
+| `POST /api/v1/debug/intent` | 调试意图识别、策略路由和候选样本 |
+
+第一阶段模板、意图样本和状态均为进程内存实现，后续可替换为 Qdrant、Redis 或 PostgreSQL。
+
+### 3.5 客服 AI 日志与质检接口
+
+文件：`wechat_rag_bot/app/routers/admin_logs.py`
+
+全部接口路径位于 `/api/v1/admin/...` 下，必须使用 Bearer API Key 鉴权。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/v1/admin/chat-logs` | 分页查询聊天日志，支持过滤和关键词搜索 |
+| `GET /api/v1/admin/chat-logs/{trace_id}` | 查询单条日志详情 |
+| `GET /api/v1/admin/chat-log-stats` | 查询日志统计 |
+
+日志列表支持过滤字段：
+
+```text
+page, page_size, user_id, session_id, route, primary_intent,
+template_id, status, need_human, keyword, start_time, end_time
+```
+
+缺失 `trace_id` 时返回统一错误：
+
+```json
+{
+  "code": 40000,
+  "message": "日志不存在",
+  "data": null
+}
+```
+
+### 3.6 微信服务器验证接口
+
+```http
+GET /wechat/callback?signature=...&timestamp=...&nonce=...&echostr=...
+```
+
+文件：`wechat_rag_bot/app/routers/wechat.py`
+
+鉴权：微信签名校验，不使用 Bearer API Key。
+
+处理逻辑：
+
+```text
+接收 signature/timestamp/nonce/echostr
+  -> verify_signature(WECHAT_TOKEN, signature, timestamp, nonce)
+  -> 成功：返回 echostr 纯文本
+  -> 失败：返回 403 Forbidden
+```
+
+### 3.7 微信消息回调接口
+
+```http
+POST /wechat/callback?signature=...&timestamp=...&nonce=...
+Content-Type: application/xml
+```
+
+文件：`wechat_rag_bot/app/routers/wechat.py`
+
+鉴权：微信签名校验，不使用 Bearer API Key。
+
+处理逻辑：
+
+```text
+微信 XML 消息
+  -> verify_signature(...)
+  -> parse_message(...)
+  -> 根据 MsgId 做内存去重
+  -> 非文本消息：回复“当前仅支持文本问题”
+  -> 文本消息：
+       构造 ChatRequest
+       handle_chat(request)
+  -> build_text_reply(...)
+  -> 缓存 MsgId 对应回复
+  -> 返回 XML
+```
+
+返回：微信 XML 文本消息。
+
+## 4. 鉴权框架
+
+文件：`wechat_rag_bot/app/utils/auth.py`
+
+当前业务 API 使用 Bearer Token：
+
+```http
+Authorization: Bearer <API_KEY>
+```
+
+固定逻辑：
+
+```text
+API_AUTH_ENABLED=false
+  -> 跳过鉴权
+
+API_AUTH_ENABLED=true
+  -> 缺少 Authorization：抛 UNAUTHENTICATED，HTTP 401
+  -> scheme 不是 bearer 或 token 不等于 API_KEY：抛 INVALID_API_KEY，HTTP 401
+```
+
+目前应用 Bearer 鉴权的接口：
+
+- `POST /api/v1/chat`
+- `POST /api/v1/knowledge/upload`
+- `POST /api/v1/templates`
+- `POST /api/v1/templates/search`
+- `POST /api/v1/intent-examples`
+- `GET/PATCH /api/v1/users/{user_id}/state`
+- `POST /api/v1/debug/intent`
+- `GET /api/v1/admin/chat-logs`
+- `GET /api/v1/admin/chat-logs/{trace_id}`
+- `GET /api/v1/admin/chat-log-stats`
+
+微信接口走微信签名校验。
+
+## 5. 统一聊天编排主流程
+
+文件：`wechat_rag_bot/app/services/chat_orchestrator.py`
+
+入口函数：
+
+```python
+async def handle_chat(request: ChatRequest) -> dict:
+```
+
+核心流程：
+
+```text
+handle_chat
+  -> normalize_chat_request
+  -> get_user_state
+  -> check_rules
+  -> retrieve_intent_examples
+  -> classify_intent
+  -> decide_route
+  -> _build_reply
+       template_reply / rag_answer / template_then_rag:
+         先尝试 talk_script_matcher
+           matched: 返回 template_library.answer_default，不走 RAG
+           handoff: answer=""，need_human=true，next_action=human_handoff
+           pass_through: 继续原路线
+       template_reply: select_template -> render_template -> build_template_reply
+       rag_answer: answer_knowledge -> build_rag_reply
+       template_then_rag: template + rag -> build_template_then_rag_reply
+       human / chitchat / unsupported / clarify: 固定回复组装
+  -> update_user_state
+  -> 返回 ChatData 兼容结构
+  -> finally record_chat_log
+```
+
+阶段耗时写入 `stage_latencies`：
+
+```text
+normalize_ms, state_ms, rule_guard_ms, intent_examples_ms,
+intent_ms, policy_ms, talk_script_ms, template_ms, rag_ms, reply_build_ms,
+state_update_ms
+```
+
+失败路径会尽量记录 `trace_id`、`channel`、`user_id`、`session_id`、`user_message`、已得到的 `intent/route/reply`、`error_code`、`error_message`。日志写入失败只记录内部错误，不影响聊天主流程。
+
+统一聊天流程图：
+
+```mermaid
+flowchart TD
+  A["ChatRequest"] --> B["normalize_chat_request"]
+  B --> C["get_user_state"]
+  C --> D["Rule Guard"]
+  D --> E{"是否命中规则"}
+  E -- 否 --> F["Intent Examples"]
+  F --> G["Intent Router"]
+  E -- 是 --> H["IntentResult"]
+  G --> H
+  H --> I["Policy Engine"]
+  I --> J{"route"}
+  J --> R["Talk Script Matcher"]
+  R --> S{"matched / handoff / pass_through"}
+  S -- matched --> N
+  S -- handoff --> M
+  S -- pass_through --> K["Template Engine"]
+  S -- pass_through --> L["Knowledge RAG"]
+  J --> M["Human / Clarify / Chitchat"]
+  K --> N["Reply Builder"]
+  L --> N
+  M --> N
+  N --> O["State Update"]
+  O --> P["ChatData"]
+  P --> Q["record_chat_log"]
+```
+
+## 6. 确定性话术库匹配模块
+
+文件目录：`wechat_rag_bot/app/talk_script/`
+
+定位：兰花私域确定性话术库是意图识别之后的高优先级执行模块，不替代 `intent_service`。当 `policy_service` 决定路线为 `template_reply`、`template_then_rag` 或 `rag_answer` 时，`chat_orchestrator._build_reply` 会先尝试 `match_talk_script(...)`。只要高置信命中固定话术，就直接返回 Excel 中 `template_library.answer_default`，不会进入 RAG，也不会让 LLM 自由生成客服回复。
+
+核心数据表：
+
+| 表 | 说明 |
+| --- | --- |
+| `scene_index` | 一级场景索引，字段包括 `scene_id`、`scene_name`、`enter_conditions`、`typical_user_messages`、`exclude_conditions`、`priority`、`status` |
+| `question_cluster` | 标准问题簇，字段包括 `question_id`、`scene_id`、正反例、关键词、`default_template_id`、置信度阈值、优先级、状态 |
+| `template_library` | 固定话术库，最终用户可见回答只取 `answer_default` |
+| `talk_script_match_logs` | 话术匹配明细子表，通过 `trace_id`、`customer_id`、`session_id` 与主聊天日志关联 |
+
+导入命令：
+
+```bash
+cd wechat_rag_bot
+python -m app.scripts.import_talk_scripts "C:/Users/32456/Downloads/兰花私域MVP确定性话术库_优化版.xlsx"
+```
+
+Excel 导入校验：
+
+```text
+scene_id / question_id / template_id 唯一
+question_cluster.scene_id 必须存在于 scene_index
+question_cluster.default_template_id 必须存在于 template_library
+template_library.question_id 必须存在于 question_cluster
+status 只能是 active / disabled / need_review，其中 scene_index 只允许 active / disabled
+answer_default、default_template_id 不能为空
+每个 active question_id 必须有 active template
+```
+
+运行链路：
+
+```text
+match_talk_script
+  -> normalize_message
+  -> match_scene
+  -> retrieve_candidate_questions(scene_id, max 5)
+  -> llm_question_classifier
+       真实环境：调用 llm_service.generate_json，使用 .env 中的 INTENT_LLM_PROVIDER
+       mock 环境：本地候选打分，便于测试
+  -> 根据 question_id 查 default_template_id
+  -> 返回 template_library.answer_default
+  -> record_match_log 写入 talk_script_match_logs
+```
+
+返回状态：
+
+| 状态 | 含义 | 主流程行为 |
+| --- | --- | --- |
+| `matched` | 高置信命中固定话术 | 返回 `answer_default`，不走 RAG |
+| `handoff` | 进入话术库范围但低置信、信息不足、高风险或需要人工 | 调用预留 `human_handoff_service`，`answer=""`，`need_human=true` |
+| `pass_through` | 不属于固定话术库范围 | 继续原 `template_service` 或 `rag_service` 路线 |
+
+人工转接接口预留在 `app/talk_script/human_handoff_service.py`。当前实现只返回 `requested=true/status=pending`，后续可接企业微信、飞书、短信或内部工单通知。
+
+聊天主日志仍由 `chat_log_service` 写入 `chat_logs`。固定话术命中摘要放入主日志 `metadata.talk_script`，完整候选、置信度、原因和转人工信息放入 `talk_script_match_logs`。
+
+## 7. RAG 主流程
+
+文件：`wechat_rag_bot/app/services/rag_service.py`
+
+入口函数：
+
+```python
+async def rag_chat(
+    user_id: str,
+    message: str,
+    kb_id: str,
+    session_id: str | None = None,
+    channel: str = "api",
+    metadata: dict | None = None,
+) -> dict:
+```
+
+核心固定流程：
+
+```text
+rag_chat
+  -> 生成 request_id
+  -> session_id 为空则生成 sess_xxx
+  -> 校验 message 非空
+  -> embed_text(message)
+  -> search_chunks(
+       vector,
+       kb_id=kb_id,
+       tenant_id=metadata.tenant_id 或 tenant_default,
+       permission=metadata.permission 或 public,
+       top_k=RAG_TOP_K
+     )
+  -> rerank(question, candidates, RAG_TOP_N)
+  -> sources = 提取 doc_id/file_name/page/section/score
+  -> 如果 docs 非空：
+       使用 PROMPT_TEMPLATE 组装 context + question
+       generate_answer(prompt)
+     否则：
+       返回“知识库中没有找到明确答案”
+  -> 返回 answer/sources/session_id/usage
+  -> finally 记录 JSON 日志
+```
+
+RAG 流程图：
+
+```mermaid
+flowchart TD
+  A["用户问题"] --> B["/api/v1/chat 或 /wechat/callback"]
+  B --> C["rag_chat"]
+  C --> D["Embedding: embed_text"]
+  D --> E["Qdrant: search_chunks"]
+  E --> F["Rerank: rerank"]
+  F --> G{"是否有命中文档"}
+  G -- 是 --> H["组装 Prompt"]
+  H --> I["LLM: generate_answer"]
+  G -- 否 --> J["固定兜底回答"]
+  I --> K["统一响应 + sources + usage"]
+  J --> K
+  K --> L["记录请求日志"]
+```
+
+返回数据骨架：
+
+```json
+{
+  "answer": "string",
+  "sources": [],
+  "session_id": "sess_xxx",
+  "usage": {}
+}
+```
+
+日志字段：
+
+```json
+{
+  "request_id": "req_xxx",
+  "channel": "api",
+  "user_id": "user_001",
+  "session_id": "sess_xxx",
+  "kb_id": "kb_default",
+  "question": "用户问题",
+  "answer": "回答",
+  "sources": [],
+  "latency_ms": 123,
+  "status": "success",
+  "created_at": "Asia/Shanghai ISO 时间"
+}
+```
+
+## 8. 客服 AI 日志服务
+
+文件：`wechat_rag_bot/app/services/chat_log_service.py`
+
+核心函数：
+
+```python
+def sanitize_log_payload(payload: dict) -> dict
+
+async def record_chat_log(log: dict) -> None
+
+async def list_chat_logs(...) -> dict
+
+async def get_chat_log(trace_id: str) -> dict | None
+
+async def get_chat_log_stats(...) -> dict
+```
+
+存储模型：`wechat_rag_bot/app/db/models.py::ChatLogModel`
+
+第一版使用 `CHAT_LOG_DB_URL=sqlite:///./chat_logs.db` 单独存储日志。服务懒加载 SQLAlchemy engine 并自动创建 `chat_logs` 表。JSON 字段使用 text 存储，包括 `secondary_intents_json`、`sources_json`、`usage_json`、`stage_latencies_json`、`metadata_json`。
+
+隐私规则：
+
+- 不记录 API Key、微信 AppSecret、Qdrant API Key、Authorization header。
+- `metadata` 递归过滤 `token`、`password`、`api_key`、`secret`、`authorization`。
+- `user_message` 和 `answer` 按配置限制最大长度。
+
+统计字段：
+
+```text
+total, success_count, failed_count, avg_latency_ms,
+route_counts, intent_counts, template_counts,
+human_count, rag_count, template_count
+```
+
+## 9. 知识库入库主流程
+
+文件：`wechat_rag_bot/app/services/knowledge_service.py`
+
+入口函数：
+
+```python
+async def index_document(
+    *,
+    path: Path,
+    original_name: str,
+    kb_id: str,
+    tenant_id: str,
+    permission: str,
+) -> dict[str, Any]:
+```
+
+核心固定流程：
+
+```text
+index_document
+  -> 生成 doc_id
+  -> parse_document(path)
+       .txt/.md：按 UTF-8 读取全文
+       .pdf：逐页提取文本
+  -> 判断分块策略
+       .md 且 CHUNK_STRATEGY=adaptive：
+         split_markdown_sections(...)
+       其他：
+         按 page 作为基础单元
+  -> chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)
+  -> embed_texts([...])
+  -> 为每个 chunk 生成 chunk_id 与 payload
+  -> qdrant_service.upsert_chunks(points)
+  -> 返回 doc_id/file_name/chunk_count/status
+```
+
+入库流程图：
+
+```mermaid
+flowchart TD
+  A["上传文件"] --> B["保存到 UPLOAD_DIR"]
+  B --> C["parse_document"]
+  C --> D{"是否 Markdown adaptive"}
+  D -- 是 --> E["按标题切 section"]
+  D -- 否 --> F["按页面/全文作为单元"]
+  E --> G["chunk_text 固定长度切块"]
+  F --> G
+  G --> H["embed_texts 批量向量化"]
+  H --> I["构造 Qdrant points"]
+  I --> J["upsert_chunks"]
+  J --> K["返回 indexed"]
+```
+
+Qdrant payload 固定字段：
+
+```json
+{
+  "text": "chunk 文本",
+  "kb_id": "kb_default",
+  "doc_id": "doc_xxx",
+  "chunk_id": "chunk_xxx",
+  "file_name": "xxx.pdf",
+  "file_type": "pdf",
+  "page": 1,
+  "section": null,
+  "tenant_id": "tenant_default",
+  "permission": "public",
+  "created_at": "Asia/Shanghai ISO 时间"
+}
+```
+
+## 10. Embedding 服务
+
+文件：`wechat_rag_bot/app/services/embedding_service.py`
+
+入口：
+
+```python
+async def embed_text(text: str) -> list[float]
+async def embed_texts(texts: list[str]) -> list[list[float]]
+```
+
+支持 provider：
+
+| Provider | 说明 |
+| --- | --- |
+| `mock` | 本地确定性向量，便于离线开发 |
+| `bge` | 使用 `sentence-transformers` 加载本地/缓存模型 |
+| `openai` | 调用 OpenAI-compatible embeddings API |
+
+固定校验：
+
+- 每个向量长度必须等于 `QDRANT_VECTOR_SIZE`。
+- 维度不匹配时抛 `EMBEDDING_FAILED`。
+- `bge` 批量处理时使用 `EMBEDDING_BATCH_SIZE`。
+
+## 11. Qdrant 服务
+
+文件：`wechat_rag_bot/app/services/qdrant_service.py`
+
+入口：
+
+```python
+async def ensure_collection() -> None
+async def upsert_chunks(points: list[dict[str, Any]]) -> None
+async def search_chunks(
+    vector: list[float],
+    *,
+    kb_id: str,
+    tenant_id: str = "tenant_default",
+    permission: str = "public",
+    top_k: int | None = None,
+) -> list[dict[str, Any]]
+```
+
+固定逻辑：
+
+```text
+QDRANT_URL 为空或包含 your-qdrant-url
+  -> 使用进程内 _memory_points
+  -> upsert 时追加到内存列表
+  -> search 时按 kb_id + tenant_id + permission 过滤，再按 cosine 排序
+
+QDRANT_URL 有真实值
+  -> 使用 AsyncQdrantClient
+  -> 写入前 ensure_collection
+  -> collection 不存在时自动创建
+  -> upsert 按 QDRANT_UPSERT_BATCH_SIZE 分批
+  -> search 使用 query_points，并按 kb_id/tenant_id/permission 过滤
+```
+
+检索固定过滤条件：
+
+```text
+kb_id == 请求 kb_id
+tenant_id == metadata.tenant_id 或 tenant_default
+permission == metadata.permission 或 public
+```
+
+## 12. Rerank 服务
+
+文件：`wechat_rag_bot/app/services/rerank_service.py`
+
+当前为占位实现：
+
+```text
+返回 docs[:top_n]
+```
+
+这意味着当前真正的排序主要来自 Qdrant 检索分数，后续可替换为真实 reranker。
+
+## 13. LLM 服务
+
+文件：`wechat_rag_bot/app/services/llm_service.py`
+
+入口：
+
+```python
+async def generate_answer(prompt: str) -> dict
+```
+
+支持 provider：
+
+| Provider | Base URL | Key 配置 |
+| --- | --- | --- |
+| `mock` | 无 | 无 |
+| `deepseek` | `https://api.deepseek.com/v1` | `DEEPSEEK_API_KEY` |
+| `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
+| `dashscope` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `DASHSCOPE_API_KEY` |
+| `volcengine` | `https://ark.cn-beijing.volces.com/api/v3` | `VOLCENGINE_API_KEY` |
+| `ark` | `https://ark.cn-beijing.volces.com/api/v3` | `ARK_API_KEY` |
+
+真实 provider 固定请求：
+
+```json
+{
+  "model": "LLM_MODEL",
+  "messages": [
+    {
+      "role": "user",
+      "content": "prompt"
+    }
+  ],
+  "temperature": 0
+}
+```
+
+返回：
+
+```json
+{
+  "answer": "choices[0].message.content",
+  "usage": {}
+}
+```
+
+## 14. 微信服务
+
+文件：`wechat_rag_bot/app/services/wechat_service.py`
+
+固定能力：
+
+- `verify_signature(token, signature, timestamp, nonce)`：按微信规则做 SHA-1 签名校验。
+- `parse_message(xml_body)`：解析 XML 到 dict。
+- `build_text_reply(to_user, from_user, content)`：构造微信 XML 文本回复。
+- `MessageDeduplicator`：进程内 MsgId 去重，默认 TTL 300 秒，最多 10000 条。
+
+当前微信接入限制：
+
+- 只处理文本消息。
+- 非文本消息返回固定提示。
+- 默认知识库来自 `WECHAT_DEFAULT_KB_ID`。
+- 去重缓存是单进程内存，多实例部署需要替换为 Redis 等共享存储。
+
+## 15. Schema 与错误码
+
+文件：`wechat_rag_bot/app/schemas/chat.py`
+
+聊天请求：
+
+```python
+class ChatRequest(BaseModel):
+    channel: str
+    user_id: str
+    session_id: str | None = None
+    message: str
+    kb_id: str
+    metadata: dict = {}
+```
+
+聊天响应数据：
+
+```python
+class ChatData(BaseModel):
+    answer: str
+    session_id: str
+    sources: list[SourceItem]
+    usage: dict
+    reply_type: str | None = None
+    route: str | None = None
+    intent: dict = {}
+    template: dict = {}
+    need_human: bool = False
+    next_action: str | None = None
+    trace_id: str | None = None
+```
+
+来源项：
+
+```python
+class SourceItem(BaseModel):
+    doc_id: str
+    file_name: str
+    page: int | None = None
+    section: str | None = None
+    score: float | None = None
+```
+
+统一响应：
+
+```python
+class APIResponse(BaseModel):
+    code: int
+    message: str
+    data: Any | None = None
+```
+
+文件：`wechat_rag_bot/app/schemas/common.py`
+
+固定错误码：
+
+| 错误码 | 名称 | 语义 |
+| --- | --- | --- |
+| `0` | `SUCCESS` | 成功 |
+| `40000` | `REQUEST_INVALID` | 请求参数错误 |
+| `40001` | `KNOWLEDGE_BASE_NOT_FOUND` | 知识库不存在 |
+| `40002` | `PERMISSION_DENIED` | 权限不足 |
+| `40003` | `MESSAGE_EMPTY` | 消息为空 |
+| `40004` | `UNSUPPORTED_FILE_TYPE` | 文件类型不支持 |
+| `40100` | `UNAUTHENTICATED` | 未认证 |
+| `40101` | `INVALID_API_KEY` | API Key 无效 |
+| `40102` | `SIGNATURE_FAILED` | 签名失败 |
+| `50000` | `INTERNAL_ERROR` | 服务内部错误 |
+| `50001` | `QDRANT_FAILED` | Qdrant 失败 |
+| `50002` | `EMBEDDING_FAILED` | Embedding 失败 |
+| `50003` | `LLM_FAILED` | LLM 失败 |
+| `50004` | `DOCUMENT_PARSE_FAILED` | 文档解析失败 |
+| `41000` | `INTENT_FAILED` | 意图识别失败 |
+| `41001` | `INTENT_LOW_CONFIDENCE` | 意图置信度过低 |
+| `41002` | `INTENT_SCHEMA_INVALID` | 意图识别返回结构错误 |
+| `42000` | `TEMPLATE_NOT_FOUND` | 模板未找到 |
+| `42001` | `TEMPLATE_RENDER_FAILED` | 模板渲染失败 |
+| `42002` | `TEMPLATE_INDEX_FAILED` | 模板入库失败 |
+| `43000` | `POLICY_DENIED` | 策略拒绝执行 |
+| `43001` | `POLICY_ROUTE_INVALID` | 路由结果非法 |
+| `44000` | `STATE_FAILED` | 状态读写失败 |
+| `45000` | `REPLY_BUILD_FAILED` | 回复组装失败 |
+| `60000` | `WECHAT_CALLBACK_FAILED` | 微信回调错误 |
+| `60001` | `WECHAT_SIGNATURE_FAILED` | 微信签名失败 |
+| `60002` | `WECHAT_MESSAGE_PARSE_FAILED` | 微信消息解析失败 |
+| `60003` | `WECHAT_REPLY_FAILED` | 微信回复失败 |
+
+## 16. 配置项骨架
+
+文件：`wechat_rag_bot/app/config.py`
+
+核心配置：
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `APP_ENV` | `dev` | 运行环境 |
+| `APP_NAME` | `wechat_rag_bot` | 应用名称 |
+| `API_AUTH_ENABLED` | `true` | 是否启用 Bearer 鉴权 |
+| `API_KEY` | `change_me` | API 鉴权 token |
+| `WECHAT_TOKEN` | `change_me` | 微信 token |
+| `WECHAT_APP_ID` | `change_me` | 微信 App ID |
+| `WECHAT_APP_SECRET` | `change_me` | 微信 App Secret |
+| `WECHAT_DEFAULT_KB_ID` | `kb_default` | 微信默认知识库 |
+| `QDRANT_URL` | 空 | Qdrant 地址；为空时内存模式 |
+| `QDRANT_COLLECTION` | `knowledge_chunks` | Qdrant collection |
+| `QDRANT_KNOWLEDGE_COLLECTION` | `knowledge_chunks` | 知识库 collection |
+| `QDRANT_TEMPLATE_COLLECTION` | `reply_templates` | 模板 collection 预留 |
+| `QDRANT_INTENT_COLLECTION` | `intent_examples` | 意图样本 collection 预留 |
+| `QDRANT_VECTOR_SIZE` | `1024` | 向量维度 |
+| `QDRANT_DISTANCE` | `COSINE` | 距离算法 |
+| `QDRANT_UPSERT_BATCH_SIZE` | `128` | 写入批大小 |
+| `LLM_PROVIDER` | `mock` | LLM provider |
+| `LLM_MODEL` | `deepseek-chat` | LLM 模型 |
+| `INTENT_LLM_PROVIDER` | `mock` | 意图识别 LLM provider |
+| `INTENT_LLM_MODEL` | `qwen-plus` | 意图识别模型 |
+| `INTENT_CONFIDENCE_THRESHOLD` | `0.6` | 意图置信度阈值 |
+| `INTENT_EXAMPLE_TOP_K` | `5` | 意图样本召回数量 |
+| `EMBEDDING_PROVIDER` | `mock` | Embedding provider |
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | Embedding 模型 |
+| `EMBEDDING_BASE_URL` | `https://api.openai.com/v1` | Embedding API 地址 |
+| `EMBEDDING_BATCH_SIZE` | `16` | Embedding 批大小 |
+| `RAG_TOP_K` | `20` | Qdrant 召回数量 |
+| `RAG_TOP_N` | `5` | rerank 后保留数量 |
+| `TEMPLATE_TOP_K` | `5` | 模板召回数量 |
+| `TEMPLATE_MIN_SCORE` | `0.5` | 模板最低分 |
+| `STATE_PROVIDER` | `memory` | 状态存储 provider |
+| `RULE_GUARD_ENABLED` | `true` | 是否启用规则拦截 |
+| `DEBUG_API_ENABLED` | `true` | 是否启用 debug API |
+| `CHUNK_SIZE` | `600` | 分块大小 |
+| `CHUNK_OVERLAP` | `100` | 分块重叠 |
+| `CHUNK_STRATEGY` | `fixed` | `fixed` 或 `adaptive` |
+| `MARKDOWN_HEADING_MAX_LEVEL` | `6` | Markdown adaptive 标题层级 |
+| `DATABASE_URL` | `sqlite:///./rag.db` | 关系库地址，当前基本占位 |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis 地址，当前未实际接入 |
+| `UPLOAD_DIR` | `data/uploads` | 上传文件保存目录 |
+| `CHAT_LOG_ENABLED` | `true` | 是否写入聊天日志 |
+| `CHAT_LOG_PROVIDER` | `sqlite` | 日志存储 provider |
+| `CHAT_LOG_DB_URL` | `sqlite:///./chat_logs.db` | 日志 SQLite 地址 |
+| `CHAT_LOG_RETENTION_DAYS` | `30` | 日志保留天数预留 |
+| `CHAT_LOG_MAX_MESSAGE_LENGTH` | `2000` | 用户消息日志最大长度 |
+| `CHAT_LOG_MAX_ANSWER_LENGTH` | `4000` | 回答日志最大长度 |
+
+## 17. 业务 ID 规则
+
+文件：`wechat_rag_bot/app/utils/ids.py`
+
+生成格式：
+
+```text
+<prefix>_<uuid4 hex>
+```
+
+前缀：
+
+| kind | prefix |
+| --- | --- |
+| `user` | `user` |
+| `session` | `sess` |
+| `knowledge` | `kb` |
+| `document` | `doc` |
+| `chunk` | `chunk` |
+| `tenant` | `tenant` |
+| `message` | `msg` |
+| `request` | `req` |
+
+## 18. 当前固定逻辑边界
+
+这些是当前代码中已经固定的行为，修改时需要重点关注兼容性：
+
+1. API 响应 envelope 固定为 `code/message/data`。
+2. 业务 API 使用 Bearer API Key，微信接口使用微信签名。
+3. `/api/v1/chat` 统一进入 `handle_chat`，微信接口也不能绕过该主流程。
+4. RAG 查询默认按 `kb_id + tenant_id + permission` 三个字段过滤。
+5. `session_id` 为空时自动生成，不做数据库持久化。
+5. 知识库支持 `.txt/.md/.pdf`。
+6. 入库 payload 字段固定，检索来源只暴露 `doc_id/file_name/page/section/score`。
+7. 默认 rerank 是简单截断，不是真正重排。
+8. `QDRANT_URL` 为空时使用进程内内存向量库，重启后数据丢失。
+9. 微信消息去重也是进程内内存缓存，多实例不共享。
+10. 聊天日志写入失败不能影响主流程。
+11. `CHAT_LOG_ENABLED=false` 时不写日志，但 admin 查询接口仍返回空数据。
+12. `DATABASE_URL` 和 `REDIS_URL` 已有配置，但当前核心流程基本未使用。
+
+## 19. 后续修改建议入口
+
+如果要改接口字段：
+
+- 改 `app/schemas/chat.py`
+- 改对应 router 参数传递
+- 改 `rag_chat` 函数签名或 metadata 读取
+- 补/改 `tests/test_contracts.py` 和相关接口测试
+
+如果要改 RAG 逻辑：
+
+- 编排入口在 `app/services/chat_orchestrator.py`
+- RAG 子流程在 `app/services/rag_service.py`
+- 检索逻辑在 `app/services/qdrant_service.py`
+- 重排逻辑在 `app/services/rerank_service.py`
+- Prompt 在 `rag_service.PROMPT_TEMPLATE`
+
+如果要改确定性话术库：
+
+- 编排入口在 `app/services/chat_orchestrator.py::_build_reply`
+- 匹配主入口在 `app/talk_script/service.py::match_talk_script`
+- Excel 导入在 `app/talk_script/excel_importer.py`
+- scene/question 规则召回在 `app/talk_script/matcher.py`
+- LLM 候选分类在 `app/talk_script/llm_question_classifier.py`
+- 转人工预留接口在 `app/talk_script/human_handoff_service.py`
+- 数据模型在 `app/db/models.py::SceneIndexModel`、`QuestionClusterModel`、`TemplateLibraryModel`、`TalkScriptMatchLogModel`
+
+如果要改知识库入库：
+
+- 文件后缀支持：`knowledge_service.SUPPORTED_SUFFIXES`
+- 文件保存与接口：`app/routers/knowledge.py`
+- 解析、分块、payload：`app/services/knowledge_service.py`
+- 向量写入：`app/services/qdrant_service.py`
+
+如果要改微信接入：
+
+- 回调路由：`app/routers/wechat.py`
+- 签名、XML、回复、去重：`app/services/wechat_service.py`
+- 默认知识库：`WECHAT_DEFAULT_KB_ID`
+
+如果要改日志系统：
+
+- 查询接口：`app/routers/admin_logs.py`
+- Schema：`app/schemas/log.py`
+- 存储与查询：`app/services/chat_log_service.py`
+- 数据模型：`app/db/models.py::ChatLogModel`
+- 编排接入点：`app/services/chat_orchestrator.py`
+- 配置项：`CHAT_LOG_ENABLED`、`CHAT_LOG_DB_URL`
+
+如果要接真实外部服务：
+
+- Embedding：`EMBEDDING_PROVIDER`、`EMBEDDING_MODEL`、`QDRANT_VECTOR_SIZE`
+- LLM：`LLM_PROVIDER`、`LLM_MODEL`、对应 API Key
+- Qdrant：`QDRANT_URL`、`QDRANT_API_KEY`、`QDRANT_COLLECTION`
