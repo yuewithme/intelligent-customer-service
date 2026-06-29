@@ -36,8 +36,14 @@ class Settings(BaseSettings):
 
     llm_provider: str = "mock"
     llm_model: str = "deepseek-chat"
-    intent_llm_provider: str = "mock"
-    intent_llm_model: str = "qwen-plus"
+    rag_llm_provider: str = ""
+    rag_llm_model: str = ""
+    intent_llm_provider: str = ""
+    intent_llm_model: str = ""
+    talk_script_llm_provider: str = ""
+    talk_script_llm_model: str = ""
+    review_llm_provider: str = ""
+    review_llm_model: str = ""
     intent_confidence_threshold: float = Field(default=0.6, ge=0, le=1)
     intent_example_top_k: int = Field(default=5, ge=1)
     deepseek_api_key: str = ""

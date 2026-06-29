@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 
 import httpx
 
@@ -24,9 +25,21 @@ PROVIDERS = {
 }
 
 
-async def generate_answer(prompt: str) -> dict:
+@dataclass(frozen=True)
+class ModelConfig:
+    provider: str
+    model: str
+
+
+def get_model_config(purpose: str) -> ModelConfig:
     settings = get_settings()
-    provider = settings.llm_provider.lower()
+    provider, model = _resolve_model_config(settings, purpose)
+    return ModelConfig(provider=provider, model=model)
+
+
+async def generate_answer(prompt: str, purpose: str = "rag") -> dict:
+    config = get_model_config(purpose)
+    provider = config.provider
     if provider == "mock":
         context = prompt.rsplit("【知识库资料】", 1)[-1].split(
             "【用户问题】", 1
@@ -47,11 +60,12 @@ async def generate_answer(prompt: str) -> dict:
     if provider not in PROVIDERS:
         raise AppError(
             ErrorCode.LLM_FAILED,
-            f"不支持的 LLM Provider: {settings.llm_provider}",
+            f"不支持的 {purpose} LLM Provider: {provider}",
             status_code=500,
         )
 
     base_url, key_name = PROVIDERS[provider]
+    settings = get_settings()
     api_key = getattr(settings, key_name)
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -59,7 +73,7 @@ async def generate_answer(prompt: str) -> dict:
                 f"{base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
-                    "model": settings.llm_model,
+                    "model": config.model,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0,
                 },
@@ -74,9 +88,9 @@ async def generate_answer(prompt: str) -> dict:
         raise AppError(ErrorCode.LLM_FAILED, status_code=502) from exc
 
 
-async def generate_json(prompt: str) -> dict:
-    settings = get_settings()
-    provider = settings.intent_llm_provider.lower()
+async def generate_json(prompt: str, purpose: str = "intent") -> dict:
+    config = get_model_config(purpose)
+    provider = config.provider
     if provider == "mock":
         return {
             "route": "clarify",
@@ -88,11 +102,12 @@ async def generate_json(prompt: str) -> dict:
     if provider not in PROVIDERS:
         raise AppError(
             ErrorCode.LLM_FAILED,
-            f"不支持的意图 LLM Provider: {settings.intent_llm_provider}",
+            f"不支持的 {purpose} LLM Provider: {provider}",
             status_code=500,
         )
 
     base_url, key_name = PROVIDERS[provider]
+    settings = get_settings()
     api_key = getattr(settings, key_name)
     last_error: Exception | None = None
     for _ in range(2):
@@ -102,7 +117,7 @@ async def generate_json(prompt: str) -> dict:
                     f"{base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
-                        "model": settings.intent_llm_model,
+                        "model": config.model,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0,
                     },
@@ -119,4 +134,23 @@ async def generate_json(prompt: str) -> dict:
 
 
 async def classify_intent(prompt: str) -> dict:
-    return await generate_json(prompt)
+    return await generate_json(prompt, purpose="intent")
+
+
+def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
+    purpose = purpose.lower()
+    chains = {
+        "rag": (("rag_llm_provider", "rag_llm_model"),),
+        "intent": (("intent_llm_provider", "intent_llm_model"),),
+        "talk_script": (
+            ("talk_script_llm_provider", "talk_script_llm_model"),
+            ("intent_llm_provider", "intent_llm_model"),
+        ),
+        "review": (("review_llm_provider", "review_llm_model"),),
+    }
+    for provider_name, model_name in chains.get(purpose, ()):
+        provider = str(getattr(settings, provider_name, "") or "").strip()
+        model = str(getattr(settings, model_name, "") or "").strip()
+        if provider:
+            return provider.lower(), model or settings.llm_model
+    return settings.llm_provider.lower(), settings.llm_model

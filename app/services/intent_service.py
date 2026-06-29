@@ -1,6 +1,5 @@
 from pydantic import ValidationError
 
-from app.config import get_settings
 from app.schemas.common import AppError, ErrorCode
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
@@ -80,12 +79,11 @@ async def classify_intent(
     candidates: list[dict] | None = None,
 ) -> IntentResult:
     del user_state, candidates
-    settings = get_settings()
-    if settings.intent_llm_provider.lower() == "mock":
+    from app.services import llm_service
+
+    if llm_service.get_model_config("intent").provider == "mock":
         raw = _mock_classify(message.message.strip())
     else:
-        from app.services import llm_service
-
         raw = await llm_service.classify_intent(_build_prompt(message.message))
 
     try:

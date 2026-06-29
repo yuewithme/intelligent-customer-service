@@ -509,7 +509,8 @@ match_talk_script
   -> match_scene
   -> retrieve_candidate_questions(scene_id, max 5)
   -> llm_question_classifier
-       真实环境：调用 llm_service.generate_json，使用 .env 中的 INTENT_LLM_PROVIDER
+       真实环境：调用 llm_service.generate_json(purpose="talk_script")
+       模型选择：TALK_SCRIPT_LLM_* -> INTENT_LLM_* -> LLM_*
        mock 环境：本地候选打分，便于测试
   -> 根据 question_id 查 default_template_id
   -> 返回 template_library.answer_default
@@ -981,10 +982,16 @@ class APIResponse(BaseModel):
 | `QDRANT_VECTOR_SIZE` | `1024` | 向量维度 |
 | `QDRANT_DISTANCE` | `COSINE` | 距离算法 |
 | `QDRANT_UPSERT_BATCH_SIZE` | `128` | 写入批大小 |
-| `LLM_PROVIDER` | `mock` | LLM provider |
-| `LLM_MODEL` | `deepseek-chat` | LLM 模型 |
-| `INTENT_LLM_PROVIDER` | `mock` | 意图识别 LLM provider |
-| `INTENT_LLM_MODEL` | `qwen-plus` | 意图识别模型 |
+| `LLM_PROVIDER` | `mock` | 通用默认 LLM provider |
+| `LLM_MODEL` | `deepseek-chat` | 通用默认 LLM 模型 |
+| `RAG_LLM_PROVIDER` | 空 | RAG 回答专用 provider；为空回退到 `LLM_PROVIDER` |
+| `RAG_LLM_MODEL` | 空 | RAG 回答专用模型；为空回退到 `LLM_MODEL` |
+| `INTENT_LLM_PROVIDER` | 空 | 意图识别专用 provider；为空回退到 `LLM_PROVIDER` |
+| `INTENT_LLM_MODEL` | 空 | 意图识别专用模型；为空回退到 `LLM_MODEL` |
+| `TALK_SCRIPT_LLM_PROVIDER` | 空 | 固定话术库 question_id 分类专用 provider；为空回退到 `INTENT_LLM_PROVIDER`，再回退到 `LLM_PROVIDER` |
+| `TALK_SCRIPT_LLM_MODEL` | 空 | 固定话术库 question_id 分类专用模型 |
+| `REVIEW_LLM_PROVIDER` | 空 | 后续质检/复盘专用 provider；为空回退到 `LLM_PROVIDER` |
+| `REVIEW_LLM_MODEL` | 空 | 后续质检/复盘专用模型 |
 | `INTENT_CONFIDENCE_THRESHOLD` | `0.6` | 意图置信度阈值 |
 | `INTENT_EXAMPLE_TOP_K` | `5` | 意图样本召回数量 |
 | `EMBEDDING_PROVIDER` | `mock` | Embedding provider |

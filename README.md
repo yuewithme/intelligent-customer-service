@@ -60,7 +60,25 @@ RULE_GUARD_ENABLED=true
 DEBUG_API_ENABLED=true
 ```
 
-其中意图识别、模板库、意图样本和用户状态都是 mock/内存实现。后续可把模板和意图样本接入 Qdrant，把状态接入 Redis/PostgreSQL，把 `INTENT_LLM_PROVIDER` 切到真实 LLM。
+其中模板库、意图样本和用户状态都是 mock/内存实现。后续可把模板和意图样本接入 Qdrant，把状态接入 Redis/PostgreSQL。
+
+AI 模型按用途读取配置。`LLM_PROVIDER` / `LLM_MODEL` 是通用默认值；用途级配置为空时自动回退到通用默认值：
+
+```dotenv
+LLM_PROVIDER=volcengine
+LLM_MODEL=doubao-seed-1-6-flash-250615
+
+RAG_LLM_PROVIDER=
+RAG_LLM_MODEL=
+INTENT_LLM_PROVIDER=
+INTENT_LLM_MODEL=
+TALK_SCRIPT_LLM_PROVIDER=
+TALK_SCRIPT_LLM_MODEL=
+REVIEW_LLM_PROVIDER=
+REVIEW_LLM_MODEL=
+```
+
+如果要给固定话术库单独指定分类模型，只需要配置 `TALK_SCRIPT_LLM_PROVIDER` 和 `TALK_SCRIPT_LLM_MODEL`。
 
 ## 确定性话术库
 

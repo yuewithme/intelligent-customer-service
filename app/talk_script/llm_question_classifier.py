@@ -1,8 +1,7 @@
 import json
 
-from app.config import get_settings
-from app.talk_script.models import CandidateQuestion, ClassifierDecision
-from app.talk_script.normalizer import normalize_message
+from app.services import llm_service
+from app.talk_script.models import ClassifierDecision
 
 
 async def classify_question(
@@ -13,11 +12,8 @@ async def classify_question(
     customer_tags: dict | None,
     candidate_questions: list[dict],
 ) -> ClassifierDecision:
-    settings = get_settings()
-    if settings.intent_llm_provider.lower() == "mock":
+    if llm_service.get_model_config("talk_script").provider == "mock":
         return _mock_classify(normalized_message, candidate_questions)
-
-    from app.services import llm_service
 
     raw = await llm_service.generate_json(
         _build_prompt(
@@ -25,7 +21,8 @@ async def classify_question(
             recent_messages=recent_messages or [],
             customer_tags=customer_tags or {},
             candidate_questions=candidate_questions,
-        )
+        ),
+        purpose="talk_script",
     )
     return ClassifierDecision.model_validate(raw)
 
