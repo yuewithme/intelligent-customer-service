@@ -6,15 +6,23 @@ from app.main import app
 def test_chat_api_returns_unified_response(monkeypatch):
     from app.routers import chat
 
-    async def fake_rag_chat(**kwargs):
+    async def fake_handle_chat(request):
+        assert request.channel == "api"
         return {
             "answer": "答案",
             "session_id": "sess_001",
             "sources": [],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            "reply_type": "rag",
+            "route": "rag_answer",
+            "intent": {"primary_intent": "knowledge_question"},
+            "template": {},
+            "need_human": False,
+            "next_action": None,
+            "trace_id": "req_001",
         }
 
-    monkeypatch.setattr(chat, "rag_chat", fake_rag_chat)
+    monkeypatch.setattr(chat, "handle_chat", fake_handle_chat)
     client = TestClient(app)
     response = client.post(
         "/api/v1/chat",
@@ -36,6 +44,13 @@ def test_chat_api_returns_unified_response(monkeypatch):
             "session_id": "sess_001",
             "sources": [],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            "reply_type": "rag",
+            "route": "rag_answer",
+            "intent": {"primary_intent": "knowledge_question"},
+            "template": {},
+            "need_human": False,
+            "next_action": None,
+            "trace_id": "req_001",
         },
     }
 
@@ -52,10 +67,11 @@ def test_validation_error_uses_unified_response():
 def test_unhandled_error_uses_unified_response(monkeypatch):
     from app.routers import chat
 
-    async def fail_rag_chat(**kwargs):
+    async def fail_handle_chat(request):
+        del request
         raise RuntimeError("provider exploded")
 
-    monkeypatch.setattr(chat, "rag_chat", fail_rag_chat)
+    monkeypatch.setattr(chat, "handle_chat", fail_handle_chat)
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post(

@@ -30,15 +30,27 @@ def test_wechat_xml_parse_and_reply_escape():
 
 
 @pytest.mark.asyncio
-async def test_wechat_post_delegates_to_rag(monkeypatch):
+async def test_wechat_post_delegates_to_handle_chat(monkeypatch):
     from app.routers import wechat
 
-    async def fake_rag_chat(**kwargs):
-        assert kwargs["channel"] == "wechat"
-        assert kwargs["metadata"]["wechat_msg_id"] == "10001"
-        return {"answer": "知识库回答"}
+    async def fake_handle_chat(request):
+        assert request.channel == "wechat"
+        assert request.metadata["wechat_msg_id"] == "10001"
+        return {
+            "answer": "统一主流程回答",
+            "session_id": "sess_001",
+            "sources": [],
+            "usage": {},
+            "reply_type": "rag",
+            "route": "rag_answer",
+            "intent": {},
+            "template": {},
+            "need_human": False,
+            "next_action": None,
+            "trace_id": "req_001",
+        }
 
-    monkeypatch.setattr(wechat, "rag_chat", fake_rag_chat)
+    monkeypatch.setattr(wechat, "handle_chat", fake_handle_chat)
     client = TestClient(app)
     timestamp, nonce = "1710000000", "nonce"
     signature = hashlib.sha1(
@@ -56,7 +68,7 @@ async def test_wechat_post_delegates_to_rag(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert "知识库回答" in response.text
+    assert "统一主流程回答" in response.text
     assert response.headers["content-type"].startswith("application/xml")
 
 

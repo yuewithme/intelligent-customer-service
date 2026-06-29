@@ -25,10 +25,16 @@ class ChatData(BaseModel):
     session_id: str
     sources: list[SourceItem]
     usage: dict
+    reply_type: str | None = None
+    route: str | None = None
+    intent: dict = Field(default_factory=dict)
+    template: dict = Field(default_factory=dict)
+    need_human: bool = False
+    next_action: str | None = None
+    trace_id: str | None = None
 
 
 class APIResponse(BaseModel):
     code: int
     message: str
     data: Any | None = None
-

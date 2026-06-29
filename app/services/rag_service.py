@@ -126,3 +126,23 @@ async def rag_chat(
             }
         )
 
+
+async def answer_knowledge(message, user_state) -> dict:
+    del user_state
+    result = await rag_chat(
+        user_id=message.user_id,
+        message=message.message,
+        kb_id=message.kb_id,
+        session_id=message.session_id,
+        channel=message.channel,
+        metadata={
+            **message.metadata,
+            "tenant_id": message.tenant_id,
+            "permission": message.permission,
+        },
+    )
+    return {
+        "answer": result.get("answer", ""),
+        "sources": result.get("sources", []),
+        "usage": result.get("usage", {}),
+    }

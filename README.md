@@ -1,17 +1,27 @@
 # WeChat RAG Bot
 
-一个以统一 RAG API 为核心的 FastAPI 服务。微信只是接入层；聊天、Embedding、Qdrant 检索、重排和 LLM 生成保持解耦。
+一个以统一聊天入口为核心的 FastAPI 客服服务。当前已从单链路 RAG 升级为 Intent Router + Template Engine + Knowledge RAG + State Machine 的第一阶段框架；微信仍然只是接入层，不能绕过统一主流程。
 
 ## 架构
 
 ```text
 微信 / 企业微信 / 小程序 / 第三方后端
                   ↓
-            FastAPI routers
+            Channel Adapter
                   ↓
-       /api/v1/chat 或 rag_chat
+             State Manager
                   ↓
- Embedding → Qdrant → Rerank → LLM
+              Rule Guard
+                  ↓
+            Intent Router
+                  ↓
+            Policy Engine
+                  ↓
+ Template Engine / Knowledge RAG / Clarify / Human
+                  ↓
+            Reply Builder
+                  ↓
+             State Update
 ```
 
 ## 本地启动
@@ -40,6 +50,17 @@ LLM_PROVIDER=mock
 ```
 
 此模式使用进程内向量存储、确定性 mock embedding 和 mock LLM，不需要云端密钥。进程重启后内存知识会清空。
+
+第一阶段默认还包含：
+
+```dotenv
+INTENT_LLM_PROVIDER=mock
+STATE_PROVIDER=memory
+RULE_GUARD_ENABLED=true
+DEBUG_API_ENABLED=true
+```
+
+其中意图识别、模板库、意图样本和用户状态都是 mock/内存实现。后续可把模板和意图样本接入 Qdrant，把状态接入 Redis/PostgreSQL，把 `INTENT_LLM_PROVIDER` 切到真实 LLM。
 
 ## Docker 启动
 
@@ -92,9 +113,111 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
     "usage": {
       "prompt_tokens": 0,
       "completion_tokens": 0
-    }
+    },
+    "reply_type": "template",
+    "route": "template_reply",
+    "intent": {},
+    "template": {},
+    "need_human": false,
+    "next_action": null,
+    "trace_id": "req_xxx"
   }
 }
+```
+
+`answer`、`session_id`、`sources`、`usage` 是旧字段，保持兼容；后面的字段是新增路由与调试信息。
+
+## 模板与意图接口
+
+### 创建模板
+
+`POST /api/v1/templates`
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/templates \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "template_id": "tpl_price_objection_001",
+    "intent": "price_objection",
+    "stage": "objection_handling",
+    "trigger_examples": ["有点贵", "太贵了"],
+    "content": "我理解你会关注价格。这个价格主要包含品质筛选、养护支持和售后保障。",
+    "priority": 90
+  }'
+```
+
+### 搜索模板
+
+`POST /api/v1/templates/search`
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/templates/search \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "有点贵，我再考虑一下",
+    "intent": "price_objection",
+    "stage": "objection_handling",
+    "customer_tags": ["price_sensitive"],
+    "top_k": 5
+  }'
+```
+
+### 创建意图样本
+
+`POST /api/v1/intent-examples`
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/intent-examples \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "example_id": "ex_price_001",
+    "text": "有点贵，我再考虑一下",
+    "route": "template_reply",
+    "primary_intent": "price_objection",
+    "secondary_intents": ["hesitation"],
+    "sales_stage": "objection_handling"
+  }'
+```
+
+### 调试意图识别
+
+`POST /api/v1/debug/intent`
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/debug/intent \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_001",
+    "message": "这个有点贵，而且我怕养不活",
+    "session_id": "sess_xxx",
+    "kb_id": "kb_default"
+  }'
+```
+
+## 用户状态接口
+
+`GET /api/v1/users/{user_id}/state`
+
+```bash
+curl -X GET http://127.0.0.1:8000/api/v1/users/user_001/state \
+  -H "Authorization: Bearer change_me"
+```
+
+`PATCH /api/v1/users/{user_id}/state`
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/v1/users/user_001/state \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sales_stage": "objection_handling",
+    "customer_tags": ["price_sensitive"],
+    "risk_level": "normal"
+  }'
 ```
 
 ## 文档入库
@@ -162,7 +285,7 @@ GET /wechat/callback?signature=...&timestamp=...&nonce=...&echostr=...
 
 服务按微信规则进行 SHA-1 校验，成功返回 `echostr`，失败返回 HTTP 403。
 
-微信文本消息通过带有 `signature`、`timestamp`、`nonce` 查询参数的 `POST /wechat/callback` 进入系统，POST 同样会先校验签名。路由只负责 XML 解析、消息去重、调用 `rag_chat` 和构造 XML 回复；非文本消息回复“当前仅支持文本问题。”。首版去重缓存在单进程内存中，多实例部署应替换为 Redis。
+微信文本消息通过带有 `signature`、`timestamp`、`nonce` 查询参数的 `POST /wechat/callback` 进入系统，POST 同样会先校验签名。路由只负责 XML 解析、消息去重、构造 `ChatRequest`、调用 `handle_chat` 和构造 XML 回复；非文本消息回复“当前仅支持文本问题。”。首版去重缓存在单进程内存中，多实例部署应替换为 Redis。
 
 ## 云服务配置
 

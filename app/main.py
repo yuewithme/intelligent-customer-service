@@ -4,7 +4,15 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
-from app.routers import chat, knowledge, wechat
+from app.routers import (
+    chat,
+    debug,
+    intent_examples,
+    knowledge,
+    state,
+    templates,
+    wechat,
+)
 from app.schemas.common import AppError, ErrorCode
 from app.utils.logger import configure_logging
 
@@ -13,6 +21,10 @@ configure_logging()
 app = FastAPI(title=get_settings().app_name)
 app.include_router(chat.router)
 app.include_router(knowledge.router)
+app.include_router(templates.router)
+app.include_router(intent_examples.router)
+app.include_router(state.router)
+app.include_router(debug.router)
 app.include_router(wechat.router)
 
 

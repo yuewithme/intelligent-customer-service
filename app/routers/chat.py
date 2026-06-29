@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.schemas.chat import APIResponse, ChatData, ChatRequest
-from app.services.rag_service import rag_chat
+from app.services.chat_orchestrator import handle_chat
 from app.utils.auth import require_api_key
 
 
@@ -14,7 +14,10 @@ router = APIRouter(prefix="/api/v1", tags=["chat"])
     dependencies=[Depends(require_api_key)],
 )
 async def chat(request: ChatRequest) -> APIResponse:
-    result = await rag_chat(**request.model_dump())
+    result = await handle_chat(request)
     data = ChatData.model_validate(result)
-    return APIResponse(code=0, message="success", data=data.model_dump())
-
+    return APIResponse(
+        code=0,
+        message="success",
+        data=data.model_dump(exclude_none=False),
+    )

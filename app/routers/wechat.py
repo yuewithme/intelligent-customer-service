@@ -2,7 +2,8 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import PlainTextResponse, Response
 
 from app.config import get_settings
-from app.services.rag_service import rag_chat
+from app.schemas.chat import ChatRequest
+from app.services.chat_orchestrator import handle_chat
 from app.services.wechat_service import (
     build_text_reply,
     message_deduplicator,
@@ -53,17 +54,18 @@ async def receive_wechat(
     if message.get("MsgType") != "text":
         answer = "当前仅支持文本问题。"
     else:
-        result = await rag_chat(
+        chat_request = ChatRequest(
+            channel="wechat",
             user_id=to_user,
+            session_id=None,
             message=message.get("Content", ""),
             kb_id=get_settings().wechat_default_kb_id,
-            session_id=None,
-            channel="wechat",
             metadata={
                 "wechat_to_user": from_user,
                 "wechat_msg_id": message_id,
             },
         )
+        result = await handle_chat(chat_request)
         answer = result["answer"]
 
     reply = build_text_reply(to_user, from_user, answer)

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     qdrant_url: str = ""
     qdrant_api_key: str = ""
     qdrant_collection: str = "knowledge_chunks"
+    qdrant_knowledge_collection: str = "knowledge_chunks"
+    qdrant_template_collection: str = "reply_templates"
+    qdrant_intent_collection: str = "intent_examples"
     qdrant_vector_size: int = 1024
     qdrant_distance: str = "COSINE"
     qdrant_trust_env: bool = True
@@ -33,9 +36,15 @@ class Settings(BaseSettings):
 
     llm_provider: str = "mock"
     llm_model: str = "deepseek-chat"
+    intent_llm_provider: str = "mock"
+    intent_llm_model: str = "qwen-plus"
+    intent_confidence_threshold: float = Field(default=0.6, ge=0, le=1)
+    intent_example_top_k: int = Field(default=5, ge=1)
     deepseek_api_key: str = ""
     openai_api_key: str = ""
     dashscope_api_key: str = ""
+    volcengine_api_key: str = ""
+    ark_api_key: str = ""
 
     embedding_provider: str = "mock"
     embedding_model: str = "BAAI/bge-m3"
@@ -45,6 +54,11 @@ class Settings(BaseSettings):
 
     rag_top_k: int = Field(default=20, ge=1)
     rag_top_n: int = Field(default=5, ge=1)
+    template_top_k: int = Field(default=5, ge=1)
+    template_min_score: float = Field(default=0.5, ge=0, le=1)
+    state_provider: str = "memory"
+    rule_guard_enabled: bool = True
+    debug_api_enabled: bool = True
     chunk_size: int = Field(default=600, ge=1)
     chunk_overlap: int = Field(default=100, ge=0)
     chunk_strategy: Literal["fixed", "adaptive"] = "fixed"

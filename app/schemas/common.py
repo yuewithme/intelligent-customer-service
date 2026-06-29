@@ -17,6 +17,16 @@ class ErrorCode(IntEnum):
     EMBEDDING_FAILED = 50002
     LLM_FAILED = 50003
     DOCUMENT_PARSE_FAILED = 50004
+    INTENT_FAILED = 41000
+    INTENT_LOW_CONFIDENCE = 41001
+    INTENT_SCHEMA_INVALID = 41002
+    TEMPLATE_NOT_FOUND = 42000
+    TEMPLATE_RENDER_FAILED = 42001
+    TEMPLATE_INDEX_FAILED = 42002
+    POLICY_DENIED = 43000
+    POLICY_ROUTE_INVALID = 43001
+    STATE_FAILED = 44000
+    REPLY_BUILD_FAILED = 45000
     WECHAT_CALLBACK_FAILED = 60000
     WECHAT_SIGNATURE_FAILED = 60001
     WECHAT_MESSAGE_PARSE_FAILED = 60002
@@ -38,6 +48,16 @@ ERROR_MESSAGES = {
     ErrorCode.EMBEDDING_FAILED: "Embedding 失败",
     ErrorCode.LLM_FAILED: "大模型调用失败",
     ErrorCode.DOCUMENT_PARSE_FAILED: "文档解析失败",
+    ErrorCode.INTENT_FAILED: "意图识别失败",
+    ErrorCode.INTENT_LOW_CONFIDENCE: "意图置信度过低",
+    ErrorCode.INTENT_SCHEMA_INVALID: "意图识别返回结构错误",
+    ErrorCode.TEMPLATE_NOT_FOUND: "未找到合适模板",
+    ErrorCode.TEMPLATE_RENDER_FAILED: "模板渲染失败",
+    ErrorCode.TEMPLATE_INDEX_FAILED: "模板入库失败",
+    ErrorCode.POLICY_DENIED: "策略拒绝执行",
+    ErrorCode.POLICY_ROUTE_INVALID: "路由结果非法",
+    ErrorCode.STATE_FAILED: "用户状态读写失败",
+    ErrorCode.REPLY_BUILD_FAILED: "回复组装失败",
     ErrorCode.WECHAT_CALLBACK_FAILED: "微信回调错误",
     ErrorCode.WECHAT_SIGNATURE_FAILED: "微信签名验证失败",
     ErrorCode.WECHAT_MESSAGE_PARSE_FAILED: "微信消息解析失败",
@@ -59,4 +79,3 @@ class AppError(Exception):
         self.status_code = status_code
         self.data = data
         super().__init__(self.message)
-

@@ -103,3 +103,52 @@ async def test_mock_llm_returns_knowledge_text_not_source_heading():
     )
 
     assert result["answer"] == "报销需要主管审批。"
+
+
+@pytest.mark.asyncio
+async def test_volcengine_llm_uses_ark_openai_compatible_endpoint(monkeypatch):
+    from app.config import get_settings
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": "火山方舟回答"}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 2},
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setenv("LLM_PROVIDER", "volcengine")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
+    monkeypatch.setenv("VOLCENGINE_API_KEY", "ark_test_key")
+    get_settings.cache_clear()
+    monkeypatch.setattr(llm_service.httpx, "AsyncClient", FakeClient)
+
+    try:
+        result = await llm_service.generate_answer("测试 prompt")
+    finally:
+        get_settings.cache_clear()
+
+    assert captured["url"] == "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer ark_test_key"
+    assert captured["json"]["model"] == "deepseek-chat"
+    assert result["answer"] == "火山方舟回答"
