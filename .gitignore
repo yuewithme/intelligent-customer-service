@@ -4,5 +4,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 rag.db
+chat_logs.db
 data/uploads/*
 !data/uploads/.gitkeep

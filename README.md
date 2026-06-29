@@ -329,6 +329,124 @@ EMBEDDING_BASE_URL=https://api.openai.com/v1
 QDRANT_VECTOR_SIZE=1536
 ```
 
+## 日志与质检接口
+
+日志系统用于记录每一轮客服 AI 对话的完整处理链路，方便排查意图识别、路由、模板、RAG、最终回复、耗时和异常。日志查询接口都位于 `/api/v1/admin/...` 下，并复用 Bearer API Key 鉴权。
+
+每条日志包含 `trace_id`、`channel`、`user_id`、`session_id`、`kb_id`、`tenant_id`、`permission`、`user_message`、`answer`、`route`、`reply_type`、`primary_intent`、`secondary_intents`、`sales_stage`、`confidence`、`template_id`、`template_score`、`next_action`、`sources`、`need_human`、`policy_reason`、`intent_reason`、`usage`、`latency_ms`、`stage_latencies`、`status`、`error_code`、`error_message` 和 `created_at`。`metadata` 会过滤 `token`、`password`、`api_key`、`secret`、`authorization` 等敏感字段。
+
+### 查询日志列表
+
+```bash
+curl -H "Authorization: Bearer change_me" \
+  "http://localhost:8000/api/v1/admin/chat-logs?page=1&page_size=50&route=template_reply"
+```
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "trace_id": "request_xxx",
+        "channel": "api",
+        "user_id": "user_001",
+        "session_id": "session_xxx",
+        "user_message": "这个有点贵",
+        "answer": "理解的，第一次入手确实会考虑价格。",
+        "route": "template_reply",
+        "reply_type": "template",
+        "primary_intent": "price_objection",
+        "secondary_intents": ["hesitation"],
+        "sales_stage": "objection_handling",
+        "confidence": 0.88,
+        "template_id": "tpl_price_objection_001",
+        "need_human": false,
+        "sources": [],
+        "usage": {},
+        "latency_ms": 1230,
+        "status": "success",
+        "created_at": "2026-06-29T10:20:00+08:00"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "page_size": 50
+  }
+}
+```
+
+支持按 `user_id`、`session_id`、`route`、`primary_intent`、`template_id`、`status`、`need_human`、`keyword`、`start_time`、`end_time` 过滤。`keyword` 会同时匹配 `user_message` 和 `answer`。
+
+### 查询日志详情
+
+```bash
+curl -H "Authorization: Bearer change_me" \
+  "http://localhost:8000/api/v1/admin/chat-logs/request_xxx"
+```
+
+详情会额外返回 `template_score`、`policy_reason`、`intent_reason`、`stage_latencies` 和过滤后的 `metadata`。如果 `trace_id` 不存在，响应：
+
+```json
+{
+  "code": 40000,
+  "message": "日志不存在",
+  "data": null
+}
+```
+
+### 查询日志统计
+
+```bash
+curl -H "Authorization: Bearer change_me" \
+  "http://localhost:8000/api/v1/admin/chat-log-stats"
+```
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "total": 100,
+    "success_count": 96,
+    "failed_count": 4,
+    "avg_latency_ms": 1180.5,
+    "route_counts": {"template_reply": 60, "rag_answer": 20},
+    "intent_counts": {"price_objection": 30, "ask_price": 20},
+    "template_counts": {"tpl_price_objection_001": 18},
+    "human_count": 5,
+    "rag_count": 20,
+    "template_count": 60
+  }
+}
+```
+
+排查建议：
+
+- 意图识别错误：查看 `primary_intent`、`secondary_intents`、`confidence`、`intent_reason`。
+- route 错误：查看 `route`、`policy_reason` 和 `stage_latencies.policy_ms`。
+- 模板未命中：查看 `template_id` 是否为空，以及 `reply_type` 是否降级为 `unsupported` 或 `clarify`。
+- RAG 无 sources：查看 `route` 是否为 `rag_answer` 或 `template_then_rag`，再检查 `sources` 和 Qdrant 配置。
+- 延迟过高：先看 `latency_ms`，再根据 `stage_latencies` 定位到 intent、template、rag、reply_build 或 state_update 阶段。
+
+配置项：
+
+```dotenv
+CHAT_LOG_ENABLED=true
+CHAT_LOG_PROVIDER=sqlite
+CHAT_LOG_DB_URL=sqlite:///./chat_logs.db
+CHAT_LOG_RETENTION_DAYS=30
+CHAT_LOG_MAX_MESSAGE_LENGTH=2000
+CHAT_LOG_MAX_ANSWER_LENGTH=4000
+```
+
+当 `CHAT_LOG_ENABLED=false` 时，聊天主流程正常返回，日志不写入；admin 查询接口仍存在并返回空数据。
+
 ## 测试
 
 ```bash

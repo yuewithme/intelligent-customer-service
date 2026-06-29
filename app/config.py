@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     upload_dir: str = "data/uploads"
 
+    chat_log_enabled: bool = True
+    chat_log_provider: str = "sqlite"
+    chat_log_db_url: str = "sqlite:///./chat_logs.db"
+    chat_log_retention_days: int = Field(default=30, ge=1)
+    chat_log_max_message_length: int = Field(default=2000, ge=1)
+    chat_log_max_answer_length: int = Field(default=4000, ge=1)
+
 
 @lru_cache
 def get_settings() -> Settings:

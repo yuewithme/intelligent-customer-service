@@ -5,6 +5,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
 from app.routers import (
+    admin_logs,
     chat,
     debug,
     intent_examples,
@@ -25,6 +26,7 @@ app.include_router(templates.router)
 app.include_router(intent_examples.router)
 app.include_router(state.router)
 app.include_router(debug.router)
+app.include_router(admin_logs.router)
 app.include_router(wechat.router)
 
 
