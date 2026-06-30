@@ -63,6 +63,7 @@ class Settings(BaseSettings):
 
     rag_top_k: int = Field(default=20, ge=1)
     rag_top_n: int = Field(default=5, ge=1)
+    rag_knowledge_enabled: bool = False
     template_top_k: int = Field(default=5, ge=1)
     template_min_score: float = Field(default=0.5, ge=0, le=1)
     state_provider: str = "memory"

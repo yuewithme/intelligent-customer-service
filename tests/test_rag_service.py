@@ -6,6 +6,8 @@ from app.services import llm_service, rag_service
 
 @pytest.mark.asyncio
 async def test_rag_chat_orchestrates_services(monkeypatch):
+    from app.config import get_settings
+
     calls = []
 
     async def fake_embed(text):
@@ -40,13 +42,18 @@ async def test_rag_chat_orchestrates_services(monkeypatch):
     monkeypatch.setattr(rag_service.qdrant_service, "search_chunks", fake_search)
     monkeypatch.setattr(rag_service.rerank_service, "rerank", fake_rerank)
     monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
+    monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
+    get_settings.cache_clear()
 
-    result = await rag_service.rag_chat(
-        user_id="user_001",
-        message="如何报销？",
-        kb_id="kb_default",
-        metadata={"tenant_id": "tenant_default", "permission": "public"},
-    )
+    try:
+        result = await rag_service.rag_chat(
+            user_id="user_001",
+            message="如何报销？",
+            kb_id="kb_default",
+            metadata={"tenant_id": "tenant_default", "permission": "public"},
+        )
+    finally:
+        get_settings.cache_clear()
 
     assert result["answer"] == "报销需要主管审批。"
     assert result["session_id"].startswith("sess_")
@@ -65,6 +72,40 @@ async def test_rag_chat_orchestrates_services(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_rag_chat_skips_knowledge_retrieval_by_default(monkeypatch):
+    from app.config import get_settings
+
+    async def fail_embed(text):
+        del text
+        raise AssertionError("default RAG fallback should not query local knowledge")
+
+    async def fake_generate(prompt):
+        assert "【知识库资料】" not in prompt
+        assert "私域销售首单推进_AI客服知识库.md" not in prompt
+        return {
+            "answer": "可以先放在通风散光的位置观察，结合根系和植料干湿情况再决定是否浇水。",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 8},
+        }
+
+    monkeypatch.delenv("RAG_KNOWLEDGE_ENABLED", raising=False)
+    get_settings.cache_clear()
+    monkeypatch.setattr(rag_service.embedding_service, "embed_text", fail_embed)
+    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
+
+    try:
+        result = await rag_service.rag_chat(
+            "user_001",
+            "修根后要干一些再浇吗？",
+            "kb_default",
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result["answer"] == "可以先放在通风散光的位置观察，结合根系和植料干湿情况再决定是否浇水。"
+    assert result["sources"] == []
+
+
+@pytest.mark.asyncio
 async def test_rag_chat_rejects_empty_message():
     with pytest.raises(AppError) as exc:
         await rag_service.rag_chat("user_001", "  ", "kb_default")
@@ -74,6 +115,8 @@ async def test_rag_chat_rejects_empty_message():
 
 @pytest.mark.asyncio
 async def test_rag_chat_returns_grounded_fallback_without_llm(monkeypatch):
+    from app.config import get_settings
+
     async def fake_embed(text):
         return [0.1]
 
@@ -86,8 +129,13 @@ async def test_rag_chat_returns_grounded_fallback_without_llm(monkeypatch):
     monkeypatch.setattr(rag_service.embedding_service, "embed_text", fake_embed)
     monkeypatch.setattr(rag_service.qdrant_service, "search_chunks", fake_search)
     monkeypatch.setattr(rag_service.llm_service, "generate_answer", fail_generate)
+    monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
+    get_settings.cache_clear()
 
-    result = await rag_service.rag_chat("user_001", "未知问题", "kb_default")
+    try:
+        result = await rag_service.rag_chat("user_001", "未知问题", "kb_default")
+    finally:
+        get_settings.cache_clear()
 
     assert result["answer"] == "知识库中没有找到明确答案。"
     assert result["sources"] == []
@@ -119,6 +167,7 @@ def test_rag_prompt_discourages_metadata_and_truncated_chunks():
     assert "能综合回答时，不要说“知识库中没有找到明确答案”" in prompt
     assert "不要说“无直接对应明确推荐回复来源”" in prompt
     assert "回答正文不要出现“知识库”“资料”“来源”“推荐回复”" in prompt
+    assert "不要在回答正文或结尾写“来源”" in prompt
 
 
 @pytest.mark.asyncio

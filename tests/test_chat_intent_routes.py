@@ -20,17 +20,12 @@ def _chat(message: str, user_id: str = "intent_route_user") -> dict:
     return payload["data"]
 
 
-def test_rag_no_answer_routes_to_human_with_metadata():
-    data = _chat("报销流程是什么？", "intent_route_rag_empty")
+def test_rag_no_answer_detection_keeps_llm_fallback_without_sources():
+    from app.services.chat_orchestrator import _is_rag_no_answer
 
-    assert data["answer"] == ""
-    assert data["route"] == "human"
-    assert data["need_human"] is True
-    assert data["next_action"] == "human_handoff"
-    assert data["metadata"]["handoff"]["ticket_id"].startswith("handoff_")
-    assert data["metadata"]["handoff"]["reason"] == "rag_no_answer_to_handoff"
-    assert data["metadata"]["original_route"] == "rag_answer"
-    assert {"answer", "session_id", "sources", "usage"} <= set(data)
+    assert _is_rag_no_answer({"answer": "可以先放在通风散光处观察。", "sources": []}) is False
+    assert _is_rag_no_answer({"answer": "", "sources": []}) is True
+    assert _is_rag_no_answer({"answer": "知识库中没有找到明确答案。", "sources": []}) is True
 
 
 def test_unclear_input_routes_to_human_with_original_route():

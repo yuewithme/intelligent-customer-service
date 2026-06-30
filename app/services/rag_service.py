@@ -28,7 +28,7 @@ PROMPT_TEMPLATE = """你是兰花私域客服的知识库问答助手。
 
 【回答要求】
 1. 回答清楚、直接，语气像真实客服：先回应用户关切，再给建议，避免生硬说教。
-2. 如果有来源，结尾列出来源文件和页码。
+2. 不要在回答正文或结尾写“来源”，不要列出来源文件、页码或资料标题。
 3. 不要输出与问题无关的内容。
 4. 不要编造知识库中不存在的信息。
 5. 优先使用每个资料块中的【推荐回复】或“推荐回复”字段内容。
@@ -37,7 +37,23 @@ PROMPT_TEMPLATE = """你是兰花私域客服的知识库问答助手。
 8. 如果多个资料块冲突，优先选择与用户问题最直接相关、内容完整、非销售推进话术的资料。
 9. 综合生成时要说明边界条件，例如需结合根系状态、植料干湿、通风、光照、季节或现场情况判断；不确定的地方用“建议再确认”表达。
 10. 能综合回答时，不要说“知识库中没有找到明确答案”，不要说“无直接对应明确推荐回复来源”，也不要把“资料是否明确”“暂按综合回应”这类系统判断直接告诉用户；只输出客服可直接发送的话。
-11. 回答正文不要出现“知识库”“资料”“来源”“推荐回复”这类内部说明词；来源信息只允许按第 2 条在结尾简短列出文件名。
+11. 回答正文不要出现“知识库”“资料”“来源”“推荐回复”这类内部说明词。
+"""
+
+
+LLM_FALLBACK_PROMPT_TEMPLATE = """我先按通用养护原则给你一个参考。
+
+你是兰花私域客服助手。当前不要调用本地知识库，也不要写来源。
+请直接回答用户问题，语气自然、温和，像客服在微信里回复客户。
+
+要求：
+1. 可以基于通用兰花养护原则给建议，但不要编造具体商品、库存、价格、订单、赔付或药剂疗效。
+2. 涉及图片判断、病害严重程度、药剂搭配、售后赔付、订单物流等关键信息不足时，要温和说明需要进一步确认或转人工。
+3. 不要在回答正文或结尾写“来源”，不要提“知识库”“资料”“推荐回复”。
+4. 回答要简洁可执行，尽量说明边界条件，例如根系状态、植料干湿、通风、光照、季节或现场情况。
+
+用户问题：
+{question}
 """
 
 
@@ -83,6 +99,19 @@ async def rag_chat(
 
     try:
         settings = get_settings()
+        if not settings.rag_knowledge_enabled:
+            result = await llm_service.generate_answer(
+                LLM_FALLBACK_PROMPT_TEMPLATE.format(question=message.strip())
+            )
+            answer = result["answer"]
+            usage = result.get("usage", {})
+            return {
+                "answer": answer,
+                "sources": sources,
+                "session_id": active_session_id,
+                "usage": usage,
+            }
+
         vector = await embedding_service.embed_text(message.strip())
         candidates = await qdrant_service.search_chunks(
             vector,

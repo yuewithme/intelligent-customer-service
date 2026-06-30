@@ -1354,6 +1354,7 @@ class APIResponse(BaseModel):
 | `EMBEDDING_BATCH_SIZE` | `16` | Embedding 批大小 |
 | `RAG_TOP_K` | `20` | Qdrant 召回数量 |
 | `RAG_TOP_N` | `5` | rerank 后保留数量 |
+| `RAG_KNOWLEDGE_ENABLED` | `false` | 是否启用本地/向量知识库检索；默认关闭，RAG 直接走无来源的 LLM 客服兜底 |
 | `TEMPLATE_TOP_K` | `5` | 模板召回数量 |
 | `TEMPLATE_MIN_SCORE` | `0.5` | 模板最低分 |
 | `STATE_PROVIDER` | `memory` | 状态存储 provider |

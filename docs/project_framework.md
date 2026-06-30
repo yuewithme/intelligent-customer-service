@@ -426,6 +426,7 @@ erDiagram
 | `LLM_PROVIDER`、`LLM_MODEL` | 默认 LLM |
 | `RAG_LLM_PROVIDER`、`INTENT_LLM_PROVIDER`、`TALK_SCRIPT_LLM_PROVIDER` | 不同用途专用模型 |
 | `RAG_TOP_K`、`RAG_TOP_N` | RAG 检索和重排数量 |
+| `RAG_KNOWLEDGE_ENABLED` | 是否启用本地/向量知识库检索；默认关闭，RAG 走无来源 LLM 客服兜底 |
 | `CHUNK_SIZE`、`CHUNK_OVERLAP`、`CHUNK_STRATEGY` | 文档分块策略 |
 | `DATABASE_URL` | 用户画像、记忆、话术库等关系数据 |
 | `CHAT_LOG_ENABLED`、`CHAT_LOG_DB_URL` | 聊天日志存储 |
@@ -469,4 +470,3 @@ INTENT_LLM_PROVIDER=mock
 | 改微信接入 | `app/routers/wechat.py`、`app/services/wechat_service.py` |
 | 改用户画像 | `app/services/user_profile_service.py`、`app/db/models.py` |
 | 改日志和质检 | `app/services/chat_log_service.py`、`app/routers/admin_logs.py` |
-

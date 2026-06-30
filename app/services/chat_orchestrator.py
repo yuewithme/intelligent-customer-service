@@ -335,7 +335,6 @@ def _is_rag_no_answer(rag_result: dict) -> bool:
     answer = (rag_result.get("answer") or "").strip()
     return (
         not answer
-        or not rag_result.get("sources")
         or answer == "知识库中没有找到明确答案。"
     )
 

@@ -41,12 +41,7 @@ def test_clarify_route_triggers_handoff_without_reply():
     assert data["handoff"]["reason"] == "clarify"
 
 
-def test_rag_without_sources_triggers_handoff_without_reply():
-    data = _chat("兰花怎么养护？")
+def test_rag_answer_without_sources_is_not_handoff_by_itself():
+    from app.services.chat_orchestrator import _is_rag_no_answer
 
-    assert data["answer"] == ""
-    assert data["route"] == "human"
-    assert data["reply_type"] == "human"
-    assert data["need_human"] is True
-    assert data["next_action"] == "human_handoff"
-    assert data["handoff"]["reason"] == "rag_no_answer"
+    assert _is_rag_no_answer({"answer": "可以先放在通风散光处观察。", "sources": []}) is False
