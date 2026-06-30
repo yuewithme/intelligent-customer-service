@@ -549,7 +549,8 @@ handle_chat
          模板缺失或 RAG 无答案: build_handoff_reply(...)
        human: build_handoff_reply(...)
        chitchat: 固定寒暄回复
-       unsupported / clarify: 当前 MVP 由 policy 转为 human，不在回复层生成普通话术
+       clarify: policy 转为 rag_answer，由 LLM/RAG 兜底追问或给原则性建议
+       unsupported: 返回不支持回复，不默认转人工
   -> update_user_state
   -> append_conversation_memory(role="user")
   -> append_conversation_memory(role="assistant")  # answer 非空时
@@ -625,8 +626,8 @@ async def classify_intent(message, user_state, candidates=None) -> IntentResult
 | `rag_answer` | 知识、流程、方法、资料、说明类问题 | 先固定话术库，再 RAG |
 | `template_then_rag` | 销售顾虑 + 知识担忧 | 模板和 RAG 都可用时组合回复 |
 | `chitchat` | 你好、在吗、谢谢 | 固定寒暄回复 |
-| `clarify` | 表达不清或规则低置信 | MVP 阶段转人工 |
-| `unsupported` | 明显不支持或业务外 | MVP 阶段转人工 |
+| `clarify` | 表达不清或规则低置信 | 进入 RAG/LLM 兜底 |
+| `unsupported` | 明显不支持或业务外 | 返回不支持回复 |
 
 优先级：
 
@@ -662,11 +663,11 @@ refund_request, complaint, human_request, unsupported, unknown
 
 所有意图结果都会经 `IntentResult.model_validate(...)` 校验，失败抛 `INTENT_SCHEMA_INVALID`。
 
-### 5.2 Policy Engine MVP 兜底策略
+### 5.2 Policy Engine 兜底策略
 
 文件：`wechat_rag_bot/app/services/policy_service.py`
 
-当前 MVP 原则：先保证不乱答。只要系统不能确定性自动处理，就统一转人工。
+当前原则：明确高风险或用户明确要求人工时转人工；低风险信息不足、低置信知识类问题优先进入 LLM/RAG 兜底，避免过早人工兜底。
 
 裁决规则：
 
@@ -674,9 +675,9 @@ refund_request, complaint, human_request, unsupported, unknown
 need_human=true -> human
 primary_intent in complaint/refund_request/human_request -> human
 intent.route == human -> human
-intent.route == clarify -> human, reason=clarify_to_handoff
-intent.route == unsupported -> human, reason=unsupported_to_handoff
-confidence < INTENT_CONFIDENCE_THRESHOLD -> human, reason=low_confidence_to_handoff
+intent.route == clarify -> rag_answer, reason=clarify_to_llm_fallback
+intent.route == unsupported -> unsupported, reason=unsupported_intent
+confidence < INTENT_CONFIDENCE_THRESHOLD 且为知识/养护/clarify 类 -> rag_answer, reason=low_confidence_llm_fallback
 knowledge/care/process/usage -> rag_answer
 price/logistics/order/payment/after_sale -> template_reply
 price_objection + care_question/knowledge_question -> template_then_rag
@@ -689,7 +690,7 @@ chitchat -> chitchat
 route, allowed, reason, fallback_route, original_route, next_action
 ```
 
-当 policy 把 `clarify`、`unsupported` 或低置信意图裁决为 `human` 时，`original_route` 会保留原始 route，`next_action="human_handoff"`，供回复、日志和画像追踪。
+当 policy 把 `clarify` 或低置信知识类意图裁决为 `rag_answer` 时，`original_route` 会保留原始 route，供回复、日志和画像追踪。只有明确人工、退款、投诉等高风险场景会设置 `next_action="human_handoff"`。
 
 ### 5.3 转人工统一行为
 
@@ -712,9 +713,6 @@ metadata.original_route = 原始 route
 | 场景 | reason | original_route |
 | --- | --- | --- |
 | 明确人工/退款/投诉 | `human_required` 或规则原因 | `human` |
-| 表达不清 | `clarify_to_handoff` | `clarify` |
-| 明显不支持 | `unsupported_to_handoff` | `unsupported` |
-| 低置信 | `low_confidence_to_handoff` | 原始 route |
 | RAG 无 sources、空 answer 或默认无答案文案 | `rag_no_answer_to_handoff` | `rag_answer` 或 `template_then_rag` |
 | 模板未命中 | `template_not_found_to_handoff` | `template_reply` 或 `template_then_rag` |
 | 固定话术库要求人工 | 话术库返回原因或 `talk_script_to_handoff` | 原始 route |

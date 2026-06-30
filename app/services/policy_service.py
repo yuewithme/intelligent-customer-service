@@ -43,13 +43,34 @@ async def decide_route(
     if intent.route == "human":
         return _handoff_decision("human_required", "human")
     if intent.route == "clarify":
-        return _handoff_decision("clarify_to_handoff", "clarify")
+        return PolicyDecision(
+            route="rag_answer",
+            reason="clarify_to_llm_fallback",
+            fallback_route="clarify",
+            original_route="clarify",
+        )
     if intent.route == "unsupported":
-        return _handoff_decision("unsupported_to_handoff", "unsupported")
+        return PolicyDecision(
+            route="unsupported",
+            reason="unsupported_intent",
+            original_route="unsupported",
+        )
     if intent.confidence < get_settings().intent_confidence_threshold:
-        return _handoff_decision(
-            "low_confidence_to_handoff",
-            intent.route or "clarify",
+        if intent.primary_intent in KNOWLEDGE_INTENTS or intent.route in {
+            "rag_answer",
+            "template_then_rag",
+            "clarify",
+        }:
+            return PolicyDecision(
+                route="rag_answer",
+                reason="low_confidence_llm_fallback",
+                fallback_route=intent.route or "clarify",
+                original_route=intent.route or "clarify",
+            )
+        return PolicyDecision(
+            route=intent.route if intent.route in VALID_ROUTES else "rag_answer",
+            reason="low_confidence_intent_route",
+            original_route=intent.route,
         )
     if (
         intent.primary_intent in {"price_objection", "hesitation"}

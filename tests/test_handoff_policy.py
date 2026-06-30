@@ -18,7 +18,7 @@ def _message() -> NormalizedMessage:
 
 
 @pytest.mark.asyncio
-async def test_clarify_intent_is_routed_to_human_for_mvp():
+async def test_clarify_intent_uses_rag_fallback_instead_of_handoff():
     intent = IntentResult(
         route="clarify",
         primary_intent="unknown",
@@ -28,15 +28,14 @@ async def test_clarify_intent_is_routed_to_human_for_mvp():
 
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
-    assert decision.route == "human"
-    assert decision.reason == "clarify_to_handoff"
-    assert decision.fallback_route == "clarify"
+    assert decision.route == "rag_answer"
+    assert decision.reason == "clarify_to_llm_fallback"
     assert decision.original_route == "clarify"
-    assert decision.next_action == "human_handoff"
+    assert decision.next_action is None
 
 
 @pytest.mark.asyncio
-async def test_unsupported_intent_is_routed_to_human_for_mvp():
+async def test_unsupported_intent_stays_unsupported_without_handoff():
     intent = IntentResult(
         route="unsupported",
         primary_intent="unsupported",
@@ -46,13 +45,13 @@ async def test_unsupported_intent_is_routed_to_human_for_mvp():
 
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
-    assert decision.route == "human"
-    assert decision.reason == "unsupported_to_handoff"
-    assert decision.fallback_route == "unsupported"
+    assert decision.route == "unsupported"
+    assert decision.reason == "unsupported_intent"
+    assert decision.next_action is None
 
 
 @pytest.mark.asyncio
-async def test_low_confidence_intent_is_routed_to_human_for_mvp():
+async def test_low_confidence_knowledge_intent_uses_rag_fallback():
     intent = IntentResult(
         route="rag_answer",
         primary_intent="knowledge_question",
@@ -63,6 +62,23 @@ async def test_low_confidence_intent_is_routed_to_human_for_mvp():
 
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
+    assert decision.route == "rag_answer"
+    assert decision.reason == "low_confidence_llm_fallback"
+    assert decision.original_route == "rag_answer"
+
+
+@pytest.mark.asyncio
+async def test_explicit_human_intent_still_routes_to_handoff():
+    intent = IntentResult(
+        route="human",
+        primary_intent="refund_request",
+        confidence=0.98,
+        need_human=True,
+        reason="rule_refund",
+    )
+
+    decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
+
     assert decision.route == "human"
-    assert decision.reason == "low_confidence_to_handoff"
-    assert decision.fallback_route == "rag_answer"
+    assert decision.reason == "human_required"
+    assert decision.next_action == "human_handoff"
