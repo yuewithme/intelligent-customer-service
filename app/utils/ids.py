@@ -10,6 +10,7 @@ PREFIXES = {
     "tenant": "tenant",
     "message": "msg",
     "request": "req",
+    "handoff": "handoff",
 }
 
 

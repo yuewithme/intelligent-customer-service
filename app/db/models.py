@@ -56,6 +56,61 @@ class ChatLogModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class UserProfileModel(Base):
+    __tablename__ = "user_profiles"
+
+    user_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    channel: Mapped[str] = mapped_column(String(64), default="api")
+    current_stage: Mapped[str] = mapped_column(String(128), default="unknown")
+    risk_level: Mapped[str] = mapped_column(String(64), default="normal")
+    is_human_handoff: Mapped[bool] = mapped_column(Boolean, default=False)
+    human_ticket_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    human_handoff_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    human_handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    customer_tags_json: Mapped[str] = mapped_column(Text, default="[]")
+    product_interests_json: Mapped[str] = mapped_column(Text, default="[]")
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preference_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pain_points_json: Mapped[str] = mapped_column(Text, default="[]")
+    last_intent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    last_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    last_template_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ConversationMemoryModel(Base):
+    __tablename__ = "conversation_memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(256), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    session_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    role: Mapped[str] = mapped_column(String(32), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    intent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    route: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    template_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ProfileEventModel(Base):
+    __tablename__ = "profile_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(256), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    event_type: Mapped[str] = mapped_column(String(128), index=True)
+    before_json: Mapped[str] = mapped_column(Text, default="{}")
+    after_json: Mapped[str] = mapped_column(Text, default="{}")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class SceneIndexModel(Base):
     __tablename__ = "scene_index"
 

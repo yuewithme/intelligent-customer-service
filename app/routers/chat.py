@@ -16,8 +16,13 @@ router = APIRouter(prefix="/api/v1", tags=["chat"])
 async def chat(request: ChatRequest) -> APIResponse:
     result = await handle_chat(request)
     data = ChatData.model_validate(result)
+    payload = data.model_dump(exclude_none=False)
+    if "metadata" not in result:
+        payload.pop("metadata", None)
+    if "handoff" not in result:
+        payload.pop("handoff", None)
     return APIResponse(
         code=0,
         message="success",
-        data=data.model_dump(exclude_none=False),
+        data=payload,
     )

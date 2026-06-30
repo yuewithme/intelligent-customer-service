@@ -32,6 +32,8 @@ class ChatData(BaseModel):
     need_human: bool = False
     next_action: str | None = None
     trace_id: str | None = None
+    metadata: dict = Field(default_factory=dict)
+    handoff: dict | None = None
 
 
 class APIResponse(BaseModel):

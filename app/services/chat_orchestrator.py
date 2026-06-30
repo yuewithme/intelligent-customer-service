@@ -13,7 +13,6 @@ from app.services.policy_service import decide_route
 from app.services.reply_builder import (
     build_chitchat_reply,
     build_clarify_reply,
-    build_human_reply,
     build_rag_reply,
     build_template_reply,
     build_template_then_rag_reply,
@@ -22,7 +21,13 @@ from app.services.reply_builder import (
 from app.services.rule_guard_service import check_rules
 from app.services.state_service import get_user_state, update_user_state
 from app.services.template_service import render_template, select_template
+from app.services.user_profile_service import (
+    append_conversation_memory,
+    update_profile_after_chat,
+)
 from app.talk_script.service import match_talk_script
+from app.talk_script.human_handoff_service import request_human_handoff
+from app.utils.ids import generate_id
 from app.utils.logger import log_event
 
 
@@ -69,8 +74,17 @@ async def handle_chat(request: ChatRequest) -> dict:
         decision = await decide_route(intent, user_state, message)
         stage_latencies["policy_ms"] = _elapsed_ms(stage_started)
 
-        route = decision.fallback_route if not decision.allowed else decision.route
-        routed_intent = intent.model_copy(update={"route": route})
+        route = decision.route
+        routed_intent = intent.model_copy(
+            update={
+                "route": route,
+                "reason": decision.reason or intent.reason,
+                "slots": {
+                    **intent.slots,
+                    "original_route": decision.original_route or intent.route,
+                },
+            }
+        )
 
         stage_started = time.perf_counter()
         reply = await _build_reply(route, routed_intent, message, user_state, stage_latencies)
@@ -83,6 +97,30 @@ async def handle_chat(request: ChatRequest) -> dict:
             routed_intent,
             reply,
         )
+        await append_conversation_memory(
+            user_id=message.user_id,
+            tenant_id=message.tenant_id,
+            session_id=message.session_id,
+            role="user",
+            content=message.message,
+            intent=routed_intent.primary_intent,
+            route=reply.route,
+            template_id=reply.template_id,
+            trace_id=message.trace_id,
+        )
+        if reply.answer:
+            await append_conversation_memory(
+                user_id=message.user_id,
+                tenant_id=message.tenant_id,
+                session_id=message.session_id,
+                role="assistant",
+                content=reply.answer,
+                intent=routed_intent.primary_intent,
+                route=reply.route,
+                template_id=reply.template_id,
+                trace_id=message.trace_id,
+            )
+        await update_profile_after_chat(message, routed_intent, reply)
         stage_latencies["state_update_ms"] = _elapsed_ms(stage_started)
 
         result = _to_chat_data(message.session_id, message.trace_id, routed_intent, reply)
@@ -170,13 +208,12 @@ async def _build_reply(
         if talk_script.status == "handoff":
             stage_latencies.setdefault("template_ms", 0)
             stage_latencies.setdefault("rag_ms", 0)
-            return FinalReply(
-                answer="",
-                reply_type="human",
-                route="human",
-                need_human=True,
-                next_action="human_handoff",
-                metadata={"talk_script": talk_script.model_dump()},
+            return await build_handoff_reply(
+                message=message,
+                intent=intent,
+                reason=talk_script.reason or "talk_script_to_handoff",
+                original_route=route,
+                context={"talk_script": talk_script.model_dump()},
             )
     else:
         stage_latencies.setdefault("talk_script_ms", 0)
@@ -186,7 +223,12 @@ async def _build_reply(
         if template is None:
             stage_latencies["template_ms"] = _elapsed_ms(stage_started)
             stage_latencies.setdefault("rag_ms", 0)
-            return build_unsupported_reply(intent)
+            return await build_handoff_reply(
+                message=message,
+                intent=intent,
+                reason="template_not_found_to_handoff",
+                original_route="template_reply",
+            )
         template_reply = await render_template(template, message, user_state)
         stage_latencies["template_ms"] = _elapsed_ms(stage_started)
         stage_latencies.setdefault("rag_ms", 0)
@@ -198,6 +240,13 @@ async def _build_reply(
         rag_result = await answer_knowledge(message, user_state)
         stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
         stage_latencies.setdefault("template_ms", 0)
+        if _is_rag_no_answer(rag_result):
+            return await build_handoff_reply(
+                message=message,
+                intent=intent,
+                reason="rag_no_answer_to_handoff",
+                original_route="rag_answer",
+            )
         return build_rag_reply(rag_result, intent)
     if route == "template_then_rag":
         from app.services.rag_service import answer_knowledge
@@ -206,25 +255,89 @@ async def _build_reply(
         template = await select_template(message, intent, user_state)
         if template is None:
             stage_latencies["template_ms"] = _elapsed_ms(stage_started)
-            stage_started = time.perf_counter()
-            rag_result = await answer_knowledge(message, user_state)
-            stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
-            return build_rag_reply(rag_result, intent)
+            stage_latencies.setdefault("rag_ms", 0)
+            return await build_handoff_reply(
+                message=message,
+                intent=intent,
+                reason="template_not_found_to_handoff",
+                original_route="template_then_rag",
+            )
         template_reply = await render_template(template, message, user_state)
         stage_latencies["template_ms"] = _elapsed_ms(stage_started)
         stage_started = time.perf_counter()
         rag_result = await answer_knowledge(message, user_state)
         stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
+        if _is_rag_no_answer(rag_result):
+            return await build_handoff_reply(
+                message=message,
+                intent=intent,
+                reason="rag_no_answer_to_handoff",
+                original_route="template_then_rag",
+            )
         return build_template_then_rag_reply(template_reply, rag_result, intent)
     stage_latencies.setdefault("template_ms", 0)
     stage_latencies.setdefault("rag_ms", 0)
     if route == "human":
-        return build_human_reply(intent)
+        return await build_handoff_reply(
+            message=message,
+            intent=intent,
+            reason=intent.reason or "human_required",
+            original_route=intent.slots.get("original_route") or intent.route,
+        )
     if route == "chitchat":
         return build_chitchat_reply(intent)
     if route == "unsupported":
         return build_unsupported_reply(intent)
     return build_clarify_reply(intent)
+
+
+async def build_handoff_reply(
+    *,
+    message,
+    intent: IntentResult,
+    reason: str,
+    original_route: str | None = None,
+    context: dict | None = None,
+) -> FinalReply:
+    ticket_id = generate_id("handoff")
+    handoff = await request_human_handoff(
+        customer_id=message.user_id,
+        current_message=message.message,
+        reason=reason,
+        context={
+            "ticket_id": ticket_id,
+            "trace_id": message.trace_id,
+            "session_id": message.session_id,
+            "intent": intent.model_dump(),
+            "original_route": original_route,
+            **(context or {}),
+        },
+    )
+    return FinalReply(
+        answer="",
+        reply_type="human",
+        route="human",
+        need_human=True,
+        next_action="human_handoff",
+        metadata={
+            "handoff": {
+                "ticket_id": ticket_id,
+                "status": handoff.status,
+                "reason": reason,
+            },
+            "original_route": original_route,
+            **(context or {}),
+        },
+    )
+
+
+def _is_rag_no_answer(rag_result: dict) -> bool:
+    answer = (rag_result.get("answer") or "").strip()
+    return (
+        not answer
+        or not rag_result.get("sources")
+        or answer == "知识库中没有找到明确答案。"
+    )
 
 
 def _to_chat_data(
@@ -248,7 +361,20 @@ def _to_chat_data(
         "need_human": reply.need_human,
         "next_action": reply.next_action,
         "trace_id": trace_id,
+        "metadata": reply.metadata,
+        "handoff": _legacy_handoff(reply.metadata.get("handoff")),
     }
+
+
+def _legacy_handoff(handoff: dict | None) -> dict | None:
+    if not handoff:
+        return None
+    reason = handoff.get("reason")
+    legacy_reason = {
+        "clarify_to_handoff": "clarify",
+        "rag_no_answer_to_handoff": "rag_no_answer",
+    }.get(reason, reason)
+    return {**handoff, "reason": legacy_reason}
 
 
 def _success_log_payload(message, intent, decision, reply: FinalReply) -> dict:

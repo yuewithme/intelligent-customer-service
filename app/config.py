@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     rag_llm_model: str = ""
     intent_llm_provider: str = ""
     intent_llm_model: str = ""
+    intent_provider: str = "rule"
+    intent_llm_enabled: bool = False
+    intent_llm_fallback_threshold: float = Field(default=0.5, ge=0, le=1)
     talk_script_llm_provider: str = ""
     talk_script_llm_model: str = ""
     review_llm_provider: str = ""

@@ -2,6 +2,7 @@ from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
 from app.schemas.policy import PolicyDecision
 from app.schemas.state import UserState
+from app.config import get_settings
 
 
 VALID_ROUTES = {
@@ -14,7 +15,7 @@ VALID_ROUTES = {
     "unsupported",
 }
 HUMAN_INTENTS = {"complaint", "refund_request", "human_request"}
-KNOWLEDGE_INTENTS = {"knowledge_question", "care_question"}
+KNOWLEDGE_INTENTS = {"knowledge_question", "care_question", "process_question", "usage_question"}
 TEMPLATE_INTENTS = {
     "ask_price",
     "price_objection",
@@ -36,15 +37,20 @@ async def decide_route(
 ) -> PolicyDecision:
     del user_state, message
     if intent.route not in VALID_ROUTES:
-        return PolicyDecision(
-            route="clarify",
-            reason="invalid_route",
-            fallback_route="clarify",
-        )
+        return _handoff_decision("invalid_route_to_handoff", intent.route or "clarify")
     if intent.need_human or intent.primary_intent in HUMAN_INTENTS:
-        return PolicyDecision(route="human", reason="human_required")
-    if intent.confidence < 0.6:
-        return PolicyDecision(route="clarify", reason="low_confidence")
+        return _handoff_decision("human_required", intent.route)
+    if intent.route == "human":
+        return _handoff_decision("human_required", "human")
+    if intent.route == "clarify":
+        return _handoff_decision("clarify_to_handoff", "clarify")
+    if intent.route == "unsupported":
+        return _handoff_decision("unsupported_to_handoff", "unsupported")
+    if intent.confidence < get_settings().intent_confidence_threshold:
+        return _handoff_decision(
+            "low_confidence_to_handoff",
+            intent.route or "clarify",
+        )
     if (
         intent.primary_intent in {"price_objection", "hesitation"}
         and {"care_concern", "knowledge_question", "care_question"}
@@ -56,3 +62,13 @@ async def decide_route(
     if intent.primary_intent in TEMPLATE_INTENTS:
         return PolicyDecision(route="template_reply", reason="template_intent")
     return PolicyDecision(route=intent.route, reason="intent_route")
+
+
+def _handoff_decision(reason: str, original_route: str | None) -> PolicyDecision:
+    return PolicyDecision(
+        route="human",
+        reason=reason,
+        fallback_route=original_route,
+        original_route=original_route,
+        next_action="human_handoff",
+    )

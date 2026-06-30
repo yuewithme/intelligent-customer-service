@@ -19,6 +19,7 @@ wechat_rag_bot/
       templates.py           # 模板创建与搜索接口
       intent_examples.py     # 意图样本接口
       state.py               # 用户状态接口
+      user_profile.py        # 用户画像、聊天记忆、画像事件接口
       debug.py               # 调试接口
       admin_logs.py          # 客服 AI 日志与质检接口
       wechat.py              # 微信回调接口 /wechat/callback
@@ -33,6 +34,7 @@ wechat_rag_bot/
       template_service.py    # 模板选择与渲染
       reply_builder.py       # 最终回复组装
       state_service.py       # 用户状态读写
+      user_profile_service.py # 用户画像、聊天记忆、画像事件读写
       chat_log_service.py    # 聊天日志写入、查询、统计、脱敏
       rag_service.py         # RAG 主流程
       knowledge_service.py   # 文档解析、分块、入库
@@ -59,7 +61,7 @@ wechat_rag_bot/
       time.py                # 上海时区时间工具
     db/
       session.py             # SQLAlchemy session factory，占位
-      models.py              # SQLAlchemy Base、ChatLogModel
+      models.py              # SQLAlchemy Base、ChatLogModel、UserProfileModel、ConversationMemoryModel、ProfileEventModel
 ```
 
 ## 2. 应用入口
@@ -75,6 +77,7 @@ wechat_rag_bot/
    - `knowledge.router`
    - `templates.router`
    - `intent_examples.router`
+   - `user_profile.router`
    - `state.router`
    - `debug.router`
    - `admin_logs.router`
@@ -280,7 +283,82 @@ HTTP 上传
 
 第一阶段模板、意图样本和状态均为进程内存实现，后续可替换为 Qdrant、Redis 或 PostgreSQL。
 
-### 3.5 客服 AI 日志与质检接口
+### 3.5 用户画像、聊天记忆与画像事件接口
+
+文件：`wechat_rag_bot/app/routers/user_profile.py`
+
+新增用户画像接口不会替代旧 `/api/v1/users/{user_id}/state`。旧 state API 继续作为轻量运行态状态接口保留；profile API 用于后台、debug、人工客服工作台和运营系统查看、维护完整用户画像。
+
+全部接口必须使用 Bearer API Key 鉴权，并返回统一 `code/message/data` envelope。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/v1/users/{user_id}/profile` | 查询用户完整画像；首次访问时自动创建空画像 |
+| `PATCH /api/v1/users/{user_id}/profile` | 手动维护用户画像，并写入 `profile_events` |
+| `GET /api/v1/users/{user_id}/memories?limit=10` | 查询用户最近聊天记忆，默认 10，最大 50 |
+| `GET /api/v1/users/{user_id}/profile/events?limit=20` | 查询画像变化事件，默认 20，最大 100 |
+
+用户身份定位规则：
+
+```text
+/api/v1/chat 请求中的 user_id
+  -> user_profiles.user_id
+  -> /api/v1/users/{user_id}/profile
+```
+
+联调时同一个真实客户必须稳定传同一个 `user_id`。`session_id` 只表示一次会话，不作为画像主键；`trace_id` 只用于单次请求排查；`tenant_id` 默认为 `tenant_default`，用于租户/项目隔离预留。
+
+首次创建画像的默认值：
+
+```json
+{
+  "tenant_id": "tenant_default",
+  "channel": "api",
+  "current_stage": "unknown",
+  "risk_level": "normal",
+  "is_human_handoff": false,
+  "customer_tags": [],
+  "product_interests": [],
+  "pain_points": []
+}
+```
+
+`PATCH /profile` 允许更新字段：
+
+```text
+current_stage, risk_level, customer_tags, product_interests,
+ai_summary, preference_summary, pain_points,
+is_human_handoff, human_ticket_id, human_handoff_status,
+human_handoff_reason
+```
+
+`user_id`、`tenant_id`、`created_at` 不允许通过 PATCH 覆盖。每次 PATCH 如果产生字段变化，会写入 `profile_events`：
+
+```text
+event_type = profile_patched
+before_json = 变更前字段
+after_json = 变更后字段
+reason = metadata.reason 或 manual_patch
+```
+
+聊天记忆返回 `items` 按最近窗口内从旧到新排序，方便前端直接渲染对话。`/api/v1/chat` 成功处理后会写入：
+
+```text
+append_conversation_memory(role="user")
+append_conversation_memory(role="assistant")  # answer 非空时
+update_profile_after_chat
+```
+
+当路由为 `human` 或 `reply.need_human=true` 时，会标记转人工画像字段，并写入：
+
+```text
+event_type = handoff_created
+is_human_handoff = true
+human_handoff_status = pending
+human_handoff_reason = intent.reason 或 human_route
+```
+
+### 3.6 客服 AI 日志与质检接口
 
 文件：`wechat_rag_bot/app/routers/admin_logs.py`
 
@@ -309,7 +387,7 @@ template_id, status, need_human, keyword, start_time, end_time
 }
 ```
 
-### 3.6 微信服务器验证接口
+### 3.7 微信服务器验证接口
 
 ```http
 GET /wechat/callback?signature=...&timestamp=...&nonce=...&echostr=...
@@ -328,7 +406,7 @@ GET /wechat/callback?signature=...&timestamp=...&nonce=...&echostr=...
   -> 失败：返回 403 Forbidden
 ```
 
-### 3.7 微信消息回调接口
+### 3.8 微信消息回调接口
 
 ```http
 POST /wechat/callback?signature=...&timestamp=...&nonce=...
@@ -386,6 +464,10 @@ API_AUTH_ENABLED=true
 - `POST /api/v1/templates/search`
 - `POST /api/v1/intent-examples`
 - `GET/PATCH /api/v1/users/{user_id}/state`
+- `GET /api/v1/users/{user_id}/profile`
+- `PATCH /api/v1/users/{user_id}/profile`
+- `GET /api/v1/users/{user_id}/memories`
+- `GET /api/v1/users/{user_id}/profile/events`
 - `POST /api/v1/debug/intent`
 - `GET /api/v1/admin/chat-logs`
 - `GET /api/v1/admin/chat-logs/{trace_id}`
@@ -424,6 +506,9 @@ handle_chat
        template_then_rag: template + rag -> build_template_then_rag_reply
        human / chitchat / unsupported / clarify: 固定回复组装
   -> update_user_state
+  -> append_conversation_memory(role="user")
+  -> append_conversation_memory(role="assistant")  # answer 非空时
+  -> update_profile_after_chat
   -> 返回 ChatData 兼容结构
   -> finally record_chat_log
 ```
@@ -463,7 +548,8 @@ flowchart TD
   L --> N
   M --> N
   N --> O["State Update"]
-  O --> P["ChatData"]
+  O --> U["Profile Memory + Profile Update"]
+  U --> P["ChatData"]
   P --> Q["record_chat_log"]
 ```
 
@@ -654,6 +740,93 @@ total, success_count, failed_count, avg_latency_ms,
 route_counts, intent_counts, template_counts,
 human_count, rag_count, template_count
 ```
+
+## 8.5 用户画像服务
+
+文件：`wechat_rag_bot/app/services/user_profile_service.py`
+
+核心函数：
+
+```python
+async def get_profile_bundle(user_id: str) -> dict
+
+async def patch_user_profile(user_id: str, updates: dict) -> dict
+
+async def get_recent_memories(user_id: str, limit: int = 10) -> dict
+
+async def get_profile_events(user_id: str, limit: int = 20) -> dict
+
+async def append_conversation_memory(...) -> None
+
+async def update_profile_after_chat(message, intent, reply) -> None
+```
+
+存储模型：`wechat_rag_bot/app/db/models.py`
+
+| 表 | 说明 |
+| --- | --- |
+| `user_profiles` | 用户完整画像，主键为 `user_id` |
+| `conversation_memories` | 聊天记忆，一轮聊天通常写入 user 和 assistant 两条 |
+| `profile_events` | 画像变化审计事件，记录 before/after/reason/trace_id |
+
+第一版画像表使用 `DATABASE_URL` 对应的 SQLite/SQLAlchemy engine，并在服务首次访问时自动创建 `user_profiles`、`conversation_memories`、`profile_events`。JSON 列表字段使用 text 存储，包括 `customer_tags_json`、`product_interests_json`、`pain_points_json`、`before_json`、`after_json`。
+
+画像字段骨架：
+
+```json
+{
+  "user_id": "user_001",
+  "tenant_id": "tenant_default",
+  "channel": "api",
+  "current_stage": "unknown",
+  "risk_level": "normal",
+  "is_human_handoff": false,
+  "human_ticket_id": null,
+  "human_handoff_status": null,
+  "human_handoff_reason": null,
+  "customer_tags": [],
+  "product_interests": [],
+  "ai_summary": null,
+  "preference_summary": null,
+  "pain_points": [],
+  "last_intent": null,
+  "last_route": null,
+  "last_template_id": null,
+  "last_active_at": null,
+  "created_at": "ISO datetime",
+  "updated_at": "ISO datetime"
+}
+```
+
+数据接入路径固定为三类：
+
+```text
+A. 聊天自动写入
+/api/v1/chat
+  -> handle_chat
+  -> append_conversation_memory(role="user")
+  -> append_conversation_memory(role="assistant")
+  -> update_profile_after_chat
+
+B. 后台/API 手动维护
+PATCH /api/v1/users/{user_id}/profile
+  -> patch_user_profile
+  -> profile_events(event_type="profile_patched")
+
+C. 转人工写入
+route = human 或 need_human = true
+  -> update_profile_after_chat
+  -> profile_events(event_type="handoff_created")
+```
+
+当前画像主键是 `user_id`。真实渠道联调时建议按渠道稳定映射：
+
+| 渠道 | 建议传入 `user_id` |
+| --- | --- |
+| 微信公众号 | `openid` |
+| 小程序/多端打通 | 优先 `unionid` |
+| 自有 App/CRM | 内部 `customer_id` |
+| 测试联调 | `user_001`、`user_002` 等固定 ID |
 
 ## 9. 知识库入库主流程
 
@@ -1009,7 +1182,7 @@ class APIResponse(BaseModel):
 | `CHUNK_OVERLAP` | `100` | 分块重叠 |
 | `CHUNK_STRATEGY` | `fixed` | `fixed` 或 `adaptive` |
 | `MARKDOWN_HEADING_MAX_LEVEL` | `6` | Markdown adaptive 标题层级 |
-| `DATABASE_URL` | `sqlite:///./rag.db` | 关系库地址，当前基本占位 |
+| `DATABASE_URL` | `sqlite:///./rag.db` | 关系库地址；当前用于用户画像、聊天记忆、画像事件和话术库等关系表 |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis 地址，当前未实际接入 |
 | `UPLOAD_DIR` | `data/uploads` | 上传文件保存目录 |
 | `CHAT_LOG_ENABLED` | `true` | 是否写入聊天日志 |
@@ -1058,7 +1231,9 @@ class APIResponse(BaseModel):
 9. 微信消息去重也是进程内内存缓存，多实例不共享。
 10. 聊天日志写入失败不能影响主流程。
 11. `CHAT_LOG_ENABLED=false` 时不写日志，但 admin 查询接口仍返回空数据。
-12. `DATABASE_URL` 和 `REDIS_URL` 已有配置，但当前核心流程基本未使用。
+12. 用户画像库使用 `DATABASE_URL`，当前主键为 `user_id`；同一真实客户必须稳定传同一个 `user_id`，否则画像会分裂。
+13. `tenant_id` 当前默认 `tenant_default`，已在画像、记忆、事件中保留字段，后续可升级为 `tenant_id + user_id` 组合隔离。
+14. `REDIS_URL` 已有配置，但当前核心流程基本未使用。
 
 ## 19. 后续修改建议入口
 
@@ -1108,6 +1283,15 @@ class APIResponse(BaseModel):
 - 数据模型：`app/db/models.py::ChatLogModel`
 - 编排接入点：`app/services/chat_orchestrator.py`
 - 配置项：`CHAT_LOG_ENABLED`、`CHAT_LOG_DB_URL`
+
+如果要改用户画像系统：
+
+- 查询与维护接口：`app/routers/user_profile.py`
+- 画像、记忆、事件读写：`app/services/user_profile_service.py`
+- 数据模型：`app/db/models.py::UserProfileModel`、`ConversationMemoryModel`、`ProfileEventModel`
+- 聊天自动写入接入点：`app/services/chat_orchestrator.py`
+- 身份联调契约：`/api/v1/chat` 请求中的 `user_id` 必须稳定映射到真实客户
+- 存储配置项：`DATABASE_URL`
 
 如果要接真实外部服务：
 

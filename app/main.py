@@ -12,6 +12,7 @@ from app.routers import (
     knowledge,
     state,
     templates,
+    user_profile,
     wechat,
 )
 from app.schemas.common import AppError, ErrorCode
@@ -24,6 +25,7 @@ app.include_router(chat.router)
 app.include_router(knowledge.router)
 app.include_router(templates.router)
 app.include_router(intent_examples.router)
+app.include_router(user_profile.router)
 app.include_router(state.router)
 app.include_router(debug.router)
 app.include_router(admin_logs.router)

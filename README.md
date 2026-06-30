@@ -161,12 +161,32 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
     "template": {},
     "need_human": false,
     "next_action": null,
-    "trace_id": "req_xxx"
+    "trace_id": "req_xxx",
+    "metadata": {},
+    "handoff": null
   }
 }
 ```
 
 `answer`、`session_id`、`sources`、`usage` 是旧字段，保持兼容；后面的字段是新增路由与调试信息。
+
+## 意图识别 1.0 与 MVP 兜底
+
+意图识别模块只输出结构化 `IntentResult`，不直接生成回复，也不直接调用模板、RAG 或人工系统。当前版本规则优先，意图样本可辅助增强置信度，LLM JSON 分类仅预留在低置信场景，默认关闭。
+
+7 类 route 对应内部流程：
+
+- `human`：人工、退款、投诉、强烈不满，直接转人工。
+- `template_reply`：价格、优惠、物流、售后、下单、付款，进入模板流程。
+- `rag_answer`：知识、流程、方法、资料、说明类问题，进入知识库 RAG。
+- `template_then_rag`：销售顾虑叠加知识担忧，模板和 RAG 都可用时组合回复。
+- `chitchat`：你好、在吗、谢谢等寒暄。
+- `clarify`：表达不清或规则低置信。
+- `unsupported`：明显业务外或不支持的问题。
+
+MVP 阶段先保证不乱答：`clarify`、`unsupported`、RAG 无答案、模板未命中都会统一转人工。转人工响应 `answer=""`，`reply_type="human"`，`route="human"`，`need_human=true`，`next_action="human_handoff"`，并在 `metadata.handoff` 中返回 `ticket_id`、`status`、`reason`；不会生成普通客服话术。
+
+后续可把 `clarify` 改为追问，把 `unsupported` 改为业务兜底，把 RAG 无答案改为相似推荐，并接入真实 LLM 意图 JSON 分类。
 
 ## 模板与意图接口
 
@@ -260,6 +280,68 @@ curl -X PATCH http://127.0.0.1:8000/api/v1/users/user_001/state \
     "risk_level": "normal"
   }'
 ```
+
+## User Profile APIs
+
+The legacy `GET/PATCH /api/v1/users/{user_id}/state` APIs are retained. The
+profile APIs below provide the formal user profile, conversation memory, and
+profile event access path. All profile APIs require:
+
+```http
+Authorization: Bearer change_me
+```
+
+`GET /api/v1/users/{user_id}/profile`
+
+```bash
+curl -X GET http://127.0.0.1:8000/api/v1/users/user_001/profile \
+  -H "Authorization: Bearer change_me"
+```
+
+`PATCH /api/v1/users/{user_id}/profile`
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/v1/users/user_001/profile \
+  -H "Authorization: Bearer change_me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "current_stage": "objection_handling",
+    "risk_level": "normal",
+    "customer_tags": ["vip", "price_sensitive"],
+    "product_interests": ["orchid"],
+    "ai_summary": "New orchid buyer, price-sensitive.",
+    "preference_summary": "Prefers easy-care products.",
+    "pain_points": ["price_sensitive", "care_difficulty"],
+    "is_human_handoff": false,
+    "human_ticket_id": null,
+    "human_handoff_status": null,
+    "human_handoff_reason": null,
+    "metadata": {
+      "reason": "operator_update"
+    }
+  }'
+```
+
+`GET /api/v1/users/{user_id}/memories`
+
+```bash
+curl -X GET "http://127.0.0.1:8000/api/v1/users/user_001/memories?limit=10" \
+  -H "Authorization: Bearer change_me"
+```
+
+`GET /api/v1/users/{user_id}/profile/events`
+
+```bash
+curl -X GET "http://127.0.0.1:8000/api/v1/users/user_001/profile/events?limit=20" \
+  -H "Authorization: Bearer change_me"
+```
+
+Profile data is written from three paths: `/api/v1/chat` appends user and
+assistant memories and updates the profile; manual profile PATCH writes a
+`profile_patched` event; human-route replies mark handoff fields and write a
+`handoff_created` event. Memory query results are returned oldest-to-newest
+within the requested recent window so clients can render the conversation
+directly.
 
 ## 文档入库
 
