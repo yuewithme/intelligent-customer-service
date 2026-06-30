@@ -207,12 +207,51 @@ HTTP 请求
     "template": {},
     "need_human": false,
     "next_action": null,
-    "trace_id": "req_xxx"
+    "trace_id": "req_xxx",
+    "metadata": {},
+    "handoff": null
   }
 }
 ```
 
-旧兼容字段为 `answer`、`session_id`、`sources`、`usage`；路由、意图、模板、人工标记和 `trace_id` 为新增观察字段。
+旧兼容字段为 `answer`、`session_id`、`sources`、`usage`；路由、意图、模板、人工标记、`trace_id`、`metadata` 和 `handoff` 为新增观察字段。
+
+转人工场景的响应约定：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "answer": "",
+    "session_id": "sess_xxx",
+    "sources": [],
+    "usage": {},
+    "reply_type": "human",
+    "route": "human",
+    "intent": {},
+    "template": {},
+    "need_human": true,
+    "next_action": "human_handoff",
+    "trace_id": "req_xxx",
+    "metadata": {
+      "handoff": {
+        "ticket_id": "handoff_xxx",
+        "status": "pending",
+        "reason": "rag_no_answer_to_handoff"
+      },
+      "original_route": "rag_answer"
+    },
+    "handoff": {
+      "ticket_id": "handoff_xxx",
+      "status": "pending",
+      "reason": "rag_no_answer"
+    }
+  }
+}
+```
+
+`metadata.handoff.reason` 保留内部完整原因；顶层 `handoff.reason` 兼容早期测试和调用方的短原因命名。
 
 ### 3.3 知识库上传接口
 
@@ -354,8 +393,9 @@ update_profile_after_chat
 ```text
 event_type = handoff_created
 is_human_handoff = true
+human_ticket_id = reply.metadata.handoff.ticket_id
 human_handoff_status = pending
-human_handoff_reason = intent.reason 或 human_route
+human_handoff_reason = reply.metadata.handoff.reason 或 intent.reason 或 human_route
 ```
 
 ### 3.6 客服 AI 日志与质检接口
@@ -502,9 +542,14 @@ handle_chat
            handoff: answer=""，need_human=true，next_action=human_handoff
            pass_through: 继续原路线
        template_reply: select_template -> render_template -> build_template_reply
+         模板未命中: build_handoff_reply(reason=template_not_found_to_handoff)
        rag_answer: answer_knowledge -> build_rag_reply
+         RAG 无答案/无 sources/空 answer: build_handoff_reply(reason=rag_no_answer_to_handoff)
        template_then_rag: template + rag -> build_template_then_rag_reply
-       human / chitchat / unsupported / clarify: 固定回复组装
+         模板缺失或 RAG 无答案: build_handoff_reply(...)
+       human: build_handoff_reply(...)
+       chitchat: 固定寒暄回复
+       unsupported / clarify: 当前 MVP 由 policy 转为 human，不在回复层生成普通话术
   -> update_user_state
   -> append_conversation_memory(role="user")
   -> append_conversation_memory(role="assistant")  # answer 非空时
@@ -522,6 +567,8 @@ state_update_ms
 ```
 
 失败路径会尽量记录 `trace_id`、`channel`、`user_id`、`session_id`、`user_message`、已得到的 `intent/route/reply`、`error_code`、`error_message`。日志写入失败只记录内部错误，不影响聊天主流程。
+
+统一转人工由 `chat_orchestrator.build_handoff_reply(...)` 负责，内部调用 `app/talk_script/human_handoff_service.py::request_human_handoff(...)`。当前人工系统为 mock/预留实现，但主流程会生成 `handoff_xxx` 工单 ID，并写入回复 `metadata.handoff`、用户画像和聊天日志。
 
 统一聊天流程图：
 
@@ -552,6 +599,137 @@ flowchart TD
   U --> P["ChatData"]
   P --> Q["record_chat_log"]
 ```
+
+### 5.1 意图识别 1.0
+
+文件：`wechat_rag_bot/app/services/intent_service.py`
+
+模块边界：意图识别只输出结构化 `IntentResult`，不生成用户回复，不直接调用模板、RAG 或人工系统。当前版本规则优先，意图样本仅用于辅助增强置信度，LLM JSON 分类为低置信预留能力，默认关闭。
+
+核心函数：
+
+```python
+def normalize_intent_text(text: str) -> str
+def hit_any(text: str, words: tuple[str, ...]) -> bool
+def classify_by_rules(text: str) -> IntentResult | None
+async def classify_by_llm(message, user_state, candidates=None) -> IntentResult
+async def classify_intent(message, user_state, candidates=None) -> IntentResult
+```
+
+7 类 route：
+
+| route | 典型场景 | 后续流程 |
+| --- | --- | --- |
+| `human` | 人工、退款、投诉、强烈不满 | 直接转人工 |
+| `template_reply` | 价格、优惠、嫌贵、物流、下单、付款 | 先固定话术库，再模板 |
+| `rag_answer` | 知识、流程、方法、资料、说明类问题 | 先固定话术库，再 RAG |
+| `template_then_rag` | 销售顾虑 + 知识担忧 | 模板和 RAG 都可用时组合回复 |
+| `chitchat` | 你好、在吗、谢谢 | 固定寒暄回复 |
+| `clarify` | 表达不清或规则低置信 | MVP 阶段转人工 |
+| `unsupported` | 明显不支持或业务外 | MVP 阶段转人工 |
+
+优先级：
+
+```text
+P0 空消息 -> MESSAGE_EMPTY
+P1 人工/退款/投诉/风险 -> human
+P2 价格顾虑 + 知识担忧 -> template_then_rag
+P3 销售/交易类 -> template_reply
+P4 知识/流程/方法类 -> rag_answer
+P5 寒暄 -> chitchat
+P6 不明确 -> clarify
+P7 明显不支持/业务外 -> unsupported
+```
+
+`human` 永远最高优先级。例如“我要退款，怎么处理？”必须识别为 `human/refund_request`，不能因为包含“怎么处理”而进入 `rag_answer`。
+
+`IntentResult` 至少包含：
+
+```text
+route, primary_intent, secondary_intents, sales_stage,
+confidence, need_template, need_rag, need_human,
+slots, reason
+```
+
+当前主要 `primary_intent`：
+
+```text
+greeting, ask_price, price_objection, discount_request,
+ask_logistics, ask_after_sale, order_intent, payment_intent,
+knowledge_question, care_question, process_question, usage_question,
+refund_request, complaint, human_request, unsupported, unknown
+```
+
+所有意图结果都会经 `IntentResult.model_validate(...)` 校验，失败抛 `INTENT_SCHEMA_INVALID`。
+
+### 5.2 Policy Engine MVP 兜底策略
+
+文件：`wechat_rag_bot/app/services/policy_service.py`
+
+当前 MVP 原则：先保证不乱答。只要系统不能确定性自动处理，就统一转人工。
+
+裁决规则：
+
+```text
+need_human=true -> human
+primary_intent in complaint/refund_request/human_request -> human
+intent.route == human -> human
+intent.route == clarify -> human, reason=clarify_to_handoff
+intent.route == unsupported -> human, reason=unsupported_to_handoff
+confidence < INTENT_CONFIDENCE_THRESHOLD -> human, reason=low_confidence_to_handoff
+knowledge/care/process/usage -> rag_answer
+price/logistics/order/payment/after_sale -> template_reply
+price_objection + care_question/knowledge_question -> template_then_rag
+chitchat -> chitchat
+```
+
+`PolicyDecision` 字段：
+
+```text
+route, allowed, reason, fallback_route, original_route, next_action
+```
+
+当 policy 把 `clarify`、`unsupported` 或低置信意图裁决为 `human` 时，`original_route` 会保留原始 route，`next_action="human_handoff"`，供回复、日志和画像追踪。
+
+### 5.3 转人工统一行为
+
+所有转人工场景统一返回：
+
+```text
+answer = ""
+reply_type = "human"
+route = "human"
+need_human = true
+next_action = "human_handoff"
+metadata.handoff.ticket_id = "handoff_xxx"
+metadata.handoff.status = "pending"
+metadata.handoff.reason = 内部原因
+metadata.original_route = 原始 route
+```
+
+触发转人工的场景：
+
+| 场景 | reason | original_route |
+| --- | --- | --- |
+| 明确人工/退款/投诉 | `human_required` 或规则原因 | `human` |
+| 表达不清 | `clarify_to_handoff` | `clarify` |
+| 明显不支持 | `unsupported_to_handoff` | `unsupported` |
+| 低置信 | `low_confidence_to_handoff` | 原始 route |
+| RAG 无 sources、空 answer 或默认无答案文案 | `rag_no_answer_to_handoff` | `rag_answer` 或 `template_then_rag` |
+| 模板未命中 | `template_not_found_to_handoff` | `template_reply` 或 `template_then_rag` |
+| 固定话术库要求人工 | 话术库返回原因或 `talk_script_to_handoff` | 原始 route |
+
+转人工后用户画像更新：
+
+```text
+is_human_handoff = true
+human_ticket_id = metadata.handoff.ticket_id
+human_handoff_status = pending
+human_handoff_reason = metadata.handoff.reason
+profile_events.event_type = handoff_created
+```
+
+聊天记忆仍写入用户消息；`answer=""` 时不写 assistant 空消息。
 
 ## 6. 确定性话术库匹配模块
 
@@ -1161,11 +1339,14 @@ class APIResponse(BaseModel):
 | `RAG_LLM_MODEL` | 空 | RAG 回答专用模型；为空回退到 `LLM_MODEL` |
 | `INTENT_LLM_PROVIDER` | 空 | 意图识别专用 provider；为空回退到 `LLM_PROVIDER` |
 | `INTENT_LLM_MODEL` | 空 | 意图识别专用模型；为空回退到 `LLM_MODEL` |
+| `INTENT_PROVIDER` | `rule` | 意图识别主 provider；当前默认规则优先 |
+| `INTENT_LLM_ENABLED` | `false` | 是否允许低置信时调用 LLM 做 JSON 意图分类 |
 | `TALK_SCRIPT_LLM_PROVIDER` | 空 | 固定话术库 question_id 分类专用 provider；为空回退到 `INTENT_LLM_PROVIDER`，再回退到 `LLM_PROVIDER` |
 | `TALK_SCRIPT_LLM_MODEL` | 空 | 固定话术库 question_id 分类专用模型 |
 | `REVIEW_LLM_PROVIDER` | 空 | 后续质检/复盘专用 provider；为空回退到 `LLM_PROVIDER` |
 | `REVIEW_LLM_MODEL` | 空 | 后续质检/复盘专用模型 |
 | `INTENT_CONFIDENCE_THRESHOLD` | `0.6` | 意图置信度阈值 |
+| `INTENT_LLM_FALLBACK_THRESHOLD` | `0.5` | 低于该置信度且启用 LLM 时，尝试 LLM JSON 分类 |
 | `INTENT_EXAMPLE_TOP_K` | `5` | 意图样本召回数量 |
 | `EMBEDDING_PROVIDER` | `mock` | Embedding provider |
 | `EMBEDDING_MODEL` | `BAAI/bge-m3` | Embedding 模型 |
@@ -1251,6 +1432,23 @@ class APIResponse(BaseModel):
 - 检索逻辑在 `app/services/qdrant_service.py`
 - 重排逻辑在 `app/services/rerank_service.py`
 - Prompt 在 `rag_service.PROMPT_TEMPLATE`
+
+如果要改意图识别和路由策略：
+
+- 规则词典和分类优先级在 `app/services/intent_service.py`
+- 意图结果结构在 `app/schemas/intent.py`
+- 兜底裁决在 `app/services/policy_service.py`
+- 策略结果结构在 `app/schemas/policy.py`
+- 调试入口在 `app/routers/debug.py`
+- 单元测试优先补 `tests/test_intent_service.py` 和 `tests/test_handoff_policy.py`
+
+如果要改统一转人工行为：
+
+- 回复组装入口在 `app/services/chat_orchestrator.py::build_handoff_reply`
+- 人工系统预留接口在 `app/talk_script/human_handoff_service.py`
+- 用户画像落库在 `app/services/user_profile_service.py::update_profile_after_chat`
+- 聊天日志写入在 `app/services/chat_log_service.py`
+- 接口级测试优先补 `tests/test_chat_intent_routes.py` 和 `tests/test_handoff_fallbacks.py`
 
 如果要改确定性话术库：
 
