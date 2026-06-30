@@ -105,6 +105,22 @@ async def test_mock_llm_returns_knowledge_text_not_source_heading():
     assert result["answer"] == "报销需要主管审批。"
 
 
+def test_rag_prompt_discourages_metadata_and_truncated_chunks():
+    prompt = rag_service.PROMPT_TEMPLATE.format(
+        context="[1] 来源：知识库.md\n**知识类型**：养护问答\n**推荐回复**：浇水见干见湿。\n**下一步动作**：继续追问。",
+        question="怎么浇水？",
+    )
+
+    assert "优先使用每个资料块中的【推荐回复】" in prompt
+    assert "不要复述 chunk 标题、知识类型、适用场景、标签、下一步动作" in prompt
+    assert "包含省略号或明显未完句" in prompt
+    assert "资料与问题相关但没有直接标准答案时" in prompt
+    assert "用客服语气综合生成" in prompt
+    assert "能综合回答时，不要说“知识库中没有找到明确答案”" in prompt
+    assert "不要说“无直接对应明确推荐回复来源”" in prompt
+    assert "回答正文不要出现“知识库”“资料”“来源”“推荐回复”" in prompt
+
+
 @pytest.mark.asyncio
 async def test_volcengine_llm_uses_ark_openai_compatible_endpoint(monkeypatch):
     from app.config import get_settings
