@@ -87,7 +87,18 @@ async def handle_chat(request: ChatRequest) -> dict:
         )
 
         stage_started = time.perf_counter()
-        reply = await _build_reply(route, routed_intent, message, user_state, stage_latencies)
+        if get_settings().reply_graph_enabled:
+            from app.services.reply_workflow_graph import build_reply_with_graph
+
+            reply = await build_reply_with_graph(
+                route=route,
+                intent=routed_intent,
+                message=message,
+                user_state=user_state,
+                stage_latencies=stage_latencies,
+            )
+        else:
+            reply = await _build_reply(route, routed_intent, message, user_state, stage_latencies)
         stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
 
         stage_started = time.perf_counter()
