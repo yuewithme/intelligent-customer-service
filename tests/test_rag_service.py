@@ -67,12 +67,12 @@ async def test_rag_chat_orchestrates_services(monkeypatch):
     assert result["usage"]["completion_tokens"] == 8
     assert calls[1][2]["kb_id"] == "kb_default"
     assert calls[1][2]["tenant_id"] == "tenant_default"
-    assert "只根据【知识库资料】回答【用户问题】" in calls[3][1]
+    assert "读取【参考资料】与【用户问题】" in calls[3][1]
     assert "报销需要主管审批。" in calls[3][1]
 
 
 @pytest.mark.asyncio
-async def test_rag_chat_skips_knowledge_retrieval_by_default(monkeypatch):
+async def test_rag_chat_skips_knowledge_retrieval_when_disabled(monkeypatch):
     from app.config import get_settings
 
     async def fail_embed(text):
@@ -87,7 +87,7 @@ async def test_rag_chat_skips_knowledge_retrieval_by_default(monkeypatch):
             "usage": {"prompt_tokens": 10, "completion_tokens": 8},
         }
 
-    monkeypatch.delenv("RAG_KNOWLEDGE_ENABLED", raising=False)
+    monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "false")
     get_settings.cache_clear()
     monkeypatch.setattr(rag_service.embedding_service, "embed_text", fail_embed)
     monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
@@ -159,17 +159,12 @@ def test_rag_prompt_discourages_metadata_and_truncated_chunks():
         question="怎么浇水？",
     )
 
-    assert "兰花/蝴蝶兰私域客服" in prompt
-    assert "只根据【知识库资料】回答【用户问题】" in prompt
-    assert "优先使用资料块中的【推荐回复】" in prompt
-    assert "不要复述资料块中的标题、知识类型、适用场景、标签、下一步动作、来源文件、页码" in prompt
-    assert "推荐回复包含省略号、明显断句、内容不完整" in prompt
-    assert "参考【知识库资料】回答，组合生成自然、温和、可执行的客服回答" in prompt
-    assert "不要自行推断，转人工处理" in prompt
-    assert "请转人工处理" in prompt
-    assert "能综合回答时，不要说“知识库中没有找到明确答案”" in prompt
-    assert "回答正文不要出现“知识库”“资料”“来源”“推荐回复”“根据资料”“系统判断”“暂按综合回应”" in prompt
-    assert "只输出最终客服回复" in prompt
+    assert "顶尖的私域销售客服" in prompt
+    assert "读取【参考资料】与【用户问题】" in prompt
+    assert "必须优先参考【参考资料】回答" in prompt
+    assert "如果资料内容存在轻微差异，但能提炼共同原则" in prompt
+    assert "不要出现“参考资料”“知识库”“资料显示”“根据资料”“系统判断”“推荐回复”" in prompt
+    assert "直接输出可发送给用户的完整客服话术" in prompt
 
 
 @pytest.mark.asyncio

@@ -181,8 +181,8 @@ def test_llm_prompt_requires_complete_intent_schema():
     assert '"confidence"' in prompt
     assert '"need_rag"' in prompt
     assert "浇水需要多少天" in prompt
-    assert "判定优先级" in prompt
-    assert "反例边界" in prompt
+    assert "分类优先级" in prompt
+    assert "重要边界" in prompt
     assert "confidence 规则" in prompt
     assert "名贵兰花" in prompt
-    assert "考虑换盆" in prompt
+    assert "换盆修根" in prompt

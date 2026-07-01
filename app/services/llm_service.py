@@ -41,7 +41,11 @@ async def generate_answer(prompt: str, purpose: str = "rag") -> dict:
     config = get_model_config(purpose)
     provider = config.provider
     if provider == "mock":
-        if "\n【知识库资料】\n" in prompt:
+        if "\n## 参考资料\n" in prompt:
+            context = prompt.split("\n## 参考资料\n", 1)[-1].split(
+                "\n## 用户问题\n", 1
+            )[0]
+        elif "\n【知识库资料】\n" in prompt:
             context = prompt.split("\n【知识库资料】\n", 1)[-1].split(
                 "\n【用户问题】\n", 1
             )[0]
