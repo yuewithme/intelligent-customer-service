@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tmp/
+rag.db
+chat_logs.db
+data/uploads/*
+!data/uploads/.gitkeep
