@@ -6,6 +6,7 @@
 **/rag.db
 **/chat_logs.db
 tmp/
+deploy/env/backend.prod.env
 admin-web/node_modules/
 admin-web/dist/
 admin-web/dist-ssr/

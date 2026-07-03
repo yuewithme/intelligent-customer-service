@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: ./wechat_rag_bot
+    env_file:
+      - ./deploy/env/backend.prod.env
+    expose:
+      - "8000"
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
+
+  admin-web:
+    build:
+      context: ./admin-web
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+    restart: unless-stopped
+
+volumes:
+  backend-data:
+

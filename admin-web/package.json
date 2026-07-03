@@ -2,7 +2,7 @@
   "name": "intelligent-customer-service-admin",
   "version": "0.1.0",
   "description": "Admin web for intelligent customer-service system",
-  "author": "xingyu",
+  "author": "yuewithme",
   "private": true,
   "scripts": {
     "i": "pnpm install",
@@ -138,14 +138,6 @@
     "vue-tsc": "^3.2.8"
   },
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://gitee.com/yudaocode/yudao-ui-admin-vue3"
-  },
-  "bugs": {
-    "url": "https://gitee.com/yudaocode/yudao-ui-admin-vue3/issues"
-  },
-  "homepage": "https://gitee.com/yudaocode/yudao-ui-admin-vue3",
   "web-types": "./web-types.json",
   "engines": {
     "node": ">= 20.19.0",
