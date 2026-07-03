@@ -45,7 +45,7 @@ export default async function handler(req, res) {
     return
   }
 
-  const path = Array.isArray(req.query.path) ? req.query.path.join('/') : req.query.path
+  const path = Array.isArray(req.query.path) ? req.query.path.join('/') : req.query.path || ''
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(req.query)) {
     if (key === 'path') continue
@@ -56,7 +56,7 @@ export default async function handler(req, res) {
     }
   }
 
-  const targetUrl = `${backendBaseUrl.replace(/\/$/, '')}/api/v1/${path || ''}${
+  const targetUrl = `${backendBaseUrl.replace(/\/$/, '')}/api/v1/${path}${
     query.toString() ? `?${query.toString()}` : ''
   }`
   const headers = { ...req.headers }
