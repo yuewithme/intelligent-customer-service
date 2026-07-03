@@ -50,6 +50,16 @@ const remainingRouter: AppRouteRecordRaw[] = [
     ]
   },
   {
+    path: '/gate',
+    component: () => import('@/views/Gate/index.vue'),
+    name: 'Gate',
+    meta: {
+      hidden: true,
+      title: '访问门禁',
+      noTagsView: true
+    }
+  },
+  {
     path: '/login',
     component: () => import('@/views/Login/Login.vue'),
     name: 'Login',

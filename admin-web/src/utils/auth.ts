@@ -25,6 +25,19 @@ export const setToken = (token: TokenType) => {
   wsCache.set(AccessTokenKey, token.accessToken)
 }
 
+export const setDefaultAdminToken = () => {
+  const accessToken = import.meta.env.VITE_DEFAULT_API_KEY || 'change_me'
+  setToken({
+    id: 1,
+    accessToken,
+    refreshToken: '',
+    userId: 1,
+    userType: 1,
+    clientId: 'admin-web',
+    expiresTime: Date.now() + 1000 * 60 * 60 * 24 * 30
+  })
+}
+
 // 删除token
 export const removeToken = () => {
   wsCache.delete(AccessTokenKey)

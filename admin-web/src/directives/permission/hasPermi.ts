@@ -21,9 +21,9 @@ export function hasPermi(app: App<Element>) {
 }
 
 /** 判断权限的方法 function */
-const userStore = useUserStore()
 const all_permission = '*:*:*'
 export const hasPermission = (permission: string[]) => {
+  const userStore = useUserStore()
   return (
     userStore.permissions.has(all_permission) ||
     permission.some((permission) => userStore.permissions.has(permission))
