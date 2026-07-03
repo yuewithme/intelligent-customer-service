@@ -4,8 +4,7 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
-from app.schemas.chat import ChatRequest
-from app.services.chat_orchestrator import handle_chat
+from app.services.message_risk_control_service import enqueue_eyun_inbound
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_callback")
@@ -47,41 +46,10 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     if not content:
         return eyun_success()
 
-    from_group = str(data.get("fromGroup") or "")
-    from_user = str(data.get("fromUser") or "")
-    target_wc_id = from_group or from_user
-    if not target_wc_id:
+    if not str(data.get("fromGroup") or data.get("fromUser") or "").strip():
         return eyun_success()
 
-    chat_result = await handle_chat(
-        ChatRequest(
-            channel="wechat",
-            user_id=from_user or target_wc_id,
-            session_id=from_group or None,
-            message=content,
-            kb_id=get_settings().wechat_default_kb_id,
-            metadata={
-                "provider": "eyun",
-                "account": payload.get("account"),
-                "message_type": message_type,
-                "wc_id": payload.get("wcId"),
-                "w_id": data.get("wId") or payload.get("wId"),
-                "from_user": from_user,
-                "from_group": from_group,
-                "to_user": data.get("toUser"),
-                "msg_id": data.get("msgId"),
-                "new_msg_id": data.get("newMsgId"),
-                "timestamp": data.get("timestamp"),
-            },
-        )
-    )
-    answer = str(chat_result.get("answer") or "").strip()
-    if answer:
-        await send_eyun_text(
-            w_id=str(data.get("wId") or payload.get("wId") or get_settings().eyun_wid),
-            wc_id=target_wc_id,
-            content=answer,
-        )
+    await enqueue_eyun_inbound(payload)
     return eyun_success()
 
 

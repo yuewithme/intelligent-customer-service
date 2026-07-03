@@ -1,3 +1,6 @@
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -18,11 +21,28 @@ from app.routers import (
     wechat,
 )
 from app.schemas.common import AppError, ErrorCode
+from app.services.message_risk_control_service import eyun_risk_control_worker
 from app.utils.logger import configure_logging
 
 
 configure_logging()
-app = FastAPI(title=get_settings().app_name)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    stop_event = asyncio.Event()
+    app.state.eyun_risk_control_stop_event = stop_event
+    app.state.eyun_risk_control_task = asyncio.create_task(
+        eyun_risk_control_worker(stop_event)
+    )
+    try:
+        yield
+    finally:
+        stop_event.set()
+        await app.state.eyun_risk_control_task
+
+
+app = FastAPI(title=get_settings().app_name, lifespan=lifespan)
 app.include_router(admin_conversations.router)
 app.include_router(chat.router)
 app.include_router(knowledge.router)

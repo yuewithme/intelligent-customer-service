@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     eyun_base_url: str = ""
     eyun_authorization: str = ""
     eyun_wid: str = ""
+    eyun_inbound_debounce_seconds: int = Field(default=60, alias="EYUN_INBOUND_DEBOUNCE_SECONDS")
+    eyun_send_max_per_minute: int = Field(default=40, alias="EYUN_SEND_MAX_PER_MINUTE")
+    eyun_send_min_interval_seconds: float = Field(default=1.6, alias="EYUN_SEND_MIN_INTERVAL_SECONDS")
+    eyun_reply_jitter_min_seconds: int = Field(default=2, alias="EYUN_REPLY_JITTER_MIN_SECONDS")
+    eyun_reply_jitter_max_seconds: int = Field(default=12, alias="EYUN_REPLY_JITTER_MAX_SECONDS")
+    eyun_worker_poll_seconds: float = Field(default=1.0, alias="EYUN_WORKER_POLL_SECONDS")
 
     qdrant_url: str = ""
     qdrant_api_key: str = ""

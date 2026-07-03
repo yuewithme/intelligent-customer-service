@@ -17,6 +17,8 @@ class ChatLogModel(Base):
     request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     channel: Mapped[str] = mapped_column(String(64), index=True)
     user_id: Mapped[str] = mapped_column(String(256), index=True)
+    user_display_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    user_avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     kb_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -54,6 +56,61 @@ class ChatLogModel(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class EyunInboundBatchModel(Base):
+    __tablename__ = "eyun_inbound_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    batch_key: Mapped[str] = mapped_column(String(512), unique=True, index=True)
+    w_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    wc_id: Mapped[str] = mapped_column(String(256), index=True)
+    target_wc_id: Mapped[str] = mapped_column(String(256), index=True)
+    from_user: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    from_group: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    account: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    message_type: Mapped[str] = mapped_column(String(32), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    message_count: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class EyunInboundMessageModel(Base):
+    __tablename__ = "eyun_inbound_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider_message_id: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    batch_key: Mapped[str] = mapped_column(String(512), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class EyunOutboundMessageModel(Base):
+    __tablename__ = "eyun_outbound_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    w_id: Mapped[str] = mapped_column(String(256), index=True)
+    wc_id: Mapped[str] = mapped_column(String(256), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    source_batch_key: Mapped[str | None] = mapped_column(String(512), index=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="queued")
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class EyunSendRateModel(Base):
+    __tablename__ = "eyun_send_rates"
+
+    w_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class ConversationModel(Base):

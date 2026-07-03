@@ -1,6 +1,5 @@
 from fastapi.testclient import TestClient
 
-from app.config import get_settings
 from app.main import app
 
 
@@ -44,26 +43,16 @@ def test_wechat_callback_accepts_eyun_test_payload():
     assert response.json() == {"code": "1000", "message": "success", "data": None}
 
 
-def test_wechat_callback_handles_eyun_text_payload(monkeypatch):
+def test_wechat_callback_enqueues_eyun_text_payload(monkeypatch):
     from app.services import eyun_callback_service
 
-    monkeypatch.setenv("WECHAT_DEFAULT_KB_ID", "kb_default")
-    get_settings.cache_clear()
-    sent_messages = []
+    enqueued = []
 
-    async def fake_handle_chat(request):
-        assert request.channel == "wechat"
-        assert request.user_id == "wxid_customer"
-        assert request.message == "hello"
-        assert request.metadata["provider"] == "eyun"
-        assert request.metadata["new_msg_id"] == 123
-        return {"answer": "AI reply"}
+    async def fake_enqueue(payload):
+        enqueued.append(payload)
+        return {"batch_key": "wid_test:wxid_customer"}
 
-    async def fake_send_text(*, w_id: str, wc_id: str, content: str):
-        sent_messages.append({"w_id": w_id, "wc_id": wc_id, "content": content})
-
-    monkeypatch.setattr(eyun_callback_service, "handle_chat", fake_handle_chat)
-    monkeypatch.setattr(eyun_callback_service, "send_eyun_text", fake_send_text)
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
     client = TestClient(app)
 
     response = client.post(
@@ -86,6 +75,5 @@ def test_wechat_callback_handles_eyun_text_payload(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"code": "1000", "message": "success", "data": None}
-    assert sent_messages == [
-        {"w_id": "wid_test", "wc_id": "wxid_customer", "content": "AI reply"}
-    ]
+    assert len(enqueued) == 1
+    assert enqueued[0]["data"]["content"] == "hello"
