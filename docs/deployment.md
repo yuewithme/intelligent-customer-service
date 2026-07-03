@@ -11,11 +11,9 @@
 安装 Docker 和 Docker Compose 插件后，拉取仓库：
 
 ```bash
-git clone https://github.com/yuewithme/wechat_rag_bot.git intelligent-customer-service
+git clone https://github.com/yuewithme/intelligent-customer-service.git
 cd intelligent-customer-service
 ```
-
-如果 GitHub 仓库已改名，使用新地址即可。
 
 ## 配置环境变量
 
