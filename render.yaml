@@ -35,6 +35,12 @@ services:
         sync: false
       - key: WECHAT_DEFAULT_KB_ID
         value: kb_default
+      - key: EYUN_BASE_URL
+        sync: false
+      - key: EYUN_AUTHORIZATION
+        sync: false
+      - key: EYUN_WID
+        sync: false
       - key: LLM_PROVIDER
         value: deepseek
       - key: LLM_MODEL

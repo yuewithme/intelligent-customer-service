@@ -1,8 +1,15 @@
-from fastapi import APIRouter, Query, Request
+import json
+
+from fastapi import APIRouter, BackgroundTasks, Query, Request
 from fastapi.responses import PlainTextResponse, Response
 
 from app.config import get_settings
 from app.schemas.chat import ChatRequest
+from app.services.eyun_callback_service import (
+    eyun_success,
+    handle_eyun_callback,
+    should_process_eyun_payload,
+)
 from app.services.chat_orchestrator import handle_chat
 from app.services.wechat_service import (
     build_text_reply,
@@ -32,10 +39,23 @@ async def verify_wechat(
 @router.post("/callback")
 async def receive_wechat(
     request: Request,
-    signature: str = Query(...),
-    timestamp: str = Query(...),
-    nonce: str = Query(...),
+    background_tasks: BackgroundTasks,
+    signature: str | None = Query(default=None),
+    timestamp: str | None = Query(default=None),
+    nonce: str | None = Query(default=None),
 ) -> Response:
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type.lower() or not signature:
+        payload = await request.json()
+        if should_process_eyun_payload(payload):
+            background_tasks.add_task(handle_eyun_callback, payload)
+        return Response(
+            content=json.dumps(eyun_success(), ensure_ascii=False),
+            media_type="application/json",
+        )
+
+    if not timestamp or not nonce:
+        return PlainTextResponse("Forbidden", status_code=403)
     if not verify_signature(
         get_settings().wechat_token, signature, timestamp, nonce
     ):

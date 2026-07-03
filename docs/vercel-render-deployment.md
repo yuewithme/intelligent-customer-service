@@ -23,6 +23,9 @@ API_KEY=一串长随机密钥
 WECHAT_TOKEN=你的 webhook token
 WECHAT_APP_ID=你的微信/渠道 app id
 WECHAT_APP_SECRET=你的微信/渠道 secret
+EYUN_BASE_URL=http://www.eyunz.com/wx-api
+EYUN_AUTHORIZATION=控制台里的 Eyun Authorization
+EYUN_WID=当前登录微信实例 wId
 DEEPSEEK_API_KEY=你的模型 key
 ```
 

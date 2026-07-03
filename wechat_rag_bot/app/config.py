@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     wechat_app_id: str = "change_me"
     wechat_app_secret: str = "change_me"
     wechat_default_kb_id: str = "kb_default"
+    eyun_base_url: str = ""
+    eyun_authorization: str = ""
+    eyun_wid: str = ""
 
     qdrant_url: str = ""
     qdrant_api_key: str = ""
