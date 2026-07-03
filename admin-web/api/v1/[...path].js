@@ -56,7 +56,7 @@ export default async function handler(req, res) {
     }
   }
 
-  const targetUrl = `${backendBaseUrl.replace(/\/$/, '')}/api/${path || ''}${
+  const targetUrl = `${backendBaseUrl.replace(/\/$/, '')}/api/v1/${path || ''}${
     query.toString() ? `?${query.toString()}` : ''
   }`
   const headers = { ...req.headers }
