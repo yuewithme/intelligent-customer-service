@@ -5,6 +5,8 @@ class ConversationItem(BaseModel):
     conversation_id: str
     channel: str
     user_id: str
+    user_display_name: str | None = None
+    user_avatar_url: str | None = None
     session_id: str | None = None
     tenant_id: str
     status: str

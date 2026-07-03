@@ -22,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import type { ConversationItem } from '@/api/admin/conversations'
 import ConversationList from './components/ConversationList.vue'
 import MessagePanel from './components/MessagePanel.vue'
@@ -30,9 +30,13 @@ import SupervisionPanel from './components/SupervisionPanel.vue'
 
 defineOptions({ name: 'Workbench' })
 
+const REFRESH_INTERVAL_MS = 2000
+
 const selectedId = ref('')
 const refreshKey = ref(0)
 const conversation = ref<ConversationItem>()
+let refreshTimer: number | undefined
+
 const selectConversation = (id: string) => {
   selectedId.value = id
 }
@@ -40,6 +44,23 @@ const selectConversation = (id: string) => {
 const handleChanged = async () => {
   refreshKey.value += 1
 }
+
+const startAutoRefresh = () => {
+  refreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'hidden') {
+      return
+    }
+    refreshKey.value += 1
+  }, REFRESH_INTERVAL_MS)
+}
+
+onMounted(startAutoRefresh)
+
+onBeforeUnmount(() => {
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer)
+  }
+})
 </script>
 
 <style scoped>

@@ -11,6 +11,8 @@ export interface ConversationItem {
   conversation_id: string
   channel: string
   user_id: string
+  user_display_name?: string | null
+  user_avatar_url?: string | null
   session_id?: string | null
   tenant_id: string
   status: ConversationStatus

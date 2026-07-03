@@ -1,7 +1,8 @@
 import json
 from datetime import datetime, timezone
+from typing import Any
 
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -17,6 +18,7 @@ HUMAN_ACTIVE = "human_active"
 RESOLVED = "resolved"
 
 _sessionmakers: dict[str, sessionmaker] = {}
+_initialized_urls: set[str] = set()
 
 
 def _now() -> datetime:
@@ -99,6 +101,31 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 conversation_id=conversation_id,
                 channel=message.channel,
                 user_id=message.user_id,
+                user_display_name=_metadata_text(
+                    message.metadata,
+                    (
+                        "remark_name",
+                        "remark",
+                        "display_name",
+                        "nickname",
+                        "nick_name",
+                        "user_nickname",
+                        "from_user_name",
+                        "fromUserName",
+                        "sender_name",
+                        "alias",
+                    ),
+                ),
+                user_avatar_url=_metadata_text(
+                    message.metadata,
+                    (
+                        "avatar_url",
+                        "avatar",
+                        "headimgurl",
+                        "head_img_url",
+                        "head_url",
+                    ),
+                ),
                 session_id=message.session_id,
                 tenant_id=message.tenant_id,
                 created_at=now,
@@ -106,6 +133,36 @@ async def record_ai_turn(*, message, result: dict) -> None:
             )
             session.add(conversation)
             session.flush()
+        else:
+            display_name = _metadata_text(
+                message.metadata,
+                (
+                    "remark_name",
+                    "remark",
+                    "display_name",
+                    "nickname",
+                    "nick_name",
+                    "user_nickname",
+                    "from_user_name",
+                    "fromUserName",
+                    "sender_name",
+                    "alias",
+                ),
+            )
+            avatar_url = _metadata_text(
+                message.metadata,
+                (
+                    "avatar_url",
+                    "avatar",
+                    "headimgurl",
+                    "head_img_url",
+                    "head_url",
+                ),
+            )
+            if display_name:
+                conversation.user_display_name = display_name
+            if avatar_url:
+                conversation.user_avatar_url = avatar_url
 
         conversation.status = status
         conversation.owner_id = None
@@ -279,6 +336,9 @@ def _get_session() -> Session:
         )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[settings.chat_log_db_url] = factory
+    if settings.chat_log_db_url not in _initialized_urls:
+        _ensure_conversation_columns(factory)
+        _initialized_urls.add(settings.chat_log_db_url)
     return factory()
 
 
@@ -304,6 +364,8 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
         "conversation_id": row.conversation_id,
         "channel": row.channel,
         "user_id": row.user_id,
+        "user_display_name": row.user_display_name,
+        "user_avatar_url": row.user_avatar_url,
         "session_id": row.session_id,
         "tenant_id": row.tenant_id,
         "status": row.status,
@@ -337,3 +399,32 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         "metadata": metadata,
         "created_at": row.created_at.isoformat(),
     }
+
+
+def _metadata_text(metadata: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for source in _metadata_sources(metadata):
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _metadata_sources(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    sources = [metadata]
+    for key in ("user", "customer", "contact", "profile"):
+        value = metadata.get(key)
+        if isinstance(value, dict):
+            sources.append(value)
+    return sources
+
+
+def _ensure_conversation_columns(factory: sessionmaker) -> None:
+    with factory() as session:
+        bind = session.get_bind()
+        columns = {column["name"] for column in inspect(bind).get_columns("conversations")}
+        if "user_display_name" not in columns:
+            session.execute(text("ALTER TABLE conversations ADD COLUMN user_display_name VARCHAR(256)"))
+        if "user_avatar_url" not in columns:
+            session.execute(text("ALTER TABLE conversations ADD COLUMN user_avatar_url TEXT"))
+        session.commit()

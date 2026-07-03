@@ -9,7 +9,12 @@
         </div>
         <dl>
           <dt>客户</dt>
-          <dd>{{ conversation.user_id }}</dd>
+          <dd class="customer-cell">
+            <ElAvatar :size="28" :src="conversation.user_avatar_url || undefined">
+              {{ avatarText(conversation) }}
+            </ElAvatar>
+            <span>{{ displayName(conversation) }}</span>
+          </dd>
           <dt>渠道</dt>
           <dd>{{ conversation.channel }}</dd>
           <dt>会话</dt>
@@ -66,6 +71,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   claimConversation,
@@ -135,6 +141,12 @@ const statusType = (value: ConversationStatus) =>
     human_active: 'success',
     resolved: 'danger'
   })[value] as 'info' | 'warning' | 'success' | 'danger'
+
+const displayName = (conversation: ConversationItem) =>
+  conversation.user_display_name || conversation.user_id
+
+const avatarText = (conversation: ConversationItem) =>
+  displayName(conversation).slice(0, 1).toUpperCase()
 </script>
 
 <style scoped>
@@ -148,8 +160,8 @@ const statusType = (value: ConversationStatus) =>
 }
 
 .section {
-  border-bottom: 1px solid #e5e7eb;
   padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .title {
@@ -177,6 +189,17 @@ dd {
   margin: 0;
   overflow-wrap: anywhere;
   color: #111827;
+}
+
+.customer-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.customer-cell span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .actions {

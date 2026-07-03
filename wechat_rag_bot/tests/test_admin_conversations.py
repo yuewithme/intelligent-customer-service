@@ -58,6 +58,36 @@ def test_chat_creates_ai_owned_conversation(monkeypatch, tmp_path):
     assert [message["sender_type"] for message in messages] == ["customer", "ai"]
 
 
+def test_conversation_exposes_customer_display_snapshot(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    client.post(
+        "/api/v1/chat",
+        json={
+            "channel": "wechat",
+            "user_id": "wxid_customer",
+            "session_id": "sess_001",
+            "message": "hello",
+            "kb_id": "kb_default",
+            "metadata": {
+                "remark_name": "Alice Remark",
+                "avatar_url": "https://example.com/avatar.jpg",
+            },
+        },
+    )
+
+    conversations = client.get("/api/v1/admin/conversations").json()["data"]
+    item = conversations["items"][0]
+    assert item["user_display_name"] == "Alice Remark"
+    assert item["user_avatar_url"] == "https://example.com/avatar.jpg"
+
+    detail = client.get("/api/v1/admin/conversations/wechat:wxid_customer:sess_001")
+    conversation = detail.json()["data"]["conversation"]
+    assert conversation["user_display_name"] == "Alice Remark"
+    assert conversation["user_avatar_url"] == "https://example.com/avatar.jpg"
+
+
 def test_human_cannot_reply_until_conversation_is_claimed(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)

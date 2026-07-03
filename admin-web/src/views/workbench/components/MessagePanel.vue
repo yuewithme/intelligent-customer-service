@@ -1,9 +1,14 @@
 <template>
   <section class="message-panel">
     <div class="header">
-      <div>
-        <h2>{{ detail?.conversation.user_id || '选择会话' }}</h2>
-        <p v-if="detail">{{ detail.conversation.channel }} / {{ detail.conversation.session_id || 'default' }}</p>
+      <div class="customer-title">
+        <ElAvatar v-if="detail" :size="36" :src="detail.conversation.user_avatar_url || undefined">
+          {{ avatarText(detail.conversation) }}
+        </ElAvatar>
+        <div>
+          <h2>{{ detail ? displayName(detail.conversation) : '选择会话' }}</h2>
+          <p v-if="detail">{{ detail.conversation.channel }} / {{ detail.conversation.session_id || 'default' }}</p>
+        </div>
       </div>
       <ElButton :disabled="!conversationId" :icon="Refresh" circle @click="load" />
     </div>
@@ -43,6 +48,9 @@ const loading = ref(false)
 const detail = ref<ConversationDetail>()
 
 const load = async () => {
+  if (loading.value) {
+    return
+  }
   if (!props.conversationId) {
     detail.value = undefined
     emit('loaded', undefined)
@@ -59,6 +67,12 @@ const load = async () => {
 
 const senderText = (value: string) =>
   ({ customer: '客户', ai: 'AI', human: '人工', system: '系统' })[value] || value
+
+const displayName = (conversation: ConversationItem) =>
+  conversation.user_display_name || conversation.user_id
+
+const avatarText = (conversation: ConversationItem) =>
+  displayName(conversation).slice(0, 1).toUpperCase()
 
 const formatTime = (value: string) => new Date(value).toLocaleString()
 
@@ -84,14 +98,24 @@ defineExpose({ load })
   border-bottom: 1px solid #e5e7eb;
 }
 
+.customer-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
 h2,
 p {
   margin: 0;
 }
 
 h2 {
+  overflow: hidden;
   font-size: 16px;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 p {

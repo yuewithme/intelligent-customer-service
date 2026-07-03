@@ -247,6 +247,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
         if batch is None:
             return
         batch_data = _inbound_batch_to_dict(batch)
+        customer_snapshot = _latest_customer_snapshot(session, batch_data["batch_key"])
 
     try:
         if _conversation_blocks_ai(batch_data):
@@ -270,6 +271,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     "from_group": batch_data["from_group"],
                     "batch_key": batch_data["batch_key"],
                     "message_count": batch_data["message_count"],
+                    **customer_snapshot,
                 },
             )
         )
@@ -327,6 +329,67 @@ def _provider_message_id(
         return f"{batch_key}:{raw_id}"
     content = str(data.get("content") or "")
     return f"{batch_key}:{now.timestamp()}:{hash(content)}"
+
+
+def _latest_customer_snapshot(session: Session, batch_key: str) -> dict[str, str]:
+    row = session.scalar(
+        select(EyunInboundMessageModel)
+        .where(EyunInboundMessageModel.batch_key == batch_key)
+        .order_by(EyunInboundMessageModel.created_at.desc(), EyunInboundMessageModel.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        return {}
+    try:
+        payload = json.loads(row.payload_json or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+    display_name = _payload_text(
+        payload,
+        (
+            "remark_name",
+            "remark",
+            "display_name",
+            "nickname",
+            "nick_name",
+            "from_user_name",
+            "fromUserName",
+            "sender_name",
+            "alias",
+        ),
+    )
+    avatar_url = _payload_text(
+        payload,
+        ("avatar_url", "avatar", "headimgurl", "head_img_url", "head_url"),
+    )
+    snapshot = {}
+    if display_name:
+        snapshot["remark_name"] = display_name
+    if avatar_url:
+        snapshot["avatar_url"] = avatar_url
+    return snapshot
+
+
+def _payload_text(payload: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    sources = [payload]
+    data = payload.get("data")
+    if isinstance(data, dict):
+        sources.append(data)
+        for nested_key in ("user", "customer", "contact", "profile"):
+            nested = data.get(nested_key)
+            if isinstance(nested, dict):
+                sources.append(nested)
+    for nested_key in ("user", "customer", "contact", "profile"):
+        nested = payload.get(nested_key)
+        if isinstance(nested, dict):
+            sources.append(nested)
+    for source in sources:
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
 
 
 def _get_session() -> Session:

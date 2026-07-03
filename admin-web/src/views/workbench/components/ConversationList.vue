@@ -28,14 +28,19 @@
         type="button"
         @click="$emit('select', item.conversation_id)"
       >
-        <div class="item-head">
-          <strong>{{ item.user_id }}</strong>
-          <ElBadge v-if="item.unread_count" :value="item.unread_count" />
-        </div>
-        <div class="preview">{{ item.last_message || '暂无消息' }}</div>
-        <div class="meta">
-          <ElTag :type="statusType(item.status)" size="small">{{ statusText(item.status) }}</ElTag>
-          <span>{{ formatTime(item.updated_at) }}</span>
+        <ElAvatar :size="36" :src="item.user_avatar_url || undefined">
+          {{ avatarText(item) }}
+        </ElAvatar>
+        <div class="item-main">
+          <div class="item-head">
+            <strong>{{ displayName(item) }}</strong>
+            <ElBadge v-if="item.unread_count" :value="item.unread_count" />
+          </div>
+          <div class="preview">{{ item.last_message || '暂无消息' }}</div>
+          <div class="meta">
+            <ElTag :type="statusType(item.status)" size="small">{{ statusText(item.status) }}</ElTag>
+            <span>{{ formatTime(item.updated_at) }}</span>
+          </div>
         </div>
       </button>
     </div>
@@ -56,6 +61,9 @@ const keyword = ref('')
 const items = ref<ConversationItem[]>([])
 
 const load = async () => {
+  if (loading.value) {
+    return
+  }
   loading.value = true
   try {
     const data = await getConversations({
@@ -87,6 +95,10 @@ const statusType = (value: ConversationStatus) =>
     human_active: 'success',
     resolved: 'danger'
   })[value] as 'info' | 'warning' | 'success' | 'danger'
+
+const displayName = (item: ConversationItem) => item.user_display_name || item.user_id
+
+const avatarText = (item: ConversationItem) => displayName(item).slice(0, 1).toUpperCase()
 
 const formatTime = (value: string) => new Date(value).toLocaleString()
 
@@ -120,6 +132,9 @@ defineExpose({ load })
 }
 
 .item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
   width: 100%;
   padding: 12px;
   margin-bottom: 8px;
@@ -135,12 +150,23 @@ defineExpose({ load })
   box-shadow: 0 0 0 1px #2563eb inset;
 }
 
+.item-main {
+  min-width: 0;
+}
+
 .item-head,
 .meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.item-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .preview {
