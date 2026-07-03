@@ -250,6 +250,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
         customer_snapshot = _latest_customer_snapshot(session, batch_data["batch_key"])
 
     try:
+        if batch_data["from_group"]:
+            _mark_batch(batch_id, "skipped")
+            return
+
         if _conversation_blocks_ai(batch_data):
             _mark_batch(batch_id, "skipped")
             return

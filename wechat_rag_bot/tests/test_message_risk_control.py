@@ -238,6 +238,53 @@ async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_process_due_batch_skips_group_messages(monkeypatch):
+    from app.services.message_risk_control_service import (
+        _get_session,
+        enqueue_eyun_inbound,
+        process_due_eyun_inbound_batches,
+    )
+
+    now = datetime(2026, 7, 3, 12, 2, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.utcnow",
+        lambda: now - timedelta(seconds=120),
+    )
+    batch = await enqueue_eyun_inbound(
+        {
+            "account": "acct",
+            "messageType": "60001",
+            "wcId": "bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "user",
+                "fromGroup": "group",
+                "content": "group message",
+                "newMsgId": 1,
+            },
+        }
+    )
+
+    async def fail_handle_chat(request):
+        pytest.fail("group messages must not call AI")
+
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.handle_chat", fail_handle_chat
+    )
+    monkeypatch.setattr("app.services.message_risk_control_service.utcnow", lambda: now)
+
+    attempted = await process_due_eyun_inbound_batches(limit=10)
+
+    with _get_session() as session:
+        stored = session.get(EyunInboundBatchModel, batch["id"])
+        outbound_count = session.query(EyunOutboundMessageModel).count()
+
+    assert attempted == 1
+    assert stored.status == "skipped"
+    assert outbound_count == 0
+
+
+@pytest.mark.asyncio
 async def test_enqueue_outbound_adds_random_due_at(monkeypatch):
     from app.services.message_risk_control_service import enqueue_eyun_outbound
 
