@@ -22,11 +22,11 @@
       <ElEmpty v-if="!items.length && !loading" description="暂无会话" />
       <button
         v-for="item in items"
-        :key="item.conversation_id"
+        :key="item.group_key"
         class="item"
-        :class="{ active: item.conversation_id === activeId }"
+        :class="{ active: item.group_key === activeKey }"
         type="button"
-        @click="$emit('select', item.conversation_id)"
+        @click="$emit('select', item)"
       >
         <ElAvatar :size="36" :src="item.user_avatar_url || undefined">
           {{ avatarText(item) }}
@@ -51,14 +51,18 @@
 import { onMounted, ref } from 'vue'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { getConversations, type ConversationItem, type ConversationStatus } from '@/api/admin/conversations'
+import {
+  groupConversationsByCustomer,
+  type ConversationGroupItem
+} from '../conversationGrouping'
 
-defineProps<{ activeId: string }>()
-defineEmits<{ select: [id: string] }>()
+defineProps<{ activeKey: string }>()
+defineEmits<{ select: [item: ConversationGroupItem] }>()
 
 const loading = ref(false)
 const status = ref('')
 const keyword = ref('')
-const items = ref<ConversationItem[]>([])
+const items = ref<ConversationGroupItem[]>([])
 let requesting = false
 
 const load = async (options: { silent?: boolean } = {}) => {
@@ -76,7 +80,7 @@ const load = async (options: { silent?: boolean } = {}) => {
       status: status.value || undefined,
       keyword: keyword.value || undefined
     })
-    items.value = data.items
+    items.value = groupConversationsByCustomer(data.items)
   } finally {
     requesting = false
     if (!options.silent) {
@@ -109,9 +113,11 @@ const avatarText = (item: ConversationItem) => displayName(item).slice(0, 1).toU
 
 const formatTime = (value: string) => new Date(value).toLocaleString()
 
+const getItemByKey = (groupKey: string) => items.value.find((item) => item.group_key === groupKey)
+
 onMounted(load)
 
-defineExpose({ load })
+defineExpose({ load, getItemByKey })
 </script>
 
 <style scoped>

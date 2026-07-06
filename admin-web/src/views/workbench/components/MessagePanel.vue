@@ -10,11 +10,11 @@
           <p v-if="detail">{{ detail.conversation.channel }} / {{ detail.conversation.session_id || 'default' }}</p>
         </div>
       </div>
-      <ElButton :disabled="!conversationId" :icon="Refresh" circle @click="load()" />
+      <ElButton :disabled="!conversationIds.length" :icon="Refresh" circle @click="load()" />
     </div>
 
     <div ref="timelineRef" v-loading="loading" class="timeline">
-      <ElEmpty v-if="!conversationId" description="请选择左侧会话" />
+      <ElEmpty v-if="!conversationIds.length" description="请选择左侧会话" />
       <ElEmpty v-else-if="!detail?.messages.length && !loading" description="暂无消息" />
       <div
         v-for="message in detail?.messages || []"
@@ -41,7 +41,7 @@ import {
   type ConversationItem
 } from '@/api/admin/conversations'
 
-const props = defineProps<{ conversationId: string }>()
+const props = defineProps<{ conversationId: string; conversationIds: string[] }>()
 const emit = defineEmits<{ loaded: [conversation: ConversationItem | undefined] }>()
 
 const loading = ref(false)
@@ -55,7 +55,7 @@ const load = async (options: { silent?: boolean } = {}) => {
     reloadPending = true
     return
   }
-  if (!props.conversationId) {
+  if (!props.conversationIds.length) {
     detail.value = undefined
     emit('loaded', undefined)
     return
@@ -69,7 +69,22 @@ const load = async (options: { silent?: boolean } = {}) => {
     loading.value = true
   }
   try {
-    detail.value = await getConversationDetail(props.conversationId)
+    const details = await Promise.all(
+      props.conversationIds.map((conversationId) => getConversationDetail(conversationId))
+    )
+    const currentDetail =
+      details.find((item) => item.conversation.conversation_id === props.conversationId) || details[0]
+
+    detail.value = {
+      conversation: currentDetail.conversation,
+      messages: details
+        .flatMap((item) => item.messages)
+        .sort(
+          (left, right) =>
+            new Date(left.created_at).getTime() - new Date(right.created_at).getTime() ||
+            left.id - right.id
+        )
+    }
     emit('loaded', detail.value.conversation)
     await nextTick()
     if (wasNearBottom && timelineRef.value) {
@@ -99,7 +114,7 @@ const avatarText = (conversation: ConversationItem) =>
 const formatTime = (value: string) => new Date(value).toLocaleString()
 
 watch(
-  () => props.conversationId,
+  () => [props.conversationId, props.conversationIds.join('|')],
   () => load()
 )
 onMounted(load)

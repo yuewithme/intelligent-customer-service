@@ -3,13 +3,14 @@
     <ConversationList
       ref="conversationListRef"
       class="panel list"
-      :active-id="selectedId"
+      :active-key="selectedGroupKey"
       @select="selectConversation"
     />
     <MessagePanel
       ref="messagePanelRef"
       class="panel messages"
       :conversation-id="selectedId"
+      :conversation-ids="selectedIds"
       @loaded="conversation = $event"
     />
     <SupervisionPanel
@@ -24,6 +25,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import type { ConversationItem } from '@/api/admin/conversations'
+import type { ConversationGroupItem } from './conversationGrouping'
 import ConversationList from './components/ConversationList.vue'
 import MessagePanel from './components/MessagePanel.vue'
 import SupervisionPanel from './components/SupervisionPanel.vue'
@@ -33,14 +35,18 @@ defineOptions({ name: 'Workbench' })
 const FALLBACK_SYNC_INTERVAL_MS = 30_000
 
 const selectedId = ref('')
+const selectedIds = ref<string[]>([])
+const selectedGroupKey = ref('')
 const conversation = ref<ConversationItem>()
 const conversationListRef = ref<InstanceType<typeof ConversationList>>()
 const messagePanelRef = ref<InstanceType<typeof MessagePanel>>()
 let eventSource: EventSource | undefined
 let fallbackTimer: number | undefined
 
-const selectConversation = (id: string) => {
-  selectedId.value = id
+const selectConversation = (item: ConversationGroupItem) => {
+  selectedId.value = item.conversation_id
+  selectedIds.value = item.conversation_ids
+  selectedGroupKey.value = item.group_key
 }
 
 const handleChanged = async () => {
@@ -49,7 +55,14 @@ const handleChanged = async () => {
 
 const syncWorkbench = async (conversationId?: string) => {
   await conversationListRef.value?.load({ silent: true })
-  if (!conversationId || conversationId === selectedId.value) {
+  if (selectedGroupKey.value) {
+    const selectedGroup = conversationListRef.value?.getItemByKey(selectedGroupKey.value)
+    if (selectedGroup) {
+      selectedId.value = selectedGroup.conversation_id
+      selectedIds.value = selectedGroup.conversation_ids
+    }
+  }
+  if (!conversationId || selectedIds.value.includes(conversationId)) {
     await messagePanelRef.value?.load({ silent: true })
   }
 }
