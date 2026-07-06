@@ -1,11 +1,7 @@
 import request from '@/config/axios'
 
 export type ConversationStatus =
-  | 'ai_active'
-  | 'ai_waiting'
-  | 'handoff_pending'
-  | 'human_active'
-  | 'resolved'
+  'ai_active' | 'ai_waiting' | 'handoff_pending' | 'human_active' | 'resolved'
 
 export interface ConversationItem {
   conversation_id: string
@@ -78,6 +74,11 @@ export const replyConversation = (conversationId: string, operator_id: string, c
   request.post<ConversationItem>({
     url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/reply`,
     data: { operator_id, content }
+  })
+
+export const markConversationRead = (conversationId: string) =>
+  request.post<ConversationItem>({
+    url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/read`
   })
 
 export const forceHandoff = (conversationId: string, operator_id: string, reason: string) =>

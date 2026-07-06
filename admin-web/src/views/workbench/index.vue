@@ -11,7 +11,7 @@
       class="panel messages"
       :conversation-id="selectedId"
       :conversation-ids="selectedIds"
-      @loaded="conversation = $event"
+      @loaded="handleConversationLoaded"
     />
     <SupervisionPanel
       class="panel side"
@@ -24,7 +24,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import type { ConversationItem } from '@/api/admin/conversations'
+import { markConversationRead, type ConversationItem } from '@/api/admin/conversations'
 import type { ConversationGroupItem } from './conversationGrouping'
 import ConversationList from './components/ConversationList.vue'
 import MessagePanel from './components/MessagePanel.vue'
@@ -42,6 +42,7 @@ const conversationListRef = ref<InstanceType<typeof ConversationList>>()
 const messagePanelRef = ref<InstanceType<typeof MessagePanel>>()
 let eventSource: EventSource | undefined
 let fallbackTimer: number | undefined
+let markingReadKey = ''
 
 const selectConversation = (item: ConversationGroupItem) => {
   selectedId.value = item.conversation_id
@@ -51,6 +52,30 @@ const selectConversation = (item: ConversationGroupItem) => {
 
 const handleChanged = async () => {
   await syncWorkbench()
+}
+
+const handleConversationLoaded = (loadedConversation: ConversationItem | undefined) => {
+  conversation.value = loadedConversation
+  void markSelectedRead()
+}
+
+const markSelectedRead = async () => {
+  if (!selectedIds.value.length) {
+    return
+  }
+  const key = selectedIds.value.join('|')
+  if (markingReadKey === key) {
+    return
+  }
+  markingReadKey = key
+  try {
+    await Promise.all(
+      selectedIds.value.map((conversationId) => markConversationRead(conversationId))
+    )
+    await conversationListRef.value?.load({ silent: true })
+  } finally {
+    markingReadKey = ''
+  }
 }
 
 const syncWorkbench = async (conversationId?: string) => {

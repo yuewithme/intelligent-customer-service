@@ -12,6 +12,7 @@ from app.services.conversation_service import (
     force_handoff,
     get_conversation_detail,
     list_conversations,
+    mark_conversation_read,
     release_to_ai,
     reply_conversation,
     resolve_conversation,
@@ -85,6 +86,12 @@ async def reply(conversation_id: str, request: ReplyRequest) -> APIResponse:
     data = await reply_conversation(
         conversation_id, request.operator_id, request.content
     )
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/read", response_model=APIResponse)
+async def mark_read(conversation_id: str) -> APIResponse:
+    data = await mark_conversation_read(conversation_id)
     return APIResponse(code=0, message="success", data=data)
 
 

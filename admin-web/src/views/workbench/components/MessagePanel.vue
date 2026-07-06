@@ -7,7 +7,10 @@
         </ElAvatar>
         <div>
           <h2>{{ detail ? displayName(detail.conversation) : '选择会话' }}</h2>
-          <p v-if="detail">{{ detail.conversation.channel }} / {{ detail.conversation.session_id || 'default' }}</p>
+          <p v-if="detail"
+            >{{ detail.conversation.channel }} /
+            {{ detail.conversation.session_id || 'default' }}</p
+          >
         </div>
       </div>
       <ElButton :disabled="!conversationIds.length" :icon="Refresh" circle @click="load()" />
@@ -24,7 +27,38 @@
       >
         <div class="bubble">
           <div class="sender">{{ senderText(message.sender_type) }}</div>
-          <div class="content">{{ message.content }}</div>
+          <div class="content">
+            <ElImage
+              v-if="isImageMessage(message) && mediaSource(message)"
+              class="message-image"
+              :src="mediaSource(message)"
+              :preview-src-list="[mediaSource(message)]"
+              fit="cover"
+              preview-teleported
+            />
+            <video
+              v-else-if="mediaType(message) === 'video' && mediaSource(message)"
+              class="message-video"
+              :src="mediaSource(message)"
+              controls
+            />
+            <audio
+              v-else-if="mediaType(message) === 'audio' && mediaSource(message)"
+              class="message-audio"
+              :src="mediaSource(message)"
+              controls
+            />
+            <a
+              v-else-if="mediaSource(message)"
+              class="message-link"
+              :href="mediaSource(message)"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {{ mediaFileName(message) || message.content }}
+            </a>
+            <span v-else>{{ message.content }}</span>
+          </div>
           <div class="time">{{ formatTime(message.created_at) }}</div>
         </div>
       </div>
@@ -38,9 +72,19 @@ import { Refresh } from '@element-plus/icons-vue'
 import {
   getConversationDetail,
   type ConversationDetail,
-  type ConversationItem
+  type ConversationItem,
+  type ConversationMessage
 } from '@/api/admin/conversations'
 import { formatChinaTime } from '../time'
+
+interface MediaMetadata {
+  type?: string
+  url?: string
+  thumb_base64?: string
+  file_name?: string
+  filename?: string
+  name?: string
+}
 
 const props = defineProps<{ conversationId: string; conversationIds: string[] }>()
 const emit = defineEmits<{ loaded: [conversation: ConversationItem | undefined] }>()
@@ -74,7 +118,8 @@ const load = async (options: { silent?: boolean } = {}) => {
       props.conversationIds.map((conversationId) => getConversationDetail(conversationId))
     )
     const currentDetail =
-      details.find((item) => item.conversation.conversation_id === props.conversationId) || details[0]
+      details.find((item) => item.conversation.conversation_id === props.conversationId) ||
+      details[0]
 
     detail.value = {
       conversation: currentDetail.conversation,
@@ -105,6 +150,34 @@ const load = async (options: { silent?: boolean } = {}) => {
 
 const senderText = (value: string) =>
   ({ customer: '客户', ai: 'AI', human: '人工', system: '系统' })[value] || value
+
+const messageMedia = (message: ConversationMessage): MediaMetadata | undefined => {
+  const media = message.metadata.media
+  return media && typeof media === 'object' ? (media as MediaMetadata) : undefined
+}
+
+const mediaType = (message: ConversationMessage) => messageMedia(message)?.type || ''
+
+const isImageMessage = (message: ConversationMessage) => mediaType(message) === 'image'
+
+const mediaSource = (message: ConversationMessage) => {
+  const media = messageMedia(message)
+  if (!media) {
+    return ''
+  }
+  if (media.url) {
+    return media.url
+  }
+  if (media.type === 'image' && media.thumb_base64) {
+    return `data:image/jpeg;base64,${media.thumb_base64}`
+  }
+  return ''
+}
+
+const mediaFileName = (message: ConversationMessage) => {
+  const media = messageMedia(message)
+  return media?.file_name || media?.filename || media?.name || ''
+}
 
 const displayName = (conversation: ConversationItem) =>
   conversation.user_display_name || conversation.user_id
@@ -211,5 +284,31 @@ p {
 .content {
   margin: 4px 0;
   line-height: 1.6;
+}
+
+.message-image {
+  display: block;
+  width: min(240px, 52vw);
+  max-height: 320px;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.message-video {
+  display: block;
+  width: min(360px, 60vw);
+  max-height: 320px;
+  border-radius: 6px;
+}
+
+.message-audio {
+  display: block;
+  width: min(320px, 58vw);
+}
+
+.message-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 </style>

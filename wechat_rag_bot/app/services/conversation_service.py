@@ -305,6 +305,36 @@ async def record_customer_message(
             )
             session.add(conversation)
             session.flush()
+        else:
+            display_name = _metadata_text(
+                metadata,
+                (
+                    "remark_name",
+                    "remark",
+                    "display_name",
+                    "nickname",
+                    "nick_name",
+                    "user_nickname",
+                    "from_user_name",
+                    "fromUserName",
+                    "sender_name",
+                    "alias",
+                ),
+            )
+            avatar_url = _metadata_text(
+                metadata,
+                (
+                    "avatar_url",
+                    "avatar",
+                    "headimgurl",
+                    "head_img_url",
+                    "head_url",
+                ),
+            )
+            if display_name:
+                conversation.user_display_name = display_name
+            if avatar_url:
+                conversation.user_avatar_url = avatar_url
 
         conversation.status = status
         conversation.owner_id = None
@@ -377,6 +407,22 @@ async def reply_conversation(
                 message="当前会话未接管，不能人工回复",
                 status_code=409,
             )
+        eyun_target = _latest_eyun_reply_target(session, conversation)
+        if eyun_target:
+            try:
+                from app.services.eyun_callback_service import send_eyun_text
+
+                await send_eyun_text(
+                    w_id=eyun_target["w_id"],
+                    wc_id=eyun_target["wc_id"],
+                    content=content,
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise AppError(
+                    ErrorCode.WECHAT_REPLY_FAILED,
+                    message="Eyun 消息发送失败，人工回复未写入本地会话",
+                    status_code=502,
+                ) from exc
         now = _now()
         session.add(
             ConversationMessageModel(
@@ -392,6 +438,15 @@ async def reply_conversation(
         conversation.updated_at = now
         session.commit()
         _publish_change(conversation_id, "reply")
+        return _conversation_to_dict(conversation)
+
+
+async def mark_conversation_read(conversation_id: str) -> dict:
+    with _get_session() as session:
+        conversation = _get_conversation_or_error(session, conversation_id)
+        conversation.unread_count = 0
+        session.commit()
+        _publish_change(conversation_id, "read")
         return _conversation_to_dict(conversation)
 
 
@@ -558,6 +613,36 @@ def _metadata_sources(metadata: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(value, dict):
             sources.append(value)
     return sources
+
+
+def _latest_eyun_reply_target(
+    session: Session, conversation: ConversationModel
+) -> dict[str, str] | None:
+    rows = session.scalars(
+        select(ConversationMessageModel)
+        .where(
+            ConversationMessageModel.conversation_id == conversation.conversation_id,
+            ConversationMessageModel.sender_type == "customer",
+        )
+        .order_by(
+            ConversationMessageModel.created_at.desc(),
+            ConversationMessageModel.id.desc(),
+        )
+    ).all()
+    for row in rows:
+        try:
+            metadata = json.loads(row.metadata_json or "{}")
+        except json.JSONDecodeError:
+            continue
+        if metadata.get("provider") != "eyun":
+            continue
+        w_id = str(metadata.get("w_id") or "").strip()
+        wc_id = str(
+            metadata.get("from_group") or metadata.get("from_user") or conversation.user_id
+        ).strip()
+        if w_id and wc_id:
+            return {"w_id": w_id, "wc_id": wc_id}
+    return None
 
 
 def _ensure_conversation_columns(factory: sessionmaker) -> None:

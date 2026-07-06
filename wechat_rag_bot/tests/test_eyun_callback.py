@@ -113,6 +113,14 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
         return {"batch_key": "wid_test:wxid_customer"}
 
     monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
+
+    async def fake_fetch_image_url(**kwargs):
+        assert kwargs["w_id"] == "wid_test"
+        assert kwargs["msg_id"] == "456"
+        assert kwargs["image_type"] == 1
+        return "https://cdn.example.com/original.jpg"
+
+    monkeypatch.setattr(eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url)
     client = TestClient(app)
 
     text_response = client.post(
@@ -167,6 +175,12 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     assert all(message["sender_type"] == "customer" for message in messages)
     assert messages[1]["metadata"]["message_type"] == "60002"
     assert messages[1]["metadata"]["image_thumb_base64"]
+    assert messages[1]["metadata"]["media"] == {
+        "type": "image",
+        "url": "https://cdn.example.com/original.jpg",
+        "thumb_base64": "/9j/4AAQSkZJRgABAQAASABIAAD/",
+        "fallback": False,
+    }
 
 
 def test_wechat_callback_records_group_text_without_ai_queue(monkeypatch, tmp_path):
@@ -178,6 +192,17 @@ def test_wechat_callback_records_group_text_without_ai_queue(monkeypatch, tmp_pa
         raise AssertionError("group messages should not enter the AI queue")
 
     monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_enqueue)
+
+    async def fake_contact_snapshot(**kwargs):
+        assert kwargs == {"w_id": "wid_test", "wc_id": "12345@chatroom"}
+        return {
+            "remark_name": "Orchid Group",
+            "avatar_url": "https://example.com/group.jpg",
+        }
+
+    monkeypatch.setattr(
+        eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
+    )
     client = TestClient(app)
 
     response = client.post(
@@ -204,6 +229,8 @@ def test_wechat_callback_records_group_text_without_ai_queue(monkeypatch, tmp_pa
     assert conversations["total"] == 1
     item = conversations["items"][0]
     assert item["conversation_id"] == "wechat:12345@chatroom:default"
+    assert item["user_display_name"] == "Orchid Group"
+    assert item["user_avatar_url"] == "https://example.com/group.jpg"
     assert item["last_message"] == "group hello"
 
     detail = client.get("/api/v1/admin/conversations/wechat:12345@chatroom:default")

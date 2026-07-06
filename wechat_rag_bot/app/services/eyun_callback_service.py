@@ -5,6 +5,7 @@ import httpx
 
 from app.config import get_settings
 from app.services.conversation_service import AI_WAITING, HANDOFF_PENDING, record_customer_message
+from app.services.eyun_contact_service import get_eyun_contact_snapshot
 from app.services.message_risk_control_service import enqueue_eyun_inbound
 
 
@@ -58,6 +59,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     if not str(data.get("fromGroup") or data.get("fromUser") or "").strip():
         return eyun_success()
 
+    metadata = await _eyun_workbench_metadata(payload, data)
     await record_customer_message(
         channel="wechat",
         user_id=_eyun_conversation_user_id(data),
@@ -68,7 +70,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         route="inbound_text" if is_eyun_text_message(payload) else "non_text",
         primary_intent="message" if is_eyun_text_message(payload) else _eyun_message_kind(message_type),
         handoff_reason=None if is_eyun_private_text_message(payload) else "unsupported_message_type",
-        metadata=_eyun_workbench_metadata(payload, data),
+        metadata=metadata,
     )
 
     if not is_eyun_private_text_message(payload):
@@ -127,6 +129,10 @@ def _eyun_message_id(data: dict[str, Any]) -> str | None:
     return str(data.get("newMsgId") or data.get("msgId") or "") or None
 
 
+def _eyun_provider_message_id(data: dict[str, Any]) -> str | None:
+    return str(data.get("msgId") or data.get("newMsgId") or "") or None
+
+
 def _eyun_display_content(payload: dict[str, Any]) -> str:
     if is_eyun_text_message(payload):
         return str((payload.get("data") or {}).get("content") or "").strip() or "[空消息]"
@@ -139,13 +145,16 @@ def _eyun_message_kind(message_type: str) -> str:
     return "non_text"
 
 
-def _eyun_workbench_metadata(payload: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
-    return {
+async def _eyun_workbench_metadata(payload: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+    message_type = str(payload.get("messageType") or "")
+    w_id = str(data.get("wId") or payload.get("wId") or "")
+    user_id = _eyun_conversation_user_id(data)
+    metadata = {
         "provider": "eyun",
         "account": str(payload.get("account") or ""),
-        "message_type": str(payload.get("messageType") or ""),
+        "message_type": message_type,
         "wc_id": str(payload.get("wcId") or data.get("toUser") or ""),
-        "w_id": str(data.get("wId") or payload.get("wId") or ""),
+        "w_id": w_id,
         "from_user": str(data.get("fromUser") or ""),
         "from_group": str(data.get("fromGroup") or ""),
         "raw_content": str(data.get("content") or ""),
@@ -153,6 +162,82 @@ def _eyun_workbench_metadata(payload: dict[str, Any], data: dict[str, Any]) -> d
         "message_id": _eyun_message_id(data),
         "skip_customer_record": True,
     }
+    metadata.update(await get_eyun_contact_snapshot(w_id=w_id, wc_id=user_id))
+    media = await _eyun_media_metadata(message_type, data, w_id=w_id)
+    if media:
+        metadata["media"] = media
+    return metadata
+
+
+async def _eyun_media_metadata(
+    message_type: str, data: dict[str, Any], *, w_id: str
+) -> dict[str, Any] | None:
+    if not message_type.endswith("002"):
+        return None
+
+    thumb_base64 = str(data.get("img") or "")
+    msg_id = _eyun_provider_message_id(data) or ""
+    url = await fetch_eyun_image_url(
+        w_id=w_id,
+        msg_id=msg_id,
+        content=str(data.get("content") or ""),
+        image_type=1,
+    ) or await fetch_eyun_image_url(
+        w_id=w_id,
+        msg_id=msg_id,
+        content=str(data.get("content") or ""),
+        image_type=0,
+    )
+    media: dict[str, Any] = {
+        "type": "image",
+        "thumb_base64": thumb_base64,
+        "fallback": not bool(url),
+    }
+    if url:
+        media["url"] = url
+    return media
+
+
+async def fetch_eyun_image_url(
+    *, w_id: str, msg_id: str, content: str, image_type: int = 1
+) -> str | None:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id or not msg_id:
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"{base_url}/getMsgImg",
+                headers={
+                    "Authorization": authorization,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "wId": w_id,
+                    "msgId": msg_id,
+                    "content": content,
+                    "type": image_type,
+                },
+            )
+        response.raise_for_status()
+        result = response.json()
+        if str(result.get("code")) != "1000":
+            logger.warning("Eyun getMsgImg returned non-success response: %s", result)
+            return None
+        data = result.get("data")
+        if isinstance(data, dict):
+            for key in ("url", "imgUrl", "imageUrl", "src"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        if isinstance(data, str) and data.strip():
+            return data.strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Eyun getMsgImg failed for msgId=%s: %s", msg_id, exc)
+    return None
 
 
 async def send_eyun_text(*, w_id: str, wc_id: str, content: str) -> None:
@@ -176,3 +261,4 @@ async def send_eyun_text(*, w_id: str, wc_id: str, content: str) -> None:
     result = response.json()
     if str(result.get("code")) != "1000":
         logger.warning("Eyun sendText returned non-success response: %s", result)
+        raise RuntimeError(f"Eyun sendText failed: {result}")

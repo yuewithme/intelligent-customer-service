@@ -153,6 +153,88 @@ def test_claimed_handoff_conversation_accepts_human_reply(monkeypatch, tmp_path)
     assert messages[-1]["content"] == "您好，我来处理。"
 
 
+def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    sent = []
+
+    async def fail_enqueue(payload):
+        raise AssertionError("group callbacks should not enter the AI queue")
+
+    async def fake_send_eyun_text(**kwargs):
+        sent.append(kwargs)
+
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_enqueue)
+    monkeypatch.setattr(eyun_callback_service, "send_eyun_text", fake_send_eyun_text)
+    client = TestClient(app)
+
+    callback = client.post(
+        "/wechat/callback",
+        json={
+            "account": "test_account",
+            "messageType": "80001",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid_test",
+                "fromUser": "wxid_sender",
+                "fromGroup": "12345@chatroom",
+                "toUser": "wxid_bot",
+                "content": "group hello",
+                "msgId": 789,
+                "newMsgId": 790,
+                "self": False,
+            },
+        },
+    )
+    claim = client.post(
+        "/api/v1/admin/conversations/wechat:12345@chatroom:default/claim",
+        json={"operator_id": "op_001"},
+    )
+    reply = client.post(
+        "/api/v1/admin/conversations/wechat:12345@chatroom:default/reply",
+        json={"operator_id": "op_001", "content": "human reply"},
+    )
+
+    assert callback.status_code == 200
+    assert claim.status_code == 200
+    assert reply.status_code == 200
+    assert sent == [
+        {"w_id": "wid_test", "wc_id": "12345@chatroom", "content": "human reply"}
+    ]
+
+    detail = client.get("/api/v1/admin/conversations/wechat:12345@chatroom:default")
+    messages = detail.json()["data"]["messages"]
+    assert messages[-1]["sender_type"] == "human"
+    assert messages[-1]["content"] == "human reply"
+
+
+def test_mark_conversation_read_clears_unread_count(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    client.post(
+        "/api/v1/chat",
+        json={
+            "channel": "api",
+            "user_id": "user_001",
+            "session_id": "sess_001",
+            "message": "浣犲ソ",
+            "kb_id": "kb_default",
+            "metadata": {},
+        },
+    )
+
+    before = client.get("/api/v1/admin/conversations").json()["data"]["items"][0]
+    response = client.post("/api/v1/admin/conversations/api:user_001:sess_001/read")
+    after = client.get("/api/v1/admin/conversations").json()["data"]["items"][0]
+
+    assert before["unread_count"] > 0
+    assert response.status_code == 200
+    assert response.json()["data"]["unread_count"] == 0
+    assert after["unread_count"] == 0
+
+
 def test_force_handoff_allows_operator_to_claim_ai_conversation(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
