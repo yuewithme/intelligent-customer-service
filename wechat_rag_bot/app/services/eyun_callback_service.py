@@ -177,18 +177,12 @@ async def _eyun_workbench_metadata(payload: dict[str, Any], data: dict[str, Any]
 async def _eyun_media_metadata(
     message_type: str, data: dict[str, Any], *, w_id: str
 ) -> dict[str, Any] | None:
-    kind = _eyun_message_kind(message_type)
-    if kind == "non_text":
+    media = extract_eyun_media_metadata(message_type, data)
+    if media is None:
         return None
 
     content = str(data.get("content") or "")
-    media: dict[str, Any] = {"type": kind, **_xml_media_metadata(content)}
-    direct_url = _first_text(data, ("url", "fileUrl", "downloadUrl", "videoUrl"))
-    if direct_url:
-        media["url"] = direct_url
-
     if message_type.endswith("002"):
-        media["thumb_base64"] = str(data.get("img") or "")
         msg_id = _eyun_provider_message_id(data) or ""
         url = await fetch_eyun_image_url(
             w_id=w_id,
@@ -203,6 +197,26 @@ async def _eyun_media_metadata(
         )
         if url:
             media["url"] = url
+
+    media["fallback"] = not bool(media.get("url"))
+    return media
+
+
+def extract_eyun_media_metadata(
+    message_type: str, data: dict[str, Any]
+) -> dict[str, Any] | None:
+    kind = _eyun_message_kind(message_type)
+    if kind == "non_text":
+        return None
+
+    content = str(data.get("content") or "")
+    media: dict[str, Any] = {"type": kind, **_xml_media_metadata(content)}
+    direct_url = _first_text(data, ("url", "fileUrl", "downloadUrl", "videoUrl"))
+    if direct_url:
+        media["url"] = direct_url
+
+    if message_type.endswith("002"):
+        media["thumb_base64"] = str(data.get("img") or "")
 
     media["fallback"] = not bool(media.get("url"))
     return media

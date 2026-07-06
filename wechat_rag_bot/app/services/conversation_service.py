@@ -582,6 +582,18 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         metadata = json.loads(row.metadata_json or "{}")
     except json.JSONDecodeError:
         metadata = {}
+    if metadata.get("provider") == "eyun" and not metadata.get("media"):
+        from app.services.eyun_callback_service import extract_eyun_media_metadata
+
+        media = extract_eyun_media_metadata(
+            str(metadata.get("message_type") or ""),
+            {
+                "content": metadata.get("raw_content"),
+                "img": metadata.get("image_thumb_base64"),
+            },
+        )
+        if media:
+            metadata["media"] = media
     return {
         "id": row.id,
         "conversation_id": row.conversation_id,

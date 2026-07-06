@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.main import app
+from app.services.conversation_service import record_customer_message
 from app.services.conversation_event_service import conversation_event_broker
 
 
@@ -118,6 +119,39 @@ def test_conversation_timestamps_are_serialized_as_utc(monkeypatch, tmp_path):
     assert item["created_at"].endswith("+00:00")
     assert item["updated_at"].endswith("+00:00")
     assert detail["messages"][0]["created_at"].endswith("+00:00")
+
+
+def test_existing_eyun_messages_recover_media_from_raw_content(monkeypatch, tmp_path):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="wxid_customer",
+            session_id="default",
+            content="[视频]",
+            metadata={
+                "provider": "eyun",
+                "message_type": "60003",
+                "raw_content": (
+                    '<msg><videomsg cdnvideourl="https://cdn.example.com/old.mp4" />'
+                    "</msg>"
+                ),
+            },
+        )
+    )
+
+    client = TestClient(app)
+    detail = client.get(
+        "/api/v1/admin/conversations/wechat:wxid_customer:default"
+    ).json()["data"]
+
+    assert detail["messages"][0]["metadata"]["media"] == {
+        "type": "video",
+        "url": "https://cdn.example.com/old.mp4",
+        "fallback": False,
+    }
 
 
 def test_human_cannot_reply_until_conversation_is_claimed(monkeypatch, tmp_path):
