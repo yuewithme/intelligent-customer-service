@@ -37,6 +37,7 @@ const FALLBACK_SYNC_INTERVAL_MS = 30_000
 const selectedId = ref('')
 const selectedIds = ref<string[]>([])
 const selectedGroupKey = ref('')
+const selectedUnreadCount = ref(0)
 const conversation = ref<ConversationItem>()
 const conversationListRef = ref<InstanceType<typeof ConversationList>>()
 const messagePanelRef = ref<InstanceType<typeof MessagePanel>>()
@@ -48,6 +49,7 @@ const selectConversation = (item: ConversationGroupItem) => {
   selectedId.value = item.conversation_id
   selectedIds.value = item.conversation_ids
   selectedGroupKey.value = item.group_key
+  selectedUnreadCount.value = item.unread_count
 }
 
 const handleChanged = async () => {
@@ -56,11 +58,13 @@ const handleChanged = async () => {
 
 const handleConversationLoaded = (loadedConversation: ConversationItem | undefined) => {
   conversation.value = loadedConversation
-  void markSelectedRead()
+  if (selectedUnreadCount.value > 0) {
+    void markSelectedRead()
+  }
 }
 
 const markSelectedRead = async () => {
-  if (!selectedIds.value.length) {
+  if (!selectedIds.value.length || selectedUnreadCount.value <= 0) {
     return
   }
   const key = selectedIds.value.join('|')
@@ -72,6 +76,7 @@ const markSelectedRead = async () => {
     await Promise.all(
       selectedIds.value.map((conversationId) => markConversationRead(conversationId))
     )
+    selectedUnreadCount.value = 0
     await conversationListRef.value?.load({ silent: true })
   } finally {
     markingReadKey = ''
@@ -85,6 +90,7 @@ const syncWorkbench = async (conversationId?: string) => {
     if (selectedGroup) {
       selectedId.value = selectedGroup.conversation_id
       selectedIds.value = selectedGroup.conversation_ids
+      selectedUnreadCount.value = selectedGroup.unread_count
     }
   }
   if (!conversationId || selectedIds.value.includes(conversationId)) {

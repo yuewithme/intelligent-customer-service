@@ -345,6 +345,33 @@ def test_mark_conversation_read_clears_unread_count(monkeypatch, tmp_path):
     assert after["unread_count"] == 0
 
 
+def test_marking_an_already_read_conversation_does_not_publish_again(
+    monkeypatch, tmp_path
+):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+    client.post(
+        "/api/v1/chat",
+        json={
+            "channel": "api",
+            "user_id": "user_001",
+            "session_id": "sess_001",
+            "message": "hello",
+            "kb_id": "kb_default",
+            "metadata": {},
+        },
+    )
+    event_queue = conversation_event_broker.subscribe()
+
+    client.post("/api/v1/admin/conversations/api:user_001:sess_001/read")
+    first_event = event_queue.get_nowait()
+    client.post("/api/v1/admin/conversations/api:user_001:sess_001/read")
+
+    assert first_event["reason"] == "read"
+    assert event_queue.empty()
+    conversation_event_broker.unsubscribe(event_queue)
+
+
 def test_force_handoff_allows_operator_to_claim_ai_conversation(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)

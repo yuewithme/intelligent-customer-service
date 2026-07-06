@@ -444,10 +444,13 @@ async def reply_conversation(
 async def mark_conversation_read(conversation_id: str) -> dict:
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)
+        changed = bool(conversation.unread_count)
         conversation.unread_count = 0
         session.commit()
+        result = _conversation_to_dict(conversation)
+    if changed:
         _publish_change(conversation_id, "read")
-        return _conversation_to_dict(conversation)
+    return result
 
 
 async def resolve_message_media(message_id: int) -> dict:
