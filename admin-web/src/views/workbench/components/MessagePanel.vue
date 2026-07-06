@@ -10,10 +10,10 @@
           <p v-if="detail">{{ detail.conversation.channel }} / {{ detail.conversation.session_id || 'default' }}</p>
         </div>
       </div>
-      <ElButton :disabled="!conversationId" :icon="Refresh" circle @click="load" />
+      <ElButton :disabled="!conversationId" :icon="Refresh" circle @click="load()" />
     </div>
 
-    <div v-loading="loading" class="timeline">
+    <div ref="timelineRef" v-loading="loading" class="timeline">
       <ElEmpty v-if="!conversationId" description="请选择左侧会话" />
       <ElEmpty v-else-if="!detail?.messages.length && !loading" description="暂无消息" />
       <div
@@ -33,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import {
   getConversationDetail,
@@ -41,14 +41,18 @@ import {
   type ConversationItem
 } from '@/api/admin/conversations'
 
-const props = defineProps<{ conversationId: string; refreshKey: number }>()
+const props = defineProps<{ conversationId: string }>()
 const emit = defineEmits<{ loaded: [conversation: ConversationItem | undefined] }>()
 
 const loading = ref(false)
 const detail = ref<ConversationDetail>()
+const timelineRef = ref<HTMLElement>()
+let reloadPending = false
+let requesting = false
 
-const load = async () => {
-  if (loading.value) {
+const load = async (options: { silent?: boolean } = {}) => {
+  if (requesting) {
+    reloadPending = true
     return
   }
   if (!props.conversationId) {
@@ -56,12 +60,30 @@ const load = async () => {
     emit('loaded', undefined)
     return
   }
-  loading.value = true
+  requesting = true
+  const timeline = timelineRef.value
+  const wasNearBottom = timeline
+    ? timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80
+    : true
+  if (!options.silent) {
+    loading.value = true
+  }
   try {
     detail.value = await getConversationDetail(props.conversationId)
     emit('loaded', detail.value.conversation)
+    await nextTick()
+    if (wasNearBottom && timelineRef.value) {
+      timelineRef.value.scrollTop = timelineRef.value.scrollHeight
+    }
   } finally {
-    loading.value = false
+    requesting = false
+    if (!options.silent) {
+      loading.value = false
+    }
+    if (reloadPending) {
+      reloadPending = false
+      void load({ silent: true })
+    }
   }
 }
 
@@ -76,8 +98,10 @@ const avatarText = (conversation: ConversationItem) =>
 
 const formatTime = (value: string) => new Date(value).toLocaleString()
 
-watch(() => props.conversationId, load)
-watch(() => props.refreshKey, load)
+watch(
+  () => props.conversationId,
+  () => load()
+)
 onMounted(load)
 
 defineExpose({ load })

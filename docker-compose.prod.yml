@@ -4,6 +4,12 @@ services:
       context: ./wechat_rag_bot
     env_file:
       - ./deploy/env/backend.prod.env
+    environment:
+      DATABASE_URL: sqlite:////app/data/rag.db
+      CHAT_LOG_ENABLED: "true"
+      CHAT_LOG_PROVIDER: sqlite
+      CHAT_LOG_DB_URL: sqlite:////app/data/chat_logs.db
+      UPLOAD_DIR: /app/data/uploads
     expose:
       - "8000"
     volumes:
@@ -16,9 +22,8 @@ services:
     depends_on:
       - api
     ports:
-      - "80:80"
+      - "21873:80"
     restart: unless-stopped
 
 volumes:
   backend-data:
-

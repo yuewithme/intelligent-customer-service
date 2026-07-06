@@ -4,7 +4,9 @@
 
 ## 1. 项目定位
 
-`wechat_rag_bot` 是一个以统一聊天入口为核心的智能客服后端。系统把 API、微信等渠道消息归一化后，统一进入聊天编排器，再按规则、意图、策略决定走确定性话术、模板回复、知识库 RAG、闲聊或转人工。
+`wechat_rag_bot` 是一个以统一聊天入口为核心的智能客服后端。系统把 API、微信等渠道消息归一化后，统一进入聊天编排器，再按规则、标签、意图、策略决定走确定性话术、模板回复、知识库 RAG、闲聊或转人工。
+
+后续主链路建议升级为“标签驱动的策略编排系统”，而不是一开始全面多 Agent 化。标签器负责识别用户分层、业务意图、情绪、阶段和风险；策略引擎根据标签选择下一步动作，例如命中固定话术、选择知识库、选择提示词块、选择语气、补问信息或转人工；Prompt Builder 再把策略结果、上下文、模板和知识库片段组装成稳定的模型输入。
 
 当前技术栈：
 
@@ -26,17 +28,23 @@ flowchart TD
   Orchestrator --> Channel["Channel Service<br/>消息归一化"]
   Orchestrator --> State["State Service<br/>运行态状态"]
   Orchestrator --> RuleGuard["Rule Guard<br/>规则优先拦截"]
-  Orchestrator --> Intent["Intent Service<br/>意图识别"]
-  Orchestrator --> Policy["Policy Service<br/>路由决策"]
+  Orchestrator --> Tagger["Tagger<br/>标签器"]
+  Tagger --> Intent["Intent Service<br/>意图识别"]
+  Tagger --> ProfileTag["Segment / Emotion / Stage<br/>用户分层与状态标签"]
+  Orchestrator --> Policy["Policy Engine<br/>策略编排"]
 
   Policy --> TalkScript["Talk Script<br/>确定性话术库"]
   Policy --> Template["Template Service<br/>模板回复"]
+  Policy --> Context["Context Selector<br/>画像 / 记忆 / 会话筛选"]
+  Policy --> Prompt["Prompt Builder<br/>提示词块组装"]
   Policy --> RAG["RAG Service<br/>知识库问答"]
   Policy --> Human["Human Handoff<br/>转人工"]
   Policy --> Chitchat["Chitchat / Clarify / Unsupported"]
 
   TalkScript --> Reply["Reply Builder<br/>统一回复结构"]
   Template --> Reply
+  Context --> Prompt
+  Prompt --> RAG
   RAG --> Reply
   Human --> Reply
   Chitchat --> Reply
@@ -73,7 +81,7 @@ wechat_rag_bot/
 | 应用入口层 | 创建 FastAPI 应用、注册路由、处理统一异常 | `app/main.py` |
 | Router 层 | 接收 HTTP 请求、做鉴权依赖、调用服务层、包装统一响应 | `app/routers/*.py` |
 | 编排层 | 串联聊天主流程，决定各业务模块调用顺序 | `app/services/chat_orchestrator.py` |
-| 服务层 | 实现意图、策略、模板、RAG、日志、画像等业务能力 | `app/services/*.py` |
+| 服务层 | 实现标签、意图、策略、模板、RAG、提示词构建、日志、画像等业务能力 | `app/services/*.py` |
 | 话术领域层 | Excel 话术库导入、场景匹配、问题分类、固定话术输出 | `app/talk_script/*.py` |
 | Schema 层 | 定义 API 契约和内部结构化对象 | `app/schemas/*.py` |
 | 数据层 | 定义聊天日志、用户画像、话术库等关系表 | `app/db/models.py` |
@@ -175,6 +183,181 @@ flowchart TD
 - `template_reply`、`rag_answer`、`template_then_rag` 在进入原流程前会先尝试确定性话术库。
 - 明确人工、退款、投诉等高风险场景会转人工；低风险信息不足或低置信知识类问题优先进入 LLM/RAG 兜底。
 - 聊天成功或失败都会尽量写入聊天日志；日志写入失败不应影响主流程。
+
+### 5.1 标签驱动的策略编排目标链路
+
+目标链路用于实现“打不同标签后改变下一步动作”：同一条用户消息先被识别成结构化标签，再由策略引擎选择固定模板、知识库范围、提示词块、语气、上下文和输出方式。这个设计优先使用可配置规则和模板，不要求先训练模型，也不要求把每个处理节点都升级成 Agent。
+
+```mermaid
+flowchart TD
+  A["ChatRequest"] --> B["Channel Normalizer<br/>渠道与租户归一化"]
+  B --> C["State/Profile Loader<br/>读取运行态、画像、近期记忆"]
+  C --> D["Tagger<br/>标签器"]
+  D --> D1["intent<br/>业务意图"]
+  D --> D2["segment<br/>新手/老手/客户层级"]
+  D --> D3["emotion<br/>情绪"]
+  D --> D4["stage<br/>销售/服务阶段"]
+  D --> D5["risk<br/>风险与转人工信号"]
+  D --> E["Policy Engine<br/>策略引擎"]
+  E --> F{"action"}
+  F --> G["Fixed Template<br/>固定话术/变量填充"]
+  F --> H["RAG Answer<br/>按标签选择知识库"]
+  F --> I["Clarify<br/>补问缺失信息"]
+  F --> J["Human Handoff<br/>转人工"]
+  H --> K["Context Selector<br/>选择画像摘要、近期原文、长期摘要"]
+  K --> L["Prompt Builder<br/>组装提示词块、模板、知识库片段"]
+  L --> M["LLM Generator<br/>生成自然回复"]
+  G --> N["Reply Builder"]
+  I --> N
+  J --> N
+  M --> N
+  N --> O["State/Profile/Log Update"]
+  O --> P["ChatData"]
+```
+
+推荐的模块职责：
+
+| 模块 | 输入 | 输出 | 说明 |
+| --- | --- | --- | --- |
+| `Tagger` | 当前消息、近期对话、用户画像摘要 | `TagResult` | 只负责打标签，不直接生成最终回复 |
+| `Policy Engine` | `TagResult`、租户、渠道、运行态 | `PolicyDecision` | 决定下一步动作、知识库、模板、提示词块、语气和是否转人工 |
+| `Template Library` | `template_ids`、变量 | 固定话术或变量填充话术 | 用于开场白、特定问题固定回答、合规话术、转人工话术 |
+| `Context Selector` | 画像、记忆、历史对话、当前策略 | 本轮上下文包 | 近期对话保留原文，长期历史用摘要，画像用结构化摘要 |
+| `Knowledge Router` | `knowledge_base_ids`、检索关注点 | RAG 检索参数 | 根据标签选择不同知识库和检索重点 |
+| `Prompt Builder` | 策略、提示词块、模板、上下文、知识片段、当前问题 | LLM messages/prompt | 负责组装模型输入，不承担业务决策 |
+| `Reply Builder` | 固定模板结果或 LLM 结果 | `ChatData` | 统一响应结构、来源、转人工、metadata |
+
+核心数据结构建议：
+
+```json
+{
+  "tag_result": {
+    "intent": "orchid_care",
+    "segment": "beginner",
+    "emotion": "anxious",
+    "stage": "first_order_nurture",
+    "risk_level": "low",
+    "entities": {
+      "problem": "烂根",
+      "plant_type": "兰花"
+    },
+    "confidence": 0.88
+  }
+}
+```
+
+```json
+{
+  "policy_decision": {
+    "action": "rag_answer",
+    "knowledge_base_ids": ["kb_orchid_basic", "kb_after_sales_faq"],
+    "template_ids": ["opening_beginner_care"],
+    "prompt_block_ids": [
+      "base.customer_service",
+      "scenario.orchid_care",
+      "intent.orchid_problem",
+      "segment.beginner",
+      "emotion.anxious",
+      "tone.patient_step_by_step",
+      "output.customer_reply"
+    ],
+    "context_policy": {
+      "recent_turns": 6,
+      "include_profile_summary": true,
+      "include_long_memory_summary": true
+    },
+    "retrieval_policy": {
+      "focus": ["基础原因", "处理步骤", "常见错误", "售后服务"],
+      "exclude": ["高级繁殖", "复杂药剂配比"]
+    },
+    "fallback": "human"
+  }
+}
+```
+
+标签到策略的配置示例：
+
+```json
+{
+  "rules": [
+    {
+      "when": {
+        "intent": "orchid_care",
+        "segment": "beginner"
+      },
+      "then": {
+        "action": "rag_answer",
+        "knowledge_base_ids": ["kb_orchid_basic", "kb_care_faq"],
+        "template_ids": ["opening_beginner_care"],
+        "prompt_block_ids": ["segment.beginner", "tone.patient_step_by_step"],
+        "retrieval_focus": ["是什么", "为什么", "第一步怎么做", "常见错误"]
+      }
+    },
+    {
+      "when": {
+        "intent": "orchid_care",
+        "segment": "advanced"
+      },
+      "then": {
+        "action": "rag_answer",
+        "knowledge_base_ids": ["kb_orchid_advanced", "kb_best_practices"],
+        "template_ids": ["opening_advanced_care"],
+        "prompt_block_ids": ["segment.advanced", "tone.concise_professional"],
+        "retrieval_focus": ["限制条件", "进阶处理", "关键参数", "最佳实践"]
+      }
+    },
+    {
+      "when": {
+        "risk_level": "high"
+      },
+      "then": {
+        "action": "human",
+        "template_ids": ["handoff_risk_high"]
+      }
+    }
+  ]
+}
+```
+
+Prompt Builder 的组装顺序建议固定为：
+
+```text
+base system prompt
+-> safety/compliance prompt block
+-> scenario prompt block
+-> intent prompt block
+-> segment prompt block
+-> emotion/tone prompt block
+-> output format prompt block
+-> selected template content
+-> user profile summary
+-> session state
+-> recent conversation raw turns
+-> long memory summary
+-> retrieved knowledge snippets
+-> current user message
+```
+
+上下文选择规则：
+
+| 信息类型 | 推荐形式 | 是否每轮放入 |
+| --- | --- | --- |
+| 当前用户问题 | 原文 | 是 |
+| 最近 3-8 轮对话 | 原文 | 是，按 token 预算裁剪 |
+| 更早历史 | 滚动摘要 | 仅相关时 |
+| 用户画像 | 结构化摘要 | 仅放影响本轮回复的字段 |
+| 订单、套餐、权限、工单状态 | 结构化字段 | 相关时 |
+| 知识库 | 本轮检索片段 | 是，RAG 动作必需 |
+| 固定模板 | 模板内容或模板 ID + 内容 | 命中策略时 |
+
+实现优先级建议：
+
+1. 先实现 `Tagger -> Policy Engine -> Template/RAG/Human` 的确定性主链路。
+2. 再实现 `prompt_blocks`、`label_to_prompt_blocks` 和 `Prompt Builder`，让标签能稳定改变语气、回答结构和知识库范围。
+3. 再补 `Context Selector`，把近期对话原文、长期摘要、用户画像摘要分开管理。
+4. 最后再考虑把复杂 Handler 升级成 Agent，例如需要多轮补问、调用多个工具、根据中间结果继续决策的售后或排障场景。
+
+不建议第一版训练模型。当前目标主要是流程编排、策略配置、模板稳定输出和知识库路由，优先通过标签、规则、模板、RAG 和 prompt block 解决。只有当标签体系、模板库、知识库和评测集稳定后，仍发现分类或风格生成长期达不到要求，才考虑微调分类模型或回复风格模型。
 
 ## 6. 路由与回复策略
 
@@ -442,6 +625,78 @@ LLM_PROVIDER=mock
 INTENT_LLM_PROVIDER=mock
 ```
 
+### 13.1 本机 Docker 部署模块
+
+本机生产形态由根目录的 `docker-compose.prod.yml` 统一编排，包含后端 API、管理后台和持久化数据卷。
+
+```mermaid
+flowchart LR
+  Browser["公网用户<br/>124.160.45.66:21873"] --> Tunnel["内网穿透"]
+  Tunnel --> Nginx["admin-web<br/>Nginx :80"]
+  Local["本机运维<br/>localhost:21873"] --> Nginx
+  Nginx -->|"/api、/wechat、/health"| API["api<br/>FastAPI :8000"]
+  API --> Volume["backend-data<br/>/app/data"]
+  Volume --> MainDB["rag.db"]
+  Volume --> ChatDB["chat_logs.db"]
+  Volume --> Uploads["uploads/"]
+```
+
+| Compose 服务 | 职责 | 端口与访问方式 |
+| --- | --- | --- |
+| `admin-web` | 构建 Vue 管理后台，并由 Nginx 提供静态页面和反向代理 | 宿主机 `21873` 映射到容器 `80`；公网入口为 `http://124.160.45.66:21873` |
+| `api` | 运行 FastAPI、微信回调、聊天及后台管理接口 | 容器内部 `8000`，不直接暴露到宿主机 |
+| `backend-data` | 持久保存 SQLite 数据库和上传文件 | 挂载到 API 容器 `/app/data` |
+
+本机敏感配置文件为 `deploy/env/backend.prod.env`。该文件不提交 Git，可从现有后端 `.env` 准备；Compose 会强制覆盖以下容器内存储路径：
+
+```dotenv
+DATABASE_URL=sqlite:////app/data/rag.db
+CHAT_LOG_ENABLED=true
+CHAT_LOG_PROVIDER=sqlite
+CHAT_LOG_DB_URL=sqlite:////app/data/chat_logs.db
+UPLOAD_DIR=/app/data/uploads
+```
+
+常用操作：
+
+```powershell
+# 构建并启动
+docker compose -p intelligent-customer-service -f docker-compose.prod.yml up -d --build
+
+# 查看容器状态
+docker compose -p intelligent-customer-service -f docker-compose.prod.yml ps
+
+# 查看日志
+docker compose -p intelligent-customer-service -f docker-compose.prod.yml logs --tail 100
+
+# 停止服务，保留 backend-data 数据卷
+docker compose -p intelligent-customer-service -f docker-compose.prod.yml down
+```
+
+统一生产入口如下：
+
+- 管理后台：`http://124.160.45.66:21873/gate?redirect=/workbench`
+- API 基地址：`http://124.160.45.66:21873`
+- 微信回调：`http://124.160.45.66:21873/wechat/callback`
+- 健康检查：`http://124.160.45.66:21873/health`
+- 本机运维入口：`http://localhost:21873`
+
+健康检查正常响应为 HTTP `200`，且 `data.status` 为 `ok`。不要使用 `down -v`，否则会同时删除 `backend-data` 数据卷。
+
+客服工作台的实时消息更新使用 SSE：
+
+```text
+会话写入成功
+-> ConversationEventBroker 发布 conversation.changed
+-> GET /api/v1/admin/conversations/events
+-> Nginx 关闭响应缓冲并保持长连接
+-> 浏览器 EventSource 收到事件
+-> 静默更新会话列表
+-> 仅在当前会话变化时静默更新消息详情
+```
+
+SSE 是实时更新主通道，浏览器每 30 秒执行一次静默同步作为断线或漏事件兜底。组件更新时保留现有内容和滚动位置，不显示全屏加载遮罩；用户停留在消息底部时，新消息到达后自动跟随到底部。
+
 ## 14. 当前实现边界
 
 - 业务 API 固定使用 `code/message/data` 统一响应 envelope。
@@ -453,6 +708,7 @@ INTENT_LLM_PROVIDER=mock
 - `rerank_service` 当前是占位截断，不是真实重排模型。
 - `state_service` 当前偏轻量内存状态，长期画像走 SQLite。
 - 转人工当前生成工单 ID 和结构化 metadata，但真实人工系统推送仍是预留接口。
+- 标签驱动策略编排、Context Selector 和 Prompt Builder 是后续主链路升级方向；现有代码仍以 `Intent Service`、`Policy Service`、`Template Service`、`RAG Service` 和 `Reply Builder` 为主。
 - 源码中部分中文提示存在编码异常，建议后续单独统一修复文案编码。
 
 ## 15. 后续开发入口建议
@@ -463,6 +719,10 @@ INTENT_LLM_PROVIDER=mock
 | 改聊天主链路 | `app/services/chat_orchestrator.py` |
 | 改意图识别 | `app/services/intent_service.py`、`app/services/intent_example_service.py` |
 | 改策略路由 | `app/services/policy_service.py` |
+| 增加标签器 | 建议新增 `app/services/tagger_service.py`，并复用 `intent_service.py`、`user_profile_service.py` |
+| 增加标签驱动策略 | 建议扩展 `app/services/policy_service.py`，或新增 `app/services/policy_engine.py` |
+| 增加上下文选择 | 建议新增 `app/services/context_selector.py`，读取 `state_service.py`、`user_profile_service.py` |
+| 增加 Prompt Builder | 建议新增 `app/services/prompt_builder.py`，管理 prompt block 组装顺序 |
 | 改模板回复 | `app/services/template_service.py`、`app/services/reply_builder.py` |
 | 改 RAG 回答 | `app/services/rag_service.py`、`app/services/qdrant_service.py`、`app/services/rerank_service.py` |
 | 改知识库入库 | `app/routers/knowledge.py`、`app/services/knowledge_service.py` |

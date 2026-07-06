@@ -1,7 +1,12 @@
-from fastapi import APIRouter, Depends, Query
+import asyncio
+import json
+
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
 
 from app.schemas.chat import APIResponse
 from app.schemas.conversation import ClaimRequest, ReplyRequest, StatusActionRequest
+from app.services.conversation_event_service import conversation_event_broker
 from app.services.conversation_service import (
     claim_conversation,
     force_handoff,
@@ -19,6 +24,36 @@ router = APIRouter(
     tags=["admin-conversations"],
     dependencies=[Depends(require_api_key)],
 )
+
+
+@router.get("/events")
+async def conversation_events(request: Request) -> StreamingResponse:
+    async def stream():
+        queue = conversation_event_broker.subscribe()
+        try:
+            yield 'data: {"type":"connected"}\n\n'
+            while not await request.is_disconnected():
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15)
+                    payload = json.dumps(
+                        {"type": "conversation.changed", **event},
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {payload}\n\n"
+                except TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            conversation_event_broker.unsubscribe(queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("", response_model=APIResponse)

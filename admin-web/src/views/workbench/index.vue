@@ -1,15 +1,15 @@
 <template>
   <div class="workbench">
     <ConversationList
+      ref="conversationListRef"
       class="panel list"
       :active-id="selectedId"
-      :refresh-key="refreshKey"
       @select="selectConversation"
     />
     <MessagePanel
+      ref="messagePanelRef"
       class="panel messages"
       :conversation-id="selectedId"
-      :refresh-key="refreshKey"
       @loaded="conversation = $event"
     />
     <SupervisionPanel
@@ -30,36 +30,72 @@ import SupervisionPanel from './components/SupervisionPanel.vue'
 
 defineOptions({ name: 'Workbench' })
 
-const REFRESH_INTERVAL_MS = 2000
+const FALLBACK_SYNC_INTERVAL_MS = 30_000
 
 const selectedId = ref('')
-const refreshKey = ref(0)
 const conversation = ref<ConversationItem>()
-let refreshTimer: number | undefined
+const conversationListRef = ref<InstanceType<typeof ConversationList>>()
+const messagePanelRef = ref<InstanceType<typeof MessagePanel>>()
+let eventSource: EventSource | undefined
+let fallbackTimer: number | undefined
 
 const selectConversation = (id: string) => {
   selectedId.value = id
 }
 
 const handleChanged = async () => {
-  refreshKey.value += 1
+  await syncWorkbench()
 }
 
-const startAutoRefresh = () => {
-  refreshTimer = window.setInterval(() => {
-    if (document.visibilityState === 'hidden') {
-      return
+const syncWorkbench = async (conversationId?: string) => {
+  await conversationListRef.value?.load({ silent: true })
+  if (!conversationId || conversationId === selectedId.value) {
+    await messagePanelRef.value?.load({ silent: true })
+  }
+}
+
+const connectEvents = () => {
+  eventSource?.close()
+  eventSource = new EventSource('/api/v1/admin/conversations/events', {
+    withCredentials: true
+  })
+  eventSource.onmessage = (message) => {
+    try {
+      const event = JSON.parse(message.data)
+      if (event.type === 'conversation.changed') {
+        void syncWorkbench(event.conversation_id)
+      }
+    } catch {
+      // EventSource reconnects automatically; the fallback sync covers malformed events.
     }
-    refreshKey.value += 1
-  }, REFRESH_INTERVAL_MS)
+  }
 }
 
-onMounted(startAutoRefresh)
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    void syncWorkbench()
+    if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+      connectEvents()
+    }
+  }
+}
+
+onMounted(() => {
+  connectEvents()
+  fallbackTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void syncWorkbench()
+    }
+  }, FALLBACK_SYNC_INTERVAL_MS)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
 
 onBeforeUnmount(() => {
-  if (refreshTimer) {
-    window.clearInterval(refreshTimer)
+  eventSource?.close()
+  if (fallbackTimer) {
+    window.clearInterval(fallbackTimer)
   }
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

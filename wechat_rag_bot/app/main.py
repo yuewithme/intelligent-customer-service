@@ -9,6 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.config import get_settings
 from app.routers import (
     admin_conversations,
+    admin_gate,
     admin_logs,
     chat,
     debug,
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=get_settings().app_name, lifespan=lifespan)
 app.include_router(admin_conversations.router)
+app.include_router(admin_gate.router)
 app.include_router(chat.router)
 app.include_router(knowledge.router)
 app.include_router(templates.router)

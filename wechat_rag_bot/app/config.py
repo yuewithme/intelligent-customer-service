@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     app_name: str = "wechat_rag_bot"
     api_auth_enabled: bool = True
     api_key: str = "change_me"
+    admin_gate_enabled: bool = True
+    admin_gate_password: str = ""
+    admin_gate_secret: str = ""
 
     wechat_token: str = "change_me"
     wechat_app_id: str = "change_me"

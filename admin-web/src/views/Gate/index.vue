@@ -31,7 +31,6 @@ import { ElMessage } from 'element-plus'
 
 defineOptions({ name: 'Gate' })
 
-const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
 const form = reactive({ password: '' })
@@ -54,7 +53,7 @@ const unlock = async () => {
       return
     }
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/workbench'
-    await router.replace(redirect)
+    window.location.replace(redirect)
   } finally {
     loading.value = false
   }

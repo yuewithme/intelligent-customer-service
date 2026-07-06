@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import get_settings
 from app.db.models import Base, ConversationMessageModel, ConversationModel
 from app.schemas.common import AppError, ErrorCode
+from app.services.conversation_event_service import conversation_event_broker
 from app.utils.ids import generate_id
 
 
@@ -213,6 +214,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 )
             )
         session.commit()
+    _publish_change(conversation_id, "message")
 
 
 async def claim_conversation(conversation_id: str, operator_id: str) -> dict:
@@ -229,6 +231,7 @@ async def claim_conversation(conversation_id: str, operator_id: str) -> dict:
         conversation.unread_count = 0
         conversation.updated_at = _now()
         session.commit()
+        _publish_change(conversation_id, "claimed")
         return _conversation_to_dict(conversation)
 
 
@@ -264,6 +267,7 @@ async def reply_conversation(
         conversation.last_message = content
         conversation.updated_at = now
         session.commit()
+        _publish_change(conversation_id, "reply")
         return _conversation_to_dict(conversation)
 
 
@@ -287,6 +291,7 @@ async def force_handoff(
         )
         conversation.updated_at = _now()
         session.commit()
+        _publish_change(conversation_id, "handoff")
         return _conversation_to_dict(conversation)
 
 
@@ -303,6 +308,7 @@ async def release_to_ai(conversation_id: str, operator_id: str) -> dict:
         conversation.owner_id = None
         conversation.updated_at = _now()
         session.commit()
+        _publish_change(conversation_id, "released")
         return _conversation_to_dict(conversation)
 
 
@@ -317,7 +323,18 @@ async def resolve_conversation(
         conversation.handoff_reason = reason or conversation.handoff_reason
         conversation.updated_at = _now()
         session.commit()
+        _publish_change(conversation_id, "resolved")
         return _conversation_to_dict(conversation)
+
+
+def _publish_change(conversation_id: str, reason: str) -> None:
+    conversation_event_broker.publish(
+        {
+            "conversation_id": conversation_id,
+            "reason": reason,
+            "updated_at": _now().isoformat(),
+        }
+    )
 
 
 def _get_session() -> Session:

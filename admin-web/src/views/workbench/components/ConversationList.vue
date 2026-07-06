@@ -1,21 +1,21 @@
 <template>
   <aside class="conversation-list">
     <div class="toolbar">
-      <ElSelect v-model="status" clearable placeholder="全部状态" @change="load">
+      <ElSelect v-model="status" clearable placeholder="全部状态" @change="load()">
         <ElOption label="AI 自动回复" value="ai_waiting" />
         <ElOption label="等待接管" value="handoff_pending" />
         <ElOption label="人工接管中" value="human_active" />
         <ElOption label="已结束" value="resolved" />
       </ElSelect>
-      <ElButton :icon="Refresh" circle @click="load" />
+      <ElButton :icon="Refresh" circle @click="load()" />
     </div>
     <ElInput
       v-model="keyword"
       :prefix-icon="Search"
       clearable
       placeholder="搜索最近消息"
-      @clear="load"
-      @keyup.enter="load"
+      @clear="load()"
+      @keyup.enter="load()"
     />
 
     <div v-loading="loading" class="items">
@@ -48,23 +48,27 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref } from 'vue'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { getConversations, type ConversationItem, type ConversationStatus } from '@/api/admin/conversations'
 
-const props = defineProps<{ activeId: string; refreshKey: number }>()
+defineProps<{ activeId: string }>()
 defineEmits<{ select: [id: string] }>()
 
 const loading = ref(false)
 const status = ref('')
 const keyword = ref('')
 const items = ref<ConversationItem[]>([])
+let requesting = false
 
-const load = async () => {
-  if (loading.value) {
+const load = async (options: { silent?: boolean } = {}) => {
+  if (requesting) {
     return
   }
-  loading.value = true
+  requesting = true
+  if (!options.silent) {
+    loading.value = true
+  }
   try {
     const data = await getConversations({
       page: 1,
@@ -74,7 +78,10 @@ const load = async () => {
     })
     items.value = data.items
   } finally {
-    loading.value = false
+    requesting = false
+    if (!options.silent) {
+      loading.value = false
+    }
   }
 }
 
@@ -102,10 +109,6 @@ const avatarText = (item: ConversationItem) => displayName(item).slice(0, 1).toU
 
 const formatTime = (value: string) => new Date(value).toLocaleString()
 
-watch(
-  () => props.refreshKey,
-  () => load()
-)
 onMounted(load)
 
 defineExpose({ load })

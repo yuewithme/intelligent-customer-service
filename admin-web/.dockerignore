@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-prod
+.vercel
+.git
+.env
+.env.local
+.env.dev
+.env.test
+.env.stage
+npm-debug.log*
+pnpm-debug.log*

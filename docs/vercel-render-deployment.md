@@ -1,5 +1,7 @@
 # Vercel + Render 部署说明
 
+> 历史方案，当前已停用。现行生产部署请参考 `docs/docker-tunnel-deployment.md`，统一入口为 `http://124.160.45.66:21873`。
+
 这个方案不需要自建云服务器：
 
 - Render 跑 FastAPI 后端，负责 webhook、AI 回复、会话和管理 API。

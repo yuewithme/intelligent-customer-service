@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.main import app
+from app.services.conversation_event_service import conversation_event_broker
 
 
 def _reset_settings(monkeypatch, tmp_path, *, auth: bool = False):
@@ -31,6 +32,7 @@ def test_conversation_list_starts_empty(monkeypatch, tmp_path):
 def test_chat_creates_ai_owned_conversation(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
+    event_queue = conversation_event_broker.subscribe()
 
     chat = client.post(
         "/api/v1/chat",
@@ -43,8 +45,12 @@ def test_chat_creates_ai_owned_conversation(monkeypatch, tmp_path):
             "metadata": {},
         },
     )
+    event = event_queue.get_nowait()
+    conversation_event_broker.unsubscribe(event_queue)
 
     assert chat.status_code == 200
+    assert event["conversation_id"] == "api:user_001:sess_001"
+    assert event["reason"] == "message"
     conversations = client.get("/api/v1/admin/conversations").json()["data"]
     assert conversations["total"] == 1
     item = conversations["items"][0]
