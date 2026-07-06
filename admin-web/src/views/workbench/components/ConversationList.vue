@@ -55,6 +55,7 @@ import {
   groupConversationsByCustomer,
   type ConversationGroupItem
 } from '../conversationGrouping'
+import { formatChinaTime } from '../time'
 
 defineProps<{ activeKey: string }>()
 defineEmits<{ select: [item: ConversationGroupItem] }>()
@@ -111,7 +112,7 @@ const displayName = (item: ConversationItem) => item.user_display_name || item.u
 
 const avatarText = (item: ConversationItem) => displayName(item).slice(0, 1).toUpperCase()
 
-const formatTime = (value: string) => new Date(value).toLocaleString()
+const formatTime = formatChinaTime
 
 const getItemByKey = (groupKey: string) => items.value.find((item) => item.group_key === groupKey)
 

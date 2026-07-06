@@ -40,6 +40,7 @@ import {
   type ConversationDetail,
   type ConversationItem
 } from '@/api/admin/conversations'
+import { formatChinaTime } from '../time'
 
 const props = defineProps<{ conversationId: string; conversationIds: string[] }>()
 const emit = defineEmits<{ loaded: [conversation: ConversationItem | undefined] }>()
@@ -111,7 +112,7 @@ const displayName = (conversation: ConversationItem) =>
 const avatarText = (conversation: ConversationItem) =>
   displayName(conversation).slice(0, 1).toUpperCase()
 
-const formatTime = (value: string) => new Date(value).toLocaleString()
+const formatTime = formatChinaTime
 
 watch(
   () => [props.conversationId, props.conversationIds.join('|')],

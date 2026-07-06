@@ -17,7 +17,15 @@ def _reset_settings(monkeypatch, tmp_path):
     get_settings.cache_clear()
 
 
-def test_eyun_callback_accepts_json_payload():
+def test_eyun_callback_accepts_json_payload(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fake_enqueue(payload):
+        return {"batch_key": "wid_test:wxid_customer"}
+
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
     client = TestClient(app)
 
     response = client.post(
@@ -57,9 +65,10 @@ def test_wechat_callback_accepts_eyun_test_payload():
     assert response.json() == {"code": "1000", "message": "success", "data": None}
 
 
-def test_wechat_callback_enqueues_eyun_text_payload(monkeypatch):
+def test_wechat_callback_enqueues_eyun_text_payload(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 
+    _reset_settings(monkeypatch, tmp_path)
     enqueued = []
 
     async def fake_enqueue(payload):
@@ -93,10 +102,36 @@ def test_wechat_callback_enqueues_eyun_text_payload(monkeypatch):
     assert enqueued[0]["data"]["content"] == "hello"
 
 
-def test_wechat_callback_records_eyun_private_image_in_workbench(monkeypatch, tmp_path):
+def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
     _reset_settings(monkeypatch, tmp_path)
+    enqueued = []
+
+    async def fake_enqueue(payload):
+        enqueued.append(payload)
+        return {"batch_key": "wid_test:wxid_customer"}
+
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
     client = TestClient(app)
 
+    text_response = client.post(
+        "/wechat/callback",
+        json={
+            "account": "test_account",
+            "messageType": "60001",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid_test",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": "hello",
+                "msgId": 455,
+                "newMsgId": 122,
+                "self": False,
+            },
+        },
+    )
     response = client.post(
         "/wechat/callback",
         json={
@@ -116,7 +151,9 @@ def test_wechat_callback_records_eyun_private_image_in_workbench(monkeypatch, tm
         },
     )
 
+    assert text_response.status_code == 200
     assert response.status_code == 200
+    assert len(enqueued) == 1
     conversations = client.get("/api/v1/admin/conversations").json()["data"]
     assert conversations["total"] == 1
     item = conversations["items"][0]
@@ -126,8 +163,50 @@ def test_wechat_callback_records_eyun_private_image_in_workbench(monkeypatch, tm
 
     detail = client.get("/api/v1/admin/conversations/wechat:wxid_customer:default")
     messages = detail.json()["data"]["messages"]
-    assert len(messages) == 1
-    assert messages[0]["sender_type"] == "customer"
-    assert messages[0]["content"] == "[图片]"
-    assert messages[0]["metadata"]["message_type"] == "60002"
-    assert messages[0]["metadata"]["image_thumb_base64"]
+    assert [message["content"] for message in messages] == ["hello", "[图片]"]
+    assert all(message["sender_type"] == "customer" for message in messages)
+    assert messages[1]["metadata"]["message_type"] == "60002"
+    assert messages[1]["metadata"]["image_thumb_base64"]
+
+
+def test_wechat_callback_records_group_text_without_ai_queue(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fail_enqueue(payload):
+        raise AssertionError("group messages should not enter the AI queue")
+
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_enqueue)
+    client = TestClient(app)
+
+    response = client.post(
+        "/wechat/callback",
+        json={
+            "account": "test_account",
+            "messageType": "80001",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid_test",
+                "fromUser": "wxid_sender",
+                "fromGroup": "12345@chatroom",
+                "toUser": "wxid_bot",
+                "content": "group hello",
+                "msgId": 789,
+                "newMsgId": 790,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    conversations = client.get("/api/v1/admin/conversations").json()["data"]
+    assert conversations["total"] == 1
+    item = conversations["items"][0]
+    assert item["conversation_id"] == "wechat:12345@chatroom:default"
+    assert item["last_message"] == "group hello"
+
+    detail = client.get("/api/v1/admin/conversations/wechat:12345@chatroom:default")
+    messages = detail.json()["data"]["messages"]
+    assert messages[0]["content"] == "group hello"
+    assert messages[0]["metadata"]["from_user"] == "wxid_sender"

@@ -90,6 +90,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
     status = HANDOFF_PENDING if result.get("need_human") else AI_WAITING
     handoff = result.get("handoff") or {}
     intent = result.get("intent") or {}
+    skip_customer_record = bool(message.metadata.get("skip_customer_record"))
     now = _now()
     with _get_session() as session:
         conversation = session.scalar(
@@ -97,6 +98,20 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 ConversationModel.conversation_id == conversation_id
             )
         )
+        if (
+            not skip_customer_record
+            and message.metadata.get("provider") == "eyun"
+            and conversation is not None
+        ):
+            existing_customer_message = session.scalar(
+                select(ConversationMessageModel.id)
+                .where(
+                    ConversationMessageModel.conversation_id == conversation_id,
+                    ConversationMessageModel.sender_type == "customer",
+                )
+                .limit(1)
+            )
+            skip_customer_record = existing_customer_message is not None
         if conversation is None:
             conversation = ConversationModel(
                 conversation_id=conversation_id,
@@ -172,26 +187,28 @@ async def record_ai_turn(*, message, result: dict) -> None:
         conversation.last_intent = intent.get("primary_intent")
         conversation.handoff_reason = handoff.get("reason")
         conversation.handoff_ticket_id = handoff.get("ticket_id")
-        conversation.unread_count = (conversation.unread_count or 0) + 1
+        if not skip_customer_record:
+            conversation.unread_count = (conversation.unread_count or 0) + 1
         conversation.updated_at = now
 
-        session.add(
-            ConversationMessageModel(
-                conversation_id=conversation_id,
-                trace_id=message.trace_id,
-                message_id=message.message_id,
-                sender_type="customer",
-                sender_id=message.user_id,
-                content=message.message,
-                route=result.get("route"),
-                primary_intent=conversation.last_intent,
-                metadata_json=json.dumps(
-                    {"channel": message.channel, "tenant_id": message.tenant_id},
-                    ensure_ascii=False,
-                ),
-                created_at=now,
+        if not skip_customer_record:
+            session.add(
+                ConversationMessageModel(
+                    conversation_id=conversation_id,
+                    trace_id=message.trace_id,
+                    message_id=message.message_id,
+                    sender_type="customer",
+                    sender_id=message.user_id,
+                    content=message.message,
+                    route=result.get("route"),
+                    primary_intent=conversation.last_intent,
+                    metadata_json=json.dumps(
+                        {"channel": message.channel, "tenant_id": message.tenant_id},
+                        ensure_ascii=False,
+                    ),
+                    created_at=now,
+                )
             )
-        )
         answer = result.get("answer")
         if answer:
             session.add(
@@ -242,6 +259,15 @@ async def record_customer_message(
                 ConversationModel.conversation_id == conversation_id
             )
         )
+        if conversation is not None and message_id:
+            existing_message = session.scalar(
+                select(ConversationMessageModel).where(
+                    ConversationMessageModel.conversation_id == conversation_id,
+                    ConversationMessageModel.message_id == message_id,
+                )
+            )
+            if existing_message is not None:
+                return _conversation_to_dict(conversation)
         if conversation is None:
             conversation = ConversationModel(
                 conversation_id=conversation_id,
