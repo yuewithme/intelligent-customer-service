@@ -43,3 +43,21 @@ def test_contact_snapshot_falls_back_to_nickname_and_small_avatar():
         "nickname": "贵杰",
         "avatar_url": "https://example.com/avatar-small.jpg",
     }
+
+
+def test_contact_snapshot_labels_openim_contact_when_provider_name_is_empty():
+    snapshot = parse_contact_snapshot(
+        {
+            "code": "1000",
+            "data": [
+                {
+                    "userName": "25984982682373090@openim",
+                    "remark": None,
+                    "nickName": "",
+                    "bigHead": None,
+                }
+            ],
+        }
+    )
+
+    assert snapshot == {"display_name": "企业微信用户（73090）"}

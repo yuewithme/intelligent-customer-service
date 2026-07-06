@@ -37,9 +37,11 @@
             />
             <video
               v-else-if="mediaType(message) === 'video' && mediaSource(message)"
+              :key="mediaSource(message)"
               class="message-video"
               :src="mediaSource(message)"
               controls
+              @error="resolveVideo(message)"
             />
             <audio
               v-else-if="mediaType(message) === 'audio' && mediaSource(message)"
@@ -56,6 +58,15 @@
             >
               {{ mediaFileName(message) || message.content }}
             </a>
+            <ElButton
+              v-else-if="mediaType(message) === 'video'"
+              type="primary"
+              link
+              :loading="resolvingMediaIds.has(message.id)"
+              @click="resolveVideo(message)"
+            >
+              解析视频
+            </ElButton>
             <span v-else>{{ message.content }}</span>
             <a
               v-if="showOriginalLink(message)"
@@ -64,7 +75,7 @@
               target="_blank"
               rel="noreferrer"
             >
-              打开原链接
+              {{ resolvingMediaIds.has(message.id) ? '正在解析视频...' : '打开原链接' }}
             </a>
           </div>
           <div class="time">{{ formatTime(message.created_at) }}</div>
@@ -76,9 +87,11 @@
 
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
   getConversationDetail,
+  resolveConversationMessageMedia,
   type ConversationDetail,
   type ConversationItem,
   type ConversationMessage
@@ -100,6 +113,8 @@ const emit = defineEmits<{ loaded: [conversation: ConversationItem | undefined] 
 const loading = ref(false)
 const detail = ref<ConversationDetail>()
 const timelineRef = ref<HTMLElement>()
+const resolvingMediaIds = ref(new Set<number>())
+const attemptedMediaIds = new Set<number>()
 let reloadPending = false
 let requesting = false
 
@@ -189,6 +204,25 @@ const mediaFileName = (message: ConversationMessage) => {
 
 const showOriginalLink = (message: ConversationMessage) =>
   ['video', 'audio'].includes(mediaType(message)) && Boolean(mediaSource(message))
+
+const resolveVideo = async (message: ConversationMessage) => {
+  if (attemptedMediaIds.has(message.id) || resolvingMediaIds.value.has(message.id)) {
+    return
+  }
+  attemptedMediaIds.add(message.id)
+  resolvingMediaIds.value = new Set(resolvingMediaIds.value).add(message.id)
+  try {
+    const resolved = await resolveConversationMessageMedia(message.id)
+    message.metadata = resolved.metadata
+    await nextTick()
+  } catch {
+    ElMessage.warning('视频解析失败，已保留原链接')
+  } finally {
+    const pending = new Set(resolvingMediaIds.value)
+    pending.delete(message.id)
+    resolvingMediaIds.value = pending
+  }
+}
 
 const displayName = (conversation: ConversationItem) =>
   conversation.user_display_name || conversation.user_id

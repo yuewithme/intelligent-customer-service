@@ -81,6 +81,11 @@ export const markConversationRead = (conversationId: string) =>
     url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/read`
   })
 
+export const resolveConversationMessageMedia = (messageId: number) =>
+  request.post<ConversationMessage>({
+    url: `/api/v1/admin/conversations/messages/${messageId}/resolve-media`
+  })
+
 export const forceHandoff = (conversationId: string, operator_id: string, reason: string) =>
   request.post<ConversationItem>({
     url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/force-handoff`,

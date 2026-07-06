@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any
 from urllib.parse import unquote
@@ -165,6 +166,7 @@ async def _eyun_workbench_metadata(payload: dict[str, Any], data: dict[str, Any]
         "raw_content": str(data.get("content") or ""),
         "image_thumb_base64": str(data.get("img") or ""),
         "message_id": _eyun_message_id(data),
+        "provider_msg_id": _eyun_provider_message_id(data),
         "skip_customer_record": True,
     }
     metadata.update(await get_eyun_contact_snapshot(w_id=w_id, wc_id=user_id))
@@ -289,6 +291,55 @@ async def fetch_eyun_image_url(
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun getMsgImg failed for msgId=%s: %s", msg_id, exc)
     return None
+
+
+async def download_eyun_video(*, w_id: str, msg_id: str, content: str) -> str:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id or not msg_id or not content:
+        raise RuntimeError("Eyun video download parameters are incomplete")
+
+    headers = {
+        "Authorization": authorization,
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{base_url}/asynGetMsgVideo",
+            headers=headers,
+            json={"wId": w_id, "msgId": msg_id, "content": content},
+        )
+        response.raise_for_status()
+        result = response.json()
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        task_id = str(data.get("id") or "").strip()
+        if str(result.get("code")) != "1000" or not task_id:
+            raise RuntimeError(f"Eyun video download submission failed: {result}")
+
+        for attempt in range(10):
+            if attempt:
+                await asyncio.sleep(2)
+            poll = await client.post(
+                f"{base_url}/getMsgVideoRes",
+                headers=headers,
+                json={"id": task_id},
+            )
+            poll.raise_for_status()
+            poll_result = poll.json()
+            poll_data = (
+                poll_result.get("data")
+                if isinstance(poll_result.get("data"), dict)
+                else {}
+            )
+            status = int(poll_data.get("type") or 0)
+            url = str(poll_data.get("url") or "").strip()
+            if str(poll_result.get("code")) == "1000" and status == 1 and url:
+                return url
+            if status == 2:
+                break
+
+    raise RuntimeError("Eyun video download did not complete")
 
 
 async def send_eyun_text(*, w_id: str, wc_id: str, content: str) -> None:

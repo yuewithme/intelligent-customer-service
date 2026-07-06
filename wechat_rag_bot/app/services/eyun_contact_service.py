@@ -30,6 +30,7 @@ def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, str]:
     else:
         contact = data if isinstance(data, dict) else {}
 
+    user_name = _text(contact, "userName", "username")
     remark = _text(contact, "remark", "remarkName", "conRemark")
     nickname = _text(contact, "nickName", "nickname")
     avatar_url = _text(
@@ -47,6 +48,9 @@ def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, str]:
         snapshot["remark_name"] = remark
     if nickname:
         snapshot["nickname"] = nickname
+    if not remark and not nickname and user_name and user_name.endswith("@openim"):
+        suffix = user_name.removesuffix("@openim")[-5:]
+        snapshot["display_name"] = f"企业微信用户（{suffix}）"
     if avatar_url:
         snapshot["avatar_url"] = avatar_url
     return snapshot

@@ -450,6 +450,57 @@ async def mark_conversation_read(conversation_id: str) -> dict:
         return _conversation_to_dict(conversation)
 
 
+async def resolve_message_media(message_id: int) -> dict:
+    with _get_session() as session:
+        message = session.get(ConversationMessageModel, message_id)
+        if message is None:
+            raise AppError(
+                ErrorCode.REQUEST_INVALID,
+                message="消息不存在",
+                status_code=404,
+            )
+        try:
+            metadata = json.loads(message.metadata_json or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        if (
+            metadata.get("provider") != "eyun"
+            or str(metadata.get("message_type") or "") != "60003"
+        ):
+            raise AppError(
+                ErrorCode.REQUEST_INVALID,
+                message="当前消息不支持媒体解析",
+                status_code=400,
+            )
+
+        from app.services.eyun_callback_service import download_eyun_video
+
+        try:
+            url = await download_eyun_video(
+                w_id=str(metadata.get("w_id") or ""),
+                msg_id=str(metadata.get("provider_msg_id") or ""),
+                content=str(metadata.get("raw_content") or ""),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise AppError(
+                ErrorCode.WECHAT_REPLY_FAILED,
+                message="视频解析失败，请稍后重试或打开原链接",
+                status_code=502,
+            ) from exc
+
+        media = metadata.get("media")
+        if not isinstance(media, dict):
+            media = {"type": "video"}
+        media.update({"type": "video", "url": url, "fallback": False})
+        metadata["media"] = media
+        message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        conversation_id = message.conversation_id
+        session.commit()
+        result = _message_to_dict(message)
+    _publish_change(conversation_id, "media")
+    return result
+
+
 async def force_handoff(
     conversation_id: str, operator_id: str, reason: str | None
 ) -> dict:

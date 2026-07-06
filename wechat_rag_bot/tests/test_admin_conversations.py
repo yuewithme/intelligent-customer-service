@@ -268,6 +268,57 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
     assert messages[-1]["content"] == "human reply"
 
 
+def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fake_contact_snapshot(**kwargs):
+        return {}
+
+    async def fake_download_eyun_video(**kwargs):
+        assert kwargs["msg_id"] == "789"
+        return "https://cdn.example.com/playable.mp4"
+
+    monkeypatch.setattr(
+        eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
+    )
+    monkeypatch.setattr(
+        eyun_callback_service, "download_eyun_video", fake_download_eyun_video
+    )
+    client = TestClient(app)
+    client.post(
+        "/wechat/callback",
+        json={
+            "account": "test_account",
+            "messageType": "60003",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid_test",
+                "fromUser": "wxid_sender",
+                "toUser": "wxid_bot",
+                "content": '<msg><videomsg cdnvideourl="https://expired.example/video" /></msg>',
+                "msgId": 789,
+                "newMsgId": 790,
+                "self": False,
+            },
+        },
+    )
+    detail = client.get(
+        "/api/v1/admin/conversations/wechat:wxid_sender:default"
+    ).json()["data"]
+    message_id = detail["messages"][0]["id"]
+
+    response = client.post(
+        f"/api/v1/admin/conversations/messages/{message_id}/resolve-media"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["metadata"]["media"]["url"] == (
+        "https://cdn.example.com/playable.mp4"
+    )
+
+
 def test_mark_conversation_read_clears_unread_count(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)

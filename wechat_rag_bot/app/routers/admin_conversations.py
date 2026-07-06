@@ -15,6 +15,7 @@ from app.services.conversation_service import (
     mark_conversation_read,
     release_to_ai,
     reply_conversation,
+    resolve_message_media,
     resolve_conversation,
 )
 from app.utils.auth import require_api_key
@@ -92,6 +93,12 @@ async def reply(conversation_id: str, request: ReplyRequest) -> APIResponse:
 @router.post("/{conversation_id:path}/read", response_model=APIResponse)
 async def mark_read(conversation_id: str) -> APIResponse:
     data = await mark_conversation_read(conversation_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/messages/{message_id}/resolve-media", response_model=APIResponse)
+async def resolve_media(message_id: int) -> APIResponse:
+    data = await resolve_message_media(message_id)
     return APIResponse(code=0, message="success", data=data)
 
 
