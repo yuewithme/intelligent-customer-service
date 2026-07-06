@@ -8,8 +8,7 @@
         <div>
           <h2>{{ detail ? displayName(detail.conversation) : '选择会话' }}</h2>
           <p v-if="detail"
-            >{{ detail.conversation.channel }} /
-            {{ detail.conversation.session_id || 'default' }}</p
+            >{{ detail.conversation.channel }} / {{ sessionText(detail.conversation) }}</p
           >
         </div>
       </div>
@@ -193,6 +192,11 @@ const showOriginalLink = (message: ConversationMessage) =>
 
 const displayName = (conversation: ConversationItem) =>
   conversation.user_display_name || conversation.user_id
+
+const sessionText = (conversation: ConversationItem) =>
+  conversation.channel === 'wechat' && conversation.session_id === 'default'
+    ? '私聊'
+    : conversation.session_id || '-'
 
 const avatarText = (conversation: ConversationItem) =>
   displayName(conversation).slice(0, 1).toUpperCase()

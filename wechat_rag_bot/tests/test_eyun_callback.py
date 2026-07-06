@@ -183,7 +183,7 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     }
 
 
-def test_wechat_callback_records_group_text_without_ai_queue(monkeypatch, tmp_path):
+def test_wechat_callback_ignores_group_messages(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
@@ -193,15 +193,11 @@ def test_wechat_callback_records_group_text_without_ai_queue(monkeypatch, tmp_pa
 
     monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_enqueue)
 
-    async def fake_contact_snapshot(**kwargs):
-        assert kwargs == {"w_id": "wid_test", "wc_id": "12345@chatroom"}
-        return {
-            "remark_name": "Orchid Group",
-            "avatar_url": "https://example.com/group.jpg",
-        }
+    async def fail_contact_snapshot(**kwargs):
+        raise AssertionError("group messages should not query contact details")
 
     monkeypatch.setattr(
-        eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
+        eyun_callback_service, "get_eyun_contact_snapshot", fail_contact_snapshot
     )
     client = TestClient(app)
 
@@ -226,17 +222,7 @@ def test_wechat_callback_records_group_text_without_ai_queue(monkeypatch, tmp_pa
 
     assert response.status_code == 200
     conversations = client.get("/api/v1/admin/conversations").json()["data"]
-    assert conversations["total"] == 1
-    item = conversations["items"][0]
-    assert item["conversation_id"] == "wechat:12345@chatroom:default"
-    assert item["user_display_name"] == "Orchid Group"
-    assert item["user_avatar_url"] == "https://example.com/group.jpg"
-    assert item["last_message"] == "group hello"
-
-    detail = client.get("/api/v1/admin/conversations/wechat:12345@chatroom:default")
-    messages = detail.json()["data"]["messages"]
-    assert messages[0]["content"] == "group hello"
-    assert messages[0]["metadata"]["from_user"] == "wxid_sender"
+    assert conversations["total"] == 0
 
 
 def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):

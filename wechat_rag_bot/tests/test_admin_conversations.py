@@ -220,7 +220,7 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
     sent = []
 
     async def fail_enqueue(payload):
-        raise AssertionError("group callbacks should not enter the AI queue")
+        raise AssertionError("non-text callbacks should not enter the AI queue")
 
     async def fake_send_eyun_text(**kwargs):
         sent.append(kwargs)
@@ -233,14 +233,13 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
         "/wechat/callback",
         json={
             "account": "test_account",
-            "messageType": "80001",
+            "messageType": "60003",
             "wcId": "wxid_bot",
             "data": {
                 "wId": "wid_test",
                 "fromUser": "wxid_sender",
-                "fromGroup": "12345@chatroom",
                 "toUser": "wxid_bot",
-                "content": "group hello",
+                "content": "<msg><videomsg /></msg>",
                 "msgId": 789,
                 "newMsgId": 790,
                 "self": False,
@@ -248,11 +247,11 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
         },
     )
     claim = client.post(
-        "/api/v1/admin/conversations/wechat:12345@chatroom:default/claim",
+        "/api/v1/admin/conversations/wechat:wxid_sender:default/claim",
         json={"operator_id": "op_001"},
     )
     reply = client.post(
-        "/api/v1/admin/conversations/wechat:12345@chatroom:default/reply",
+        "/api/v1/admin/conversations/wechat:wxid_sender:default/reply",
         json={"operator_id": "op_001", "content": "human reply"},
     )
 
@@ -260,10 +259,10 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
     assert claim.status_code == 200
     assert reply.status_code == 200
     assert sent == [
-        {"w_id": "wid_test", "wc_id": "12345@chatroom", "content": "human reply"}
+        {"w_id": "wid_test", "wc_id": "wxid_sender", "content": "human reply"}
     ]
 
-    detail = client.get("/api/v1/admin/conversations/wechat:12345@chatroom:default")
+    detail = client.get("/api/v1/admin/conversations/wechat:wxid_sender:default")
     messages = detail.json()["data"]["messages"]
     assert messages[-1]["sender_type"] == "human"
     assert messages[-1]["content"] == "human reply"

@@ -24,9 +24,7 @@ def is_eyun_text_message(payload: dict[str, Any]) -> bool:
 
 
 def is_eyun_workbench_message(payload: dict[str, Any]) -> bool:
-    return _message_type_in_range(payload, 60000, 60999) or _message_type_in_range(
-        payload, 80000, 80999
-    )
+    return _message_type_in_range(payload, 60000, 60999)
 
 
 def eyun_success() -> dict[str, Any]:
@@ -55,6 +53,8 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     message_type = str(payload.get("messageType", ""))
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     if message_type == EYUN_TEST_CALLBACK:
+        return eyun_success()
+    if not is_eyun_workbench_message(payload):
         return eyun_success()
     if _is_self_message(data):
         return eyun_success()

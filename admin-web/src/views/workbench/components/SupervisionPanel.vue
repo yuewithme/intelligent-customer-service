@@ -5,7 +5,9 @@
       <div class="section">
         <div class="title">
           <span>监督面板</span>
-          <ElTag :type="statusType(conversation.status)">{{ statusText(conversation.status) }}</ElTag>
+          <ElTag :type="statusType(conversation.status)">{{
+            statusText(conversation.status)
+          }}</ElTag>
         </div>
         <dl>
           <dt>客户</dt>
@@ -18,24 +20,20 @@
           <dt>渠道</dt>
           <dd>{{ conversation.channel }}</dd>
           <dt>会话</dt>
-          <dd>{{ conversation.session_id || 'default' }}</dd>
+          <dd>{{ sessionText(conversation) }}</dd>
           <dt>路由</dt>
-          <dd>{{ conversation.last_route || '-' }}</dd>
+          <dd>{{ routeText(conversation.last_route) }}</dd>
           <dt>意图</dt>
-          <dd>{{ conversation.last_intent || '-' }}</dd>
+          <dd>{{ intentText(conversation.last_intent) }}</dd>
           <dt>接管人</dt>
           <dd>{{ conversation.owner_id || '-' }}</dd>
           <dt>转人工原因</dt>
-          <dd>{{ conversation.handoff_reason || '-' }}</dd>
+          <dd>{{ handoffReasonText(conversation.handoff_reason) }}</dd>
         </dl>
       </div>
 
       <div class="actions">
-        <ElButton
-          v-if="conversation.status === 'handoff_pending'"
-          type="primary"
-          @click="claim"
-        >
+        <ElButton v-if="conversation.status === 'handoff_pending'" type="primary" @click="claim">
           领取接管
         </ElButton>
         <ElButton
@@ -45,27 +43,15 @@
         >
           强制转人工
         </ElButton>
-        <ElButton
-          v-if="conversation.status === 'human_active'"
-          @click="release"
-        >
+        <ElButton v-if="conversation.status === 'human_active'" @click="release">
           交回 AI
         </ElButton>
-        <ElButton
-          v-if="conversation.status !== 'resolved'"
-          type="danger"
-          plain
-          @click="resolve"
-        >
+        <ElButton v-if="conversation.status !== 'resolved'" type="danger" plain @click="resolve">
           结束会话
         </ElButton>
       </div>
 
-      <ReplyComposer
-        :status="conversation.status"
-        @claim="claim"
-        @send="reply"
-      />
+      <ReplyComposer :status="conversation.status" @claim="claim" @send="reply" />
     </template>
   </aside>
 </template>
@@ -141,6 +127,40 @@ const statusType = (value: ConversationStatus) =>
     human_active: 'success',
     resolved: 'danger'
   })[value] as 'info' | 'warning' | 'success' | 'danger'
+
+const sessionText = (conversation: ConversationItem) =>
+  conversation.channel === 'wechat' && conversation.session_id === 'default'
+    ? '私聊'
+    : conversation.session_id || '-'
+
+const routeText = (value?: string | null) =>
+  ({
+    unsupported: '未匹配',
+    inbound_text: '私聊消息',
+    non_text: '非文本消息',
+    human: '人工处理'
+  })[value || ''] ||
+  value ||
+  '-'
+
+const intentText = (value?: string | null) =>
+  ({
+    unsupported: '未匹配',
+    unknown: '待识别',
+    message: '普通消息'
+  })[value || ''] ||
+  value ||
+  '-'
+
+const handoffReasonText = (value?: string | null) =>
+  ({
+    manual_force_handoff: '人工主动接管',
+    human_required: '需要人工处理',
+    unsupported_message_type: '非文本消息需人工处理',
+    resolved_by_operator: '人工结束会话'
+  })[value || ''] ||
+  value ||
+  '-'
 
 const displayName = (conversation: ConversationItem) =>
   conversation.user_display_name || conversation.user_id
