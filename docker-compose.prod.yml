@@ -10,6 +10,7 @@ services:
       CHAT_LOG_PROVIDER: sqlite
       CHAT_LOG_DB_URL: sqlite:////app/data/chat_logs.db
       UPLOAD_DIR: /app/data/uploads
+      HF_HOME: /app/data/huggingface
     expose:
       - "8000"
     volumes:

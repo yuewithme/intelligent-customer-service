@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import math
 from functools import lru_cache
@@ -37,6 +38,18 @@ def _as_float_lists(vectors: Any) -> list[list[float]]:
     return [_as_float_list(vector) for vector in vectors]
 
 
+def _encode_bge_text(model_name: str, text: str) -> list[float]:
+    return _as_float_list(
+        _bge_model(model_name).encode(text, normalize_embeddings=True)
+    )
+
+
+def _encode_bge_texts(model_name: str, texts: list[str]) -> list[list[float]]:
+    return _as_float_lists(
+        _bge_model(model_name).encode(texts, normalize_embeddings=True)
+    )
+
+
 def _validate_vector_size(vector: list[float], model_name: str, expected_size: int) -> None:
     if len(vector) != expected_size:
         raise AppError(
@@ -57,11 +70,10 @@ async def embed_text(text: str) -> list[float]:
 
     if provider == "bge":
         try:
-            vector = _as_float_list(
-                _bge_model(settings.embedding_model).encode(
-                    text,
-                    normalize_embeddings=True,
-                )
+            vector = await asyncio.to_thread(
+                _encode_bge_text,
+                settings.embedding_model,
+                text,
             )
             _validate_vector_size(
                 vector,
@@ -115,11 +127,10 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
             for start in range(0, len(texts), batch_size):
                 batch = texts[start : start + batch_size]
                 vectors.extend(
-                    _as_float_lists(
-                        _bge_model(settings.embedding_model).encode(
-                            batch,
-                            normalize_embeddings=True,
-                        )
+                    await asyncio.to_thread(
+                        _encode_bge_texts,
+                        settings.embedding_model,
+                        batch,
                     )
                 )
             for vector in vectors:

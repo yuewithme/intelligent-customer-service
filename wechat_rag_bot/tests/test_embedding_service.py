@@ -1,9 +1,38 @@
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
 
 from app.services import embedding_service
+
+
+@pytest.mark.asyncio
+async def test_bge_encoding_runs_outside_event_loop_thread(monkeypatch):
+    event_loop_thread = threading.get_ident()
+    encode_threads = []
+
+    class FakeModel:
+        def encode(self, text: str, normalize_embeddings: bool):
+            del text, normalize_embeddings
+            encode_threads.append(threading.get_ident())
+            return [0.1, 0.2, 0.3]
+
+    monkeypatch.setattr(embedding_service, "_bge_model", lambda _: FakeModel())
+    monkeypatch.setattr(
+        embedding_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            embedding_provider="bge",
+            embedding_model="BAAI/bge-m3",
+            qdrant_vector_size=3,
+        ),
+    )
+
+    await embedding_service.embed_text("hello")
+
+    assert encode_threads
+    assert encode_threads[0] != event_loop_thread
 
 
 @pytest.mark.asyncio

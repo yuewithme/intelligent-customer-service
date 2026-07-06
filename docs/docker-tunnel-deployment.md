@@ -29,6 +29,8 @@
 
 `backend-data` 保存 `rag.db`、`chat_logs.db` 和上传文件。重建容器不会删除数据卷。
 
+`HF_HOME=/app/data/huggingface` 将本地 Embedding 模型缓存放入同一个持久卷，避免每次重建容器后重新下载 BGE 模型。BGE 的加载和编码在工作线程运行，不得阻塞 FastAPI 事件循环，否则 Webhook 会因等待超时出现 Nginx `499`。
+
 ## 运维命令
 
 ```powershell
@@ -43,6 +45,7 @@ docker compose -p intelligent-customer-service -f docker-compose.prod.yml down
 ## 切换要求
 
 - 易云或微信平台的回调地址必须设置为 `http://124.160.45.66:21873/wechat/callback`。
+- `/wechat/callback` 必须快速返回 `{"code":"1000","message":"success"}`；Nginx 对该路径关闭响应缓冲。
 - 防火墙和内网穿透规则需保持 TCP `21873` 可访问。
 - Docker Desktop 和两个业务容器必须持续运行。
 - Render/Vercel 属于历史部署，不再作为生产入口。
