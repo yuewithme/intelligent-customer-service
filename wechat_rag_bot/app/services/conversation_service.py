@@ -217,6 +217,104 @@ async def record_ai_turn(*, message, result: dict) -> None:
     _publish_change(conversation_id, "message")
 
 
+async def record_customer_message(
+    *,
+    channel: str,
+    user_id: str,
+    session_id: str | None,
+    content: str,
+    message_id: str | None = None,
+    tenant_id: str | None = None,
+    status: str = HANDOFF_PENDING,
+    route: str | None = None,
+    primary_intent: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    handoff_reason: str | None = None,
+) -> dict:
+    metadata = metadata or {}
+    tenant_id = tenant_id or "tenant_default"
+    conversation_id = make_conversation_id(channel, user_id, session_id)
+    now = _now()
+
+    with _get_session() as session:
+        conversation = session.scalar(
+            select(ConversationModel).where(
+                ConversationModel.conversation_id == conversation_id
+            )
+        )
+        if conversation is None:
+            conversation = ConversationModel(
+                conversation_id=conversation_id,
+                channel=channel,
+                user_id=user_id,
+                user_display_name=_metadata_text(
+                    metadata,
+                    (
+                        "remark_name",
+                        "remark",
+                        "display_name",
+                        "nickname",
+                        "nick_name",
+                        "user_nickname",
+                        "from_user_name",
+                        "fromUserName",
+                        "sender_name",
+                        "alias",
+                    ),
+                ),
+                user_avatar_url=_metadata_text(
+                    metadata,
+                    (
+                        "avatar_url",
+                        "avatar",
+                        "headimgurl",
+                        "head_img_url",
+                        "head_url",
+                    ),
+                ),
+                session_id=session_id,
+                tenant_id=tenant_id,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(conversation)
+            session.flush()
+
+        conversation.status = status
+        conversation.owner_id = None
+        conversation.last_message = content
+        conversation.last_route = route
+        conversation.last_intent = primary_intent
+        conversation.handoff_reason = handoff_reason
+        conversation.handoff_ticket_id = conversation.handoff_ticket_id or generate_id(
+            "handoff"
+        )
+        conversation.unread_count = (conversation.unread_count or 0) + 1
+        conversation.updated_at = now
+
+        session.add(
+            ConversationMessageModel(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                sender_type="customer",
+                sender_id=user_id,
+                content=content,
+                route=route,
+                primary_intent=primary_intent,
+                metadata_json=json.dumps(
+                    {"channel": channel, "tenant_id": tenant_id, **metadata},
+                    ensure_ascii=False,
+                ),
+                created_at=now,
+            )
+        )
+        session.commit()
+        result = _conversation_to_dict(conversation)
+
+    _publish_change(conversation_id, "message")
+    return result
+
+
 async def claim_conversation(conversation_id: str, operator_id: str) -> dict:
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)
