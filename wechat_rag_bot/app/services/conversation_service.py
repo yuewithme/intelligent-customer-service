@@ -478,7 +478,12 @@ async def resolve_message_media(message_id: int) -> dict:
         try:
             url = await download_eyun_video(
                 w_id=str(metadata.get("w_id") or ""),
-                msg_id=str(metadata.get("provider_msg_id") or ""),
+                msg_id=str(
+                    metadata.get("provider_msg_id")
+                    or metadata.get("message_id")
+                    or message.message_id
+                    or ""
+                ),
                 content=str(metadata.get("raw_content") or ""),
             )
         except Exception as exc:  # noqa: BLE001
