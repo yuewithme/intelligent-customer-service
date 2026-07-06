@@ -58,6 +58,15 @@
               {{ mediaFileName(message) || message.content }}
             </a>
             <span v-else>{{ message.content }}</span>
+            <a
+              v-if="showOriginalLink(message)"
+              class="original-link"
+              :href="mediaSource(message)"
+              target="_blank"
+              rel="noreferrer"
+            >
+              打开原链接
+            </a>
           </div>
           <div class="time">{{ formatTime(message.created_at) }}</div>
         </div>
@@ -178,6 +187,9 @@ const mediaFileName = (message: ConversationMessage) => {
   const media = messageMedia(message)
   return media?.file_name || media?.filename || media?.name || ''
 }
+
+const showOriginalLink = (message: ConversationMessage) =>
+  ['video', 'audio'].includes(mediaType(message)) && Boolean(mediaSource(message))
 
 const displayName = (conversation: ConversationItem) =>
   conversation.user_display_name || conversation.user_id
@@ -308,6 +320,15 @@ p {
 
 .message-link {
   color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.original-link {
+  display: block;
+  margin-top: 6px;
+  color: inherit;
+  font-size: 12px;
   text-decoration: underline;
   text-underline-offset: 3px;
 }

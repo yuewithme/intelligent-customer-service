@@ -237,3 +237,78 @@ def test_wechat_callback_records_group_text_without_ai_queue(monkeypatch, tmp_pa
     messages = detail.json()["data"]["messages"]
     assert messages[0]["content"] == "group hello"
     assert messages[0]["metadata"]["from_user"] == "wxid_sender"
+
+
+def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fake_contact_snapshot(**kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
+    )
+    client = TestClient(app)
+    payloads = [
+        (
+            "60003",
+            '<msg><videomsg cdnvideourl="https://cdn.example.com/video.mp4" /></msg>',
+            {},
+            "video",
+            "https://cdn.example.com/video.mp4",
+        ),
+        (
+            "60004",
+            "<msg><voicemsg /></msg>",
+            {"url": "https://cdn.example.com/voice.mp3"},
+            "audio",
+            "https://cdn.example.com/voice.mp3",
+        ),
+        (
+            "60006",
+            "<msg><emoji /></msg>",
+            {"url": "https://cdn.example.com/emoji.gif"},
+            "image",
+            "https://cdn.example.com/emoji.gif",
+        ),
+        (
+            "60007",
+            "<msg><appmsg><title>Example</title>"
+            "<url>https://example.com/article</url></appmsg></msg>",
+            {},
+            "link",
+            "https://example.com/article",
+        ),
+    ]
+
+    for index, (message_type, content, extra, expected_type, expected_url) in enumerate(
+        payloads
+    ):
+        response = client.post(
+            "/wechat/callback",
+            json={
+                "account": "test_account",
+                "messageType": message_type,
+                "wcId": "wxid_bot",
+                "data": {
+                    "wId": "wid_test",
+                    "fromUser": f"wxid_customer_{index}",
+                    "toUser": "wxid_bot",
+                    "content": content,
+                    "msgId": 500 + index,
+                    "newMsgId": 600 + index,
+                    "self": False,
+                    **extra,
+                },
+            },
+        )
+        assert response.status_code == 200
+
+        detail = client.get(
+            f"/api/v1/admin/conversations/wechat:wxid_customer_{index}:default"
+        ).json()["data"]
+        media = detail["messages"][0]["metadata"]["media"]
+        assert media["type"] == expected_type
+        assert media["url"] == expected_url

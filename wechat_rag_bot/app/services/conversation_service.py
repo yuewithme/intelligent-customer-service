@@ -572,8 +572,8 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
         "handoff_reason": row.handoff_reason,
         "handoff_ticket_id": row.handoff_ticket_id,
         "unread_count": row.unread_count,
-        "created_at": row.created_at.isoformat(),
-        "updated_at": row.updated_at.isoformat(),
+        "created_at": _utc_isoformat(row.created_at),
+        "updated_at": _utc_isoformat(row.updated_at),
     }
 
 
@@ -593,8 +593,14 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         "route": row.route,
         "primary_intent": row.primary_intent,
         "metadata": metadata,
-        "created_at": row.created_at.isoformat(),
+        "created_at": _utc_isoformat(row.created_at),
     }
+
+
+def _utc_isoformat(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
 
 
 def _metadata_text(metadata: dict[str, Any], keys: tuple[str, ...]) -> str | None:

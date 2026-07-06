@@ -1,5 +1,7 @@
 import logging
 from typing import Any
+from urllib.parse import unquote
+from xml.etree import ElementTree
 
 import httpx
 
@@ -86,24 +88,18 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _eyun_non_text_label(message_type: str) -> str:
     return {
-        "60002": "[图片]",
-        "60003": "[语音]",
-        "60004": "[视频]",
-        "60005": "[文件]",
-        "60006": "[位置]",
-        "60007": "[链接]",
-        "60008": "[名片]",
-        "60009": "[表情]",
-        "60010": "[小程序]",
-        "80002": "[图片]",
-        "80003": "[语音]",
-        "80004": "[视频]",
-        "80005": "[文件]",
-        "80006": "[位置]",
-        "80007": "[链接]",
-        "80009": "[表情]",
-        "80010": "[小程序]",
-    }.get(message_type, "[非文本消息]")
+        "002": "[图片]",
+        "003": "[视频]",
+        "004": "[语音]",
+        "005": "[名片]",
+        "006": "[表情]",
+        "007": "[链接]",
+        "008": "[文件]",
+        "009": "[文件]",
+        "010": "[小程序]",
+        "011": "[聊天记录]",
+        "020": "[位置]",
+    }.get(message_type[-3:], "[非文本消息]")
 
 
 def _message_type_in_range(payload: dict[str, Any], start: int, end: int) -> bool:
@@ -140,9 +136,18 @@ def _eyun_display_content(payload: dict[str, Any]) -> str:
 
 
 def _eyun_message_kind(message_type: str) -> str:
-    if message_type.endswith("002"):
-        return "image"
-    return "non_text"
+    return {
+        "002": "image",
+        "003": "video",
+        "004": "audio",
+        "005": "contact",
+        "006": "image",
+        "007": "link",
+        "008": "file",
+        "009": "file",
+        "010": "mini_program",
+        "020": "location",
+    }.get(message_type[-3:], "non_text")
 
 
 async def _eyun_workbench_metadata(payload: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
@@ -172,30 +177,62 @@ async def _eyun_workbench_metadata(payload: dict[str, Any], data: dict[str, Any]
 async def _eyun_media_metadata(
     message_type: str, data: dict[str, Any], *, w_id: str
 ) -> dict[str, Any] | None:
-    if not message_type.endswith("002"):
+    kind = _eyun_message_kind(message_type)
+    if kind == "non_text":
         return None
 
-    thumb_base64 = str(data.get("img") or "")
-    msg_id = _eyun_provider_message_id(data) or ""
-    url = await fetch_eyun_image_url(
-        w_id=w_id,
-        msg_id=msg_id,
-        content=str(data.get("content") or ""),
-        image_type=1,
-    ) or await fetch_eyun_image_url(
-        w_id=w_id,
-        msg_id=msg_id,
-        content=str(data.get("content") or ""),
-        image_type=0,
-    )
-    media: dict[str, Any] = {
-        "type": "image",
-        "thumb_base64": thumb_base64,
-        "fallback": not bool(url),
-    }
-    if url:
-        media["url"] = url
+    content = str(data.get("content") or "")
+    media: dict[str, Any] = {"type": kind, **_xml_media_metadata(content)}
+    direct_url = _first_text(data, ("url", "fileUrl", "downloadUrl", "videoUrl"))
+    if direct_url:
+        media["url"] = direct_url
+
+    if message_type.endswith("002"):
+        media["thumb_base64"] = str(data.get("img") or "")
+        msg_id = _eyun_provider_message_id(data) or ""
+        url = await fetch_eyun_image_url(
+            w_id=w_id,
+            msg_id=msg_id,
+            content=content,
+            image_type=1,
+        ) or await fetch_eyun_image_url(
+            w_id=w_id,
+            msg_id=msg_id,
+            content=content,
+            image_type=0,
+        )
+        if url:
+            media["url"] = url
+
+    media["fallback"] = not bool(media.get("url"))
     return media
+
+
+def _xml_media_metadata(content: str) -> dict[str, str]:
+    if not content.lstrip().startswith("<"):
+        return {}
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError:
+        return {}
+
+    result: dict[str, str] = {}
+    for element in root.iter():
+        if element.tag in {"title", "filename"} and element.text and element.text.strip():
+            result.setdefault("file_name", element.text.strip())
+        for value in (element.text or "", *element.attrib.values()):
+            candidate = unquote(value.strip())
+            if candidate.startswith(("http://", "https://")):
+                result.setdefault("url", candidate)
+    return result
+
+
+def _first_text(data: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 async def fetch_eyun_image_url(

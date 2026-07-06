@@ -94,6 +94,32 @@ def test_conversation_exposes_customer_display_snapshot(monkeypatch, tmp_path):
     assert conversation["user_avatar_url"] == "https://example.com/avatar.jpg"
 
 
+def test_conversation_timestamps_are_serialized_as_utc(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    client.post(
+        "/api/v1/chat",
+        json={
+            "channel": "api",
+            "user_id": "user_001",
+            "session_id": "sess_001",
+            "message": "hello",
+            "kb_id": "kb_default",
+            "metadata": {},
+        },
+    )
+
+    item = client.get("/api/v1/admin/conversations").json()["data"]["items"][0]
+    detail = client.get("/api/v1/admin/conversations/api:user_001:sess_001").json()[
+        "data"
+    ]
+
+    assert item["created_at"].endswith("+00:00")
+    assert item["updated_at"].endswith("+00:00")
+    assert detail["messages"][0]["created_at"].endswith("+00:00")
+
+
 def test_human_cannot_reply_until_conversation_is_claimed(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
