@@ -175,6 +175,49 @@ class UserProfileModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class CustomerLevelProfileModel(Base):
+    __tablename__ = "customer_level_profiles"
+
+    level: Mapped[str] = mapped_column(String(16), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text)
+    min_score: Mapped[float] = mapped_column(Float, default=1.0)
+    default_route: Mapped[str] = mapped_column(String(64), default="rag_answer")
+    handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class CustomerLevelRuleModel(Base):
+    __tablename__ = "customer_level_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    level: Mapped[str] = mapped_column(String(16), index=True)
+    rule_type: Mapped[str] = mapped_column(String(64), default="keyword_any")
+    pattern: Mapped[str] = mapped_column(Text)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+    evidence_label: Mapped[str] = mapped_column(String(256))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class PromptBlockModel(Base):
+    __tablename__ = "prompt_blocks"
+
+    block_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    title: Mapped[str] = mapped_column(String(256))
+    content: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class CustomerLevelPromptBindingModel(Base):
+    __tablename__ = "customer_level_prompt_bindings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    level: Mapped[str] = mapped_column(String(16), index=True)
+    prompt_block_id: Mapped[str] = mapped_column(String(128), index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class ConversationMemoryModel(Base):
     __tablename__ = "conversation_memories"
 

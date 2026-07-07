@@ -1,4 +1,5 @@
 from app.schemas.prompt import PromptBuildInput
+from app.services.customer_level_service import get_customer_level_prompt_blocks
 
 
 PROMPT_BLOCKS = {
@@ -63,7 +64,15 @@ async def build_prompt(request: PromptBuildInput) -> str:
 
 
 def _render_prompt_blocks(block_ids: list[str]) -> list[str]:
-    return [PROMPT_BLOCKS[block_id] for block_id in block_ids if block_id in PROMPT_BLOCKS]
+    db_blocks = get_customer_level_prompt_blocks(
+        [block_id for block_id in block_ids if block_id.startswith("customer_level.")]
+    )
+    rendered = []
+    for block_id in block_ids:
+        content = db_blocks.get(block_id) or PROMPT_BLOCKS.get(block_id)
+        if content:
+            rendered.append(content)
+    return rendered
 
 
 def _render_templates(templates: list[str]) -> str:
