@@ -266,6 +266,78 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
     assert profile["ai_summary"] == "客户在广西，养了100盆花，正在咨询适合当地气候的开花类兰花推荐。"
 
 
+@pytest.mark.asyncio
+async def test_profile_update_keeps_one_customer_tag_per_type(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
+        return {
+            "current_stage": "interest",
+            "risk_level": "normal",
+            "customer_tags": [
+                "region:浙江",
+                "region:杭州",
+                "region:广西",
+                "plant_count:100盆",
+                "plant_count:20盆",
+                "budget:100",
+                "budget:200",
+                "preference:建兰",
+                "preference:蕙兰",
+                "测试用户",
+                "测试用户",
+            ],
+            "product_interests": ["建兰"],
+            "pain_points": ["想找适合广西环境的兰花"],
+            "ai_summary": "客户在广西，养了20盆花，预算约200元，偏好蕙兰。",
+        }
+
+    monkeypatch.setattr(
+        "app.services.user_profile_service.generate_json",
+        fake_generate_json,
+    )
+    message = NormalizedMessage(
+        trace_id="trace_004",
+        channel="wechat",
+        user_id="user_004",
+        session_id="default",
+        message="我在广西，养了20盆花，预算200，想买蕙兰",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        sales_stage="knowledge_consulting",
+        confidence=0.9,
+        need_rag=True,
+        slots={},
+        reason="care question",
+    )
+    reply = FinalReply(
+        answer="可以看看适合广西环境的蕙兰。",
+        reply_type="rag",
+        route="rag_answer",
+        metadata={
+            "tag_result": {
+                "labels": ["region:浙江", "plant_count:100盆", "budget:100"],
+                "risk_level": "normal",
+            }
+        },
+    )
+
+    await update_profile_after_chat(message, intent, reply)
+
+    profile = (await get_profile_bundle("user_004"))["profile"]
+    assert profile["customer_tags"] == [
+        "region:广西",
+        "plant_count:20盆",
+        "budget:200",
+        "preference:蕙兰",
+        "测试用户",
+    ]
+
+
 def test_new_profile_apis_require_bearer_authentication(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path, auth=True)
     client = TestClient(app)

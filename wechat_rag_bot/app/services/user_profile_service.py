@@ -478,19 +478,21 @@ def _risk_value(value: Any) -> str:
 
 
 def _merge_customer_tags(existing: list[str], incoming: list[str]) -> list[str]:
-    normalized = [_normalize_customer_tag(tag) for tag in incoming]
-    replace_keys = {_tag_replace_key(tag) for tag in normalized}
-    kept = [
-        tag
-        for tag in existing
-        if tag and _tag_replace_key(tag) not in replace_keys
+    candidates = [
+        _normalize_customer_tag(tag)
+        for tag in [*existing, *incoming]
+        if isinstance(tag, str) and tag.strip()
     ]
-    result: list[str] = []
-    for tag in normalized:
-        result = _append_unique(result, tag)
-    for tag in kept:
-        result = _append_unique(result, tag)
-    return result
+    latest_by_key: dict[str, tuple[int, str]] = {}
+    for index, tag in enumerate(candidates):
+        latest_by_key[_tag_replace_key(tag)] = (index, tag)
+    selected = [
+        (index, tag)
+        for key, (index, tag) in latest_by_key.items()
+        if key and tag
+    ]
+    selected.sort(key=lambda item: (_tag_order(item[1]), item[0]))
+    return [tag for _, tag in selected]
 
 
 def _normalize_customer_tag(tag: str) -> str:
@@ -503,9 +505,19 @@ def _tag_replace_key(tag: str) -> str:
     if ":" not in tag:
         return tag
     prefix = tag.split(":", 1)[0]
-    if prefix in {"region", "budget", "plant_count", "pain_point"}:
-        return prefix
-    return tag
+    return prefix
+
+
+def _tag_order(tag: str) -> int:
+    key = _tag_replace_key(tag)
+    order = {
+        "region": 10,
+        "plant_count": 20,
+        "budget": 30,
+        "preference": 40,
+        "pain_point": 50,
+    }
+    return order.get(key, 100)
 
 
 def _label_value(labels: list[str], prefix: str) -> str:
