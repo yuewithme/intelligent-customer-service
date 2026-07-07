@@ -24,6 +24,7 @@ _tables = [
     PromptBlockModel.__table__,
     CustomerLevelPromptBindingModel.__table__,
 ]
+_PROMPT_PREFIX = "customer_level."
 
 
 _LEVEL_PROFILES = [
@@ -152,8 +153,12 @@ _PROMPT_BINDINGS = {
 
 def seed_customer_level_policy() -> None:
     with _get_session() as session:
-        for table in reversed(_tables):
-            session.execute(delete(table))
+        session.execute(delete(CustomerLevelPromptBindingModel))
+        session.execute(delete(CustomerLevelRuleModel))
+        session.execute(delete(CustomerLevelProfileModel))
+        session.execute(
+            delete(PromptBlockModel).where(PromptBlockModel.block_id.startswith(_PROMPT_PREFIX))
+        )
         for item in _LEVEL_PROFILES:
             session.add(CustomerLevelProfileModel(**item, enabled=True))
         for level, rules in _RULES.items():

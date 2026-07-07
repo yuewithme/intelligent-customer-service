@@ -218,6 +218,17 @@ class CustomerLevelPromptBindingModel(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class TagPromptBindingModel(Base):
+    __tablename__ = "tag_prompt_bindings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_id: Mapped[str] = mapped_column(String(64), index=True)
+    tag_value: Mapped[str] = mapped_column(String(256), index=True)
+    prompt_block_id: Mapped[str] = mapped_column(String(128), index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class ConversationMemoryModel(Base):
     __tablename__ = "conversation_memories"
 
