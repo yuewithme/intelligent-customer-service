@@ -114,6 +114,22 @@ def test_profile_analysis_prompt_wraps_message_content_for_llm():
     assert '"content": "{{hello}}"' in prompt
 
 
+def test_custom_profile_analysis_prompt_keeps_message_record_format(monkeypatch):
+    monkeypatch.setenv("PROFILE_ANALYSIS_PROMPT", "自定义画像提示词")
+    get_settings.cache_clear()
+
+    from app.services.user_profile_service import _build_profile_analysis_prompt
+
+    prompt = _build_profile_analysis_prompt(
+        [{"created_at": "2026-07-07T10:00:00+00:00", "content": "hello"}]
+    )
+
+    assert "自定义画像提示词" in prompt
+    assert "读取每条记录的 `content` 字段" in prompt
+    assert "{{用户消息原文}}" in prompt
+    assert '"content": "{{hello}}"' in prompt
+
+
 @pytest.mark.asyncio
 async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)

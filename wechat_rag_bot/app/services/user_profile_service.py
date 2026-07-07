@@ -36,10 +36,14 @@ _allowed_patch_fields = {
     "human_handoff_reason",
 }
 
+PROFILE_RECORD_FORMAT_INSTRUCTION = (
+    "请读取每条记录的 `content` 字段；该字段会以 `{{用户消息原文}}` 的形式包裹，"
+    "请只理解双大括号内的真实用户消息。"
+)
+
 DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分析助手。
 
 你的唯一输入是【用户消息原文记录】。只能依据这些用户亲自发送的内容生成画像。
-请读取每条记录的 `content` 字段；该字段会以 `{{用户消息原文}}` 的形式包裹，请只理解双大括号内的真实用户消息。
 
 严禁使用或输出路由、意图、模板编号、AI 回复、系统判断、知识库命中结果等中间字段。
 
@@ -245,12 +249,20 @@ async def _build_profile_analysis(user_records: list[dict]) -> dict:
 
 def _build_profile_analysis_prompt(user_records: list[dict]) -> str:
     settings = get_settings()
-    prompt = settings.profile_analysis_prompt.strip() or DEFAULT_PROFILE_ANALYSIS_PROMPT
+    prompt = _profile_prompt_with_record_format(
+        settings.profile_analysis_prompt.strip() or DEFAULT_PROFILE_ANALYSIS_PROMPT
+    )
     prompt_records = _wrap_prompt_record_content(user_records)
     return (
         f"{prompt}\n\n【标签库】\n{_json_dumps(_profile_tag_catalog_prompt())}"
         f"\n\n【用户消息原文记录】\n{_json_dumps(prompt_records)}"
     )
+
+
+def _profile_prompt_with_record_format(prompt: str) -> str:
+    if "读取每条记录的 `content` 字段" in prompt and "{{用户消息原文}}" in prompt:
+        return prompt
+    return f"{prompt.rstrip()}\n{PROFILE_RECORD_FORMAT_INSTRUCTION}"
 
 
 def _wrap_prompt_record_content(user_records: list[dict]) -> list[dict]:
