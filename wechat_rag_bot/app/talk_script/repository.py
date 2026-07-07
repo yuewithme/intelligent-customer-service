@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from typing import Iterable
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -136,6 +136,84 @@ def record_match_log(payload: dict) -> None:
             )
         )
         session.commit()
+
+
+def list_match_logs(
+    *,
+    page: int = 1,
+    page_size: int = 50,
+    customer_id: str | None = None,
+    session_id: str | None = None,
+    trace_id: str | None = None,
+    status: str | None = None,
+    scene_id: str | None = None,
+    template_id: str | None = None,
+    need_human: bool | None = None,
+) -> dict:
+    page = max(page, 1)
+    page_size = max(min(page_size, 200), 1)
+    filters = []
+    if customer_id:
+        filters.append(TalkScriptMatchLogModel.customer_id == customer_id)
+    if session_id:
+        filters.append(TalkScriptMatchLogModel.session_id == session_id)
+    if trace_id:
+        filters.append(TalkScriptMatchLogModel.trace_id == trace_id)
+    if status:
+        filters.append(TalkScriptMatchLogModel.status == status)
+    if scene_id:
+        filters.append(TalkScriptMatchLogModel.scene_id == scene_id)
+    if template_id:
+        filters.append(TalkScriptMatchLogModel.template_id == template_id)
+    if need_human is not None:
+        filters.append(TalkScriptMatchLogModel.need_human == need_human)
+
+    with get_session() as session:
+        total = session.scalar(
+            select(func.count()).select_from(TalkScriptMatchLogModel).where(*filters)
+        )
+        rows = session.scalars(
+            select(TalkScriptMatchLogModel)
+            .where(*filters)
+            .order_by(
+                TalkScriptMatchLogModel.created_at.desc(),
+                TalkScriptMatchLogModel.id.desc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+    return {
+        "items": [_match_log_to_item(row) for row in rows],
+        "total": int(total or 0),
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+def _match_log_to_item(row: TalkScriptMatchLogModel) -> dict:
+    try:
+        candidate_question_ids = json.loads(row.candidate_question_ids_json or "[]")
+    except json.JSONDecodeError:
+        candidate_question_ids = []
+    return {
+        "id": row.id,
+        "trace_id": row.trace_id,
+        "customer_id": row.customer_id,
+        "session_id": row.session_id,
+        "user_message": row.user_message,
+        "normalized_message": row.normalized_message,
+        "status": row.status,
+        "scene_id": row.scene_id,
+        "candidate_question_ids": candidate_question_ids,
+        "matched_question_id": row.matched_question_id,
+        "template_id": row.template_id,
+        "confidence": row.confidence,
+        "need_slot_filling": row.need_slot_filling,
+        "need_human": row.need_human,
+        "final_answer": row.final_answer,
+        "match_reason": row.match_reason,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
 
 
 def _scene_payload(row: dict) -> dict:

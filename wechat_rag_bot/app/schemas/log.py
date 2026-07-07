@@ -60,3 +60,30 @@ class ChatLogStats(BaseModel):
     human_count: int = 0
     rag_count: int = 0
     template_count: int = 0
+
+
+class TalkScriptMatchLogItem(BaseModel):
+    id: int
+    trace_id: str | None = None
+    customer_id: str | None = None
+    session_id: str | None = None
+    user_message: str
+    normalized_message: str | None = None
+    status: str
+    scene_id: str | None = None
+    candidate_question_ids: list[str] = Field(default_factory=list)
+    matched_question_id: str | None = None
+    template_id: str | None = None
+    confidence: float | None = None
+    need_slot_filling: bool = False
+    need_human: bool = False
+    final_answer: str | None = None
+    match_reason: str | None = None
+    created_at: str | None = None
+
+
+class TalkScriptMatchLogListResponse(BaseModel):
+    items: list[TalkScriptMatchLogItem]
+    total: int
+    page: int
+    page_size: int

@@ -94,8 +94,15 @@ async def test_reply_graph_disabled_uses_legacy_build_reply(monkeypatch):
         lambda: SimpleNamespace(reply_graph_enabled=False, intent_example_top_k=5),
     )
 
-    async def legacy_build_reply(route, intent, message, user_state, stage_latencies):
-        del route, intent, message, user_state
+    async def legacy_build_reply(
+        route,
+        intent,
+        message,
+        user_state,
+        stage_latencies,
+        policy_decision=None,
+    ):
+        del route, intent, message, user_state, policy_decision
         calls["legacy"] += 1
         stage_latencies["talk_script_ms"] = 0
         stage_latencies["template_ms"] = 0
@@ -125,7 +132,9 @@ async def test_reply_graph_disabled_uses_legacy_build_reply(monkeypatch):
     assert result["need_human"] is False
     assert result["next_action"] is None
     assert result["trace_id"] == "trace_001"
-    assert result["metadata"] == {"path": "legacy"}
+    assert result["metadata"]["path"] == "legacy"
+    assert "tag_result" in result["metadata"]
+    assert "policy_decision" in result["metadata"]
     assert result["handoff"] is None
 
 

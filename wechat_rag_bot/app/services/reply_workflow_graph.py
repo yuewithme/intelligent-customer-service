@@ -5,6 +5,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from app.schemas.intent import IntentResult
+from app.schemas.policy import PolicyDecision
 from app.schemas.reply import FinalReply
 from app.services.chat_orchestrator import (
     _elapsed_ms,
@@ -15,11 +16,8 @@ from app.services.reply_builder import (
     build_chitchat_reply,
     build_clarify_reply,
     build_rag_reply,
-    build_template_reply,
-    build_template_then_rag_reply,
     build_unsupported_reply,
 )
-from app.services.template_service import render_template, select_template
 from app.talk_script.service import match_talk_script
 
 
@@ -28,6 +26,7 @@ class ReplyWorkflowState(TypedDict, total=False):
     intent: IntentResult
     message: Any
     user_state: Any
+    policy_decision: PolicyDecision | None
     stage_latencies: dict[str, int]
     reply: FinalReply
     handoff_reason: str
@@ -92,19 +91,13 @@ def route_reply_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
 async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     stage_latencies = state["stage_latencies"]
     stage_started = time.perf_counter()
-    template = await select_template(state["message"], state["intent"], state["user_state"])
-    if template is None:
-        stage_latencies["template_ms"] = _elapsed_ms(stage_started)
-        stage_latencies.setdefault("rag_ms", 0)
-        return {
-            "handoff_reason": "template_not_found_to_handoff",
-            "handoff_original_route": "template_reply",
-            "handoff_context": None,
-        }
-    template_reply = await render_template(template, state["message"], state["user_state"])
     stage_latencies["template_ms"] = _elapsed_ms(stage_started)
     stage_latencies.setdefault("rag_ms", 0)
-    return {"reply": build_template_reply(template_reply, state["intent"])}
+    return {
+        "handoff_reason": "talk_script_not_matched_to_handoff",
+        "handoff_original_route": "template_reply",
+        "handoff_context": None,
+    }
 
 
 async def rag_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
@@ -112,7 +105,11 @@ async def rag_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
 
     stage_latencies = state["stage_latencies"]
     stage_started = time.perf_counter()
-    rag_result = await answer_knowledge(state["message"], state["user_state"])
+    rag_result = await answer_knowledge(
+        state["message"],
+        state["user_state"],
+        policy_decision=state.get("policy_decision"),
+    )
     stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
     stage_latencies.setdefault("template_ms", 0)
     if _is_rag_no_answer(rag_result):
@@ -128,21 +125,14 @@ async def template_then_rag_node(state: ReplyWorkflowState) -> ReplyWorkflowStat
     from app.services.rag_service import answer_knowledge
 
     stage_latencies = state["stage_latencies"]
-    stage_started = time.perf_counter()
-    template = await select_template(state["message"], state["intent"], state["user_state"])
-    if template is None:
-        stage_latencies["template_ms"] = _elapsed_ms(stage_started)
-        stage_latencies.setdefault("rag_ms", 0)
-        return {
-            "handoff_reason": "template_not_found_to_handoff",
-            "handoff_original_route": "template_then_rag",
-            "handoff_context": None,
-        }
-    template_reply = await render_template(template, state["message"], state["user_state"])
-    stage_latencies["template_ms"] = _elapsed_ms(stage_started)
+    stage_latencies.setdefault("template_ms", 0)
 
     stage_started = time.perf_counter()
-    rag_result = await answer_knowledge(state["message"], state["user_state"])
+    rag_result = await answer_knowledge(
+        state["message"],
+        state["user_state"],
+        policy_decision=state.get("policy_decision"),
+    )
     stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
     if _is_rag_no_answer(rag_result):
         return {
@@ -150,13 +140,7 @@ async def template_then_rag_node(state: ReplyWorkflowState) -> ReplyWorkflowStat
             "handoff_original_route": "template_then_rag",
             "handoff_context": None,
         }
-    return {
-        "reply": build_template_then_rag_reply(
-            template_reply,
-            rag_result,
-            state["intent"],
-        )
-    }
+    return {"reply": build_rag_reply(rag_result, state["intent"])}
 
 
 async def handoff_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
@@ -294,6 +278,7 @@ async def build_reply_with_graph(
     message,
     user_state,
     stage_latencies: dict[str, int],
+    policy_decision: PolicyDecision | None = None,
 ) -> FinalReply:
     result = await _compiled_graph().ainvoke(
         {
@@ -301,6 +286,7 @@ async def build_reply_with_graph(
             "intent": intent,
             "message": message,
             "user_state": user_state,
+            "policy_decision": policy_decision,
             "stage_latencies": stage_latencies,
         }
     )

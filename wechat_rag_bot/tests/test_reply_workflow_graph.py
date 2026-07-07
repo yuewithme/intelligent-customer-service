@@ -4,9 +4,9 @@ import pytest
 
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
+from app.schemas.policy import PolicyDecision
 from app.schemas.reply import FinalReply
 from app.schemas.state import UserState
-from app.schemas.template import TemplateItem, TemplateReply
 from app.talk_script.models import TalkScriptMatchResult
 
 
@@ -125,8 +125,8 @@ async def test_rag_answer_with_answer_returns_rag_reply(monkeypatch):
         del kwargs
         return TalkScriptMatchResult(status="pass_through")
 
-    async def answer_knowledge(message, user_state):
-        del message, user_state
+    async def answer_knowledge(message, user_state, policy_decision=None):
+        del message, user_state, policy_decision
         return {
             "answer": "rag answer",
             "sources": [{"doc_id": "doc_1"}],
@@ -160,8 +160,8 @@ async def test_rag_answer_without_answer_handoffs(monkeypatch):
         del kwargs
         return TalkScriptMatchResult(status="pass_through")
 
-    async def answer_knowledge(message, user_state):
-        del message, user_state
+    async def answer_knowledge(message, user_state, policy_decision=None):
+        del message, user_state, policy_decision
         return {"answer": "", "sources": []}
 
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
@@ -192,12 +192,7 @@ async def test_template_reply_missing_template_handoffs(monkeypatch):
         del kwargs
         return TalkScriptMatchResult(status="pass_through")
 
-    async def select_template(message, intent, user_state):
-        del message, intent, user_state
-        return None
-
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
-    monkeypatch.setattr(reply_workflow_graph, "select_template", select_template)
     monkeypatch.setattr(reply_workflow_graph, "build_handoff_reply", _handoff_reply)
 
     reply = await reply_workflow_graph.build_reply_with_graph(
@@ -212,36 +207,22 @@ async def test_template_reply_missing_template_handoffs(monkeypatch):
     assert reply.route == "human"
     assert reply.reply_type == "human"
     assert reply.need_human is True
-    assert reply.metadata["handoff"]["reason"] == "template_not_found_to_handoff"
+    assert reply.metadata["handoff"]["reason"] == "talk_script_not_matched_to_handoff"
 
 
 @pytest.mark.asyncio
-async def test_template_then_rag_returns_combined_reply(monkeypatch):
+async def test_template_then_rag_uses_rag_without_legacy_template(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def pass_talk_script(**kwargs):
         del kwargs
         return TalkScriptMatchResult(status="pass_through")
 
-    async def select_template(message, intent, user_state):
-        del message, intent, user_state
-        return TemplateItem(
-            template_id="tpl_001",
-            intent="care_question",
-            content="template answer",
-        )
-
-    async def render_template(template, message, user_state):
-        del message, user_state
-        return TemplateReply(answer=template.content, template_id=template.template_id)
-
-    async def answer_knowledge(message, user_state):
-        del message, user_state
+    async def answer_knowledge(message, user_state, policy_decision=None):
+        del message, user_state, policy_decision
         return {"answer": "rag answer", "sources": [{"doc_id": "doc_1"}]}
 
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
-    monkeypatch.setattr(reply_workflow_graph, "select_template", select_template)
-    monkeypatch.setattr(reply_workflow_graph, "render_template", render_template)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
     reply = await reply_workflow_graph.build_reply_with_graph(
@@ -253,12 +234,47 @@ async def test_template_then_rag_returns_combined_reply(monkeypatch):
     )
 
     _assert_reply(reply)
-    assert reply.route == "template_then_rag"
-    assert reply.reply_type == "template_then_rag"
+    assert reply.route == "rag_answer"
+    assert reply.reply_type == "rag"
     assert reply.need_human is False
-    assert reply.template_id == "tpl_001"
     assert reply.sources == [{"doc_id": "doc_1"}]
     assert reply.metadata == {}
+
+
+@pytest.mark.asyncio
+async def test_rag_node_passes_policy_decision_to_rag(monkeypatch):
+    from app.services import reply_workflow_graph
+
+    policy = PolicyDecision(
+        route="rag_answer",
+        reason="beginner_orchid_care_policy",
+        knowledge_base_ids=["kb_orchid_basic"],
+        prompt_block_ids=["base.customer_service", "segment.beginner"],
+    )
+
+    async def pass_talk_script(**kwargs):
+        del kwargs
+        return TalkScriptMatchResult(status="pass_through")
+
+    async def answer_knowledge(message, user_state, policy_decision=None):
+        del message, user_state
+        assert policy_decision == policy
+        return {"answer": "rag answer", "sources": []}
+
+    monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
+    monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
+
+    reply = await reply_workflow_graph.build_reply_with_graph(
+        route="rag_answer",
+        intent=_intent("rag_answer"),
+        message=_message(),
+        user_state=_state(),
+        stage_latencies={},
+        policy_decision=policy,
+    )
+
+    assert reply.route == "rag_answer"
+    assert reply.answer == "rag answer"
 
 
 @pytest.mark.asyncio

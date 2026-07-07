@@ -3,7 +3,7 @@ from typing import Any
 
 from app.config import get_settings
 from app.schemas.common import AppError, ErrorCode
-from app.schemas.context import ContextPackage
+from app.schemas.context import ContextPackage, ContextSelectionInput
 from app.schemas.policy import PolicyDecision
 from app.schemas.prompt import PromptBuildInput
 from app.services import (
@@ -12,6 +12,7 @@ from app.services import (
     qdrant_service,
     rerank_service,
 )
+from app.services.context_selector import select_context
 from app.services.prompt_builder import build_prompt
 from app.utils.ids import generate_id
 from app.utils.logger import log_event
@@ -142,6 +143,9 @@ async def rag_chat(
     session_id: str | None = None,
     channel: str = "api",
     metadata: dict | None = None,
+    policy: PolicyDecision | None = None,
+    context: ContextPackage | None = None,
+    templates: list[str] | None = None,
 ) -> dict:
     started = time.perf_counter()
     request_id = generate_id("request")
@@ -170,19 +174,31 @@ async def rag_chat(
             }
 
         vector = await embedding_service.embed_text(message.strip())
-        candidates = await qdrant_service.search_chunks(
-            vector,
-            kb_id=kb_id,
-            tenant_id=metadata.get("tenant_id", "tenant_default"),
-            permission=metadata.get("permission", "public"),
-            top_k=settings.rag_top_k,
-        )
+        knowledge_base_ids = policy.knowledge_base_ids if policy else []
+        search_kb_ids = knowledge_base_ids or [kb_id]
+        candidates = []
+        for search_kb_id in search_kb_ids:
+            candidates.extend(
+                await qdrant_service.search_chunks(
+                    vector,
+                    kb_id=search_kb_id,
+                    tenant_id=metadata.get("tenant_id", "tenant_default"),
+                    permission=metadata.get("permission", "public"),
+                    top_k=settings.rag_top_k,
+                )
+            )
         docs = await rerank_service.rerank(
             message.strip(), candidates, settings.rag_top_n
         )
         sources = [_source(doc) for doc in docs]
         if docs:
-            prompt = await build_rag_prompt(question=message.strip(), docs=docs)
+            prompt = await build_rag_prompt(
+                question=message.strip(),
+                docs=docs,
+                policy=policy,
+                context=context,
+                templates=templates,
+            )
             result = await llm_service.generate_answer(prompt)
             answer = result["answer"]
             usage = result.get("usage", {})
@@ -206,6 +222,7 @@ async def rag_chat(
                 "user_id": user_id,
                 "session_id": active_session_id,
                 "kb_id": kb_id,
+                "policy_kb_ids": policy.knowledge_base_ids if policy else [],
                 "question": message,
                 "answer": answer,
                 "sources": sources,
@@ -216,12 +233,26 @@ async def rag_chat(
         )
 
 
-async def answer_knowledge(message, user_state) -> dict:
-    del user_state
+async def answer_knowledge(message, user_state, policy_decision: PolicyDecision | None = None) -> dict:
+    context = None
+    if policy_decision is not None:
+        context = await select_context(
+            ContextSelectionInput(
+                profile=user_state.metadata.get("profile", {}),
+                state=user_state.model_dump(),
+                memories=user_state.metadata.get("recent_turns", []),
+                context_policy=policy_decision.context_policy,
+            )
+        )
+    policy_kb_id = (
+        policy_decision.knowledge_base_ids[0]
+        if policy_decision and policy_decision.knowledge_base_ids
+        else message.kb_id
+    )
     result = await rag_chat(
         user_id=message.user_id,
         message=message.message,
-        kb_id=message.kb_id,
+        kb_id=policy_kb_id,
         session_id=message.session_id,
         channel=message.channel,
         metadata={
@@ -229,6 +260,9 @@ async def answer_knowledge(message, user_state) -> dict:
             "tenant_id": message.tenant_id,
             "permission": message.permission,
         },
+        policy=policy_decision,
+        context=context,
+        templates=policy_decision.template_ids if policy_decision else [],
     )
     return {
         "answer": result.get("answer", ""),

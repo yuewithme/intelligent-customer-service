@@ -6,9 +6,11 @@ from app.main import app
 
 def _reset_settings(monkeypatch, tmp_path, *, enabled: bool = True, auth: bool = False):
     db_path = tmp_path / "chat_logs.db"
+    app_db_path = tmp_path / "rag.db"
     monkeypatch.setenv("CHAT_LOG_ENABLED", "true" if enabled else "false")
     monkeypatch.setenv("CHAT_LOG_PROVIDER", "sqlite")
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{db_path.as_posix()}")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{app_db_path.as_posix()}")
     monkeypatch.setenv("CHAT_LOG_RETENTION_DAYS", "30")
     monkeypatch.setenv("CHAT_LOG_MAX_MESSAGE_LENGTH", "2000")
     monkeypatch.setenv("CHAT_LOG_MAX_ANSWER_LENGTH", "4000")
@@ -126,6 +128,46 @@ def test_admin_chat_logs_support_filters_and_keyword(monkeypatch, tmp_path):
     assert client.get(
         "/api/v1/admin/chat-logs", params={"keyword": "浇水"}
     ).json()["data"]["items"][0]["trace_id"] == "req_002"
+
+
+def test_admin_talk_script_match_logs_return_match_details(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    from app.talk_script.repository import record_match_log
+
+    record_match_log(
+        {
+            "trace_id": "trace_talk_001",
+            "customer_id": "user_001",
+            "session_id": "sess_001",
+            "user_message": "这个有点贵",
+            "normalized_message": "这个有点贵",
+            "status": "matched",
+            "scene_id": "S07",
+            "candidate_question_ids": ["Q07_02_001"],
+            "matched_question_id": "Q07_02_001",
+            "template_id": "T07_02_001",
+            "confidence": 0.91,
+            "need_slot_filling": False,
+            "need_human": False,
+            "final_answer": "价格说明话术",
+            "match_reason": "命中价格异议",
+        }
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/v1/admin/talk-script-match-logs")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["total"] == 1
+    item = data["items"][0]
+    assert item["trace_id"] == "trace_talk_001"
+    assert item["status"] == "matched"
+    assert item["scene_id"] == "S07"
+    assert item["candidate_question_ids"] == ["Q07_02_001"]
+    assert item["matched_question_id"] == "Q07_02_001"
+    assert item["template_id"] == "T07_02_001"
+    assert item["match_reason"] == "命中价格异议"
 
 
 def test_missing_chat_log_detail_uses_unified_response(monkeypatch, tmp_path):

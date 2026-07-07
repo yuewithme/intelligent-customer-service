@@ -2,12 +2,18 @@ from fastapi import APIRouter, Depends, Query
 
 from app.schemas.chat import APIResponse
 from app.schemas.common import AppError, ErrorCode
-from app.schemas.log import ChatLogDetail, ChatLogListResponse, ChatLogStats
+from app.schemas.log import (
+    ChatLogDetail,
+    ChatLogListResponse,
+    ChatLogStats,
+    TalkScriptMatchLogListResponse,
+)
 from app.services.chat_log_service import (
     get_chat_log,
     get_chat_log_stats,
     list_chat_logs,
 )
+from app.talk_script.repository import list_match_logs
 from app.utils.auth import require_api_key
 
 
@@ -72,4 +78,31 @@ async def chat_log_stats(
 ) -> APIResponse:
     result = await get_chat_log_stats(start_time=start_time, end_time=end_time)
     data = ChatLogStats.model_validate(result).model_dump()
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.get("/talk-script-match-logs", response_model=APIResponse)
+async def talk_script_match_logs(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    customer_id: str | None = None,
+    session_id: str | None = None,
+    trace_id: str | None = None,
+    status: str | None = None,
+    scene_id: str | None = None,
+    template_id: str | None = None,
+    need_human: bool | None = None,
+) -> APIResponse:
+    result = list_match_logs(
+        page=page,
+        page_size=page_size,
+        customer_id=customer_id,
+        session_id=session_id,
+        trace_id=trace_id,
+        status=status,
+        scene_id=scene_id,
+        template_id=template_id,
+        need_human=need_human,
+    )
+    data = TalkScriptMatchLogListResponse.model_validate(result).model_dump()
     return APIResponse(code=0, message="success", data=data)

@@ -16,14 +16,11 @@ from app.services.reply_builder import (
     build_chitchat_reply,
     build_clarify_reply,
     build_rag_reply,
-    build_template_reply,
-    build_template_then_rag_reply,
     build_unsupported_reply,
 )
 from app.services.rule_guard_service import check_rules
 from app.services.state_service import get_user_state, update_user_state
 from app.services.tagger_service import build_tag_result
-from app.services.template_service import render_template, select_template
 from app.services.user_profile_service import (
     append_conversation_memory,
     update_profile_after_chat,
@@ -112,9 +109,17 @@ async def handle_chat(request: ChatRequest) -> dict:
                 message=message,
                 user_state=user_state,
                 stage_latencies=stage_latencies,
+                policy_decision=rich_decision or decision,
             )
         else:
-            reply = await _build_reply(route, routed_intent, message, user_state, stage_latencies)
+            reply = await _build_reply(
+                route,
+                routed_intent,
+                message,
+                user_state,
+                stage_latencies,
+                policy_decision=rich_decision or decision,
+            )
         stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
         if tag_result is not None:
             reply.metadata["tag_result"] = tag_result.model_dump()
@@ -212,6 +217,7 @@ async def _build_reply(
     message,
     user_state,
     stage_latencies: dict[str, int] | None = None,
+    policy_decision=None,
 ) -> FinalReply:
     stage_latencies = stage_latencies if stage_latencies is not None else {}
     if route in {"template_reply", "template_then_rag", "rag_answer"}:
@@ -253,25 +259,23 @@ async def _build_reply(
         stage_latencies.setdefault("talk_script_ms", 0)
     if route == "template_reply":
         stage_started = time.perf_counter()
-        template = await select_template(message, intent, user_state)
-        if template is None:
-            stage_latencies["template_ms"] = _elapsed_ms(stage_started)
-            stage_latencies.setdefault("rag_ms", 0)
-            return await build_handoff_reply(
-                message=message,
-                intent=intent,
-                reason="template_not_found_to_handoff",
-                original_route="template_reply",
-            )
-        template_reply = await render_template(template, message, user_state)
         stage_latencies["template_ms"] = _elapsed_ms(stage_started)
         stage_latencies.setdefault("rag_ms", 0)
-        return build_template_reply(template_reply, intent)
+        return await build_handoff_reply(
+            message=message,
+            intent=intent,
+            reason="talk_script_not_matched_to_handoff",
+            original_route="template_reply",
+        )
     if route == "rag_answer":
         from app.services.rag_service import answer_knowledge
 
         stage_started = time.perf_counter()
-        rag_result = await answer_knowledge(message, user_state)
+        rag_result = await answer_knowledge(
+            message,
+            user_state,
+            policy_decision=policy_decision,
+        )
         stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
         stage_latencies.setdefault("template_ms", 0)
         if _is_rag_no_answer(rag_result):
@@ -285,21 +289,13 @@ async def _build_reply(
     if route == "template_then_rag":
         from app.services.rag_service import answer_knowledge
 
+        stage_latencies.setdefault("template_ms", 0)
         stage_started = time.perf_counter()
-        template = await select_template(message, intent, user_state)
-        if template is None:
-            stage_latencies["template_ms"] = _elapsed_ms(stage_started)
-            stage_latencies.setdefault("rag_ms", 0)
-            return await build_handoff_reply(
-                message=message,
-                intent=intent,
-                reason="template_not_found_to_handoff",
-                original_route="template_then_rag",
-            )
-        template_reply = await render_template(template, message, user_state)
-        stage_latencies["template_ms"] = _elapsed_ms(stage_started)
-        stage_started = time.perf_counter()
-        rag_result = await answer_knowledge(message, user_state)
+        rag_result = await answer_knowledge(
+            message,
+            user_state,
+            policy_decision=policy_decision,
+        )
         stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
         if _is_rag_no_answer(rag_result):
             return await build_handoff_reply(
@@ -308,7 +304,7 @@ async def _build_reply(
                 reason="rag_no_answer_to_handoff",
                 original_route="template_then_rag",
             )
-        return build_template_then_rag_reply(template_reply, rag_result, intent)
+        return build_rag_reply(rag_result, intent)
     stage_latencies.setdefault("template_ms", 0)
     stage_latencies.setdefault("rag_ms", 0)
     if route == "human":

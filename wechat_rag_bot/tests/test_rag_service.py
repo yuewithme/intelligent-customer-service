@@ -1,6 +1,8 @@
 import pytest
 
 from app.schemas.common import AppError, ErrorCode
+from app.schemas.context import ContextPackage
+from app.schemas.policy import PolicyDecision
 from app.services import llm_service, rag_service
 
 
@@ -69,6 +71,74 @@ async def test_rag_chat_orchestrates_services(monkeypatch):
     assert calls[1][2]["tenant_id"] == "tenant_default"
     assert "读取【参考资料】与【用户问题】" in calls[3][1]
     assert "报销需要主管审批。" in calls[3][1]
+
+
+@pytest.mark.asyncio
+async def test_rag_chat_uses_policy_knowledge_base_and_prompt_blocks(monkeypatch):
+    from app.config import get_settings
+
+    calls = []
+    policy = PolicyDecision(
+        route="rag_answer",
+        knowledge_base_ids=["kb_orchid_basic"],
+        prompt_block_ids=["base.customer_service", "segment.beginner"],
+    )
+    context = ContextPackage(session_state={"sales_stage": "consulting"})
+
+    async def fake_embed(text):
+        del text
+        return [0.1, 0.2]
+
+    async def fake_search(vector, **filters):
+        del vector
+        calls.append(("search", filters))
+        return [
+            {
+                "text": "beginner care snippet",
+                "doc_id": "doc_policy",
+                "file_name": "policy.md",
+                "score": 0.9,
+            }
+        ]
+
+    async def fake_rerank(question, docs, top_n):
+        del question
+        return docs[:top_n]
+
+    async def fake_build_prompt(*, question, docs, policy=None, context=None, templates=None):
+        del docs
+        calls.append(("prompt", question, policy, context, templates))
+        return "policy prompt"
+
+    async def fake_generate(prompt):
+        assert prompt == "policy prompt"
+        return {"answer": "policy answer", "usage": {"prompt_tokens": 1}}
+
+    monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(rag_service.embedding_service, "embed_text", fake_embed)
+    monkeypatch.setattr(rag_service.qdrant_service, "search_chunks", fake_search)
+    monkeypatch.setattr(rag_service.rerank_service, "rerank", fake_rerank)
+    monkeypatch.setattr(rag_service, "build_rag_prompt", fake_build_prompt)
+    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
+
+    try:
+        result = await rag_service.rag_chat(
+            user_id="user_001",
+            message="how to care",
+            kb_id="kb_default",
+            metadata={"tenant_id": "tenant_default", "permission": "public"},
+            policy=policy,
+            context=context,
+            templates=["opening_beginner_care"],
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result["answer"] == "policy answer"
+    assert calls[0][0] == "search"
+    assert calls[0][1]["kb_id"] == "kb_orchid_basic"
+    assert calls[1] == ("prompt", "how to care", policy, context, ["opening_beginner_care"])
 
 
 @pytest.mark.asyncio
