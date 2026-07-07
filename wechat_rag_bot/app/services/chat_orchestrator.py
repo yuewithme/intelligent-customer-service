@@ -11,6 +11,7 @@ from app.services.conversation_service import record_ai_turn
 from app.services.intent_example_service import retrieve_intent_examples
 from app.services.intent_service import classify_intent
 from app.services.policy_service import decide_route
+from app.services.policy_engine import decide_policy
 from app.services.reply_builder import (
     build_chitchat_reply,
     build_clarify_reply,
@@ -21,6 +22,7 @@ from app.services.reply_builder import (
 )
 from app.services.rule_guard_service import check_rules
 from app.services.state_service import get_user_state, update_user_state
+from app.services.tagger_service import build_tag_result
 from app.services.template_service import render_template, select_template
 from app.services.user_profile_service import (
     append_conversation_memory,
@@ -42,6 +44,8 @@ async def handle_chat(request: ChatRequest) -> dict:
     intent = None
     routed_intent = None
     decision = None
+    tag_result = None
+    rich_decision = None
     reply = None
 
     try:
@@ -75,6 +79,17 @@ async def handle_chat(request: ChatRequest) -> dict:
         decision = await decide_route(intent, user_state, message)
         stage_latencies["policy_ms"] = _elapsed_ms(stage_started)
 
+        stage_started = time.perf_counter()
+        tag_result = await build_tag_result(
+            message=message,
+            user_state=user_state,
+            intent=intent,
+        )
+        rich_decision = await decide_policy(tag_result)
+        if rich_decision.reason != "default_tag_policy":
+            decision = rich_decision
+        stage_latencies["tag_policy_ms"] = _elapsed_ms(stage_started)
+
         route = decision.route
         routed_intent = intent.model_copy(
             update={
@@ -101,6 +116,12 @@ async def handle_chat(request: ChatRequest) -> dict:
         else:
             reply = await _build_reply(route, routed_intent, message, user_state, stage_latencies)
         stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
+        if tag_result is not None:
+            reply.metadata["tag_result"] = tag_result.model_dump()
+        if rich_decision is not None:
+            reply.metadata["policy_decision"] = rich_decision.model_dump()
+        elif decision is not None:
+            reply.metadata["policy_decision"] = decision.model_dump()
 
         stage_started = time.perf_counter()
         await update_user_state(
@@ -406,6 +427,8 @@ def _success_log_payload(message, intent, decision, reply: FinalReply) -> dict:
         "need_human": reply.need_human,
         "policy_reason": decision.reason,
         "intent_reason": intent.reason,
+        "tag_result": reply.metadata.get("tag_result"),
+        "policy_decision": reply.metadata.get("policy_decision"),
         "usage": reply.usage,
         "status": "success",
         "error_code": None,
