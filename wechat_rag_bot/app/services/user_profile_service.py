@@ -34,6 +34,22 @@ _allowed_patch_fields = {
     "human_handoff_reason",
 }
 
+PAIN_POINT_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分析助手。
+请只根据聊天记录提炼用户痛点，不要编造未出现的信息。
+
+输出要求：
+1. 只输出 JSON 对象，不要 Markdown、解释或代码块。
+2. `pain_points` 是中文数组，每项概括一个明确痛点。
+3. 痛点要包含对象、问题和用户顾虑，例如“兰花烂根、黄叶，担心养死，需要救治方案”。
+4. 合并重复痛点，保留最近且更具体的描述。
+5. 没有明确痛点时输出空数组。
+
+JSON 格式：
+{
+  "pain_points": []
+}
+"""
+
 
 async def get_profile_bundle(user_id: str) -> dict:
     with _get_session() as session:
@@ -141,6 +157,12 @@ async def update_profile_after_chat(message, intent, reply) -> None:
         profile.last_template_id = reply.template_id
         profile.last_active_at = _now()
         _apply_tag_result(profile, reply.metadata.get("tag_result"))
+        profile.pain_points_json = _json_dumps(
+            _expand_pain_points_from_chat(
+                _json_loads(profile.pain_points_json, []),
+                message_text=message.message,
+            )
+        )
         profile.ai_summary = _build_overall_memory(profile, message, intent)
         profile.updated_at = _now()
         if reply.route == "human" or reply.need_human:
@@ -219,6 +241,70 @@ def _build_overall_memory(profile: UserProfileModel, message, intent) -> str:
     return f"{first}；{second}"
 
 
+def _expand_pain_points_from_chat(
+    existing_pain_points: list[str],
+    *,
+    message_text: str,
+) -> list[str]:
+    expanded = _pain_point_from_text(message_text)
+    if not expanded:
+        return existing_pain_points
+
+    compacted = [
+        value for value in existing_pain_points if value and value not in expanded
+    ]
+    if any(_is_more_specific_pain_point(expanded, value) for value in compacted):
+        compacted = [
+            value
+            for value in compacted
+            if not _is_more_specific_pain_point(expanded, value)
+        ]
+    return _append_unique(compacted, expanded)
+
+
+def _pain_point_from_text(text: str) -> str:
+    if not text:
+        return ""
+
+    issues: list[str] = []
+    if _contains_any(text, ("烂根", "爛根", "root rot")):
+        issues.append("烂根")
+    if _contains_any(text, ("黄叶", "黃葉", "叶子发黄", "葉子發黃")):
+        issues.append("黄叶")
+    if _contains_any(text, ("黑腐", "腐烂", "腐爛")) and "烂根" not in issues:
+        issues.append("腐烂")
+    if _contains_any(text, ("不开花", "不来花", "没花", "沒有花")):
+        issues.append("不开花")
+    if _contains_any(text, ("虫", "病虫害", "介壳虫", "蚧壳虫")):
+        issues.append("病虫害")
+    if _contains_any(text, ("不会养", "新手", "第一次养", "怕养死", "养死", "養死")):
+        concern = "担心养死"
+    elif _contains_any(text, ("怎么救", "救回来", "急救")):
+        concern = "需要救治方案"
+    else:
+        concern = ""
+
+    if not issues:
+        return ""
+
+    subject = "兰花" if _contains_any(text, ("兰花", "蘭花", "orchid")) else "植物"
+    issue_text = "、".join(_dedupe(issues))
+    suffixes = [concern] if concern else []
+    if _contains_any(text, ("怎么救", "救回来", "急救", "咋办", "怎么办")):
+        suffixes.append("需要救治方案")
+    suffix_text = f"，{'，'.join(_dedupe(suffixes))}" if suffixes else ""
+    return f"{subject}{issue_text}{suffix_text}"
+
+
+def _contains_any(text: str, words: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(word.lower() in lowered for word in words)
+
+
+def _is_more_specific_pain_point(candidate: str, existing: str) -> bool:
+    return bool(candidate and existing and existing in candidate and candidate != existing)
+
+
 def _label_value(labels: list[str], prefix: str) -> str:
     marker = f"{prefix}:"
     for label in labels:
@@ -231,6 +317,16 @@ def _append_unique(values: list[str], value: str) -> list[str]:
     if value and value not in values:
         return [*values, value]
     return values
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
 
 
 def _get_session() -> Session:

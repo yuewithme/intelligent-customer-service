@@ -67,10 +67,21 @@
           <ElTag v-if="profile?.updated_at" size="small" type="info" effect="plain"> 实时 </ElTag>
         </div>
         <ElSkeleton v-if="profileLoading" :rows="4" animated />
-        <ElEmpty v-else-if="!profileMemory" description="暂无画像" :image-size="72" />
-        <div v-else class="profile-memory">
-          {{ profileMemory }}
-        </div>
+        <ElEmpty v-else-if="!hasProfileDetail" description="暂无画像" :image-size="72" />
+        <dl v-else class="profile-detail">
+          <dt>当前阶段</dt>
+          <dd>{{ stageText(profile?.current_stage) }}</dd>
+          <dt>风险等级</dt>
+          <dd>{{ riskText(profile?.risk_level) }}</dd>
+          <dt>产品兴趣</dt>
+          <dd>{{ productInterestText }}</dd>
+          <dt>痛点</dt>
+          <dd class="profile-long-text">{{ painPointText }}</dd>
+          <dt>AI 摘要</dt>
+          <dd class="profile-long-text">{{ profileMemory || '-' }}</dd>
+          <dt>画像更新时间</dt>
+          <dd>{{ updatedAtText }}</dd>
+        </dl>
       </div>
     </template>
   </aside>
@@ -90,6 +101,7 @@ import {
 } from '@/api/admin/conversations'
 import type { UserProfile } from '@/api/user-profile'
 import { useUserStore } from '@/store/modules/user'
+import { formatChinaTime } from '../time'
 import ReplyComposer from './ReplyComposer.vue'
 
 const props = defineProps<{
@@ -104,6 +116,23 @@ const userStore = useUserStore()
 const operatorId = computed(() => userStore.user.nickname || 'admin')
 const tags = computed(() => props.profile?.customer_tags?.filter(Boolean) || [])
 const profileMemory = computed(() => props.profile?.ai_summary?.trim() || '')
+const productInterestText = computed(() => joinProfileList(props.profile?.product_interests))
+const painPointText = computed(() => joinProfileList(props.profile?.pain_points))
+const updatedAtText = computed(() =>
+  props.profile?.updated_at ? formatChinaTime(props.profile.updated_at) : '-'
+)
+const hasProfileDetail = computed(
+  () =>
+    Boolean(props.profile) &&
+    Boolean(
+      props.profile?.current_stage ||
+        props.profile?.risk_level ||
+        productInterestText.value !== '-' ||
+        painPointText.value !== '-' ||
+        profileMemory.value ||
+        props.profile?.updated_at
+    )
+)
 
 const claim = async () => {
   await claimConversation(props.conversationId, operatorId.value)
@@ -185,6 +214,32 @@ const intentText = (value?: string | null) =>
   value ||
   '-'
 
+const stageText = (value?: string | null) =>
+  ({
+    greeting: '初次问候',
+    interest: '兴趣了解',
+    objection_handling: '异议处理',
+    order_intent: '下单意向',
+    after_sale: '售后服务',
+    knowledge_consulting: '知识咨询',
+    care_support: '养护支持',
+    first_order_nurture: '首单培育',
+    human_pending: '等待人工',
+    unknown: '待识别'
+  })[value || ''] ||
+  value ||
+  '-'
+
+const riskText = (value?: string | null) =>
+  ({
+    normal: '正常',
+    low: '低风险',
+    medium: '中风险',
+    high: '高风险'
+  })[value || ''] ||
+  value ||
+  '-'
+
 const handoffReasonText = (value?: string | null) =>
   ({
     manual_force_handoff: '人工主动接管',
@@ -201,6 +256,8 @@ const displayName = (conversation: ConversationItem) =>
 
 const avatarText = (conversation: ConversationItem) =>
   displayName(conversation).slice(0, 1).toUpperCase()
+
+const joinProfileList = (values?: string[] | null) => values?.filter(Boolean).join('、') || '-'
 </script>
 
 <style scoped>
@@ -276,6 +333,15 @@ dd {
   font-size: 13px;
   line-height: 1.7;
   color: #111827;
+  white-space: pre-wrap;
+}
+
+.profile-detail {
+  grid-template-columns: 88px 1fr;
+}
+
+.profile-long-text {
+  line-height: 1.7;
   white-space: pre-wrap;
 }
 

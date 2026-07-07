@@ -146,11 +146,47 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
     profile = (await get_profile_bundle("user_001"))["profile"]
     assert profile["customer_tags"] == ["budget:200", "region:杭州", "pain_point:兰花烂根"]
     assert profile["product_interests"] == ["兰花养护"]
-    assert profile["pain_points"] == ["兰花烂根"]
+    assert profile["pain_points"] == ["兰花烂根，需要救治方案"]
     assert profile["ai_summary"] == (
-        "客户在杭州，预算约200元，正在咨询兰花烂根处理；"
+        "客户在杭州，预算约200元，正在咨询兰花烂根，需要救治方案处理；"
         "整体看更关注兰花养护问题，适合给出分步骤、可执行的养护建议。"
     )
+
+
+@pytest.mark.asyncio
+async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    message = NormalizedMessage(
+        trace_id="trace_002",
+        channel="wechat",
+        user_id="user_002",
+        session_id="default",
+        message="兰花烂根还黄叶，我怕自己养死了，想知道怎么救回来",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="care_question",
+        secondary_intents=["root_rot", "yellow_leaf"],
+        sales_stage="knowledge_consulting",
+        confidence=0.9,
+        need_rag=True,
+        slots={},
+        reason="care question",
+    )
+    reply = FinalReply(
+        answer="先脱盆检查根系，修剪烂根并控水通风。",
+        reply_type="rag",
+        route="rag_answer",
+        metadata={"tag_result": {"labels": ["pain_point:兰花烂根"], "risk_level": "normal"}},
+    )
+
+    await update_profile_after_chat(message, intent, reply)
+
+    profile = (await get_profile_bundle("user_002"))["profile"]
+    assert profile["pain_points"] == ["兰花烂根、黄叶，担心养死，需要救治方案"]
+    assert "正在咨询兰花烂根、黄叶，担心养死，需要救治方案处理" in profile["ai_summary"]
 
 
 def test_new_profile_apis_require_bearer_authentication(monkeypatch, tmp_path):
