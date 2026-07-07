@@ -3,12 +3,16 @@ from typing import Any
 
 from app.config import get_settings
 from app.schemas.common import AppError, ErrorCode
+from app.schemas.context import ContextPackage
+from app.schemas.policy import PolicyDecision
+from app.schemas.prompt import PromptBuildInput
 from app.services import (
     embedding_service,
     llm_service,
     qdrant_service,
     rerank_service,
 )
+from app.services.prompt_builder import build_prompt
 from app.utils.ids import generate_id
 from app.utils.logger import log_event
 from app.utils.time import now_iso
@@ -102,6 +106,35 @@ def _context(docs: list[dict[str, Any]]) -> str:
     return "\n\n".join(blocks)
 
 
+async def build_rag_prompt(
+    *,
+    question: str,
+    docs: list[dict[str, Any]],
+    policy: PolicyDecision | None = None,
+    context: ContextPackage | None = None,
+    templates: list[str] | None = None,
+) -> str:
+    if policy is None:
+        return PROMPT_TEMPLATE.format(context=_context(docs), question=question.strip())
+
+    snippets = [
+        {
+            "source": doc.get("file_name", "unknown"),
+            "text": doc.get("text", ""),
+        }
+        for doc in docs
+    ]
+    return await build_prompt(
+        PromptBuildInput(
+            prompt_block_ids=policy.prompt_block_ids,
+            templates=templates or [],
+            context=context or ContextPackage(),
+            knowledge_snippets=snippets,
+            user_message=question,
+        )
+    )
+
+
 async def rag_chat(
     user_id: str,
     message: str,
@@ -149,12 +182,8 @@ async def rag_chat(
         )
         sources = [_source(doc) for doc in docs]
         if docs:
-            result = await llm_service.generate_answer(
-                PROMPT_TEMPLATE.format(
-                    context=_context(docs),
-                    question=message.strip(),
-                )
-            )
+            prompt = await build_rag_prompt(question=message.strip(), docs=docs)
+            result = await llm_service.generate_answer(prompt)
             answer = result["answer"]
             usage = result.get("usage", {})
         else:
