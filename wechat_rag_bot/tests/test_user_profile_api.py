@@ -102,6 +102,16 @@ def test_memories_returns_recent_chat_messages(monkeypatch, tmp_path):
     assert body["data"]["items"][0]["content"] == "hello"
 
 
+def test_profile_analysis_prompt_wraps_message_content_for_llm():
+    from app.services.user_profile_service import _build_profile_analysis_prompt
+
+    prompt = _build_profile_analysis_prompt(
+        [{"created_at": "2026-07-07T10:00:00+00:00", "content": "hello"}]
+    )
+
+    assert '"content": "{{hello}}"' in prompt
+
+
 @pytest.mark.asyncio
 async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)

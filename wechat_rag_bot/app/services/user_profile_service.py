@@ -245,10 +245,24 @@ async def _build_profile_analysis(user_records: list[dict]) -> dict:
 def _build_profile_analysis_prompt(user_records: list[dict]) -> str:
     settings = get_settings()
     prompt = settings.profile_analysis_prompt.strip() or DEFAULT_PROFILE_ANALYSIS_PROMPT
+    prompt_records = _wrap_prompt_record_content(user_records)
     return (
         f"{prompt}\n\n【标签库】\n{_json_dumps(_profile_tag_catalog_prompt())}"
-        f"\n\n【用户消息原文记录】\n{_json_dumps(user_records)}"
+        f"\n\n【用户消息原文记录】\n{_json_dumps(prompt_records)}"
     )
+
+
+def _wrap_prompt_record_content(user_records: list[dict]) -> list[dict]:
+    wrapped_records = []
+    for record in user_records:
+        if not isinstance(record, dict):
+            continue
+        wrapped = dict(record)
+        content = wrapped.get("content")
+        if isinstance(content, str):
+            wrapped["content"] = f"{{{{{content}}}}}"
+        wrapped_records.append(wrapped)
+    return wrapped_records
 
 
 def _is_valid_profile_analysis(value: Any) -> bool:
