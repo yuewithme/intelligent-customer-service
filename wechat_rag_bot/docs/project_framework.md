@@ -337,6 +337,16 @@ base system prompt
 -> retrieved knowledge snippets
 -> current user message
 ```
+当前已落地的标签策略模块：
+
+| 标签大类 | 数据库/服务 | 当前策略 | 回复影响 |
+| --- | --- | --- | --- |
+| 客户等级 `L1-L6` | `customer_level_profiles`、`customer_level_rules`、`customer_level_prompt_bindings`、`customer_level_service.py` | `L1-L3` 完整进入 AI 策略；`L4-L6` 只识别并默认转人工 | `L1` 偏新手信任和低风险推荐；`L2` 偏基础纠错和区域养护；`L3` 偏经验型沟通、苗源、环境、病虫害和经典品种；`L4-L6` 不自动回复 |
+| 养兰数量 | `tag_prompt_bindings`、`business_tag_prompt_service.py` | 按 `1-30盆`、`30-100盆`、`100盆以上` 分成小/中/大规模侧重点 | 小规模强调信心、基础养护、低风险选择；中规模强调养护流程和品类扩展；大规模强调批量管理、预防、效率 |
+| 所在省份 | `tag_prompt_bindings`、`business_tag_prompt_service.py` | 将省份映射到华东、北方、华南、西南、西北等推荐倾向 | 华东偏经典国兰和稳定老品种；北方偏耐冷耐干、春化和易养；华南偏耐热、通风、防病，建兰/墨兰更适合作示例；西南/西北按湿度、海拔、干燥和室内管理调整 |
+| 用户喜欢的兰花品类 | `tag_prompt_bindings`、`business_tag_prompt_service.py` | 春兰、建兰、墨兰、寒兰、蕙兰、莲瓣兰、春剑、大花蕙兰类分别绑定独立 prompt block | 推荐、举例和养护解释优先贴合用户偏好品类，避免回答漂到无关兰种 |
+
+当前 prompt 选择顺序以数据库绑定为准：`客户等级 prompt -> 养兰数量 prompt -> 地区 prompt -> 喜好品类 prompt -> output`。静态 `tag_catalog.py` 保留为标签目录和标签值枚举，不再直接参与主链路 prompt 拼接，避免同一标签同时命中泛化提示词和细分提示词。
 
 上下文选择规则：
 
@@ -708,7 +718,7 @@ SSE 是实时更新主通道，浏览器每 30 秒执行一次静默同步作为
 - `rerank_service` 当前是占位截断，不是真实重排模型。
 - `state_service` 当前偏轻量内存状态，长期画像走 SQLite。
 - 转人工当前生成工单 ID 和结构化 metadata，但真实人工系统推送仍是预留接口。
-- 标签驱动策略编排已具备首版骨架：`Tagger` 输出结构化标签，`Policy Engine` 输出知识库、模板、提示词块和上下文策略，`Context Selector` 可筛选画像摘要、近期原文和长期摘要，`Prompt Builder` 可组装模型输入；复杂工具调用和真正的多 Agent 协作仍是后续增强方向。
+- 标签驱动策略编排已具备首版骨架并开始数据库化：`Tagger` 输出结构化标签，`Policy Engine` 输出知识库、模板、提示词块和上下文策略，`Context Selector` 可筛选画像摘要、近期原文和长期摘要，`Prompt Builder` 可组装模型输入；客户等级 `L1-L3`、养兰数量、所在省份、用户喜欢的兰花品类已接入数据库 prompt 绑定，`L4-L6` 识别后默认转人工；复杂工具调用和真正的多 Agent 协作仍是后续增强方向。
 - 源码中部分中文提示存在编码异常，建议后续单独统一修复文案编码。
 
 ## 15. 后续开发入口建议
