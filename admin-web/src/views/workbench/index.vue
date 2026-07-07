@@ -17,6 +17,8 @@
       class="panel side"
       :conversation-id="selectedId"
       :conversation="conversation"
+      :profile="profile"
+      :profile-loading="profileLoading"
       @changed="handleChanged"
     />
   </div>
@@ -25,6 +27,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { markConversationRead, type ConversationItem } from '@/api/admin/conversations'
+import { getUserProfileBundle, type UserProfile } from '@/api/user-profile'
 import type { ConversationGroupItem } from './conversationGrouping'
 import ConversationList from './components/ConversationList.vue'
 import MessagePanel from './components/MessagePanel.vue'
@@ -39,11 +42,14 @@ const selectedIds = ref<string[]>([])
 const selectedGroupKey = ref('')
 const selectedUnreadCount = ref(0)
 const conversation = ref<ConversationItem>()
+const profile = ref<UserProfile>()
+const profileLoading = ref(false)
 const conversationListRef = ref<InstanceType<typeof ConversationList>>()
 const messagePanelRef = ref<InstanceType<typeof MessagePanel>>()
 let eventSource: EventSource | undefined
 let fallbackTimer: number | undefined
 let markingReadKey = ''
+let profileRequestKey = 0
 
 const selectConversation = (item: ConversationGroupItem) => {
   selectedId.value = item.conversation_id
@@ -58,6 +64,7 @@ const handleChanged = async () => {
 
 const handleConversationLoaded = (loadedConversation: ConversationItem | undefined) => {
   conversation.value = loadedConversation
+  void loadProfile(loadedConversation?.user_id)
   if (selectedUnreadCount.value > 0) {
     void markSelectedRead()
   }
@@ -95,6 +102,29 @@ const syncWorkbench = async (conversationId?: string) => {
   }
   if (!conversationId || selectedIds.value.includes(conversationId)) {
     await messagePanelRef.value?.load({ silent: true })
+  }
+}
+
+const loadProfile = async (userId?: string | null) => {
+  const requestKey = ++profileRequestKey
+  if (!userId) {
+    profile.value = undefined
+    return
+  }
+  profileLoading.value = true
+  try {
+    const bundle = await getUserProfileBundle(userId)
+    if (requestKey === profileRequestKey) {
+      profile.value = bundle.profile
+    }
+  } catch {
+    if (requestKey === profileRequestKey) {
+      profile.value = undefined
+    }
+  } finally {
+    if (requestKey === profileRequestKey) {
+      profileLoading.value = false
+    }
   }
 }
 

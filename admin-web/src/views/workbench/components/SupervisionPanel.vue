@@ -5,9 +5,9 @@
       <div class="section">
         <div class="title">
           <span>监督面板</span>
-          <ElTag :type="statusType(conversation.status)">{{
-            statusText(conversation.status)
-          }}</ElTag>
+          <ElTag :type="statusType(conversation.status)">
+            {{ statusText(conversation.status) }}
+          </ElTag>
         </div>
         <dl>
           <dt>客户</dt>
@@ -29,6 +29,16 @@
           <dd>{{ conversation.owner_id || '-' }}</dd>
           <dt>转人工原因</dt>
           <dd>{{ handoffReasonText(conversation.handoff_reason) }}</dd>
+          <dt>标签</dt>
+          <dd>
+            <div v-if="profileLoading" class="muted">更新中...</div>
+            <div v-else-if="tags.length" class="tag-list">
+              <ElTag v-for="tag in tags" :key="tag" size="small" effect="plain">
+                {{ tag }}
+              </ElTag>
+            </div>
+            <span v-else>-</span>
+          </dd>
         </dl>
       </div>
 
@@ -43,15 +53,64 @@
         >
           强制转人工
         </ElButton>
-        <ElButton v-if="conversation.status === 'human_active'" @click="release">
-          交回 AI
-        </ElButton>
+        <ElButton v-if="conversation.status === 'human_active'" @click="release">交回 AI</ElButton>
         <ElButton v-if="conversation.status !== 'resolved'" type="danger" plain @click="resolve">
           结束会话
         </ElButton>
       </div>
 
       <ReplyComposer :status="conversation.status" @claim="claim" @send="reply" />
+
+      <div class="profile-section">
+        <div class="title">
+          <span>用户画像</span>
+          <ElTag v-if="profile?.updated_at" size="small" type="info" effect="plain"> 实时 </ElTag>
+        </div>
+        <ElSkeleton v-if="profileLoading" :rows="4" animated />
+        <ElEmpty v-else-if="!profile" description="暂无画像" :image-size="72" />
+        <dl v-else class="profile-grid">
+          <dt>当前阶段</dt>
+          <dd>{{ emptyText(profile.current_stage) }}</dd>
+          <dt>风险等级</dt>
+          <dd>{{ riskText(profile.risk_level) }}</dd>
+          <dt>产品兴趣</dt>
+          <dd>
+            <div v-if="profile.product_interests?.length" class="tag-list">
+              <ElTag
+                v-for="item in profile.product_interests"
+                :key="item"
+                size="small"
+                type="success"
+                effect="plain"
+              >
+                {{ item }}
+              </ElTag>
+            </div>
+            <span v-else>-</span>
+          </dd>
+          <dt>痛点</dt>
+          <dd>
+            <div v-if="profile.pain_points?.length" class="stack-list">
+              <span v-for="item in profile.pain_points" :key="item">{{ item }}</span>
+            </div>
+            <span v-else>-</span>
+          </dd>
+          <dt>偏好摘要</dt>
+          <dd>{{ emptyText(profile.preference_summary) }}</dd>
+          <dt>AI 摘要</dt>
+          <dd>{{ emptyText(profile.ai_summary) }}</dd>
+          <dt>最近意图</dt>
+          <dd>{{ intentText(profile.last_intent) }}</dd>
+          <dt>最近路由</dt>
+          <dd>{{ routeText(profile.last_route) }}</dd>
+          <dt>最近模板</dt>
+          <dd>{{ emptyText(profile.last_template_id) }}</dd>
+          <dt>转人工状态</dt>
+          <dd>{{ handoffStatusText(profile.human_handoff_status) }}</dd>
+          <dt>画像更新时间</dt>
+          <dd>{{ formatTime(profile.updated_at) }}</dd>
+        </dl>
+      </div>
     </template>
   </aside>
 </template>
@@ -68,14 +127,21 @@ import {
   type ConversationItem,
   type ConversationStatus
 } from '@/api/admin/conversations'
+import type { UserProfile } from '@/api/user-profile'
 import { useUserStore } from '@/store/modules/user'
 import ReplyComposer from './ReplyComposer.vue'
 
-const props = defineProps<{ conversationId: string; conversation?: ConversationItem }>()
+const props = defineProps<{
+  conversationId: string
+  conversation?: ConversationItem
+  profile?: UserProfile
+  profileLoading?: boolean
+}>()
 const emit = defineEmits<{ changed: [] }>()
 
 const userStore = useUserStore()
 const operatorId = computed(() => userStore.user.nickname || 'admin')
+const tags = computed(() => props.profile?.customer_tags?.filter(Boolean) || [])
 
 const claim = async () => {
   await claimConversation(props.conversationId, operatorId.value)
@@ -138,6 +204,10 @@ const routeText = (value?: string | null) =>
     unsupported: '未匹配',
     inbound_text: '私聊消息',
     non_text: '非文本消息',
+    rag_answer: '知识库回答',
+    template_reply: '话术回答',
+    template_then_rag: '话术后知识库',
+    clarify: '追问澄清',
     human: '人工处理'
   })[value || ''] ||
   value ||
@@ -147,7 +217,8 @@ const intentText = (value?: string | null) =>
   ({
     unsupported: '未匹配',
     unknown: '待识别',
-    message: '普通消息'
+    message: '普通消息',
+    care_question: '养护问题'
   })[value || ''] ||
   value ||
   '-'
@@ -157,7 +228,26 @@ const handoffReasonText = (value?: string | null) =>
     manual_force_handoff: '人工主动接管',
     human_required: '需要人工处理',
     unsupported_message_type: '非文本消息需人工处理',
+    advanced_customer_level: '高阶客户需人工处理',
     resolved_by_operator: '人工结束会话'
+  })[value || ''] ||
+  value ||
+  '-'
+
+const handoffStatusText = (value?: string | null) =>
+  ({
+    pending: '等待接管',
+    active: '人工接管中',
+    resolved: '已结束'
+  })[value || ''] ||
+  value ||
+  '-'
+
+const riskText = (value?: string | null) =>
+  ({
+    normal: '正常',
+    medium: '中风险',
+    high: '高风险'
   })[value || ''] ||
   value ||
   '-'
@@ -167,6 +257,19 @@ const displayName = (conversation: ConversationItem) =>
 
 const avatarText = (conversation: ConversationItem) =>
   displayName(conversation).slice(0, 1).toUpperCase()
+
+const emptyText = (value?: string | null) => value || '-'
+
+const formatTime = (value?: string | null) => {
+  if (!value) {
+    return '-'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
 </script>
 
 <style scoped>
@@ -226,5 +329,29 @@ dd {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.profile-section {
+  padding-top: 4px;
+}
+
+.profile-grid {
+  grid-template-columns: 88px minmax(0, 1fr);
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.muted {
+  color: #9ca3af;
 }
 </style>
