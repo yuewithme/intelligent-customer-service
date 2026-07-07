@@ -118,6 +118,71 @@ def test_import_excel_loads_valid_talk_script_library(talk_script_db, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_match_talk_script_routes_common_price_objection_to_trade_scene(
+    talk_script_db,
+):
+    from app.talk_script.models import ClassifierDecision
+    from app.talk_script.repository import replace_talk_script_library
+    from app.talk_script.service import match_talk_script
+
+    replace_talk_script_library(
+        scenes=[
+            {
+                "scene_id": "S07",
+                "scene_name": "交易异议与成交转化库",
+                "typical_user_messages": "多少钱｜怎么卖｜太贵了｜能不能便宜点",
+                "priority": 80,
+                "status": "active",
+            }
+        ],
+        questions=[
+            {
+                "question_id": "Q07_01_001",
+                "scene_id": "S07",
+                "standard_question": "用户觉得价格贵",
+                "keywords": "贵｜太贵｜有点贵｜便宜",
+                "default_template_id": "T07_01_001",
+                "confidence_threshold": 0.75,
+                "priority": 80,
+                "status": "active",
+            }
+        ],
+        templates=[
+            {
+                "template_id": "T07_01_001",
+                "question_id": "Q07_01_001",
+                "answer_default": "我理解你会关注价格。",
+                "status": "active",
+            }
+        ],
+    )
+
+    async def classifier(**kwargs):
+        assert [item["question_id"] for item in kwargs["candidate_questions"]] == [
+            "Q07_01_001"
+        ]
+        return ClassifierDecision(
+            matched=True,
+            question_id="Q07_01_001",
+            confidence=0.9,
+            reason="命中价格异议",
+        )
+
+    result = await match_talk_script(
+        customer_id="user_001",
+        current_message="这个有点贵",
+        trace_id="trace_price_001",
+        classifier=classifier,
+    )
+
+    assert result.status == "matched"
+    assert result.scene_id == "S07"
+    assert result.question_id == "Q07_01_001"
+    assert result.template_id == "T07_01_001"
+    assert result.answer == "我理解你会关注价格。"
+
+
+@pytest.mark.asyncio
 async def test_match_talk_script_returns_fixed_answer_for_high_confidence(talk_script_db):
     from app.talk_script.models import ClassifierDecision
     from app.talk_script.repository import replace_talk_script_library

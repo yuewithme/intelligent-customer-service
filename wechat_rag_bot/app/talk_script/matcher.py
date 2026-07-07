@@ -3,8 +3,27 @@ from app.talk_script.models import CandidateQuestion
 from app.talk_script.normalizer import normalize_message
 
 
-HIGH_RISK_WORDS = ("退款", "投诉", "苗坏", "死了", "烂根", "发黑", "快死", "状态不好")
-PRICE_WORDS = ("多少钱", "什么价", "价格", "太贵", "便宜", "优惠", "别人家便宜")
+HIGH_RISK_WORDS = (
+    "退款",
+    "投诉",
+    "苗坏",
+    "死了",
+    "烂根",
+    "发黑",
+    "快死",
+    "状态不好",
+)
+PRICE_WORDS = (
+    "多少钱",
+    "什么价",
+    "价格",
+    "贵",
+    "太贵",
+    "有点贵",
+    "便宜",
+    "优惠",
+    "别人家便宜",
+)
 RECOMMEND_WORDS = ("推荐", "适合", "新手", "想买", "阳台", "香", "红花")
 CARE_FAQ_WORDS = ("浇水", "怎么养", "换盆", "植料", "夏天", "冬天", "施肥")
 GREET_WORDS = ("你好", "您好", "在吗", "想了解", "资料")
@@ -112,7 +131,7 @@ def _split_terms(value: str | None):
         return []
     normalized = normalize_message(value)
     parts = []
-    for separator in ("｜", "|", "/", "、", ",", ";", "\n"):
+    for separator in ("｜", "~", "、", "|", "/", ",", "，", ";", "；", "\n"):
         normalized = normalized.replace(separator, "|")
     for part in normalized.split("|"):
         term = part.strip()
