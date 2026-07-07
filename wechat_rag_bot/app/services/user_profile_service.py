@@ -12,6 +12,7 @@ from app.db.models import (
     ProfileEventModel,
     UserProfileModel,
 )
+from app.services.llm_service import generate_json
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -34,19 +35,28 @@ _allowed_patch_fields = {
     "human_handoff_reason",
 }
 
-PAIN_POINT_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分析助手。
-请只根据聊天记录提炼用户痛点，不要编造未出现的信息。
+DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分析助手。
+
+你的唯一输入是【用户消息原文记录】。只能依据这些用户亲自发送的内容生成画像。
+
+严禁使用或输出路由、意图、模板编号、AI 回复、系统判断、知识库命中结果等中间字段。
 
 输出要求：
 1. 只输出 JSON 对象，不要 Markdown、解释或代码块。
-2. `pain_points` 是中文数组，每项概括一个明确痛点。
-3. 痛点要包含对象、问题和用户顾虑，例如“兰花烂根、黄叶，担心养死，需要救治方案”。
-4. 合并重复痛点，保留最近且更具体的描述。
-5. 没有明确痛点时输出空数组。
+2. 使用中文自然语言总结，不能照抄后台字段。
+3. `customer_tags` 使用稳定标签，格式示例：`region:广西`、`plant_count:100盆`、`budget:200`、`customer_tag:新手`。
+4. `pain_points` 是中文数组，每项概括一个明确痛点，要包含对象、问题和用户顾虑。
+5. `ai_summary` 用 1-2 句中文概括客户真实情况和当前诉求。
+6. 没有明确内容时输出空数组或空字符串。
 
 JSON 格式：
 {
-  "pain_points": []
+  "current_stage": "greeting | interest | objection_handling | order_intent | after_sale | knowledge_consulting | human_pending | unknown",
+  "risk_level": "normal | medium | high",
+  "customer_tags": [],
+  "product_interests": [],
+  "pain_points": [],
+  "ai_summary": ""
 }
 """
 
@@ -143,6 +153,14 @@ async def append_conversation_memory(
 
 async def update_profile_after_chat(message, intent, reply) -> None:
     with _get_session() as session:
+        user_records = _list_user_message_records(
+            session,
+            message.user_id,
+            current_message=message.message,
+            limit=12,
+        )
+    profile_analysis = await _build_profile_analysis(user_records)
+    with _get_session() as session:
         profile = _get_or_create_profile(
             session,
             message.user_id,
@@ -157,13 +175,7 @@ async def update_profile_after_chat(message, intent, reply) -> None:
         profile.last_template_id = reply.template_id
         profile.last_active_at = _now()
         _apply_tag_result(profile, reply.metadata.get("tag_result"))
-        profile.pain_points_json = _json_dumps(
-            _expand_pain_points_from_chat(
-                _json_loads(profile.pain_points_json, []),
-                message_text=message.message,
-            )
-        )
-        profile.ai_summary = _build_overall_memory(profile, message, intent)
+        _apply_profile_analysis(profile, profile_analysis)
         profile.updated_at = _now()
         if reply.route == "human" or reply.need_human:
             handoff = reply.metadata.get("handoff", {})
@@ -213,6 +225,110 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     risk_level = tag_result.get("risk_level")
     if isinstance(risk_level, str) and risk_level.strip():
         profile.risk_level = risk_level.strip()
+
+
+async def _build_profile_analysis(user_records: list[dict]) -> dict:
+    prompt = _build_profile_analysis_prompt(user_records)
+    try:
+        analysis = await generate_json(prompt, purpose="profile")
+    except Exception:
+        return _fallback_profile_analysis(user_records)
+    if not _is_valid_profile_analysis(analysis):
+        return _fallback_profile_analysis(user_records)
+    return analysis
+
+
+def _build_profile_analysis_prompt(user_records: list[dict]) -> str:
+    settings = get_settings()
+    prompt = settings.profile_analysis_prompt.strip() or DEFAULT_PROFILE_ANALYSIS_PROMPT
+    return f"{prompt}\n\n【用户消息原文记录】\n{_json_dumps(user_records)}"
+
+
+def _is_valid_profile_analysis(value: Any) -> bool:
+    return isinstance(value, dict) and any(
+        isinstance(value.get(key), expected)
+        for key, expected in {
+            "customer_tags": list,
+            "product_interests": list,
+            "pain_points": list,
+            "ai_summary": str,
+        }.items()
+    )
+
+
+def _apply_profile_analysis(profile: UserProfileModel, analysis: dict) -> None:
+    current_stage = _stage_value(analysis.get("current_stage"))
+    if current_stage:
+        profile.current_stage = current_stage
+
+    risk_level = _risk_value(analysis.get("risk_level"))
+    if risk_level:
+        profile.risk_level = risk_level
+
+    profile.customer_tags_json = _json_dumps(
+        _merge_customer_tags(
+            _json_loads(profile.customer_tags_json, []),
+            _string_list(analysis.get("customer_tags")),
+        )
+    )
+    profile.product_interests_json = _json_dumps(
+        _string_list(analysis.get("product_interests"))
+    )
+    profile.pain_points_json = _json_dumps(_string_list(analysis.get("pain_points")))
+    ai_summary = analysis.get("ai_summary")
+    if isinstance(ai_summary, str):
+        profile.ai_summary = ai_summary.strip()
+
+
+def _fallback_profile_analysis(user_records: list[dict]) -> dict:
+    texts = [
+        str(record.get("content") or "")
+        for record in user_records
+        if isinstance(record, dict) and record.get("content")
+    ]
+    combined = "\n".join(texts)
+    customer_tags: list[str] = []
+    region = _region_from_text(combined)
+    budget = _budget_from_text(combined)
+    plant_count = _plant_count_from_text(combined)
+    if region:
+        customer_tags.append(f"region:{region}")
+    if budget:
+        customer_tags.append(f"budget:{budget}")
+    if plant_count:
+        customer_tags.append(f"plant_count:{plant_count}")
+
+    product_interests: list[str] = []
+    if _contains_any(combined, ("兰花", "蘭花", "orchid")):
+        product_interests.append("兰花养护")
+
+    pain_points: list[str] = []
+    for text in texts:
+        pain_point = _pain_point_from_text(text)
+        if pain_point:
+            pain_points = _append_or_replace_specific(pain_points, pain_point)
+
+    facts: list[str] = []
+    if region:
+        facts.append(f"客户在{region}")
+    if plant_count:
+        facts.append(f"养了{plant_count}花")
+    if budget:
+        facts.append(f"预算约{budget}元")
+    if pain_points:
+        facts.append(f"关注{pain_points[-1]}")
+    elif texts:
+        facts.append(f"最近咨询：{texts[-1]}")
+    ai_summary = "，".join(facts) + "。" if facts else ""
+
+    return {
+        "current_stage": "interest" if product_interests or plant_count else "unknown",
+        "risk_level": "normal",
+        "customer_tags": customer_tags,
+        "product_interests": product_interests,
+        "pain_points": pain_points,
+        "ai_summary": ai_summary,
+    }
 
 
 def _build_overall_memory(profile: UserProfileModel, message, intent) -> str:
@@ -296,6 +412,34 @@ def _pain_point_from_text(text: str) -> str:
     return f"{subject}{issue_text}{suffix_text}"
 
 
+def _region_from_text(text: str) -> str:
+    known_regions = (
+        "北京", "上海", "天津", "重庆", "河北", "山西", "辽宁", "吉林", "黑龙江",
+        "江苏", "浙江", "安徽", "福建", "江西", "山东", "河南", "湖北", "湖南",
+        "广东", "海南", "四川", "贵州", "云南", "陕西", "甘肃", "青海", "台湾",
+        "内蒙古", "广西", "西藏", "宁夏", "新疆", "香港", "澳门",
+        "杭州", "广州", "深圳", "成都", "南京", "苏州", "宁波",
+    )
+    for region in known_regions:
+        if region in text:
+            return region
+    return ""
+
+
+def _budget_from_text(text: str) -> str:
+    import re
+
+    match = re.search(r"(?:预算|預算|budget|价格|價位|价位)[^\d]{0,8}(\d{2,6})", text, re.I)
+    return match.group(1) if match else ""
+
+
+def _plant_count_from_text(text: str) -> str:
+    import re
+
+    match = re.search(r"(?:养了|養了|养|養|有)[^\d]{0,6}(\d{1,5})\s*(盆|棵|株)", text)
+    return f"{match.group(1)}{match.group(2)}" if match else ""
+
+
 def _contains_any(text: str, words: tuple[str, ...]) -> bool:
     lowered = text.lower()
     return any(word.lower() in lowered for word in words)
@@ -303,6 +447,65 @@ def _contains_any(text: str, words: tuple[str, ...]) -> bool:
 
 def _is_more_specific_pain_point(candidate: str, existing: str) -> bool:
     return bool(candidate and existing and existing in candidate and candidate != existing)
+
+
+def _append_or_replace_specific(values: list[str], value: str) -> list[str]:
+    compacted = [
+        item
+        for item in values
+        if item and not _is_more_specific_pain_point(value, item)
+    ]
+    return _append_unique(compacted, value)
+
+
+def _stage_value(value: Any) -> str:
+    allowed = {
+        "greeting",
+        "interest",
+        "objection_handling",
+        "order_intent",
+        "after_sale",
+        "knowledge_consulting",
+        "human_pending",
+        "unknown",
+    }
+    return value if isinstance(value, str) and value in allowed else ""
+
+
+def _risk_value(value: Any) -> str:
+    allowed = {"normal", "medium", "high"}
+    return value if isinstance(value, str) and value in allowed else ""
+
+
+def _merge_customer_tags(existing: list[str], incoming: list[str]) -> list[str]:
+    normalized = [_normalize_customer_tag(tag) for tag in incoming]
+    replace_keys = {_tag_replace_key(tag) for tag in normalized}
+    kept = [
+        tag
+        for tag in existing
+        if tag and _tag_replace_key(tag) not in replace_keys
+    ]
+    result: list[str] = []
+    for tag in normalized:
+        result = _append_unique(result, tag)
+    for tag in kept:
+        result = _append_unique(result, tag)
+    return result
+
+
+def _normalize_customer_tag(tag: str) -> str:
+    if tag.startswith("customer_tag:"):
+        return tag.split(":", 1)[1]
+    return tag
+
+
+def _tag_replace_key(tag: str) -> str:
+    if ":" not in tag:
+        return tag
+    prefix = tag.split(":", 1)[0]
+    if prefix in {"region", "budget", "plant_count", "pain_point"}:
+        return prefix
+    return tag
 
 
 def _label_value(labels: list[str], prefix: str) -> str:
@@ -374,6 +577,35 @@ def _list_memories(session: Session, user_id: str, limit: int) -> list[dict]:
         .limit(limit)
     ).all()
     return [_memory_to_dict(row) for row in reversed(rows)]
+
+
+def _list_user_message_records(
+    session: Session,
+    user_id: str,
+    *,
+    current_message: str,
+    limit: int,
+) -> list[dict]:
+    rows = session.scalars(
+        select(ConversationMemoryModel)
+        .where(
+            ConversationMemoryModel.user_id == user_id,
+            ConversationMemoryModel.role == "user",
+        )
+        .order_by(ConversationMemoryModel.created_at.desc(), ConversationMemoryModel.id.desc())
+        .limit(limit)
+    ).all()
+    records = [
+        {
+            "created_at": _datetime_to_iso(row.created_at),
+            "content": row.content,
+        }
+        for row in reversed(rows)
+        if row.content
+    ]
+    if current_message and (not records or records[-1].get("content") != current_message):
+        records.append({"created_at": None, "content": current_message})
+    return records[-limit:]
 
 
 def _list_events(session: Session, user_id: str, limit: int) -> list[dict]:

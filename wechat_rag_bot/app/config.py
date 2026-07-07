@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     intent_llm_fallback_threshold: float = Field(default=0.5, ge=0, le=1)
     talk_script_llm_provider: str = ""
     talk_script_llm_model: str = ""
+    profile_llm_provider: str = ""
+    profile_llm_model: str = ""
+    profile_analysis_prompt: str = ""
     review_llm_provider: str = ""
     review_llm_model: str = ""
     intent_confidence_threshold: float = Field(default=0.6, ge=0, le=1)

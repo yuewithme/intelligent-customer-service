@@ -73,6 +73,9 @@ def _memory_labels(text: str, intent: IntentResult) -> list[str]:
         labels.append(f"region:{city}")
     if budget:
         labels.append(f"budget:{budget}")
+    plant_count = _plant_count_from_text(text)
+    if plant_count:
+        labels.append(f"plant_count:{plant_count}")
     if _has_any(text, ("烂根", "爛根", "root rot")):
         labels.append("pain_point:兰花烂根")
         labels.append("product_interest:兰花养护")
@@ -92,16 +95,31 @@ def _slot_text(slots: dict, keys: tuple[str, ...]) -> str:
 
 
 def _city_from_text(text: str) -> str:
-    known_cities = ("杭州", "北京", "上海", "广州", "深圳", "成都", "南京", "苏州", "宁波")
-    for city in known_cities:
-        if city in text:
-            return city
+    known_regions = (
+        "北京", "上海", "天津", "重庆", "河北", "山西", "辽宁", "吉林", "黑龙江",
+        "江苏", "浙江", "安徽", "福建", "江西", "山东", "河南", "湖北", "湖南",
+        "广东", "海南", "四川", "贵州", "云南", "陕西", "甘肃", "青海", "台湾",
+        "内蒙古", "广西", "西藏", "宁夏", "新疆", "香港", "澳门",
+        "杭州", "广州", "深圳", "成都", "南京", "苏州", "宁波",
+    )
+    for region in known_regions:
+        if region in text:
+            return region
     return ""
 
 
 def _budget_from_text(text: str) -> str:
     match = re.search(r"(?:预算|預算|budget|价格|價位|价位)[^\d]{0,8}(\d{2,6})", text, re.I)
     return match.group(1) if match else ""
+
+
+def _plant_count_from_text(text: str) -> str:
+    match = re.search(r"(?:养了|養了|养|養|有)[^\d]{0,6}(\d{1,5})\s*(?:盆|棵|株)", text)
+    if not match:
+        return ""
+    unit_match = re.search(rf"{re.escape(match.group(1))}\s*(盆|棵|株)", text)
+    unit = unit_match.group(1) if unit_match else "盆"
+    return f"{match.group(1)}{unit}"
 
 
 def _has_any(text: str, words: tuple[str, ...]) -> bool:

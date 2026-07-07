@@ -155,6 +155,10 @@ def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
             ("talk_script_llm_provider", "talk_script_llm_model"),
             ("intent_llm_provider", "intent_llm_model"),
         ),
+        "profile": (
+            ("profile_llm_provider", "profile_llm_model"),
+            ("intent_llm_provider", "intent_llm_model"),
+        ),
         "review": (("review_llm_provider", "review_llm_model"),),
     }
     for provider_name, model_name in chains.get(purpose, ()):

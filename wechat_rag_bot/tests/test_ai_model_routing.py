@@ -62,6 +62,27 @@ def test_rag_model_config_prefers_dedicated_provider(monkeypatch):
     assert config.model == "deepseek-rag"
 
 
+def test_profile_model_config_prefers_dedicated_provider(monkeypatch):
+    from app.config import get_settings
+    from app.services.llm_service import get_model_config
+
+    monkeypatch.setenv("LLM_PROVIDER", "volcengine")
+    monkeypatch.setenv("LLM_MODEL", "doubao-default")
+    monkeypatch.setenv("INTENT_LLM_PROVIDER", "dashscope")
+    monkeypatch.setenv("INTENT_LLM_MODEL", "qwen-intent")
+    monkeypatch.setenv("PROFILE_LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("PROFILE_LLM_MODEL", "deepseek-profile")
+    get_settings.cache_clear()
+
+    try:
+        config = get_model_config("profile")
+    finally:
+        get_settings.cache_clear()
+
+    assert config.provider == "deepseek"
+    assert config.model == "deepseek-profile"
+
+
 @pytest.mark.asyncio
 async def test_talk_script_classifier_uses_talk_script_model(monkeypatch):
     from app.config import get_settings

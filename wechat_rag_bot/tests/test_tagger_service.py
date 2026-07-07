@@ -97,3 +97,31 @@ async def test_build_tag_result_extracts_customer_memory_tags_from_message_and_s
     assert "budget:200" in result.labels
     assert "pain_point:兰花烂根" in result.labels
     assert "product_interest:兰花养护" in result.labels
+
+
+@pytest.mark.asyncio
+async def test_build_tag_result_extracts_region_and_plant_count_from_raw_message():
+    message = NormalizedMessage(
+        trace_id="trace_3",
+        channel="wechat",
+        user_id="user_3",
+        session_id="default",
+        message="我在广西，养了100盆花，你有什么推荐的花吗",
+        kb_id="kb_default",
+        metadata={},
+    )
+    state = UserState(user_id="user_3", session_id="default", customer_tags=[])
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        sales_stage="knowledge_consulting",
+        confidence=0.9,
+        need_rag=True,
+        slots={},
+        reason="care question",
+    )
+
+    result = await build_tag_result(message=message, user_state=state, intent=intent)
+
+    assert "region:广西" in result.labels
+    assert "plant_count:100盆" in result.labels

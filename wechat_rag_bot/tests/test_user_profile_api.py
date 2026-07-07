@@ -144,13 +144,10 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
     await update_profile_after_chat(message, intent, reply)
 
     profile = (await get_profile_bundle("user_001"))["profile"]
-    assert profile["customer_tags"] == ["budget:200", "region:杭州", "pain_point:兰花烂根"]
+    assert profile["customer_tags"] == ["region:杭州", "budget:200", "pain_point:兰花烂根"]
     assert profile["product_interests"] == ["兰花养护"]
     assert profile["pain_points"] == ["兰花烂根，需要救治方案"]
-    assert profile["ai_summary"] == (
-        "客户在杭州，预算约200元，正在咨询兰花烂根，需要救治方案处理；"
-        "整体看更关注兰花养护问题，适合给出分步骤、可执行的养护建议。"
-    )
+    assert profile["ai_summary"] == "客户在杭州，预算约200元，关注兰花烂根，需要救治方案。"
 
 
 @pytest.mark.asyncio
@@ -186,7 +183,87 @@ async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, 
 
     profile = (await get_profile_bundle("user_002"))["profile"]
     assert profile["pain_points"] == ["兰花烂根、黄叶，担心养死，需要救治方案"]
-    assert "正在咨询兰花烂根、黄叶，担心养死，需要救治方案处理" in profile["ai_summary"]
+    assert profile["ai_summary"] == "关注兰花烂根、黄叶，担心养死，需要救治方案。"
+
+
+@pytest.mark.asyncio
+async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    captured = {}
+
+    async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
+        captured["prompt"] = prompt
+        captured["purpose"] = purpose
+        return {
+            "current_stage": "interest",
+            "risk_level": "normal",
+            "customer_tags": ["region:广西", "plant_count:100盆"],
+            "product_interests": ["开花类兰花"],
+            "pain_points": ["广西气候下有100盆花，想获得适合当地环境的品种推荐"],
+            "ai_summary": "客户在广西，养了100盆花，正在咨询适合当地气候的开花类兰花推荐。",
+        }
+
+    monkeypatch.setattr(
+        "app.services.user_profile_service.generate_json",
+        fake_generate_json,
+    )
+    from app.services.user_profile_service import append_conversation_memory
+
+    await append_conversation_memory(
+        user_id="user_003",
+        tenant_id="tenant_default",
+        session_id="default",
+        role="user",
+        content="我在广西，养了100盆花，你有什么推荐的花吗",
+        intent="knowledge_question",
+        route="rag_answer",
+        template_id="tpl_should_not_be_in_prompt",
+        trace_id="trace_old",
+    )
+    await append_conversation_memory(
+        user_id="user_003",
+        tenant_id="tenant_default",
+        session_id="default",
+        role="assistant",
+        content="后台回复不应该作为画像输入。",
+        intent="knowledge_question",
+        route="rag_answer",
+        trace_id="trace_assistant",
+    )
+    message = NormalizedMessage(
+        trace_id="trace_003",
+        channel="wechat",
+        user_id="user_003",
+        session_id="default",
+        message="我在云南，养了100盆花，你有什么推荐的花吗",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        sales_stage="knowledge_consulting",
+        confidence=0.9,
+        need_rag=True,
+        slots={},
+        reason="care question",
+    )
+    reply = FinalReply(answer="推荐春兰。", reply_type="rag", route="rag_answer")
+
+    await update_profile_after_chat(message, intent, reply)
+
+    prompt = captured["prompt"]
+    assert captured["purpose"] == "profile"
+    assert "我在广西，养了100盆花" in prompt
+    assert "我在云南，养了100盆花" in prompt
+    assert "后台回复不应该作为画像输入" not in prompt
+    assert "knowledge_question" not in prompt
+    assert "rag_answer" not in prompt
+    assert "tpl_should_not_be_in_prompt" not in prompt
+
+    profile = (await get_profile_bundle("user_003"))["profile"]
+    assert profile["customer_tags"] == ["region:广西", "plant_count:100盆"]
+    assert profile["ai_summary"] == "客户在广西，养了100盆花，正在咨询适合当地气候的开花类兰花推荐。"
 
 
 def test_new_profile_apis_require_bearer_authentication(monkeypatch, tmp_path):
