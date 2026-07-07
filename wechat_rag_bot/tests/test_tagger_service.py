@@ -66,3 +66,34 @@ async def test_build_tag_result_uses_intent_state_and_message_metadata():
     assert result.secondary_intents == ["root_rot"]
     assert result.entities == {"plant": "orchid"}
     assert "customer_tag:newbie" in result.labels
+
+
+@pytest.mark.asyncio
+async def test_build_tag_result_extracts_customer_memory_tags_from_message_and_slots():
+    message = NormalizedMessage(
+        trace_id="trace_2",
+        channel="wechat",
+        user_id="user_2",
+        session_id="default",
+        message="我的预算在200这样，在杭州这边，兰花烂根了咋办",
+        kb_id="kb_default",
+        metadata={},
+    )
+    state = UserState(user_id="user_2", session_id="default", customer_tags=[])
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        secondary_intents=["root_rot"],
+        sales_stage="knowledge_consulting",
+        confidence=0.9,
+        need_rag=True,
+        slots={"city": "杭州", "budget": "200"},
+        reason="care question",
+    )
+
+    result = await build_tag_result(message=message, user_state=state, intent=intent)
+
+    assert "region:杭州" in result.labels
+    assert "budget:200" in result.labels
+    assert "pain_point:兰花烂根" in result.labels
+    assert "product_interest:兰花养护" in result.labels

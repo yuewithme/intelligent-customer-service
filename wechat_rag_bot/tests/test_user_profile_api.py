@@ -3,6 +3,10 @@ import pytest
 
 from app.config import get_settings
 from app.main import app
+from app.schemas.event import NormalizedMessage
+from app.schemas.intent import IntentResult
+from app.schemas.reply import FinalReply
+from app.services.user_profile_service import get_profile_bundle, update_profile_after_chat
 
 
 @pytest.fixture(autouse=True)
@@ -96,6 +100,57 @@ def test_memories_returns_recent_chat_messages(monkeypatch, tmp_path):
     assert body["data"]["limit"] == 10
     assert [item["role"] for item in body["data"]["items"]] == ["user", "assistant"]
     assert body["data"]["items"][0]["content"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    message = NormalizedMessage(
+        trace_id="trace_001",
+        channel="wechat",
+        user_id="user_001",
+        session_id="default",
+        message="我的预算在200这样，在杭州这边，兰花烂根了咋办",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        secondary_intents=["root_rot"],
+        sales_stage="knowledge_consulting",
+        confidence=0.92,
+        need_rag=True,
+        slots={"budget": "200", "city": "杭州", "plant_issue": "兰花烂根"},
+        reason="care question",
+    )
+    reply = FinalReply(
+        answer="先检查根系并控水通风。",
+        reply_type="rag",
+        route="rag_answer",
+        metadata={
+            "tag_result": {
+                "labels": [
+                    "budget:200",
+                    "region:杭州",
+                    "pain_point:兰花烂根",
+                    "product_interest:兰花养护",
+                ],
+                "risk_level": "normal",
+            }
+        },
+    )
+
+    await update_profile_after_chat(message, intent, reply)
+
+    profile = (await get_profile_bundle("user_001"))["profile"]
+    assert profile["customer_tags"] == ["budget:200", "region:杭州", "pain_point:兰花烂根"]
+    assert profile["product_interests"] == ["兰花养护"]
+    assert profile["pain_points"] == ["兰花烂根"]
+    assert profile["ai_summary"] == (
+        "客户在杭州，预算约200元，正在咨询兰花烂根处理；"
+        "整体看更关注兰花养护问题，适合给出分步骤、可执行的养护建议。"
+    )
 
 
 def test_new_profile_apis_require_bearer_authentication(monkeypatch, tmp_path):

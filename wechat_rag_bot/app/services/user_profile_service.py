@@ -140,6 +140,8 @@ async def update_profile_after_chat(message, intent, reply) -> None:
         profile.last_route = reply.route
         profile.last_template_id = reply.template_id
         profile.last_active_at = _now()
+        _apply_tag_result(profile, reply.metadata.get("tag_result"))
+        profile.ai_summary = _build_overall_memory(profile, message, intent)
         profile.updated_at = _now()
         if reply.route == "human" or reply.need_human:
             handoff = reply.metadata.get("handoff", {})
@@ -162,6 +164,73 @@ async def update_profile_after_chat(message, intent, reply) -> None:
                 message.trace_id,
             )
         session.commit()
+
+
+def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
+    if not isinstance(tag_result, dict):
+        return
+    labels = _string_list(tag_result.get("labels"))
+    if not labels:
+        return
+    customer_tags = _json_loads(profile.customer_tags_json, [])
+    product_interests = _json_loads(profile.product_interests_json, [])
+    pain_points = _json_loads(profile.pain_points_json, [])
+    for label in labels:
+        if label.startswith("product_interest:"):
+            product_interests = _append_unique(product_interests, label.split(":", 1)[1])
+        elif label.startswith("pain_point:"):
+            pain_points = _append_unique(pain_points, label.split(":", 1)[1])
+            customer_tags = _append_unique(customer_tags, label)
+        elif label.startswith("customer_tag:"):
+            customer_tags = _append_unique(customer_tags, label.split(":", 1)[1])
+        else:
+            customer_tags = _append_unique(customer_tags, label)
+    profile.customer_tags_json = _json_dumps(customer_tags)
+    profile.product_interests_json = _json_dumps(product_interests)
+    profile.pain_points_json = _json_dumps(pain_points)
+    risk_level = tag_result.get("risk_level")
+    if isinstance(risk_level, str) and risk_level.strip():
+        profile.risk_level = risk_level.strip()
+
+
+def _build_overall_memory(profile: UserProfileModel, message, intent) -> str:
+    tags = _json_loads(profile.customer_tags_json, [])
+    interests = _json_loads(profile.product_interests_json, [])
+    pain_points = _json_loads(profile.pain_points_json, [])
+    region = _label_value(tags, "region")
+    budget = _label_value(tags, "budget")
+    issue = pain_points[0] if pain_points else _label_value(tags, "pain_point")
+    interest = interests[0] if interests else ""
+    facts: list[str] = []
+    if region:
+        facts.append(f"客户在{region}")
+    if budget:
+        facts.append(f"预算约{budget}元")
+    if issue:
+        facts.append(f"正在咨询{issue}处理")
+    if facts:
+        first = "，".join(facts)
+    else:
+        first = f"客户最近在咨询{getattr(intent, 'primary_intent', '') or '问题'}"
+    if interest:
+        second = f"整体看更关注{interest}问题，适合给出分步骤、可执行的养护建议。"
+    else:
+        second = "整体看需要保留最近诉求，并在后续回复中延续上下文。"
+    return f"{first}；{second}"
+
+
+def _label_value(labels: list[str], prefix: str) -> str:
+    marker = f"{prefix}:"
+    for label in labels:
+        if isinstance(label, str) and label.startswith(marker):
+            return label.split(":", 1)[1]
+    return ""
+
+
+def _append_unique(values: list[str], value: str) -> list[str]:
+    if value and value not in values:
+        return [*values, value]
+    return values
 
 
 def _get_session() -> Session:

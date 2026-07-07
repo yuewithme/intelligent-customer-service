@@ -1,3 +1,5 @@
+import re
+
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
 from app.schemas.state import UserState
@@ -30,6 +32,7 @@ async def build_tag_result(
         entities["customer_level"] = customer_level.model_dump()
     elif existing_customer_level_tags:
         labels.append(f"customer_tag:{existing_customer_level_tags[0]}")
+    labels.extend(_memory_labels(message.message, intent))
 
     return TagResult(
         intent=intent.primary_intent,
@@ -55,6 +58,65 @@ def _segment_from(message: NormalizedMessage, user_state: UserState) -> str:
     if "advanced" in user_state.customer_tags or "老手" in user_state.customer_tags:
         return "advanced"
     return "unknown"
+
+
+def _memory_labels(text: str, intent: IntentResult) -> list[str]:
+    labels: list[str] = []
+    slots = intent.slots if isinstance(intent.slots, dict) else {}
+    city = _slot_text(slots, ("city", "location", "region"))
+    budget = _slot_text(slots, ("budget", "price_budget", "price"))
+    if not city:
+        city = _city_from_text(text)
+    if not budget:
+        budget = _budget_from_text(text)
+    if city:
+        labels.append(f"region:{city}")
+    if budget:
+        labels.append(f"budget:{budget}")
+    if _has_any(text, ("烂根", "爛根", "root rot")):
+        labels.append("pain_point:兰花烂根")
+        labels.append("product_interest:兰花养护")
+    elif _has_any(text, ("兰花", "蘭花", "orchid")):
+        labels.append("product_interest:兰花养护")
+    return _dedupe(labels)
+
+
+def _slot_text(slots: dict, keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = slots.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (int, float)):
+            return str(value)
+    return ""
+
+
+def _city_from_text(text: str) -> str:
+    known_cities = ("杭州", "北京", "上海", "广州", "深圳", "成都", "南京", "苏州", "宁波")
+    for city in known_cities:
+        if city in text:
+            return city
+    return ""
+
+
+def _budget_from_text(text: str) -> str:
+    match = re.search(r"(?:预算|預算|budget|价格|價位|价位)[^\d]{0,8}(\d{2,6})", text, re.I)
+    return match.group(1) if match else ""
+
+
+def _has_any(text: str, words: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(word.lower() in lowered for word in words)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
 
 
 def _emotion_from_message(text: str) -> str:

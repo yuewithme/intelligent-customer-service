@@ -67,49 +67,10 @@
           <ElTag v-if="profile?.updated_at" size="small" type="info" effect="plain"> 实时 </ElTag>
         </div>
         <ElSkeleton v-if="profileLoading" :rows="4" animated />
-        <ElEmpty v-else-if="!profile" description="暂无画像" :image-size="72" />
-        <dl v-else class="profile-grid">
-          <dt>当前阶段</dt>
-          <dd>{{ emptyText(profile.current_stage) }}</dd>
-          <dt>风险等级</dt>
-          <dd>{{ riskText(profile.risk_level) }}</dd>
-          <dt>产品兴趣</dt>
-          <dd>
-            <div v-if="profile.product_interests?.length" class="tag-list">
-              <ElTag
-                v-for="item in profile.product_interests"
-                :key="item"
-                size="small"
-                type="success"
-                effect="plain"
-              >
-                {{ item }}
-              </ElTag>
-            </div>
-            <span v-else>-</span>
-          </dd>
-          <dt>痛点</dt>
-          <dd>
-            <div v-if="profile.pain_points?.length" class="stack-list">
-              <span v-for="item in profile.pain_points" :key="item">{{ item }}</span>
-            </div>
-            <span v-else>-</span>
-          </dd>
-          <dt>偏好摘要</dt>
-          <dd>{{ emptyText(profile.preference_summary) }}</dd>
-          <dt>AI 摘要</dt>
-          <dd>{{ emptyText(profile.ai_summary) }}</dd>
-          <dt>最近意图</dt>
-          <dd>{{ intentText(profile.last_intent) }}</dd>
-          <dt>最近路由</dt>
-          <dd>{{ routeText(profile.last_route) }}</dd>
-          <dt>最近模板</dt>
-          <dd>{{ emptyText(profile.last_template_id) }}</dd>
-          <dt>转人工状态</dt>
-          <dd>{{ handoffStatusText(profile.human_handoff_status) }}</dd>
-          <dt>画像更新时间</dt>
-          <dd>{{ formatTime(profile.updated_at) }}</dd>
-        </dl>
+        <ElEmpty v-else-if="!profileMemory" description="暂无画像" :image-size="72" />
+        <div v-else class="profile-memory">
+          {{ profileMemory }}
+        </div>
       </div>
     </template>
   </aside>
@@ -142,6 +103,7 @@ const emit = defineEmits<{ changed: [] }>()
 const userStore = useUserStore()
 const operatorId = computed(() => userStore.user.nickname || 'admin')
 const tags = computed(() => props.profile?.customer_tags?.filter(Boolean) || [])
+const profileMemory = computed(() => props.profile?.ai_summary?.trim() || '')
 
 const claim = async () => {
   await claimConversation(props.conversationId, operatorId.value)
@@ -234,42 +196,11 @@ const handoffReasonText = (value?: string | null) =>
   value ||
   '-'
 
-const handoffStatusText = (value?: string | null) =>
-  ({
-    pending: '等待接管',
-    active: '人工接管中',
-    resolved: '已结束'
-  })[value || ''] ||
-  value ||
-  '-'
-
-const riskText = (value?: string | null) =>
-  ({
-    normal: '正常',
-    medium: '中风险',
-    high: '高风险'
-  })[value || ''] ||
-  value ||
-  '-'
-
 const displayName = (conversation: ConversationItem) =>
   conversation.user_display_name || conversation.user_id
 
 const avatarText = (conversation: ConversationItem) =>
   displayName(conversation).slice(0, 1).toUpperCase()
-
-const emptyText = (value?: string | null) => value || '-'
-
-const formatTime = (value?: string | null) => {
-  if (!value) {
-    return '-'
-  }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-  return date.toLocaleString('zh-CN', { hour12: false })
-}
 </script>
 
 <style scoped>
@@ -335,20 +266,17 @@ dd {
   padding-top: 4px;
 }
 
-.profile-grid {
-  grid-template-columns: 88px minmax(0, 1fr);
-}
-
 .tag-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.stack-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.profile-memory {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #111827;
+  white-space: pre-wrap;
 }
 
 .muted {
