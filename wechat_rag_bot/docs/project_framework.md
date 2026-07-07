@@ -708,7 +708,7 @@ SSE 是实时更新主通道，浏览器每 30 秒执行一次静默同步作为
 - `rerank_service` 当前是占位截断，不是真实重排模型。
 - `state_service` 当前偏轻量内存状态，长期画像走 SQLite。
 - 转人工当前生成工单 ID 和结构化 metadata，但真实人工系统推送仍是预留接口。
-- 标签驱动策略编排、Context Selector 和 Prompt Builder 是后续主链路升级方向；现有代码仍以 `Intent Service`、`Policy Service`、`Template Service`、`RAG Service` 和 `Reply Builder` 为主。
+- 标签驱动策略编排已具备首版骨架：`Tagger` 输出结构化标签，`Policy Engine` 输出知识库、模板、提示词块和上下文策略，`Context Selector` 可筛选画像摘要、近期原文和长期摘要，`Prompt Builder` 可组装模型输入；复杂工具调用和真正的多 Agent 协作仍是后续增强方向。
 - 源码中部分中文提示存在编码异常，建议后续单独统一修复文案编码。
 
 ## 15. 后续开发入口建议
