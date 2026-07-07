@@ -13,6 +13,7 @@ from app.db.models import (
     UserProfileModel,
 )
 from app.services.llm_service import generate_json
+from app.services.tag_catalog import TAG_CATEGORIES
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -44,7 +45,7 @@ DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分�
 输出要求：
 1. 只输出 JSON 对象，不要 Markdown、解释或代码块。
 2. 使用中文自然语言总结，不能照抄后台字段。
-3. `customer_tags` 使用稳定标签，格式示例：`region:广西`、`plant_count:100盆`、`budget:200`、`customer_tag:新手`。
+3. `customer_tags` 必须从【标签库】里选择，严禁自造标签。
 4. `pain_points` 是中文数组，每项概括一个明确痛点，要包含对象、问题和用户顾虑。
 5. `ai_summary` 用 1-2 句中文概括客户真实情况和当前诉求。
 6. 没有明确内容时输出空数组或空字符串。
@@ -207,6 +208,7 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     if not labels:
         return
     customer_tags = _json_loads(profile.customer_tags_json, [])
+    incoming_customer_tags: list[str] = []
     product_interests = _json_loads(profile.product_interests_json, [])
     pain_points = _json_loads(profile.pain_points_json, [])
     for label in labels:
@@ -214,12 +216,14 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
             product_interests = _append_unique(product_interests, label.split(":", 1)[1])
         elif label.startswith("pain_point:"):
             pain_points = _append_unique(pain_points, label.split(":", 1)[1])
-            customer_tags = _append_unique(customer_tags, label)
+            incoming_customer_tags.append(label)
         elif label.startswith("customer_tag:"):
-            customer_tags = _append_unique(customer_tags, label.split(":", 1)[1])
+            incoming_customer_tags.append(label)
         else:
-            customer_tags = _append_unique(customer_tags, label)
-    profile.customer_tags_json = _json_dumps(customer_tags)
+            incoming_customer_tags.append(label)
+    profile.customer_tags_json = _json_dumps(
+        _merge_customer_tags(customer_tags, incoming_customer_tags)
+    )
     profile.product_interests_json = _json_dumps(product_interests)
     profile.pain_points_json = _json_dumps(pain_points)
     risk_level = tag_result.get("risk_level")
@@ -241,7 +245,10 @@ async def _build_profile_analysis(user_records: list[dict]) -> dict:
 def _build_profile_analysis_prompt(user_records: list[dict]) -> str:
     settings = get_settings()
     prompt = settings.profile_analysis_prompt.strip() or DEFAULT_PROFILE_ANALYSIS_PROMPT
-    return f"{prompt}\n\n【用户消息原文记录】\n{_json_dumps(user_records)}"
+    return (
+        f"{prompt}\n\n【标签库】\n{_json_dumps(_profile_tag_catalog_prompt())}"
+        f"\n\n【用户消息原文记录】\n{_json_dumps(user_records)}"
+    )
 
 
 def _is_valid_profile_analysis(value: Any) -> bool:
@@ -479,9 +486,11 @@ def _risk_value(value: Any) -> str:
 
 def _merge_customer_tags(existing: list[str], incoming: list[str]) -> list[str]:
     candidates = [
-        _normalize_customer_tag(tag)
+        normalized_tag
         for tag in [*existing, *incoming]
+        for normalized_tag in [_normalize_customer_tag(tag)]
         if isinstance(tag, str) and tag.strip()
+        if normalized_tag
     ]
     latest_by_key: dict[str, tuple[int, str]] = {}
     for index, tag in enumerate(candidates):
@@ -496,28 +505,109 @@ def _merge_customer_tags(existing: list[str], incoming: list[str]) -> list[str]:
 
 
 def _normalize_customer_tag(tag: str) -> str:
+    tag = tag.strip()
     if tag.startswith("customer_tag:"):
-        return tag.split(":", 1)[1]
-    return tag
+        tag = tag.split(":", 1)[1].strip()
+    if _is_catalog_tag_value(tag):
+        return tag
+    if tag.startswith("region:"):
+        return _catalog_province_value(tag.split(":", 1)[1])
+    if tag.startswith("plant_count:"):
+        return _catalog_quantity_value(tag.split(":", 1)[1])
+    if tag.startswith("preference:"):
+        return _catalog_orchid_type_value(tag.split(":", 1)[1])
+    return ""
 
 
 def _tag_replace_key(tag: str) -> str:
-    if ":" not in tag:
-        return tag
-    prefix = tag.split(":", 1)[0]
-    return prefix
+    return _catalog_category_for_tag(tag) or tag
 
 
 def _tag_order(tag: str) -> int:
-    key = _tag_replace_key(tag)
     order = {
-        "region": 10,
-        "plant_count": 20,
-        "budget": 30,
-        "preference": 40,
-        "pain_point": 50,
+        "province": 10,
+        "orchid_quantity": 20,
+        "customer_level": 30,
+        "favorite_orchid_type": 40,
     }
-    return order.get(key, 100)
+    return order.get(_catalog_category_for_tag(tag), 100)
+
+
+def _profile_tag_catalog_prompt() -> dict[str, list[str]]:
+    return {
+        category.name: [value.name for value in category.values]
+        for category in TAG_CATEGORIES.values()
+    }
+
+
+def _catalog_tag_values() -> set[str]:
+    return {
+        value.name
+        for category in TAG_CATEGORIES.values()
+        for value in category.values
+    }
+
+
+def _is_catalog_tag_value(tag: str) -> bool:
+    return tag in _catalog_tag_values()
+
+
+def _catalog_category_for_tag(tag: str) -> str:
+    for category in TAG_CATEGORIES.values():
+        if any(value.name == tag for value in category.values):
+            return category.id
+    return ""
+
+
+def _catalog_province_value(raw: str) -> str:
+    raw = raw.strip()
+    aliases = {
+        "北京": "北京市",
+        "天津": "天津市",
+        "上海": "上海市",
+        "重庆": "重庆市",
+        "广西": "广西省",
+        "西藏": "西藏自治区",
+        "杭州": "浙江省",
+    }
+    if raw in aliases:
+        return aliases[raw]
+    if _is_catalog_tag_value(raw):
+        return raw
+    for suffix in ("省", "市", "自治区"):
+        candidate = f"{raw}{suffix}"
+        if _is_catalog_tag_value(candidate):
+            return candidate
+    return ""
+
+
+def _catalog_quantity_value(raw: str) -> str:
+    import re
+
+    match = re.search(r"(\d+)", raw)
+    if not match:
+        return ""
+    count = int(match.group(1))
+    if count > 10000:
+        return ""
+    if count <= 10:
+        return "1-10盆"
+    if count <= 30:
+        return "10-30盆"
+    if count <= 50:
+        return "30-50盆"
+    if count < 100:
+        return "50-100盆"
+    if count <= 200:
+        return "100-200盆"
+    if count < 1000:
+        return "200+盆"
+    return "1000+盆"
+
+
+def _catalog_orchid_type_value(raw: str) -> str:
+    raw = raw.strip()
+    return raw if _is_catalog_tag_value(raw) else ""
 
 
 def _label_value(labels: list[str], prefix: str) -> str:

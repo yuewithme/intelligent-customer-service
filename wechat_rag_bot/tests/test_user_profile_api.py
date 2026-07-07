@@ -144,7 +144,7 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
     await update_profile_after_chat(message, intent, reply)
 
     profile = (await get_profile_bundle("user_001"))["profile"]
-    assert profile["customer_tags"] == ["region:杭州", "budget:200", "pain_point:兰花烂根"]
+    assert profile["customer_tags"] == ["浙江省"]
     assert profile["product_interests"] == ["兰花养护"]
     assert profile["pain_points"] == ["兰花烂根，需要救治方案"]
     assert profile["ai_summary"] == "客户在杭州，预算约200元，关注兰花烂根，需要救治方案。"
@@ -197,7 +197,7 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
         return {
             "current_stage": "interest",
             "risk_level": "normal",
-            "customer_tags": ["region:广西", "plant_count:100盆"],
+            "customer_tags": ["region:广西", "plant_count:100盆", "不在标签库"],
             "product_interests": ["开花类兰花"],
             "pain_points": ["广西气候下有100盆花，想获得适合当地环境的品种推荐"],
             "ai_summary": "客户在广西，养了100盆花，正在咨询适合当地气候的开花类兰花推荐。",
@@ -262,7 +262,7 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
     assert "tpl_should_not_be_in_prompt" not in prompt
 
     profile = (await get_profile_bundle("user_003"))["profile"]
-    assert profile["customer_tags"] == ["region:广西", "plant_count:100盆"]
+    assert profile["customer_tags"] == ["广西省", "100-200盆"]
     assert profile["ai_summary"] == "客户在广西，养了100盆花，正在咨询适合当地气候的开花类兰花推荐。"
 
 
@@ -329,13 +329,69 @@ async def test_profile_update_keeps_one_customer_tag_per_type(monkeypatch, tmp_p
     await update_profile_after_chat(message, intent, reply)
 
     profile = (await get_profile_bundle("user_004"))["profile"]
-    assert profile["customer_tags"] == [
-        "region:广西",
-        "plant_count:20盆",
-        "budget:200",
-        "preference:蕙兰",
-        "测试用户",
-    ]
+    assert profile["customer_tags"] == ["广西省", "10-30盆", "蕙兰"]
+
+
+@pytest.mark.asyncio
+async def test_profile_update_filters_customer_tags_to_catalog_values(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
+        return {
+            "current_stage": "interest",
+            "risk_level": "normal",
+            "customer_tags": [
+                "region:火星",
+                "plant_count:99999盆",
+                "budget:200",
+                "preference:不存在的品类",
+                "测试用户",
+                "customer_tag:L3 黄金期",
+                "customer_tag:建兰",
+            ],
+            "product_interests": ["建兰"],
+            "pain_points": ["想买建兰"],
+            "ai_summary": "客户想买建兰。",
+        }
+
+    monkeypatch.setattr(
+        "app.services.user_profile_service.generate_json",
+        fake_generate_json,
+    )
+    message = NormalizedMessage(
+        trace_id="trace_005",
+        channel="wechat",
+        user_id="user_005",
+        session_id="default",
+        message="想买建兰",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        sales_stage="knowledge_consulting",
+        confidence=0.9,
+        need_rag=True,
+        slots={},
+        reason="care question",
+    )
+    reply = FinalReply(
+        answer="可以看看建兰。",
+        reply_type="rag",
+        route="rag_answer",
+        metadata={
+            "tag_result": {
+                "labels": ["region:杭州", "budget:200", "pain_point:兰花烂根"],
+                "risk_level": "normal",
+            }
+        },
+    )
+
+    await update_profile_after_chat(message, intent, reply)
+
+    profile = (await get_profile_bundle("user_005"))["profile"]
+    assert profile["customer_tags"] == ["浙江省", "L3 黄金期", "建兰"]
 
 
 def test_new_profile_apis_require_bearer_authentication(monkeypatch, tmp_path):
