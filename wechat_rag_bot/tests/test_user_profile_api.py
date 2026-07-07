@@ -109,6 +109,8 @@ def test_profile_analysis_prompt_wraps_message_content_for_llm():
         [{"created_at": "2026-07-07T10:00:00+00:00", "content": "hello"}]
     )
 
+    assert "读取每条记录的 `content` 字段" in prompt
+    assert "{{用户消息原文}}" in prompt
     assert '"content": "{{hello}}"' in prompt
 
 
