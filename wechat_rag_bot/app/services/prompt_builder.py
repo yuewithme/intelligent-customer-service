@@ -23,6 +23,29 @@ PROMPT_BLOCKS = {
     "emotion.neutral": "The user is neutral. Keep the answer natural, clear, and concise.",
     "tone.patient_step_by_step": "Use a patient tone suitable for step-by-step instructions.",
     "tone.concise_professional": "Use a concise and professional tone without repeating basic concepts.",
+    "customer_level.early_stage": (
+        "The user is in an early customer tier. Build trust first, keep recommendations conservative, "
+        "and avoid pressure."
+    ),
+    "customer_level.high_value": (
+        "The user is a higher-value or mature customer. Be precise, respect their experience, and include "
+        "higher-quality options only when relevant."
+    ),
+    "orchid_quantity.small_collection": (
+        "The user keeps a small orchid collection. Prefer simple, low-risk steps and explain care basics."
+    ),
+    "orchid_quantity.medium_collection": (
+        "The user keeps a medium orchid collection. Balance practical care steps with efficiency tips."
+    ),
+    "orchid_quantity.large_collection": (
+        "The user keeps a large orchid collection. Focus on scalable care, batch management, and key tradeoffs."
+    ),
+    "geo.regional_care": (
+        "Use the user's region only when climate, season, or logistics materially affects the answer."
+    ),
+    "preference.orchid_variety": (
+        "Align examples and recommendations with the user's preferred orchid variety when possible."
+    ),
     "output.customer_reply": (
         "Only output customer-facing service copy. Do not output internal tags, rules, or reasoning."
     ),

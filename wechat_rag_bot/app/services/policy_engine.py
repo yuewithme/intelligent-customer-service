@@ -1,8 +1,11 @@
 from app.schemas.policy import PolicyDecision
 from app.schemas.tag import TagResult
+from app.services.tag_catalog import prompt_blocks_for_tag_result
 
 
 async def decide_policy(tag: TagResult) -> PolicyDecision:
+    catalog_prompt_blocks = prompt_blocks_for_tag_result(tag)
+
     if tag.risk_level == "high" or tag.route == "human":
         return PolicyDecision(
             route="human",
@@ -28,6 +31,7 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
                 "segment.beginner",
                 "emotion.anxious" if tag.emotion == "anxious" else "emotion.neutral",
                 "tone.patient_step_by_step",
+                *catalog_prompt_blocks,
                 "output.customer_reply",
             ],
             context_policy={
@@ -55,6 +59,7 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
                 "intent.orchid_problem",
                 "segment.advanced",
                 "tone.concise_professional",
+                *catalog_prompt_blocks,
                 "output.customer_reply",
             ],
             context_policy={
@@ -77,6 +82,7 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
             "base.customer_service",
             f"intent.{tag.intent}",
             f"segment.{tag.segment}",
+            *catalog_prompt_blocks,
             "output.customer_reply",
         ],
         context_policy={
