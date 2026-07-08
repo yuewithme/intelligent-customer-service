@@ -79,7 +79,7 @@ async def test_tagger_adds_customer_level_label_from_classifier():
     intent = IntentResult(
         route="rag_answer",
         primary_intent="orchid_care",
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.88,
         need_rag=True,
     )
@@ -105,7 +105,7 @@ async def test_tagger_keeps_existing_customer_level_when_message_has_no_new_evid
     intent = IntentResult(
         route="rag_answer",
         primary_intent="orchid_care",
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.88,
         need_rag=True,
     )

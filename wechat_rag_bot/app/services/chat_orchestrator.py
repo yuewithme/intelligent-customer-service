@@ -19,6 +19,7 @@ from app.services.reply_builder import (
     build_unsupported_reply,
 )
 from app.services.rule_guard_service import check_rules
+from app.services.sales_stage_service import decide_sales_stage
 from app.services.state_service import get_user_state, update_user_state
 from app.services.tagger_service import build_tag_result
 from app.services.template_reply_service import build_default_template_reply
@@ -85,6 +86,12 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_state=user_state,
             intent=intent,
         )
+        sales_stage_decision = decide_sales_stage(
+            user_state=user_state,
+            intent=intent,
+            tag_result=tag_result,
+        )
+        tag_result = tag_result.model_copy(update={"stage": sales_stage_decision.stage})
         rich_decision = await decide_policy(tag_result)
         if rich_decision.reason != "default_tag_policy":
             decision = rich_decision
@@ -94,10 +101,12 @@ async def handle_chat(request: ChatRequest) -> dict:
         routed_intent = intent.model_copy(
             update={
                 "route": route,
+                "sales_stage": sales_stage_decision.stage,
                 "reason": decision.reason or intent.reason,
                 "slots": {
                     **intent.slots,
                     "original_route": decision.original_route or intent.route,
+                    "sales_stage_reason": sales_stage_decision.reason,
                 },
             }
         )

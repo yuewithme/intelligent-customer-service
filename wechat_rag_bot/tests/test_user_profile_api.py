@@ -182,7 +182,7 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
         route="rag_answer",
         primary_intent="knowledge_question",
         secondary_intents=["root_rot"],
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.92,
         need_rag=True,
         slots={"budget": "200", "city": "杭州", "plant_issue": "兰花烂根"},
@@ -233,7 +233,7 @@ async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, 
         route="rag_answer",
         primary_intent="care_question",
         secondary_intents=["root_rot", "yellow_leaf"],
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.9,
         need_rag=True,
         slots={},
@@ -265,7 +265,7 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
         captured["prompt"] = prompt
         captured["purpose"] = purpose
         return {
-            "current_stage": "interest",
+            "current_stage": "need_discovery",
             "risk_level": "normal",
             "customer_tags": ["region:广西", "plant_count:100盆", "不在标签库"],
             "product_interests": ["开花类兰花"],
@@ -312,7 +312,7 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
     intent = IntentResult(
         route="rag_answer",
         primary_intent="knowledge_question",
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.9,
         need_rag=True,
         slots={},
@@ -346,7 +346,7 @@ async def test_profile_update_includes_service_replies_as_context(monkeypatch, t
     async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
         captured["prompt"] = prompt
         return {
-            "current_stage": "interest",
+            "current_stage": "need_discovery",
             "risk_level": "normal",
             "customer_tags": [],
             "product_interests": [],
@@ -393,7 +393,7 @@ async def test_profile_update_includes_service_replies_as_context(monkeypatch, t
     intent = IntentResult(
         route="rag_answer",
         primary_intent="knowledge_question",
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.9,
         need_rag=True,
         slots={},
@@ -418,7 +418,7 @@ async def test_profile_update_keeps_one_customer_tag_per_type(monkeypatch, tmp_p
 
     async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
         return {
-            "current_stage": "interest",
+            "current_stage": "need_discovery",
             "risk_level": "normal",
             "customer_tags": [
                 "region:浙江",
@@ -454,7 +454,7 @@ async def test_profile_update_keeps_one_customer_tag_per_type(monkeypatch, tmp_p
     intent = IntentResult(
         route="rag_answer",
         primary_intent="knowledge_question",
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.9,
         need_rag=True,
         slots={},
@@ -484,7 +484,7 @@ async def test_profile_update_filters_customer_tags_to_catalog_values(monkeypatc
 
     async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
         return {
-            "current_stage": "interest",
+            "current_stage": "need_discovery",
             "risk_level": "normal",
             "customer_tags": [
                 "region:火星",
@@ -516,7 +516,7 @@ async def test_profile_update_filters_customer_tags_to_catalog_values(monkeypatc
     intent = IntentResult(
         route="rag_answer",
         primary_intent="knowledge_question",
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.9,
         need_rag=True,
         slots={},

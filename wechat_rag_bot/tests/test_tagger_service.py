@@ -84,7 +84,7 @@ async def test_build_tag_result_extracts_customer_memory_tags_from_message_and_s
         route="rag_answer",
         primary_intent="knowledge_question",
         secondary_intents=["root_rot"],
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.9,
         need_rag=True,
         slots={"city": "杭州", "budget": "200"},
@@ -114,7 +114,7 @@ async def test_build_tag_result_extracts_region_and_plant_count_from_raw_message
     intent = IntentResult(
         route="rag_answer",
         primary_intent="knowledge_question",
-        sales_stage="knowledge_consulting",
+        sales_stage="pain_confirmed",
         confidence=0.9,
         need_rag=True,
         slots={},

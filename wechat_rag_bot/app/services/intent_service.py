@@ -146,7 +146,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": price_intent,
-                "sales_stage": "objection_handling" if price_intent == "price_objection" else "interest",
+                "sales_stage": "objection_handling" if price_intent == "price_objection" else "need_discovery",
                 "confidence": 0.76,
                 "need_template": True,
                 "reason": "soft_rule_price",
@@ -157,7 +157,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": "ask_logistics",
-                "sales_stage": "interest",
+                "sales_stage": "need_discovery",
                 "confidence": 0.74,
                 "need_template": True,
                 "reason": "soft_rule_logistics",
@@ -179,7 +179,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "rag_answer",
                 "primary_intent": "care_question",
-                "sales_stage": "knowledge_consulting",
+                "sales_stage": "pain_confirmed",
                 "confidence": 0.75,
                 "need_rag": True,
                 "reason": "soft_rule_care",
@@ -190,7 +190,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "rag_answer",
                 "primary_intent": _knowledge_primary_intent(text),
-                "sales_stage": "knowledge_consulting",
+                "sales_stage": "pain_confirmed",
                 "confidence": 0.72,
                 "need_rag": True,
                 "reason": "soft_rule_knowledge",
@@ -313,7 +313,7 @@ def _build_prompt(message: str) -> str:
   "route": "template_reply | rag_answer | template_then_rag | clarify | human | chitchat | unsupported",
   "primary_intent": "greeting | ask_price | price_objection | discount_request | ask_logistics | ask_after_sale | order_intent | payment_intent | knowledge_question | care_question | process_question | usage_question | refund_request | complaint | human_request | unsupported | unknown",
   "secondary_intents": [],
-  "sales_stage": "greeting | interest | objection_handling | order_intent | after_sale | knowledge_consulting | human_pending | unknown",
+  "sales_stage": "unknown | greeting | need_discovery | pain_confirmed | solution_recommended | price_discussed | objection_handling | order_intent | after_sale | human_pending",
   "confidence": 0.0,
   "need_template": false,
   "need_rag": false,
@@ -509,7 +509,7 @@ def _build_prompt(message: str) -> str:
 
 用户处于问候或寒暄阶段。
 
-## interest
+## need_discovery
 
 用户对产品产生兴趣，正在询价、了解优惠、了解物流或售后政策。
 
@@ -525,7 +525,7 @@ def _build_prompt(message: str) -> str:
 
 用户已经购买后，咨询物流、售后、退款、投诉、养护问题等。
 
-## knowledge_consulting
+## pain_confirmed
 
 用户主要在咨询兰花知识或养护方法，未明显进入购买或售后流程。
 
@@ -623,7 +623,7 @@ def _build_prompt(message: str) -> str:
   "route": "rag_answer",
   "primary_intent": "care_question",
   "secondary_intents": [],
-  "sales_stage": "knowledge_consulting",
+  "sales_stage": "pain_confirmed",
   "confidence": 0.86,
   "need_template": false,
   "need_rag": true,
@@ -641,7 +641,7 @@ def _build_prompt(message: str) -> str:
   "route": "template_reply",
   "primary_intent": "ask_price",
   "secondary_intents": [],
-  "sales_stage": "interest",
+  "sales_stage": "need_discovery",
   "confidence": 0.92,
   "need_template": true,
   "need_rag": false,

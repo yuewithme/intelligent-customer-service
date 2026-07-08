@@ -122,7 +122,7 @@ async def test_llm_intent_is_primary_for_non_hard_rule_messages(monkeypatch):
         return IntentResult(
             route="rag_answer",
             primary_intent="care_question",
-            sales_stage="knowledge_consulting",
+            sales_stage="pain_confirmed",
             confidence=0.91,
             need_rag=True,
             reason="llm_understood_care_question",

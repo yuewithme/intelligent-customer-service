@@ -58,7 +58,7 @@ DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分�
 
 JSON 格式：
 {
-  "current_stage": "greeting | interest | objection_handling | order_intent | after_sale | knowledge_consulting | human_pending | unknown",
+  "current_stage": "unknown | greeting | need_discovery | pain_confirmed | solution_recommended | price_discussed | objection_handling | order_intent | after_sale | human_pending",
   "risk_level": "normal | medium | high",
   "customer_tags": [],
   "product_interests": [],
@@ -378,7 +378,7 @@ def _fallback_profile_analysis(user_records: list[dict]) -> dict:
         ai_summary = "，".join(facts) + "。" if facts else ""
 
     return {
-        "current_stage": "interest" if product_interests or plant_count else "unknown",
+        "current_stage": "need_discovery" if product_interests or plant_count else "unknown",
         "risk_level": "normal",
         "customer_tags": customer_tags,
         "product_interests": product_interests,
@@ -516,14 +516,16 @@ def _append_or_replace_specific(values: list[str], value: str) -> list[str]:
 
 def _stage_value(value: Any) -> str:
     allowed = {
+        "unknown",
         "greeting",
-        "interest",
+        "need_discovery",
+        "pain_confirmed",
+        "solution_recommended",
+        "price_discussed",
         "objection_handling",
         "order_intent",
         "after_sale",
-        "knowledge_consulting",
         "human_pending",
-        "unknown",
     }
     return value if isinstance(value, str) and value in allowed else ""
 

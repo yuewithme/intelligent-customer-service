@@ -79,6 +79,7 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
     monkeypatch.setattr(chat_orchestrator, "append_conversation_memory", noop)
     monkeypatch.setattr(chat_orchestrator, "update_profile_after_chat", noop)
     monkeypatch.setattr(chat_orchestrator, "record_chat_log", noop)
+    monkeypatch.setattr(chat_orchestrator, "record_ai_turn", noop)
 
 
 @pytest.mark.asyncio
@@ -194,3 +195,76 @@ async def test_reply_graph_enabled_calls_graph_builder(monkeypatch):
         "metadata",
         "handoff",
     }
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypatch):
+    from app.services import chat_orchestrator
+
+    _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator)
+    captured = {}
+
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(reply_graph_enabled=False, intent_example_top_k=5),
+    )
+
+    async def classify_intent(message, user_state, candidates):
+        del message, user_state, candidates
+        return IntentResult(
+            route="template_reply",
+            primary_intent="ask_price",
+            sales_stage="price_discussed",
+            confidence=0.9,
+            need_template=True,
+        )
+
+    async def decide_route(intent, user_state, message):
+        del intent, user_state, message
+        return PolicyDecision(route="template_reply", reason="test_policy")
+
+    async def legacy_build_reply(
+        route,
+        intent,
+        message,
+        user_state,
+        stage_latencies,
+        policy_decision=None,
+    ):
+        del route, intent, message, user_state, policy_decision
+        stage_latencies["talk_script_ms"] = 0
+        stage_latencies["template_ms"] = 0
+        stage_latencies["rag_ms"] = 0
+        return FinalReply(
+            answer="price reply",
+            reply_type="template",
+            route="template_reply",
+            metadata={},
+        )
+
+    async def update_user_state(user_id, session_id, intent, reply):
+        del reply
+        captured["state_update"] = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "sales_stage": intent.sales_stage,
+        }
+
+    async def update_profile_after_chat(message, intent, reply):
+        del message, reply
+        captured["profile_stage"] = intent.sales_stage
+
+    monkeypatch.setattr(chat_orchestrator, "classify_intent", classify_intent)
+    monkeypatch.setattr(chat_orchestrator, "decide_route", decide_route)
+    monkeypatch.setattr(chat_orchestrator, "_build_reply", legacy_build_reply)
+    monkeypatch.setattr(chat_orchestrator, "update_user_state", update_user_state)
+    monkeypatch.setattr(chat_orchestrator, "update_profile_after_chat", update_profile_after_chat)
+
+    result = await chat_orchestrator.handle_chat(
+        ChatRequest(channel="api", user_id="user_001", message="多少钱", kb_id="kb_default")
+    )
+
+    assert result["intent"]["sales_stage"] == "need_discovery"
+    assert captured["state_update"]["sales_stage"] == "need_discovery"
+    assert captured["profile_stage"] == "need_discovery"
