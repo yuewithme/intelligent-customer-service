@@ -138,6 +138,8 @@ def test_profile_analysis_prompt_wraps_message_content_for_llm():
         [{"created_at": "2026-07-07T10:00:00+00:00", "content": "hello"}]
     )
 
+    assert "你的唯一输入是【用户消息原文记录】" in prompt
+    assert "严禁使用或输出路由、意图、模板编号、AI 回复、系统判断、知识库命中结果等中间字段" in prompt
     assert "读取每条记录的 `role` 和 `content` 字段" in prompt
     assert "`customer` 是客户原话" in prompt
     assert "`assistant` 和 `human` 是客服回复" in prompt
