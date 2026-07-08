@@ -9,6 +9,7 @@ from app.talk_script.normalizer import normalize_message
 from app.talk_script.repository import (
     get_active_question,
     get_active_template,
+    has_sent_template_to_customer,
     list_active_questions,
     list_active_scenes,
     record_match_log,
@@ -169,6 +170,30 @@ async def match_talk_script(
             current_message,
             normalized_message,
             match_reason=decision.reason,
+        )
+        return result
+
+    if has_sent_template_to_customer(customer_id, template.template_id):
+        result = TalkScriptMatchResult(
+            status="pass_through",
+            scene_id=scene_id,
+            question_id=question.question_id,
+            template_id=template.template_id,
+            answer="",
+            confidence=decision.confidence,
+            need_slot_filling=False,
+            need_human=False,
+            reason="template_already_sent",
+            candidate_question_ids=candidate_ids,
+        )
+        _record_result(
+            result,
+            trace_id,
+            customer_id,
+            session_id,
+            current_message,
+            normalized_message,
+            match_reason="template_already_sent",
         )
         return result
 

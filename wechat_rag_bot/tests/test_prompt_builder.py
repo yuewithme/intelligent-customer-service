@@ -32,3 +32,21 @@ async def test_build_prompt_orders_blocks_context_knowledge_and_question():
     assert "The user worries about keeping orchids alive." in prompt
     assert "Common root rot causes include overwatering and poor ventilation." in prompt
     assert prompt.strip().endswith("What should I do now?")
+
+
+@pytest.mark.asyncio
+async def test_base_prompt_tells_model_not_to_reask_known_profile_facts():
+    prompt = await build_prompt(
+        PromptBuildInput(
+            prompt_block_ids=["base.customer_service"],
+            context={
+                "profile_summary": {
+                    "customer_tags": ["浙江省", "100-200盆", "建兰"],
+                    "ai_summary": "客户在浙江，养了100盆花。",
+                }
+            },
+            user_message="你们家建兰有什么推荐",
+        )
+    )
+
+    assert "Do not ask again for profile facts already provided" in prompt

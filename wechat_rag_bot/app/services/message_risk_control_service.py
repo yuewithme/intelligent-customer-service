@@ -279,14 +279,14 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 },
             )
         )
-        answer = str(chat_result.get("answer") or "").strip()
-        if answer and batch_data["w_id"] and batch_data["target_wc_id"]:
-            await enqueue_eyun_outbound(
-                w_id=batch_data["w_id"],
-                wc_id=batch_data["target_wc_id"],
-                content=answer,
-                source_batch_key=batch_data["batch_key"],
-            )
+        if batch_data["w_id"] and batch_data["target_wc_id"]:
+            for answer in _answer_segments(chat_result):
+                await enqueue_eyun_outbound(
+                    w_id=batch_data["w_id"],
+                    wc_id=batch_data["target_wc_id"],
+                    content=answer,
+                    source_batch_key=batch_data["batch_key"],
+                )
         _mark_batch(batch_id, "processed")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
@@ -305,6 +305,13 @@ def _conversation_blocks_ai(batch: dict[str, Any]) -> bool:
         )
         return bool(conversation and conversation.status in {HUMAN_ACTIVE, RESOLVED})
 
+
+def _answer_segments(chat_result: dict[str, Any]) -> list[str]:
+    segments = chat_result.get("answer_segments")
+    if isinstance(segments, list):
+        return [str(segment).strip() for segment in segments if str(segment).strip()]
+    answer = str(chat_result.get("answer") or "").strip()
+    return [answer] if answer else []
 
 def _mark_batch(batch_id: int, status: str) -> None:
     with _get_session() as session:

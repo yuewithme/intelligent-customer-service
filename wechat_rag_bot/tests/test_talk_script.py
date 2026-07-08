@@ -252,6 +252,74 @@ async def test_match_talk_script_returns_fixed_answer_for_high_confidence(talk_s
 
 
 @pytest.mark.asyncio
+async def test_match_talk_script_passes_through_when_template_already_sent_to_customer(
+    talk_script_db,
+):
+    from app.talk_script.models import ClassifierDecision
+    from app.talk_script.repository import replace_talk_script_library
+    from app.talk_script.service import match_talk_script
+
+    replace_talk_script_library(
+        scenes=[
+            {
+                "scene_id": "S04",
+                "scene_name": "care",
+                "typical_user_messages": "again",
+                "priority": 60,
+                "status": "active",
+            }
+        ],
+        questions=[
+            {
+                "question_id": "Q04_01_001",
+                "scene_id": "S04",
+                "standard_question": "repeat care script",
+                "keywords": "again",
+                "default_template_id": "T04_01_001",
+                "confidence_threshold": 0.75,
+                "priority": 80,
+                "status": "active",
+            }
+        ],
+        templates=[
+            {
+                "template_id": "T04_01_001",
+                "question_id": "Q04_01_001",
+                "answer_default": "Fixed script once.",
+                "status": "active",
+            }
+        ],
+    )
+
+    async def classifier(**kwargs):
+        return ClassifierDecision(
+            matched=True,
+            question_id="Q04_01_001",
+            confidence=0.95,
+            reason="matched",
+        )
+
+    first = await match_talk_script(
+        customer_id="user_001",
+        current_message="again",
+        trace_id="trace_once_1",
+        classifier=classifier,
+    )
+    second = await match_talk_script(
+        customer_id="user_001",
+        current_message="again",
+        trace_id="trace_once_2",
+        classifier=classifier,
+    )
+
+    assert first.status == "matched"
+    assert first.answer == "Fixed script once."
+    assert second.status == "pass_through"
+    assert second.reason == "template_already_sent"
+    assert second.answer == ""
+
+
+@pytest.mark.asyncio
 async def test_match_talk_script_handoffs_when_confidence_is_low(talk_script_db):
     from app.talk_script.models import ClassifierDecision
     from app.talk_script.repository import replace_talk_script_library
@@ -401,3 +469,100 @@ async def test_chat_orchestrator_uses_talk_script_before_rag(talk_script_db, mon
     assert result["route"] == "template_reply"
     assert result["template"] == {"template_id": "T04_01_001"}
     assert result["need_human"] is False
+
+
+@pytest.mark.asyncio
+async def test_chat_orchestrator_hydrates_profile_before_policy_and_reply(
+    talk_script_db, monkeypatch
+):
+    from app.schemas.chat import ChatRequest
+    from app.schemas.intent import IntentResult
+    from app.services import chat_orchestrator
+
+    captured = {}
+
+    async def fake_get_profile_bundle(user_id):
+        assert user_id == "user_profiled"
+        return {
+            "profile": {
+                "customer_tags": ["浙江省", "100-200盆", "L3 黄金期", "建兰"],
+                "ai_summary": "客户在浙江，养了100盆花，正在咨询推荐。",
+                "pain_points": ["想基于浙江环境推荐建兰"],
+            },
+            "recent_memories": [
+                {"role": "customer", "content": "那我要买，给我链接"},
+                {"role": "assistant", "content": "好的收到了解"},
+            ],
+            "events": [],
+        }
+
+    async def fake_retrieve_intent_examples(message, top_k):
+        del message, top_k
+        return []
+
+    async def fake_classify_intent(message, user_state, candidates):
+        del message, candidates
+        captured["state_tags_at_intent"] = list(user_state.customer_tags)
+        return IntentResult(
+            route="rag_answer",
+            primary_intent="knowledge_question",
+            confidence=0.9,
+            need_rag=True,
+        )
+
+    async def fake_answer_knowledge(message, user_state, policy_decision=None):
+        del message, policy_decision
+        captured["metadata_profile"] = user_state.metadata.get("profile")
+        captured["recent_turns"] = user_state.metadata.get("recent_turns")
+        return {"answer": "基于浙江和建兰推荐。", "sources": []}
+
+    monkeypatch.setattr(chat_orchestrator, "get_profile_bundle", fake_get_profile_bundle)
+    monkeypatch.setattr(
+        chat_orchestrator, "retrieve_intent_examples", fake_retrieve_intent_examples
+    )
+    monkeypatch.setattr(chat_orchestrator, "classify_intent", fake_classify_intent)
+    monkeypatch.setattr("app.services.rag_service.answer_knowledge", fake_answer_knowledge)
+
+    result = await chat_orchestrator.handle_chat(
+        ChatRequest(
+            channel="api",
+            user_id="user_profiled",
+            message="你们家建兰有什么推荐",
+            kb_id="kb_default",
+        )
+    )
+
+    assert result["answer"] == "基于浙江和建兰推荐。"
+    assert captured["state_tags_at_intent"] == [
+        "浙江省",
+        "100-200盆",
+        "L3 黄金期",
+        "建兰",
+    ]
+    assert captured["metadata_profile"]["ai_summary"] == "客户在浙江，养了100盆花，正在咨询推荐。"
+    assert captured["metadata_profile"]["pain_points"] == ["想基于浙江环境推荐建兰"]
+    assert captured["recent_turns"][0]["content"] == "那我要买，给我链接"
+
+
+def test_to_chat_data_splits_paragraphs_into_answer_segments():
+    from app.schemas.intent import IntentResult
+    from app.schemas.reply import FinalReply
+    from app.services.chat_orchestrator import _to_chat_data
+
+    data = _to_chat_data(
+        "session_1",
+        "trace_1",
+        IntentResult(
+            route="rag_answer",
+            primary_intent="knowledge_question",
+            confidence=0.9,
+        ),
+        FinalReply(
+            answer="第一段。\n\n第二段。\n第三段。",
+            reply_type="rag",
+            route="rag_answer",
+        ),
+    )
+
+    assert data["answer"] == "第一段。\n\n第二段。\n第三段。"
+    assert data["answer_segments"] == ["第一段。", "第二段。", "第三段。"]

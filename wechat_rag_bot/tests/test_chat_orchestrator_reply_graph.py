@@ -180,6 +180,7 @@ async def test_reply_graph_enabled_calls_graph_builder(monkeypatch):
     assert result["answer"] == "graph"
     assert set(result) == {
         "answer",
+        "answer_segments",
         "session_id",
         "sources",
         "usage",

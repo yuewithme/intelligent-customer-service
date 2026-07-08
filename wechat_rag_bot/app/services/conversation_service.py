@@ -209,8 +209,8 @@ async def record_ai_turn(*, message, result: dict) -> None:
                     created_at=now,
                 )
             )
-        answer = result.get("answer")
-        if answer:
+        answer_segments = _answer_segments(result)
+        for answer in answer_segments:
             session.add(
                 ConversationMessageModel(
                     conversation_id=conversation_id,
@@ -232,6 +232,14 @@ async def record_ai_turn(*, message, result: dict) -> None:
             )
         session.commit()
     _publish_change(conversation_id, "message")
+
+
+def _answer_segments(result: dict) -> list[str]:
+    segments = result.get("answer_segments")
+    if isinstance(segments, list):
+        return [str(segment).strip() for segment in segments if str(segment).strip()]
+    answer = str(result.get("answer") or "").strip()
+    return [answer] if answer else []
 
 
 async def record_customer_message(

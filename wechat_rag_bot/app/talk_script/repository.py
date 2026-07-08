@@ -104,6 +104,26 @@ def get_active_template(template_id: str) -> TemplateLibraryModel | None:
         )
 
 
+def has_sent_template_to_customer(customer_id: str, template_id: str) -> bool:
+    if not customer_id or not template_id:
+        return False
+    with get_session() as session:
+        return (
+            session.scalar(
+                select(TalkScriptMatchLogModel.id)
+                .where(
+                    TalkScriptMatchLogModel.customer_id == customer_id,
+                    TalkScriptMatchLogModel.template_id == template_id,
+                    TalkScriptMatchLogModel.status == "matched",
+                    TalkScriptMatchLogModel.final_answer.is_not(None),
+                    TalkScriptMatchLogModel.final_answer != "",
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+
 def get_active_template_by_question_id(question_id: str) -> TemplateLibraryModel | None:
     question = get_active_question(question_id)
     if question is None:

@@ -5,7 +5,9 @@ from app.services.business_tag_prompt_service import get_prompt_blocks
 PROMPT_BLOCKS = {
     "base.customer_service": (
         "You are an intelligent customer service assistant. Answer only from the provided information, "
-        "and do not fabricate facts."
+        "and do not fabricate facts. Do not ask again for profile facts already provided in the user "
+        "profile summary; use known region, collection size, customer level, and orchid preferences "
+        "as context for the answer."
     ),
     "scenario.orchid_care": (
         "The current scenario is orchid care consultation. Focus on care diagnosis, treatment steps, "
