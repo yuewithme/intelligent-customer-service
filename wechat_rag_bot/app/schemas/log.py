@@ -123,6 +123,8 @@ class RagDebugDoc(BaseModel):
     page: int | None = None
     section: str | None = None
     score: float | None = None
+    rerank_score: float | None = None
+    rerank_reason: dict = Field(default_factory=dict)
     text_preview: str = ""
 
 

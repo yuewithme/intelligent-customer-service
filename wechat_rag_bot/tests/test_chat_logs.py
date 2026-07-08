@@ -317,6 +317,8 @@ def test_admin_rag_debug_search_returns_candidates_reranked_docs_and_prompt_prev
     assert len(data["candidates"]) == 2
     assert len(data["reranked_docs"]) == 1
     assert data["reranked_docs"][0]["doc_id"]
+    assert data["reranked_docs"][0]["rerank_score"] is not None
+    assert data["reranked_docs"][0]["rerank_reason"]["vector_score"] is not None
     assert data["prompt_preview"]
     assert data["prompt_truncated"] is False
 

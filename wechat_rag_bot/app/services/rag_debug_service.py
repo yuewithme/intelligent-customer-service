@@ -63,5 +63,7 @@ def _debug_doc(doc: dict[str, Any]) -> dict:
         "page": doc.get("page"),
         "section": doc.get("section"),
         "score": doc.get("score"),
+        "rerank_score": doc.get("rerank_score"),
+        "rerank_reason": doc.get("rerank_reason") or {},
         "text_preview": str(doc.get("text") or "")[:500],
     }
