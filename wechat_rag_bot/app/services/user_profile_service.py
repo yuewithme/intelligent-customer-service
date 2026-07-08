@@ -52,7 +52,7 @@ DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分�
 2. 使用中文自然语言总结，不能照抄后台字段。
 3. `customer_tags` 必须从【标签库】里选择，严禁自造标签。
 4. `pain_points` 是中文数组，每项概括一个明确痛点，要包含对象、问题和用户顾虑。
-5. `ai_summary` 用 1-2 句中文概括客户真实情况和当前诉求。
+5. `ai_summary` 用 2 句中文概括客户真实情况、当前诉求、判断依据和后续服务建议；要像给人工客服看的画像分析，不要只罗列字段。
 6. 没有明确内容时输出空数组或空字符串。
 
 JSON 格式：
@@ -350,10 +350,24 @@ def _fallback_profile_analysis(user_records: list[dict]) -> dict:
     if budget:
         facts.append(f"预算约{budget}元")
     if pain_points:
-        facts.append(f"关注{pain_points[-1]}")
+        if facts:
+            facts.append(f"正在咨询{pain_points[-1]}")
+        else:
+            facts.append(f"客户正在咨询{pain_points[-1]}")
     elif texts:
         facts.append(f"最近咨询：{texts[-1]}")
-    ai_summary = "，".join(facts) + "。" if facts else ""
+    if pain_points:
+        first = "，".join(facts)
+        if product_interests:
+            second = (
+                f"整体看更关注{product_interests[0]}问题，"
+                "适合给出分步骤、可执行的养护建议。"
+            )
+        else:
+            second = "整体看需要优先给出排查原因、修根消毒、控水通风和复养步骤。"
+        ai_summary = f"{first}；{second}"
+    else:
+        ai_summary = "，".join(facts) + "。" if facts else ""
 
     return {
         "current_stage": "interest" if product_interests or plant_count else "unknown",
@@ -769,7 +783,10 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "human_ticket_id": profile.human_ticket_id,
         "human_handoff_status": profile.human_handoff_status,
         "human_handoff_reason": profile.human_handoff_reason,
-        "customer_tags": _json_loads(profile.customer_tags_json, []),
+        "customer_tags": _merge_customer_tags(
+            _json_loads(profile.customer_tags_json, []),
+            [],
+        ),
         "product_interests": _json_loads(profile.product_interests_json, []),
         "ai_summary": profile.ai_summary,
         "preference_summary": profile.preference_summary,

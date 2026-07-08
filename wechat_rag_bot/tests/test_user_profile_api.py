@@ -56,7 +56,7 @@ def test_patch_profile_updates_allowed_fields_and_writes_event(monkeypatch, tmp_
     response = client.patch(
         "/api/v1/users/user_001/profile",
         json={
-            "customer_tags": ["vip", "price_sensitive"],
+            "customer_tags": ["浙江省", "price_sensitive", "建兰"],
             "tenant_id": "evil",
             "metadata": {"reason": "operator_update"},
         },
@@ -66,14 +66,43 @@ def test_patch_profile_updates_allowed_fields_and_writes_event(monkeypatch, tmp_
     assert response.status_code == 200
     profile = response.json()["data"]["profile"]
     assert profile["tenant_id"] == "tenant_default"
-    assert profile["customer_tags"] == ["vip", "price_sensitive"]
+    assert profile["customer_tags"] == ["浙江省", "建兰"]
 
     assert events_response.status_code == 200
     event = events_response.json()["data"]["items"][0]
     assert event["event_type"] == "profile_patched"
     assert event["before"]["customer_tags"] == []
-    assert event["after"]["customer_tags"] == ["vip", "price_sensitive"]
+    assert event["after"]["customer_tags"] == ["浙江省", "建兰"]
     assert event["reason"] == "operator_update"
+
+
+def test_get_profile_normalizes_legacy_tags_to_catalog(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    patch_response = client.patch(
+        "/api/v1/users/user_legacy/profile",
+        json={
+            "customer_tags": [
+                "region:浙江",
+                "region:杭州",
+                "plant_count:100盆",
+                "budget:200",
+                "preference:建兰",
+                "测试用户",
+            ],
+            "metadata": {"reason": "legacy_seed"},
+        },
+    )
+    get_response = client.get("/api/v1/users/user_legacy/profile")
+
+    assert patch_response.status_code == 200
+    assert get_response.status_code == 200
+    assert get_response.json()["data"]["profile"]["customer_tags"] == [
+        "浙江省",
+        "100-200盆",
+        "建兰",
+    ]
 
 
 def test_memories_returns_recent_chat_messages(monkeypatch, tmp_path):
@@ -175,7 +204,10 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
     assert profile["customer_tags"] == ["浙江省"]
     assert profile["product_interests"] == ["兰花养护"]
     assert profile["pain_points"] == ["兰花烂根，需要救治方案"]
-    assert profile["ai_summary"] == "客户在杭州，预算约200元，关注兰花烂根，需要救治方案。"
+    assert profile["ai_summary"] == (
+        "客户在杭州，预算约200元，正在咨询兰花烂根，需要救治方案；"
+        "整体看更关注兰花养护问题，适合给出分步骤、可执行的养护建议。"
+    )
 
 
 @pytest.mark.asyncio
@@ -211,7 +243,10 @@ async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, 
 
     profile = (await get_profile_bundle("user_002"))["profile"]
     assert profile["pain_points"] == ["兰花烂根、黄叶，担心养死，需要救治方案"]
-    assert profile["ai_summary"] == "关注兰花烂根、黄叶，担心养死，需要救治方案。"
+    assert profile["ai_summary"] == (
+        "客户正在咨询兰花烂根、黄叶，担心养死，需要救治方案；"
+        "整体看更关注兰花养护问题，适合给出分步骤、可执行的养护建议。"
+    )
 
 
 @pytest.mark.asyncio
