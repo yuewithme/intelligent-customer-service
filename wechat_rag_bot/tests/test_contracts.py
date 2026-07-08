@@ -151,9 +151,9 @@ def test_rule_guard_routes_human_refund_and_complaint_to_human():
 def test_mock_intent_routes_knowledge_price_and_mixed_messages():
     client = TestClient(app)
     cases = [
-        ("兰花怎么养护？", "human"),
+        ("兰花怎么养护？", "rag_answer"),
         ("这个有点贵", "template_reply"),
-        ("这个有点贵，而且我怕养不活", "human"),
+        ("这个有点贵，而且我怕养不活", "rag_answer"),
     ]
 
     for text, route in cases:

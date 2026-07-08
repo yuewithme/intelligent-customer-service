@@ -10,6 +10,7 @@ from app.schemas.reply import FinalReply
 from app.services.chat_orchestrator import (
     _elapsed_ms,
     _is_rag_no_answer,
+    _is_soft_talk_script_handoff,
     build_handoff_reply,
 )
 from app.services.reply_builder import (
@@ -18,6 +19,7 @@ from app.services.reply_builder import (
     build_rag_reply,
     build_unsupported_reply,
 )
+from app.services.template_reply_service import build_default_template_reply
 from app.talk_script.service import match_talk_script
 
 
@@ -72,7 +74,9 @@ async def talk_script_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
                 },
             )
         }
-    if talk_script.status == "handoff":
+    if talk_script.status == "handoff" and not _is_soft_talk_script_handoff(
+        talk_script.reason
+    ):
         stage_latencies.setdefault("template_ms", 0)
         stage_latencies.setdefault("rag_ms", 0)
         return {
@@ -91,10 +95,17 @@ def route_reply_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
 async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     stage_latencies = state["stage_latencies"]
     stage_started = time.perf_counter()
+    reply = await build_default_template_reply(
+        state["message"],
+        state["intent"],
+        state["user_state"],
+    )
     stage_latencies["template_ms"] = _elapsed_ms(stage_started)
     stage_latencies.setdefault("rag_ms", 0)
+    if reply is not None:
+        return {"reply": reply}
     return {
-        "handoff_reason": "talk_script_not_matched_to_handoff",
+        "handoff_reason": "template_not_matched_to_handoff",
         "handoff_original_route": "template_reply",
         "handoff_context": None,
     }

@@ -7,16 +7,17 @@ from app.schemas.intent import IntentResult
 from app.schemas.policy import PolicyDecision
 from app.schemas.reply import FinalReply
 from app.schemas.state import UserState
+from app.schemas.template import TemplateItem
 from app.talk_script.models import TalkScriptMatchResult
 
 
-def _message() -> NormalizedMessage:
+def _message(text: str = "hello") -> NormalizedMessage:
     return NormalizedMessage(
         trace_id="trace_001",
         channel="api",
         user_id="user_001",
         session_id="session_001",
-        message="hello",
+        message=text,
         kb_id="kb_default",
     )
 
@@ -25,10 +26,10 @@ def _state() -> UserState:
     return UserState(user_id="user_001", session_id="session_001")
 
 
-def _intent(route: str) -> IntentResult:
+def _intent(route: str, primary_intent: str = "care_question") -> IntentResult:
     return IntentResult(
         route=route,
-        primary_intent="care_question",
+        primary_intent=primary_intent,
         confidence=0.9,
         reason="test_reason",
         slots={"original_route": route},
@@ -185,7 +186,44 @@ async def test_rag_answer_without_answer_handoffs(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_template_reply_missing_template_handoffs(monkeypatch):
+async def test_template_reply_falls_back_to_default_template(monkeypatch):
+    from app.services import reply_workflow_graph
+
+    async def pass_talk_script(**kwargs):
+        del kwargs
+        return TalkScriptMatchResult(status="pass_through")
+
+    async def select_default_template(message, intent, user_state):
+        del message, intent, user_state
+        return TemplateItem(
+            template_id="tpl_price_objection_default",
+            intent="price_objection",
+            content="默认价格异议回复",
+        )
+
+    monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
+    monkeypatch.setattr(
+        "app.services.template_reply_service.select_template",
+        select_default_template,
+    )
+
+    reply = await reply_workflow_graph.build_reply_with_graph(
+        route="template_reply",
+        intent=_intent("template_reply", primary_intent="price_objection"),
+        message=_message("这个有点贵"),
+        user_state=_state(),
+        stage_latencies={},
+    )
+
+    _assert_reply(reply)
+    assert reply.route == "template_reply"
+    assert reply.reply_type == "template"
+    assert reply.need_human is False
+    assert reply.template_id == "tpl_price_objection_default"
+
+
+@pytest.mark.asyncio
+async def test_template_reply_missing_default_template_handoffs(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def pass_talk_script(**kwargs):
@@ -197,8 +235,8 @@ async def test_template_reply_missing_template_handoffs(monkeypatch):
 
     reply = await reply_workflow_graph.build_reply_with_graph(
         route="template_reply",
-        intent=_intent("template_reply"),
-        message=_message(),
+        intent=_intent("template_reply", primary_intent="unknown_intent"),
+        message=_message("没有对应模板"),
         user_state=_state(),
         stage_latencies={},
     )
@@ -207,7 +245,7 @@ async def test_template_reply_missing_template_handoffs(monkeypatch):
     assert reply.route == "human"
     assert reply.reply_type == "human"
     assert reply.need_human is True
-    assert reply.metadata["handoff"]["reason"] == "talk_script_not_matched_to_handoff"
+    assert reply.metadata["handoff"]["reason"] == "template_not_matched_to_handoff"
 
 
 @pytest.mark.asyncio

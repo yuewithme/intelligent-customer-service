@@ -328,3 +328,124 @@ class TalkScriptMatchLogModel(Base):
     final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class OrchidCategoryModel(Base):
+    __tablename__ = "orchid_categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    category_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OrchidVarietyModel(Base):
+    __tablename__ = "orchid_varieties"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    category_name: Mapped[str] = mapped_column(String(128), index=True)
+    variety_name: Mapped[str] = mapped_column(String(256), index=True)
+    primary_alias: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    aliases_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    origin_area: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    history_background: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suitable_level: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    base_spec: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    base_price_text: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    raw_basic_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OrchidVarietyTraitModel(Base):
+    __tablename__ = "orchid_variety_traits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    variety_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    variety_name: Mapped[str] = mapped_column(String(256), index=True)
+    category_name: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    trait_type: Mapped[str] = mapped_column(String(128), index=True)
+    trait_value: Mapped[str] = mapped_column(Text)
+    keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OrchidValuePointModel(Base):
+    __tablename__ = "orchid_value_points"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    variety_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    variety_name: Mapped[str] = mapped_column(String(256), index=True)
+    category_name: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    value_type: Mapped[str] = mapped_column(String(128), index=True)
+    title: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OrchidSkuModel(Base):
+    __tablename__ = "orchid_skus"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_name: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    variety_name: Mapped[str] = mapped_column(String(256), index=True)
+    seedling_count: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    package_spec: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    flower_bud_status: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_text: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
+class OrchidCommonKnowledgeModel(Base):
+    __tablename__ = "orchid_common_knowledge"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    knowledge_category: Mapped[str] = mapped_column(String(256), index=True)
+    knowledge_type: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    applies_to_category: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+
+
+class OrchidSalesCopyModel(Base):
+    __tablename__ = "orchid_sales_copy"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    writer_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    variety_name: Mapped[str] = mapped_column(String(256), index=True)
+    target_audience: Mapped[str | None] = mapped_column(Text, nullable=True)
+    product_background: Mapped[str | None] = mapped_column(Text, nullable=True)
+    leaf_posture: Mapped[str | None] = mapped_column(Text, nullable=True)
+    petal_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    flower_color: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fragrance: Mapped[str | None] = mapped_column(Text, nullable=True)
+    flowering_period: Mapped[str | None] = mapped_column(Text, nullable=True)
+    care_difficulty: Mapped[str | None] = mapped_column(Text, nullable=True)
+    usage_scene: Mapped[str | None] = mapped_column(Text, nullable=True)
+    selling_points: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OrchidHotBreakdownModel(Base):
+    __tablename__ = "orchid_hot_breakdowns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    variety_name: Mapped[str] = mapped_column(String(256), index=True)
+    category_name: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    status_history_supply_price_authenticity: Mapped[str | None] = mapped_column(Text, nullable=True)
+    aesthetic_traits: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cultivation_care: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consensus_reputation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OrchidKnowledgeChunkModel(Base):
+    __tablename__ = "orchid_knowledge_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_table: Mapped[str] = mapped_column(String(128), index=True)
+    source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    entity_type: Mapped[str] = mapped_column(String(128), index=True)
+    variety_name: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    category_name: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    chunk_type: Mapped[str] = mapped_column(String(128), index=True)
+    chunk_title: Mapped[str] = mapped_column(String(512))
+    content: Mapped[str] = mapped_column(Text)
+    embedding_json: Mapped[str | None] = mapped_column(Text, nullable=True)

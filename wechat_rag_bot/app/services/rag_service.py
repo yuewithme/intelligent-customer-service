@@ -12,6 +12,7 @@ from app.services import (
     qdrant_service,
     rerank_service,
 )
+from app.orchid_products.knowledge_index import search_orchid_knowledge_chunks
 from app.services.context_selector import select_context
 from app.services.prompt_builder import build_prompt
 from app.utils.ids import generate_id
@@ -184,6 +185,13 @@ async def rag_chat(
                     kb_id=search_kb_id,
                     tenant_id=metadata.get("tenant_id", "tenant_default"),
                     permission=metadata.get("permission", "public"),
+                    top_k=settings.rag_top_k,
+                )
+            )
+            candidates.extend(
+                await search_orchid_knowledge_chunks(
+                    vector,
+                    kb_id=search_kb_id,
                     top_k=settings.rag_top_k,
                 )
             )

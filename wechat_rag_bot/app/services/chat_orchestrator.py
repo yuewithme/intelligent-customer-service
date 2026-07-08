@@ -21,6 +21,7 @@ from app.services.reply_builder import (
 from app.services.rule_guard_service import check_rules
 from app.services.state_service import get_user_state, update_user_state
 from app.services.tagger_service import build_tag_result
+from app.services.template_reply_service import build_default_template_reply
 from app.services.user_profile_service import (
     append_conversation_memory,
     update_profile_after_chat,
@@ -245,7 +246,9 @@ async def _build_reply(
                     "score": talk_script.confidence,
                 },
             )
-        if talk_script.status == "handoff":
+        if talk_script.status == "handoff" and not _is_soft_talk_script_handoff(
+            talk_script.reason
+        ):
             stage_latencies.setdefault("template_ms", 0)
             stage_latencies.setdefault("rag_ms", 0)
             return await build_handoff_reply(
@@ -259,12 +262,15 @@ async def _build_reply(
         stage_latencies.setdefault("talk_script_ms", 0)
     if route == "template_reply":
         stage_started = time.perf_counter()
+        reply = await build_default_template_reply(message, intent, user_state)
         stage_latencies["template_ms"] = _elapsed_ms(stage_started)
         stage_latencies.setdefault("rag_ms", 0)
+        if reply is not None:
+            return reply
         return await build_handoff_reply(
             message=message,
             intent=intent,
-            reason="talk_script_not_matched_to_handoff",
+            reason="template_not_matched_to_handoff",
             original_route="template_reply",
         )
     if route == "rag_answer":
@@ -367,6 +373,16 @@ def _is_rag_no_answer(rag_result: dict) -> bool:
         not answer
         or answer == "知识库中没有找到明确答案。"
     )
+
+
+def _is_soft_talk_script_handoff(reason: str | None) -> bool:
+    return reason in {
+        "classifier_unmatched",
+        "confidence_below_threshold",
+        "no_candidate_questions",
+        "question_not_found",
+        "template_not_found",
+    }
 
 
 def _to_chat_data(
