@@ -37,15 +37,20 @@ _allowed_patch_fields = {
 }
 
 PROFILE_RECORD_FORMAT_INSTRUCTION = (
-    "请读取每条记录的 `content` 字段；该字段会以 `{{用户消息原文}}` 的形式包裹，"
-    "请只理解双大括号内的真实用户消息。"
+    "请读取每条记录的 `role` 和 `content` 字段；`content` 会以双大括号包裹。"
+    "`customer` 是客户原话，是画像事实来源；`assistant` 和 `human` 是客服回复，"
+    "只能用于理解客户追问、指代关系和上下文，不能当作客户事实。"
 )
 
 DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分析助手。
 
-你的唯一输入是【用户消息原文记录】。只能依据这些用户亲自发送的内容生成画像。
+你的输入是【聊天上下文记录】，包含客户原话、AI 回复和人工客服回复。
 
-严禁使用或输出路由、意图、模板编号、AI 回复、系统判断、知识库命中结果等中间字段。
+事实抽取规则：
+1. `role=customer` 的内容是客户亲自发送的原话，是客户画像、标签、痛点、预算、地区和数量的唯一事实来源。
+2. `role=assistant` 和 `role=human` 的内容只能用于理解客户追问里的“这个、那、这样”等指代关系，以及判断我们已经解释或推荐过什么。
+3. 严禁把客服回复中主动提到、但客户没有确认的信息，当成客户自己的地区、预算、数量、偏好、标签或痛点。
+4. 严禁使用或输出路由、意图、模板编号、系统判断、知识库命中结果等中间字段。
 
 输出要求：
 1. 只输出 JSON 对象，不要 Markdown、解释或代码块。
@@ -159,11 +164,11 @@ async def append_conversation_memory(
 
 async def update_profile_after_chat(message, intent, reply) -> None:
     with _get_session() as session:
-        user_records = _list_user_message_records(
+        user_records = _list_profile_context_records(
             session,
             message.user_id,
             current_message=message.message,
-            limit=12,
+            limit=18,
         )
     profile_analysis = await _build_profile_analysis(user_records)
     with _get_session() as session:
@@ -255,12 +260,16 @@ def _build_profile_analysis_prompt(user_records: list[dict]) -> str:
     prompt_records = _wrap_prompt_record_content(user_records)
     return (
         f"{prompt}\n\n【标签库】\n{_json_dumps(_profile_tag_catalog_prompt())}"
-        f"\n\n【用户消息原文记录】\n{_json_dumps(prompt_records)}"
+        f"\n\n【聊天上下文记录】\n{_json_dumps(prompt_records)}"
     )
 
 
 def _profile_prompt_with_record_format(prompt: str) -> str:
-    if "读取每条记录的 `content` 字段" in prompt and "{{用户消息原文}}" in prompt:
+    if (
+        "读取每条记录的 `role` 和 `content` 字段" in prompt
+        and "customer" in prompt
+        and "assistant" in prompt
+    ):
         return prompt
     return f"{prompt.rstrip()}\n{PROFILE_RECORD_FORMAT_INSTRUCTION}"
 
@@ -271,6 +280,7 @@ def _wrap_prompt_record_content(user_records: list[dict]) -> list[dict]:
         if not isinstance(record, dict):
             continue
         wrapped = dict(record)
+        wrapped["role"] = _profile_context_role(wrapped.get("role"))
         content = wrapped.get("content")
         if isinstance(content, str):
             wrapped["content"] = f"{{{{{content}}}}}"
@@ -318,7 +328,9 @@ def _fallback_profile_analysis(user_records: list[dict]) -> dict:
     texts = [
         str(record.get("content") or "")
         for record in user_records
-        if isinstance(record, dict) and record.get("content")
+        if isinstance(record, dict)
+        and record.get("content")
+        and record.get("role", "customer") == "customer"
     ]
     combined = "\n".join(texts)
     customer_tags: list[str] = []
@@ -722,7 +734,7 @@ def _list_memories(session: Session, user_id: str, limit: int) -> list[dict]:
     return [_memory_to_dict(row) for row in reversed(rows)]
 
 
-def _list_user_message_records(
+def _list_profile_context_records(
     session: Session,
     user_id: str,
     *,
@@ -733,7 +745,7 @@ def _list_user_message_records(
         select(ConversationMemoryModel)
         .where(
             ConversationMemoryModel.user_id == user_id,
-            ConversationMemoryModel.role == "user",
+            ConversationMemoryModel.role.in_(("user", "assistant", "human")),
         )
         .order_by(ConversationMemoryModel.created_at.desc(), ConversationMemoryModel.id.desc())
         .limit(limit)
@@ -741,14 +753,23 @@ def _list_user_message_records(
     records = [
         {
             "created_at": _datetime_to_iso(row.created_at),
+            "role": _profile_context_role(row.role),
             "content": row.content,
         }
         for row in reversed(rows)
         if row.content
     ]
     if current_message and (not records or records[-1].get("content") != current_message):
-        records.append({"created_at": None, "content": current_message})
+        records.append({"created_at": None, "role": "customer", "content": current_message})
     return records[-limit:]
+
+
+def _profile_context_role(role: str | None) -> str:
+    if role == "user":
+        return "customer"
+    if role in {"assistant", "human"}:
+        return role
+    return "customer"
 
 
 def _list_events(session: Session, user_id: str, limit: int) -> list[dict]:

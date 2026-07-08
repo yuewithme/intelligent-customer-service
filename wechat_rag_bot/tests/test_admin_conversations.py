@@ -8,6 +8,8 @@ from app.services.conversation_event_service import conversation_event_broker
 
 def _reset_settings(monkeypatch, tmp_path, *, auth: bool = False):
     db_path = tmp_path / "chat_logs.db"
+    profile_db_path = tmp_path / "profiles.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{profile_db_path.as_posix()}")
     monkeypatch.setenv("CHAT_LOG_ENABLED", "true")
     monkeypatch.setenv("CHAT_LOG_PROVIDER", "sqlite")
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{db_path.as_posix()}")
@@ -211,6 +213,10 @@ def test_claimed_handoff_conversation_accepts_human_reply(monkeypatch, tmp_path)
     messages = detail.json()["data"]["messages"]
     assert messages[-1]["sender_type"] == "human"
     assert messages[-1]["content"] == "您好，我来处理。"
+
+    memories = client.get("/api/v1/users/user_001/memories").json()["data"]["items"]
+    assert memories[-1]["role"] == "human"
+    assert memories[-1]["content"] == "您好，我来处理。"
 
 
 def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_path):

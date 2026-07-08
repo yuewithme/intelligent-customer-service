@@ -138,8 +138,12 @@ def test_profile_analysis_prompt_wraps_message_content_for_llm():
         [{"created_at": "2026-07-07T10:00:00+00:00", "content": "hello"}]
     )
 
-    assert "读取每条记录的 `content` 字段" in prompt
-    assert "{{用户消息原文}}" in prompt
+    assert "读取每条记录的 `role` 和 `content` 字段" in prompt
+    assert "`customer` 是客户原话" in prompt
+    assert "`assistant` 和 `human` 是客服回复" in prompt
+    assert "不能当作客户事实" in prompt
+    assert "【聊天上下文记录】" in prompt
+    assert '"role": "customer"' in prompt
     assert '"content": "{{hello}}"' in prompt
 
 
@@ -154,8 +158,9 @@ def test_custom_profile_analysis_prompt_keeps_message_record_format(monkeypatch)
     )
 
     assert "自定义画像提示词" in prompt
-    assert "读取每条记录的 `content` 字段" in prompt
-    assert "{{用户消息原文}}" in prompt
+    assert "读取每条记录的 `role` 和 `content` 字段" in prompt
+    assert "`customer` 是客户原话" in prompt
+    assert "`assistant` 和 `human` 是客服回复" in prompt
     assert '"content": "{{hello}}"' in prompt
 
 
@@ -319,7 +324,9 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
     assert captured["purpose"] == "profile"
     assert "我在广西，养了100盆花" in prompt
     assert "我在云南，养了100盆花" in prompt
-    assert "后台回复不应该作为画像输入" not in prompt
+    assert "后台回复不应该作为画像输入" in prompt
+    assert '"role": "assistant"' in prompt
+    assert "不能当作客户事实" in prompt
     assert "knowledge_question" not in prompt
     assert "rag_answer" not in prompt
     assert "tpl_should_not_be_in_prompt" not in prompt
@@ -327,6 +334,80 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
     profile = (await get_profile_bundle("user_003"))["profile"]
     assert profile["customer_tags"] == ["广西省", "100-200盆"]
     assert profile["ai_summary"] == "客户在广西，养了100盆花，正在咨询适合当地气候的开花类兰花推荐。"
+
+
+@pytest.mark.asyncio
+async def test_profile_update_includes_service_replies_as_context(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    captured = {}
+
+    async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
+        captured["prompt"] = prompt
+        return {
+            "current_stage": "interest",
+            "risk_level": "normal",
+            "customer_tags": [],
+            "product_interests": [],
+            "pain_points": [],
+            "ai_summary": "客户在追问上一轮推荐内容。",
+        }
+
+    monkeypatch.setattr(
+        "app.services.user_profile_service.generate_json",
+        fake_generate_json,
+    )
+    from app.services.user_profile_service import append_conversation_memory
+
+    await append_conversation_memory(
+        user_id="user_ctx",
+        tenant_id="tenant_default",
+        session_id="default",
+        role="user",
+        content="我想找适合新手的兰花",
+    )
+    await append_conversation_memory(
+        user_id="user_ctx",
+        tenant_id="tenant_default",
+        session_id="default",
+        role="assistant",
+        content="可以先看建兰和墨兰。",
+    )
+    await append_conversation_memory(
+        user_id="user_ctx",
+        tenant_id="tenant_default",
+        session_id="default",
+        role="human",
+        content="人工补充：客户更在意养护难度。",
+    )
+    message = NormalizedMessage(
+        trace_id="trace_ctx",
+        channel="wechat",
+        user_id="user_ctx",
+        session_id="default",
+        message="那哪个更省心？",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        sales_stage="knowledge_consulting",
+        confidence=0.9,
+        need_rag=True,
+        slots={},
+        reason="follow-up question",
+    )
+    reply = FinalReply(answer="建兰更省心。", reply_type="rag", route="rag_answer")
+
+    await update_profile_after_chat(message, intent, reply)
+
+    prompt = captured["prompt"]
+    assert '"role": "customer"' in prompt
+    assert '"role": "assistant"' in prompt
+    assert '"role": "human"' in prompt
+    assert "{{可以先看建兰和墨兰。}}" in prompt
+    assert "{{人工补充：客户更在意养护难度。}}" in prompt
+    assert "{{那哪个更省心？}}" in prompt
 
 
 @pytest.mark.asyncio

@@ -436,7 +436,21 @@ async def reply_conversation(
         )
         conversation.last_message = content
         conversation.updated_at = now
+        memory_context = {
+            "user_id": conversation.user_id,
+            "tenant_id": conversation.tenant_id,
+            "session_id": conversation.session_id,
+        }
         session.commit()
+        from app.services.user_profile_service import append_conversation_memory
+
+        await append_conversation_memory(
+            user_id=memory_context["user_id"],
+            tenant_id=memory_context["tenant_id"],
+            session_id=memory_context["session_id"],
+            role="human",
+            content=content,
+        )
         _publish_change(conversation_id, "reply")
         return _conversation_to_dict(conversation)
 
