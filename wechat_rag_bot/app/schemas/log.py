@@ -87,3 +87,54 @@ class TalkScriptMatchLogListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class TalkScriptMatchStats(BaseModel):
+    total: int
+    matched_count: int = 0
+    handoff_count: int = 0
+    pass_through_count: int = 0
+    human_count: int = 0
+    avg_confidence: float | None = None
+    status_counts: dict = Field(default_factory=dict)
+    reason_counts: dict = Field(default_factory=dict)
+    scene_counts: dict = Field(default_factory=dict)
+    template_counts: dict = Field(default_factory=dict)
+    low_confidence_items: list[TalkScriptMatchLogItem] = Field(default_factory=list)
+
+
+class RagDebugSearchRequest(BaseModel):
+    message: str = Field(min_length=1)
+    kb_id: str = Field(min_length=1)
+    knowledge_base_ids: list[str] = Field(default_factory=list)
+    tenant_id: str = "tenant_default"
+    permission: str = "public"
+    top_k: int | None = Field(default=None, ge=1, le=100)
+    top_n: int | None = Field(default=None, ge=1, le=50)
+    include_prompt: bool = False
+    max_prompt_chars: int = Field(default=12000, ge=0, le=50000)
+
+
+class RagDebugDoc(BaseModel):
+    kb_id: str | None = None
+    doc_id: str | None = None
+    chunk_id: str | None = None
+    file_name: str | None = None
+    page: int | None = None
+    section: str | None = None
+    score: float | None = None
+    text_preview: str = ""
+
+
+class RagDebugSearchResponse(BaseModel):
+    message: str
+    search_kb_ids: list[str]
+    tenant_id: str
+    permission: str
+    top_k: int
+    top_n: int
+    candidate_count: int
+    candidates: list[RagDebugDoc] = Field(default_factory=list)
+    reranked_docs: list[RagDebugDoc] = Field(default_factory=list)
+    prompt_preview: str | None = None
+    prompt_truncated: bool = False

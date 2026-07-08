@@ -170,6 +170,157 @@ def test_admin_talk_script_match_logs_return_match_details(monkeypatch, tmp_path
     assert item["match_reason"] == "命中价格异议"
 
 
+def test_admin_talk_script_match_stats_returns_reason_and_scene_breakdown(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    from app.talk_script.repository import record_match_log
+
+    record_match_log(
+        {
+            "trace_id": "trace_talk_001",
+            "customer_id": "user_001",
+            "session_id": "sess_001",
+            "user_message": "price question",
+            "normalized_message": "price question",
+            "status": "matched",
+            "scene_id": "S07",
+            "candidate_question_ids": ["Q07_01"],
+            "matched_question_id": "Q07_01",
+            "template_id": "T07_01",
+            "confidence": 0.92,
+            "need_human": False,
+            "match_reason": "price_objection",
+        }
+    )
+    record_match_log(
+        {
+            "trace_id": "trace_talk_002",
+            "customer_id": "user_001",
+            "session_id": "sess_001",
+            "user_message": "unknown",
+            "normalized_message": "unknown",
+            "status": "pass_through",
+            "scene_id": None,
+            "confidence": 0.0,
+            "need_human": False,
+            "match_reason": "no_scene_match",
+        }
+    )
+    record_match_log(
+        {
+            "trace_id": "trace_talk_003",
+            "customer_id": "user_002",
+            "session_id": "sess_002",
+            "user_message": "need human",
+            "normalized_message": "need human",
+            "status": "handoff",
+            "scene_id": "S08",
+            "candidate_question_ids": ["Q08_01"],
+            "confidence": 0.44,
+            "need_human": True,
+            "match_reason": "confidence_below_threshold",
+        }
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/v1/admin/talk-script-match-stats")
+
+    assert response.status_code == 200
+    stats = response.json()["data"]
+    assert stats["total"] == 3
+    assert stats["matched_count"] == 1
+    assert stats["handoff_count"] == 1
+    assert stats["pass_through_count"] == 1
+    assert stats["human_count"] == 1
+    assert stats["avg_confidence"] == 0.45
+    assert stats["status_counts"] == {"matched": 1, "pass_through": 1, "handoff": 1}
+    assert stats["reason_counts"] == {
+        "price_objection": 1,
+        "no_scene_match": 1,
+        "confidence_below_threshold": 1,
+    }
+    assert stats["scene_counts"] == {"S07": 1, "S08": 1}
+    assert stats["template_counts"] == {"T07_01": 1}
+    assert stats["low_confidence_items"][0]["trace_id"] == "trace_talk_003"
+
+
+def test_admin_rag_debug_search_returns_candidates_reranked_docs_and_prompt_preview(
+    monkeypatch, tmp_path
+):
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
+    get_settings.cache_clear()
+    import anyio
+
+    from app.services import embedding_service, qdrant_service
+
+    async def seed_points():
+        qdrant_service._memory_points.clear()
+        vectors = await embedding_service.embed_texts(["orchid root rot", "price policy"])
+        await qdrant_service.upsert_chunks(
+            [
+                {
+                    "id": "chunk_root",
+                    "vector": vectors[0],
+                    "payload": {
+                        "text": "Root rot needs ventilation and checking roots.",
+                        "kb_id": "kb_care",
+                        "doc_id": "doc_root",
+                        "chunk_id": "chunk_root",
+                        "file_name": "care.md",
+                        "file_type": "md",
+                        "page": None,
+                        "section": "Root rot",
+                        "tenant_id": "tenant_default",
+                        "permission": "public",
+                    },
+                },
+                {
+                    "id": "chunk_price",
+                    "vector": vectors[1],
+                    "payload": {
+                        "text": "Price objections should be answered gently.",
+                        "kb_id": "kb_sales",
+                        "doc_id": "doc_price",
+                        "chunk_id": "chunk_price",
+                        "file_name": "sales.md",
+                        "file_type": "md",
+                        "page": None,
+                        "section": "Price",
+                        "tenant_id": "tenant_default",
+                        "permission": "public",
+                    },
+                },
+            ]
+        )
+
+    anyio.run(seed_points)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/admin/rag-debug/search",
+        json={
+            "message": "orchid root rot",
+            "kb_id": "kb_default",
+            "knowledge_base_ids": ["kb_care", "kb_sales"],
+            "tenant_id": "tenant_default",
+            "permission": "public",
+            "top_k": 2,
+            "top_n": 1,
+            "include_prompt": True,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["search_kb_ids"] == ["kb_care", "kb_sales"]
+    assert data["candidate_count"] == 2
+    assert len(data["candidates"]) == 2
+    assert len(data["reranked_docs"]) == 1
+    assert data["reranked_docs"][0]["doc_id"]
+    assert data["prompt_preview"]
+    assert data["prompt_truncated"] is False
+
+
 def test_missing_chat_log_detail_uses_unified_response(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)

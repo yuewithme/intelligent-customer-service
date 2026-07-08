@@ -152,21 +152,15 @@ def list_match_logs(
 ) -> dict:
     page = max(page, 1)
     page_size = max(min(page_size, 200), 1)
-    filters = []
-    if customer_id:
-        filters.append(TalkScriptMatchLogModel.customer_id == customer_id)
-    if session_id:
-        filters.append(TalkScriptMatchLogModel.session_id == session_id)
-    if trace_id:
-        filters.append(TalkScriptMatchLogModel.trace_id == trace_id)
-    if status:
-        filters.append(TalkScriptMatchLogModel.status == status)
-    if scene_id:
-        filters.append(TalkScriptMatchLogModel.scene_id == scene_id)
-    if template_id:
-        filters.append(TalkScriptMatchLogModel.template_id == template_id)
-    if need_human is not None:
-        filters.append(TalkScriptMatchLogModel.need_human == need_human)
+    filters = _match_log_filters(
+        customer_id=customer_id,
+        session_id=session_id,
+        trace_id=trace_id,
+        status=status,
+        scene_id=scene_id,
+        template_id=template_id,
+        need_human=need_human,
+    )
 
     with get_session() as session:
         total = session.scalar(
@@ -188,6 +182,138 @@ def list_match_logs(
         "page": page,
         "page_size": page_size,
     }
+
+
+def get_match_log_stats(
+    *,
+    customer_id: str | None = None,
+    session_id: str | None = None,
+    trace_id: str | None = None,
+    status: str | None = None,
+    scene_id: str | None = None,
+    template_id: str | None = None,
+    need_human: bool | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    low_confidence_threshold: float = 0.5,
+    low_confidence_limit: int = 20,
+) -> dict:
+    filters = _match_log_filters(
+        customer_id=customer_id,
+        session_id=session_id,
+        trace_id=trace_id,
+        status=status,
+        scene_id=scene_id,
+        template_id=template_id,
+        need_human=need_human,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    with get_session() as session:
+        total = int(
+            session.scalar(
+                select(func.count()).select_from(TalkScriptMatchLogModel).where(*filters)
+            )
+            or 0
+        )
+        avg_confidence = session.scalar(
+            select(func.avg(TalkScriptMatchLogModel.confidence)).where(*filters)
+        )
+        human_count = int(
+            session.scalar(
+                select(func.count())
+                .select_from(TalkScriptMatchLogModel)
+                .where(*filters, TalkScriptMatchLogModel.need_human.is_(True))
+            )
+            or 0
+        )
+        status_counts = _count_by(session, TalkScriptMatchLogModel.status, filters)
+        reason_counts = _count_by(session, TalkScriptMatchLogModel.match_reason, filters)
+        scene_counts = _count_by(session, TalkScriptMatchLogModel.scene_id, filters)
+        template_counts = _count_by(session, TalkScriptMatchLogModel.template_id, filters)
+        low_confidence_rows = session.scalars(
+            select(TalkScriptMatchLogModel)
+            .where(
+                *filters,
+                TalkScriptMatchLogModel.confidence.is_not(None),
+                TalkScriptMatchLogModel.confidence < low_confidence_threshold,
+            )
+            .order_by(
+                TalkScriptMatchLogModel.created_at.desc(),
+                TalkScriptMatchLogModel.id.desc(),
+            )
+            .limit(max(0, min(low_confidence_limit, 100)))
+        ).all()
+
+    return {
+        "total": total,
+        "matched_count": status_counts.get("matched", 0),
+        "handoff_count": status_counts.get("handoff", 0),
+        "pass_through_count": status_counts.get("pass_through", 0),
+        "human_count": human_count,
+        "avg_confidence": round(float(avg_confidence), 2)
+        if avg_confidence is not None
+        else None,
+        "status_counts": status_counts,
+        "reason_counts": reason_counts,
+        "scene_counts": scene_counts,
+        "template_counts": template_counts,
+        "low_confidence_items": [_match_log_to_item(row) for row in low_confidence_rows],
+    }
+
+
+def _match_log_filters(
+    *,
+    customer_id: str | None = None,
+    session_id: str | None = None,
+    trace_id: str | None = None,
+    status: str | None = None,
+    scene_id: str | None = None,
+    template_id: str | None = None,
+    need_human: bool | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+) -> list:
+    filters = []
+    if customer_id:
+        filters.append(TalkScriptMatchLogModel.customer_id == customer_id)
+    if session_id:
+        filters.append(TalkScriptMatchLogModel.session_id == session_id)
+    if trace_id:
+        filters.append(TalkScriptMatchLogModel.trace_id == trace_id)
+    if status:
+        filters.append(TalkScriptMatchLogModel.status == status)
+    if scene_id:
+        filters.append(TalkScriptMatchLogModel.scene_id == scene_id)
+    if template_id:
+        filters.append(TalkScriptMatchLogModel.template_id == template_id)
+    if need_human is not None:
+        filters.append(TalkScriptMatchLogModel.need_human == need_human)
+    start_dt = _parse_datetime(start_time)
+    if start_dt is not None:
+        filters.append(TalkScriptMatchLogModel.created_at >= start_dt)
+    end_dt = _parse_datetime(end_time)
+    if end_dt is not None:
+        filters.append(TalkScriptMatchLogModel.created_at <= end_dt)
+    return filters
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _count_by(session: Session, column, filters: list) -> dict:
+    rows = session.execute(
+        select(column, func.count())
+        .where(*filters, column.is_not(None), column != "")
+        .group_by(column)
+    ).all()
+    return {str(key): int(count or 0) for key, count in rows}
 
 
 def _match_log_to_item(row: TalkScriptMatchLogModel) -> dict:

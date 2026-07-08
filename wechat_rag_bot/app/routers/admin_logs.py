@@ -6,14 +6,18 @@ from app.schemas.log import (
     ChatLogDetail,
     ChatLogListResponse,
     ChatLogStats,
+    RagDebugSearchRequest,
+    RagDebugSearchResponse,
     TalkScriptMatchLogListResponse,
+    TalkScriptMatchStats,
 )
 from app.services.chat_log_service import (
     get_chat_log,
     get_chat_log_stats,
     list_chat_logs,
 )
-from app.talk_script.repository import list_match_logs
+from app.services.rag_debug_service import debug_rag_search
+from app.talk_script.repository import get_match_log_stats, list_match_logs
 from app.utils.auth import require_api_key
 
 
@@ -105,4 +109,42 @@ async def talk_script_match_logs(
         need_human=need_human,
     )
     data = TalkScriptMatchLogListResponse.model_validate(result).model_dump()
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.get("/talk-script-match-stats", response_model=APIResponse)
+async def talk_script_match_stats(
+    customer_id: str | None = None,
+    session_id: str | None = None,
+    trace_id: str | None = None,
+    status: str | None = None,
+    scene_id: str | None = None,
+    template_id: str | None = None,
+    need_human: bool | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    low_confidence_threshold: float = Query(default=0.5, ge=0, le=1),
+    low_confidence_limit: int = Query(default=20, ge=0, le=100),
+) -> APIResponse:
+    result = get_match_log_stats(
+        customer_id=customer_id,
+        session_id=session_id,
+        trace_id=trace_id,
+        status=status,
+        scene_id=scene_id,
+        template_id=template_id,
+        need_human=need_human,
+        start_time=start_time,
+        end_time=end_time,
+        low_confidence_threshold=low_confidence_threshold,
+        low_confidence_limit=low_confidence_limit,
+    )
+    data = TalkScriptMatchStats.model_validate(result).model_dump()
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/rag-debug/search", response_model=APIResponse)
+async def rag_debug_search(request: RagDebugSearchRequest) -> APIResponse:
+    result = await debug_rag_search(request)
+    data = RagDebugSearchResponse.model_validate(result).model_dump()
     return APIResponse(code=0, message="success", data=data)
