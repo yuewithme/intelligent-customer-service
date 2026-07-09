@@ -13,6 +13,7 @@ from app.db.models import (
     UserProfileModel,
 )
 from app.services.llm_service import generate_json
+from app.services.sales_action_service import evolve_opportunity
 from app.services.tag_catalog import TAG_CATEGORIES
 
 
@@ -241,31 +242,12 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
 def _apply_sales_action(profile: UserProfileModel, intent, sales_action: Any) -> None:
     if not isinstance(sales_action, dict):
         return
-    opportunity = _json_loads(profile.active_opportunity_json, {})
-    slots = {
-        **(opportunity.get("slots") if isinstance(opportunity.get("slots"), dict) else {}),
-        **(
-            sales_action.get("known_slots")
-            if isinstance(sales_action.get("known_slots"), dict)
-            else {}
-        ),
-    }
-    asked_slots = _string_list(opportunity.get("asked_slots"))
-    question_slot = sales_action.get("question_slot")
-    if isinstance(question_slot, str) and question_slot:
-        asked_slots = _append_unique(asked_slots, question_slot)
     profile.active_opportunity_json = _json_dumps(
-        {
-            "status": "active",
-            "sales_stage": intent.sales_stage,
-            "slots": slots,
-            "asked_slots": asked_slots,
-            "last_sales_action": sales_action.get("sales_action"),
-            "last_reply_goal": sales_action.get("reply_goal"),
-            "recommended_product_ids": _string_list(
-                sales_action.get("recommended_product_ids")
-            ),
-        }
+        evolve_opportunity(
+            _json_loads(profile.active_opportunity_json, {}),
+            sales_stage=intent.sales_stage,
+            sales_action=sales_action,
+        )
     )
 
 
