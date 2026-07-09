@@ -1,0 +1,135 @@
+{
+  "overall": {
+    "count": 39,
+    "average_score": 17.92,
+    "median_score": 4.0,
+    "critical_error_rate": 0.1026
+  },
+  "by_subset": {
+    "multi_turn": {
+      "count": 9,
+      "average_score": 17.56,
+      "median_score": 10.0,
+      "critical_error_rate": 0.1111
+    },
+    "single_turn": {
+      "count": 30,
+      "average_score": 18.03,
+      "median_score": 2.0,
+      "critical_error_rate": 0.1
+    }
+  },
+  "by_capability": {
+    "K1": {
+      "count": 2,
+      "average_score": 16.25,
+      "median_score": 16.25,
+      "critical_error_rate": 0.0
+    },
+    "K2": {
+      "count": 2,
+      "average_score": 21.5,
+      "median_score": 21.5,
+      "critical_error_rate": 0.0
+    },
+    "K3": {
+      "count": 2,
+      "average_score": 37.0,
+      "median_score": 37.0,
+      "critical_error_rate": 0.0
+    },
+    "K5": {
+      "count": 1,
+      "average_score": 0.0,
+      "median_score": 0.0,
+      "critical_error_rate": 0.0
+    },
+    "K6": {
+      "count": 1,
+      "average_score": 25.5,
+      "median_score": 25.5,
+      "critical_error_rate": 1.0
+    },
+    "K7": {
+      "count": 3,
+      "average_score": 29.67,
+      "median_score": 0.0,
+      "critical_error_rate": 0.0
+    },
+    "K8": {
+      "count": 1,
+      "average_score": 0.0,
+      "median_score": 0.0,
+      "critical_error_rate": 0.0
+    },
+    "MULTI": {
+      "count": 9,
+      "average_score": 17.56,
+      "median_score": 10.0,
+      "critical_error_rate": 0.1111
+    },
+    "O2": {
+      "count": 5,
+      "average_score": 2.76,
+      "median_score": 0.0,
+      "critical_error_rate": 0.0
+    },
+    "O5": {
+      "count": 2,
+      "average_score": 21.0,
+      "median_score": 21.0,
+      "critical_error_rate": 0.5
+    },
+    "Q1": {
+      "count": 1,
+      "average_score": 40.0,
+      "median_score": 40.0,
+      "critical_error_rate": 0.0
+    },
+    "Q2": {
+      "count": 2,
+      "average_score": 15.62,
+      "median_score": 15.62,
+      "critical_error_rate": 0.0
+    },
+    "Q3": {
+      "count": 1,
+      "average_score": 40.0,
+      "median_score": 40.0,
+      "critical_error_rate": 1.0
+    },
+    "Q4": {
+      "count": 1,
+      "average_score": 32.5,
+      "median_score": 32.5,
+      "critical_error_rate": 0.0
+    },
+    "S3": {
+      "count": 1,
+      "average_score": 0.0,
+      "median_score": 0.0,
+      "critical_error_rate": 0.0
+    },
+    "S5": {
+      "count": 2,
+      "average_score": 0.0,
+      "median_score": 0.0,
+      "critical_error_rate": 0.0
+    },
+    "S6": {
+      "count": 1,
+      "average_score": 4.0,
+      "median_score": 4.0,
+      "critical_error_rate": 0.0
+    },
+    "U5": {
+      "count": 2,
+      "average_score": 36.62,
+      "median_score": 36.62,
+      "critical_error_rate": 0.0
+    }
+  },
+  "system_model": "dashscope/qwen3.7-plus",
+  "judge_model": "dashscope/qwen3.7-plus",
+  "skipped_boundary": 15
+}
