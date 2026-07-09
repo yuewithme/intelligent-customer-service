@@ -69,8 +69,9 @@ async def test_rag_chat_orchestrates_services(monkeypatch):
     assert result["usage"]["completion_tokens"] == 8
     assert calls[1][2]["kb_id"] == "kb_default"
     assert calls[1][2]["tenant_id"] == "tenant_default"
-    assert "读取【参考资料】与【用户问题】" in calls[3][1]
-    assert "报销需要主管审批。" in calls[3][1]
+    llm_prompt = next(call[1] for call in calls if call[0] == "llm")
+    assert "读取【参考资料】与【用户问题】" in llm_prompt
+    assert "报销需要主管审批。" in llm_prompt
 
 
 @pytest.mark.asyncio
@@ -139,6 +140,60 @@ async def test_rag_chat_uses_policy_knowledge_base_and_prompt_blocks(monkeypatch
     assert calls[0][0] == "search"
     assert calls[0][1]["kb_id"] == "kb_orchid_basic"
     assert calls[1] == ("prompt", "how to care", policy, context, ["opening_beginner_care"])
+
+
+@pytest.mark.asyncio
+async def test_rag_chat_includes_orchid_kb_with_default_kb(monkeypatch):
+    from app.config import get_settings
+
+    searched_kb_ids = []
+
+    async def fake_embed(text):
+        del text
+        return [0.1, 0.2]
+
+    async def fake_search(vector, **filters):
+        del vector
+        searched_kb_ids.append(filters["kb_id"])
+        if filters["kb_id"] != "kb_orchid_basic":
+            return []
+        return [
+            {
+                "text": "建兰日常养护要注意通风和植料干湿。",
+                "doc_id": "orchid_chunk_1",
+                "file_name": "兰花产品知识库",
+                "score": 0.88,
+            }
+        ]
+
+    async def fake_rerank(question, docs, top_n):
+        del question
+        return docs[:top_n]
+
+    async def fake_generate(prompt):
+        assert "建兰日常养护" in prompt
+        return {"answer": "建兰养护先看通风和植料干湿。", "usage": {}}
+
+    monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(rag_service.embedding_service, "embed_text", fake_embed)
+    monkeypatch.setattr(rag_service.qdrant_service, "search_chunks", fake_search)
+    monkeypatch.setattr(rag_service.rerank_service, "rerank", fake_rerank)
+    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
+
+    try:
+        result = await rag_service.rag_chat(
+            user_id="user_001",
+            message="建兰怎么养护？",
+            kb_id="kb_default",
+            metadata={"tenant_id": "tenant_default", "permission": "public"},
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert searched_kb_ids == ["kb_default", "kb_orchid_basic"]
+    assert result["answer"] == "建兰养护先看通风和植料干湿。"
+    assert result["sources"][0]["file_name"] == "兰花产品知识库"
 
 
 @pytest.mark.asyncio

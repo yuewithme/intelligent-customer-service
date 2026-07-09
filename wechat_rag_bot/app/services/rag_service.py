@@ -20,6 +20,9 @@ from app.utils.logger import log_event
 from app.utils.time import now_iso
 
 
+DEFAULT_ORCHID_KB_ID = "kb_orchid_basic"
+
+
 PROMPT_TEMPLATE = """
 # 角色
 
@@ -96,6 +99,13 @@ def _source(doc: dict[str, Any]) -> dict[str, Any]:
         "section": doc.get("section"),
         "score": doc.get("score"),
     }
+
+
+def _default_search_kb_ids(kb_id: str) -> list[str]:
+    ids = [kb_id]
+    if DEFAULT_ORCHID_KB_ID not in ids:
+        ids.append(DEFAULT_ORCHID_KB_ID)
+    return ids
 
 
 def _context(docs: list[dict[str, Any]]) -> str:
@@ -177,7 +187,7 @@ async def rag_chat(
 
         vector = await embedding_service.embed_text(message.strip())
         knowledge_base_ids = policy.knowledge_base_ids if policy else []
-        search_kb_ids = knowledge_base_ids or [kb_id]
+        search_kb_ids = knowledge_base_ids or _default_search_kb_ids(kb_id)
         candidates = []
         for search_kb_id in search_kb_ids:
             candidates.extend(
