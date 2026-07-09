@@ -171,6 +171,32 @@ async def test_hard_rules_bypass_llm_when_llm_intent_is_enabled(monkeypatch):
     assert intent.primary_intent == "refund_request"
 
 
+@pytest.mark.asyncio
+async def test_price_objection_adds_structured_decision_blocker():
+    intent = await classify_intent(
+        _message("这个价格太贵了"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.slots["decision_blocker"] == {
+        "type": "price",
+        "detail": "客户认为价格偏高",
+    }
+
+
+@pytest.mark.asyncio
+async def test_repeated_question_complaint_adds_communication_blocker():
+    intent = await classify_intent(
+        _message("你怎么一直问，我想直接看商品"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.slots["decision_blocker"] == {
+        "type": "communication",
+        "detail": "客户不愿继续回答重复问题，希望直接查看商品",
+    }
+
+
 def test_llm_prompt_requires_complete_intent_schema():
     from app.services.intent_service import _build_prompt
 
@@ -180,6 +206,8 @@ def test_llm_prompt_requires_complete_intent_schema():
     assert '"primary_intent"' in prompt
     assert '"confidence"' in prompt
     assert '"need_rag"' in prompt
+    assert "slots.decision_blocker" in prompt
+    assert "price | trust | product_fit | timing | communication | unknown" in prompt
     assert "浇水需要多少天" in prompt
     assert "分类优先级" in prompt
     assert "重要边界" in prompt

@@ -198,6 +198,52 @@ def test_new_product_replaces_active_opportunity():
     assert opportunity["replace_reason"] == "product_changed"
 
 
+def test_opportunity_persists_decision_blocker_outside_slots():
+    opportunity = evolve_opportunity(
+        {},
+        sales_stage="objection_handling",
+        sales_action={
+            "sales_action": "handle_objection",
+            "known_slots": {
+                "decision_blocker": {
+                    "type": "price",
+                    "detail": "客户认为价格偏高",
+                }
+            },
+        },
+        now="2026-07-09T10:00:00+00:00",
+    )
+
+    assert opportunity["decision_blocker"] == {
+        "type": "price",
+        "detail": "客户认为价格偏高",
+    }
+    assert "decision_blocker" not in opportunity["slots"]
+
+
+def test_ready_to_buy_clears_previous_decision_blocker():
+    opportunity = evolve_opportunity(
+        {
+            "opportunity_id": "opp_1",
+            "status": "active",
+            "slots": {},
+            "decision_blocker": {
+                "type": "price",
+                "detail": "客户认为价格偏高",
+            },
+        },
+        sales_stage="order_intent",
+        sales_action={
+            "sales_action": "close_order",
+            "customer_signal": "ready_to_buy",
+            "known_slots": {},
+        },
+        now="2026-07-09T10:00:00+00:00",
+    )
+
+    assert "decision_blocker" not in opportunity
+
+
 def test_greeting_does_not_create_or_reopen_opportunity():
     sales_action = {
         "sales_action": "build_rapport",

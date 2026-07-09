@@ -250,7 +250,7 @@ async def classify_intent(
 ) -> IntentResult:
     hard_intent = classify_by_hard_rules(message.message)
     if hard_intent is not None:
-        return hard_intent
+        return _with_decision_blocker(hard_intent, message.message)
 
     settings = get_settings()
     llm_enabled = bool(getattr(settings, "intent_llm_enabled", False))
@@ -259,16 +259,47 @@ async def classify_intent(
         try:
             llm_intent = await classify_by_llm(message, user_state, candidates)
             if llm_intent.confidence >= confidence_threshold:
-                return llm_intent
+                return _with_decision_blocker(llm_intent, message.message)
         except AppError:
             pass
 
     rule_intent = classify_by_soft_rules(message.message)
     if candidates and rule_intent.route == candidates[0].get("route"):
-        return rule_intent.model_copy(
+        rule_intent = rule_intent.model_copy(
             update={"confidence": min(rule_intent.confidence + 0.05, 1.0)}
         )
-    return rule_intent
+    return _with_decision_blocker(rule_intent, message.message)
+
+
+def _with_decision_blocker(intent: IntentResult, text: str) -> IntentResult:
+    normalized = normalize_intent_text(text)
+    blocker = None
+    if (
+        intent.primary_intent in {"price_objection", "discount_request"}
+        or match_price_intent(normalized) == "price_objection"
+    ):
+        blocker = {"type": "price", "detail": "客户认为价格偏高"}
+    elif hit_any(normalized, ("一直问", "反复问", "别再问", "直接看商品", "直接告诉")):
+        blocker = {
+            "type": "communication",
+            "detail": "客户不愿继续回答重复问题，希望直接查看商品",
+        }
+    else:
+        candidate = intent.slots.get("decision_blocker")
+        if (
+            isinstance(candidate, dict)
+            and candidate.get("type")
+            in {"price", "trust", "product_fit", "timing", "communication"}
+        ):
+            blocker = {
+                "type": candidate["type"],
+                "detail": str(candidate.get("detail") or "").strip(),
+            }
+    if blocker is None:
+        return intent
+    return intent.model_copy(
+        update={"slots": {**intent.slots, "decision_blocker": blocker}}
+    )
 
 
 def _knowledge_primary_intent(text: str) -> str:
@@ -313,6 +344,7 @@ def _build_prompt(message: str) -> str:
   "route": "template_reply | rag_answer | template_then_rag | clarify | human | chitchat | unsupported",
   "primary_intent": "greeting | ask_price | price_objection | discount_request | ask_logistics | ask_after_sale | order_intent | payment_intent | knowledge_question | care_question | process_question | usage_question | refund_request | complaint | human_request | unsupported | unknown",
   "secondary_intents": [],
+  "slots": {{}},
   "sales_stage": "unknown | greeting | need_discovery | pain_confirmed | solution_recommended | price_discussed | objection_handling | order_intent | after_sale | human_pending",
   "confidence": 0.0,
   "need_template": false,
@@ -332,6 +364,10 @@ def _build_prompt(message: str) -> str:
 7. `need_rag`：是否需要调用兰花知识资料回答。
 8. `need_human`：是否需要转人工。
 9. `reason`：用一句简短中文说明分类原因，不超过 20 个字。
+
+`slots.decision_blocker` 格式为 {{"type": "price | trust | product_fit | timing | communication | unknown", "detail": ""}}。
+只记录客户明确表达的成交阻碍；没有明确阻碍时 type 输出 unknown、detail 输出空字符串。
+detail 使用中性中文概括，不复述辱骂或攻击性原话；售后问题本身不算成交阻碍。
 
 # route 判定规则
 

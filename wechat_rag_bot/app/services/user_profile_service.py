@@ -396,9 +396,20 @@ def _render_profile_summary(profile: UserProfileModel) -> str:
     tags = _merge_customer_tags(_json_loads(profile.customer_tags_json, []), [])
     interests = _json_loads(profile.product_interests_json, [])
     pain_points = _json_loads(profile.pain_points_json, [])
+    opportunity = _json_loads(profile.active_opportunity_json, {})
     if not tags and not interests and not pain_points:
         return ""
-    advice = {
+    action_advice = {
+        "build_rapport": "自然回应并了解客户来意。",
+        "discover_need": "补充一个最关键的缺失信息，再推进下一步。",
+        "recommend_solution": "基于明确痛点直接给出合适方案，减少重复追问。",
+        "explain_value": "说明方案价值并确认客户是否认可。",
+        "handle_objection": "针对客户异议给出直接说明，避免重复询问。",
+        "close_order": "确认规格、数量和收货信息，推进下单。",
+        "provide_service": "优先解决售后问题，暂停销售推进。",
+        "handoff_to_human": "优先由人工接管并解决当前问题，暂停销售推进。",
+    }
+    advice = action_advice.get(opportunity.get("last_sales_action")) or {
         "pain_confirmed": "基于明确痛点直接给出合适方案，减少重复追问。",
         "solution_recommended": "说明方案价值并确认客户是否认可。",
         "price_discussed": "先回应价格问题，再确认购买意向。",
@@ -407,10 +418,17 @@ def _render_profile_summary(profile: UserProfileModel) -> str:
         "after_sale": "优先解决售后问题，暂停销售推进。",
         "human_pending": "优先由人工接管并解决当前问题，暂停销售推进。",
     }.get(profile.current_stage, "补充一个最关键的缺失信息，再推进下一步。")
+    blocker = opportunity.get("decision_blocker")
+    blocker_text = (
+        blocker.get("detail")
+        if isinstance(blocker, dict) and blocker.get("detail")
+        else "暂未发现明确阻碍"
+    )
     return (
         f"客户情况：{'、'.join(tags) or '信息待补充'}；"
         f"产品兴趣：{'、'.join(interests) or '待确认'}。\n"
         f"当前诉求：{'；'.join(pain_points) or '待确认'}。\n"
+        f"成交阻碍：{blocker_text}。\n"
         f"跟进建议：{advice}"
     )
 

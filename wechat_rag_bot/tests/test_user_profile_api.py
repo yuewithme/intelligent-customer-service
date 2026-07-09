@@ -217,6 +217,7 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
     assert profile["ai_summary"] == (
         "客户情况：浙江省；产品兴趣：兰花养护。\n"
         "当前诉求：兰花烂根，需要救治方案。\n"
+        "成交阻碍：暂未发现明确阻碍。\n"
         "跟进建议：基于明确痛点直接给出合适方案，减少重复追问。"
     )
 
@@ -322,6 +323,7 @@ async def test_complaint_does_not_erase_stable_profile_summary(monkeypatch, tmp_
     assert profile["ai_summary"] == (
         "客户情况：信息待补充；产品兴趣：建兰、大花蕙兰。\n"
         "当前诉求：希望快速获得品种推荐和购买链接。\n"
+        "成交阻碍：暂未发现明确阻碍。\n"
         "跟进建议：优先由人工接管并解决当前问题，暂停销售推进。"
     )
     assert profile["product_interests"] == ["建兰", "大花蕙兰"]
@@ -357,7 +359,13 @@ async def test_profile_persists_active_sales_opportunity(monkeypatch, tmp_path):
                 "sales_action": "discover_need",
                 "reply_goal": "确认使用数量",
                 "question_slot": "plant_count",
-                "known_slots": {"pain_point": "root_rot"},
+                "known_slots": {
+                    "pain_point": "root_rot",
+                    "decision_blocker": {
+                        "type": "communication",
+                        "detail": "客户希望直接查看商品",
+                    },
+                },
                 "recommended_product_ids": [],
             }
         },
@@ -371,6 +379,8 @@ async def test_profile_persists_active_sales_opportunity(monkeypatch, tmp_path):
     assert opportunity["slots"] == {"pain_point": "root_rot"}
     assert opportunity["asked_slots"] == ["plant_count"]
     assert opportunity["last_sales_action"] == "discover_need"
+    assert opportunity["decision_blocker"]["type"] == "communication"
+    assert "成交阻碍：客户希望直接查看商品。" in profile["ai_summary"]
 
 
 @pytest.mark.asyncio
@@ -409,6 +419,7 @@ async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, 
     assert profile["ai_summary"] == (
         "客户情况：信息待补充；产品兴趣：兰花养护。\n"
         "当前诉求：兰花烂根、黄叶，担心养死，需要救治方案。\n"
+        "成交阻碍：暂未发现明确阻碍。\n"
         "跟进建议：基于明确痛点直接给出合适方案，减少重复追问。"
     )
 
@@ -495,6 +506,7 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
     assert profile["ai_summary"] == (
         "客户情况：广西省、100-200盆；产品兴趣：开花类兰花。\n"
         "当前诉求：广西气候下有100盆花，想获得适合当地环境的品种推荐。\n"
+        "成交阻碍：暂未发现明确阻碍。\n"
         "跟进建议：基于明确痛点直接给出合适方案，减少重复追问。"
     )
 

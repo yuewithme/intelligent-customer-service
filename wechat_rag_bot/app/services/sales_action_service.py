@@ -132,7 +132,8 @@ def evolve_opportunity(
 ) -> dict:
     timestamp = now or datetime.now(timezone.utc).isoformat()
     opportunity = dict(current) if isinstance(current, dict) else {}
-    known_slots = _dict_value(sales_action.get("known_slots"))
+    known_slots = dict(_dict_value(sales_action.get("known_slots")))
+    decision_blocker = known_slots.pop("decision_blocker", None)
     if (
         sales_action.get("sales_action") in NON_SALES_ACTIONS
         and sales_action.get("customer_signal", "none") == "none"
@@ -154,6 +155,8 @@ def evolve_opportunity(
             opportunity["replace_reason"] = replace_reason
 
     opportunity["slots"] = {**_dict_value(opportunity.get("slots")), **known_slots}
+    if isinstance(decision_blocker, dict):
+        opportunity["decision_blocker"] = decision_blocker
     opportunity["sales_stage"] = sales_stage
     opportunity["last_sales_action"] = sales_action.get("sales_action")
     opportunity["last_reply_goal"] = sales_action.get("reply_goal")
@@ -169,6 +172,8 @@ def evolve_opportunity(
     opportunity["asked_slots"] = asked_slots
 
     signal = opportunity["last_customer_signal"]
+    if signal in {"ready_to_buy", "purchased"}:
+        opportunity.pop("decision_blocker", None)
     if signal in {"purchased", "rejected"}:
         opportunity["status"] = "won" if signal == "purchased" else "lost"
         opportunity["closed_at"] = timestamp
