@@ -148,6 +148,8 @@ def test_profile_analysis_prompt_wraps_message_content_for_llm():
     assert '"role": "customer"' in prompt
     assert '"content": "{{hello}}"' in prompt
     assert "短期情绪、抱怨、辱骂或催促不能覆盖长期稳定事实" in prompt
+    assert '"current_stage"' not in prompt
+    assert '"ai_summary"' not in prompt
 
 
 def test_custom_profile_analysis_prompt_keeps_message_record_format(monkeypatch):
@@ -213,8 +215,9 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
     assert profile["product_interests"] == ["兰花养护"]
     assert profile["pain_points"] == ["兰花烂根，需要救治方案"]
     assert profile["ai_summary"] == (
-        "客户在杭州，预算约200元，正在咨询兰花烂根，需要救治方案；"
-        "整体看更关注兰花养护问题，适合给出分步骤、可执行的养护建议。"
+        "客户情况：浙江省；产品兴趣：兰花养护。\n"
+        "当前诉求：兰花烂根，需要救治方案。\n"
+        "跟进建议：基于明确痛点直接给出合适方案，减少重复追问。"
     )
 
 
@@ -316,7 +319,11 @@ async def test_complaint_does_not_erase_stable_profile_summary(monkeypatch, tmp_
     await update_profile_after_chat(message, intent, reply)
 
     profile = (await get_profile_bundle("user_stable"))["profile"]
-    assert profile["ai_summary"] == stable_summary
+    assert profile["ai_summary"] == (
+        "客户情况：信息待补充；产品兴趣：建兰、大花蕙兰。\n"
+        "当前诉求：希望快速获得品种推荐和购买链接。\n"
+        "跟进建议：优先由人工接管并解决当前问题，暂停销售推进。"
+    )
     assert profile["product_interests"] == ["建兰", "大花蕙兰"]
     assert profile["pain_points"] == ["希望快速获得品种推荐和购买链接"]
     assert profile["risk_level"] == "high"
@@ -400,8 +407,9 @@ async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, 
     profile = (await get_profile_bundle("user_002"))["profile"]
     assert profile["pain_points"] == ["兰花烂根、黄叶，担心养死，需要救治方案"]
     assert profile["ai_summary"] == (
-        "客户正在咨询兰花烂根、黄叶，担心养死，需要救治方案；"
-        "整体看更关注兰花养护问题，适合给出分步骤、可执行的养护建议。"
+        "客户情况：信息待补充；产品兴趣：兰花养护。\n"
+        "当前诉求：兰花烂根、黄叶，担心养死，需要救治方案。\n"
+        "跟进建议：基于明确痛点直接给出合适方案，减少重复追问。"
     )
 
 
@@ -484,7 +492,11 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
 
     profile = (await get_profile_bundle("user_003"))["profile"]
     assert profile["customer_tags"] == ["广西省", "100-200盆"]
-    assert profile["ai_summary"] == "客户在广西，养了100盆花，正在咨询适合当地气候的开花类兰花推荐。"
+    assert profile["ai_summary"] == (
+        "客户情况：广西省、100-200盆；产品兴趣：开花类兰花。\n"
+        "当前诉求：广西气候下有100盆花，想获得适合当地环境的品种推荐。\n"
+        "跟进建议：基于明确痛点直接给出合适方案，减少重复追问。"
+    )
 
 
 @pytest.mark.asyncio

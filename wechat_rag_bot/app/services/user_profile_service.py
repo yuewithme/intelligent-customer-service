@@ -28,7 +28,6 @@ _allowed_patch_fields = {
     "risk_level",
     "customer_tags",
     "product_interests",
-    "ai_summary",
     "preference_summary",
     "pain_points",
     "is_human_handoff",
@@ -44,16 +43,8 @@ PROFILE_RECORD_FORMAT_INSTRUCTION = (
 )
 PROFILE_STABILITY_INSTRUCTION = (
     "画像必须优先保留地区、规模、偏好、预算、购买意向、长期痛点等稳定事实。"
-    "短期情绪、抱怨、辱骂或催促不能覆盖长期稳定事实，也不要在 `ai_summary` 中复述攻击性原话；"
-    "它们只用于理解当前服务状态。"
+    "短期情绪、抱怨、辱骂或催促不能覆盖长期稳定事实，也不能被提取为长期痛点。"
 )
-SUMMARY_BLOCKED_INTENTS = {
-    "greeting",
-    "chitchat",
-    "complaint",
-    "refund_request",
-    "ask_after_sale",
-}
 
 DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分析助手。
 
@@ -66,17 +57,14 @@ DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分�
 2. 使用中文自然语言总结，不能照抄后台字段。
 3. `customer_tags` 必须从【标签库】里选择，严禁自造标签。
 4. `pain_points` 是中文数组，每项概括一个明确痛点，要包含对象、问题和用户顾虑。
-5. `ai_summary` 用 2 句中文概括客户真实情况、当前诉求、判断依据和后续服务建议；要像给人工客服看的画像分析，不要只罗列字段。
-6. 没有明确内容时输出空数组或空字符串。
+5. 没有明确内容时输出空数组。
 
 JSON 格式：
 {
-  "current_stage": "unknown | greeting | need_discovery | pain_confirmed | solution_recommended | price_discussed | objection_handling | order_intent | after_sale | human_pending",
   "risk_level": "normal | medium | high",
   "customer_tags": [],
   "product_interests": [],
-  "pain_points": [],
-  "ai_summary": ""
+  "pain_points": []
 }
 """
 
@@ -196,11 +184,7 @@ async def update_profile_after_chat(message, intent, reply) -> None:
         profile.last_active_at = _now()
         _apply_tag_result(profile, reply.metadata.get("tag_result"))
         _apply_sales_action(profile, intent, reply.metadata.get("sales_action"))
-        _apply_profile_analysis(
-            profile,
-            profile_analysis,
-            update_summary=intent.primary_intent not in SUMMARY_BLOCKED_INTENTS,
-        )
+        _apply_profile_analysis(profile, profile_analysis)
         profile.updated_at = _now()
         if reply.route == "human" or reply.need_human:
             handoff = reply.metadata.get("handoff", {})
@@ -324,7 +308,6 @@ def _is_valid_profile_analysis(value: Any) -> bool:
             "customer_tags": list,
             "product_interests": list,
             "pain_points": list,
-            "ai_summary": str,
         }.items()
     )
 
@@ -332,8 +315,6 @@ def _is_valid_profile_analysis(value: Any) -> bool:
 def _apply_profile_analysis(
     profile: UserProfileModel,
     analysis: dict,
-    *,
-    update_summary: bool = True,
 ) -> None:
     risk_level = _risk_value(analysis.get("risk_level"))
     if risk_level and _risk_rank(risk_level) > _risk_rank(profile.risk_level):
@@ -359,11 +340,6 @@ def _apply_profile_analysis(
             _string_list(analysis.get("pain_points")),
         )
     )
-    ai_summary = analysis.get("ai_summary")
-    if update_summary and isinstance(ai_summary, str) and ai_summary.strip():
-        profile.ai_summary = ai_summary.strip()
-
-
 def _risk_rank(value: str | None) -> int:
     return {"normal": 0, "medium": 1, "high": 2}.get(value or "", 0)
 
@@ -408,88 +384,35 @@ def _fallback_profile_analysis(user_records: list[dict]) -> dict:
         if pain_point:
             pain_points = _append_or_replace_specific(pain_points, pain_point)
 
-    facts: list[str] = []
-    if region:
-        facts.append(f"客户在{region}")
-    if plant_count:
-        facts.append(f"养了{plant_count}花")
-    if budget:
-        facts.append(f"预算约{budget}元")
-    if pain_points:
-        if facts:
-            facts.append(f"正在咨询{pain_points[-1]}")
-        else:
-            facts.append(f"客户正在咨询{pain_points[-1]}")
-    elif texts:
-        facts.append(f"最近咨询：{texts[-1]}")
-    if pain_points:
-        first = "，".join(facts)
-        if product_interests:
-            second = (
-                f"整体看更关注{product_interests[0]}问题，"
-                "适合给出分步骤、可执行的养护建议。"
-            )
-        else:
-            second = "整体看需要优先给出排查原因、修根消毒、控水通风和复养步骤。"
-        ai_summary = f"{first}；{second}"
-    else:
-        ai_summary = "，".join(facts) + "。" if facts else ""
-
     return {
-        "current_stage": "need_discovery" if product_interests or plant_count else "unknown",
         "risk_level": "normal",
         "customer_tags": customer_tags,
         "product_interests": product_interests,
         "pain_points": pain_points,
-        "ai_summary": ai_summary,
     }
 
 
-def _build_overall_memory(profile: UserProfileModel, message, intent) -> str:
-    tags = _json_loads(profile.customer_tags_json, [])
+def _render_profile_summary(profile: UserProfileModel) -> str:
+    tags = _merge_customer_tags(_json_loads(profile.customer_tags_json, []), [])
     interests = _json_loads(profile.product_interests_json, [])
     pain_points = _json_loads(profile.pain_points_json, [])
-    region = _label_value(tags, "region")
-    budget = _label_value(tags, "budget")
-    issue = pain_points[0] if pain_points else _label_value(tags, "pain_point")
-    interest = interests[0] if interests else ""
-    facts: list[str] = []
-    if region:
-        facts.append(f"客户在{region}")
-    if budget:
-        facts.append(f"预算约{budget}元")
-    if issue:
-        facts.append(f"正在咨询{issue}处理")
-    if facts:
-        first = "，".join(facts)
-    else:
-        first = f"客户最近在咨询{getattr(intent, 'primary_intent', '') or '问题'}"
-    if interest:
-        second = f"整体看更关注{interest}问题，适合给出分步骤、可执行的养护建议。"
-    else:
-        second = "整体看需要保留最近诉求，并在后续回复中延续上下文。"
-    return f"{first}；{second}"
-
-
-def _expand_pain_points_from_chat(
-    existing_pain_points: list[str],
-    *,
-    message_text: str,
-) -> list[str]:
-    expanded = _pain_point_from_text(message_text)
-    if not expanded:
-        return existing_pain_points
-
-    compacted = [
-        value for value in existing_pain_points if value and value not in expanded
-    ]
-    if any(_is_more_specific_pain_point(expanded, value) for value in compacted):
-        compacted = [
-            value
-            for value in compacted
-            if not _is_more_specific_pain_point(expanded, value)
-        ]
-    return _append_unique(compacted, expanded)
+    if not tags and not interests and not pain_points:
+        return ""
+    advice = {
+        "pain_confirmed": "基于明确痛点直接给出合适方案，减少重复追问。",
+        "solution_recommended": "说明方案价值并确认客户是否认可。",
+        "price_discussed": "先回应价格问题，再确认购买意向。",
+        "objection_handling": "针对客户异议给出直接说明，避免重复询问。",
+        "order_intent": "确认规格、数量和收货信息，推进下单。",
+        "after_sale": "优先解决售后问题，暂停销售推进。",
+        "human_pending": "优先由人工接管并解决当前问题，暂停销售推进。",
+    }.get(profile.current_stage, "补充一个最关键的缺失信息，再推进下一步。")
+    return (
+        f"客户情况：{'、'.join(tags) or '信息待补充'}；"
+        f"产品兴趣：{'、'.join(interests) or '待确认'}。\n"
+        f"当前诉求：{'；'.join(pain_points) or '待确认'}。\n"
+        f"跟进建议：{advice}"
+    )
 
 
 def _pain_point_from_text(text: str) -> str:
@@ -570,22 +493,6 @@ def _append_or_replace_specific(values: list[str], value: str) -> list[str]:
         if item and not _is_more_specific_pain_point(value, item)
     ]
     return _append_unique(compacted, value)
-
-
-def _stage_value(value: Any) -> str:
-    allowed = {
-        "unknown",
-        "greeting",
-        "need_discovery",
-        "pain_confirmed",
-        "solution_recommended",
-        "price_discussed",
-        "objection_handling",
-        "order_intent",
-        "after_sale",
-        "human_pending",
-    }
-    return value if isinstance(value, str) and value in allowed else ""
 
 
 def _risk_value(value: Any) -> str:
@@ -717,14 +624,6 @@ def _catalog_quantity_value(raw: str) -> str:
 def _catalog_orchid_type_value(raw: str) -> str:
     raw = raw.strip()
     return raw if _is_catalog_tag_value(raw) else ""
-
-
-def _label_value(labels: list[str], prefix: str) -> str:
-    marker = f"{prefix}:"
-    for label in labels:
-        if isinstance(label, str) and label.startswith(marker):
-            return label.split(":", 1)[1]
-    return ""
 
 
 def _append_unique(values: list[str], value: str) -> list[str]:
@@ -866,7 +765,7 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
             [],
         ),
         "product_interests": _json_loads(profile.product_interests_json, []),
-        "ai_summary": profile.ai_summary,
+        "ai_summary": _render_profile_summary(profile),
         "preference_summary": profile.preference_summary,
         "pain_points": _json_loads(profile.pain_points_json, []),
         "active_opportunity": _json_loads(profile.active_opportunity_json, {}),
