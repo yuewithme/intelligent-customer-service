@@ -147,6 +147,7 @@ def test_profile_analysis_prompt_wraps_message_content_for_llm():
     assert "【聊天上下文记录】" in prompt
     assert '"role": "customer"' in prompt
     assert '"content": "{{hello}}"' in prompt
+    assert "短期情绪、抱怨、辱骂或催促不能覆盖长期稳定事实" in prompt
 
 
 def test_custom_profile_analysis_prompt_keeps_message_record_format(monkeypatch):
@@ -255,6 +256,70 @@ async def test_profile_analysis_does_not_override_decided_sales_stage(monkeypatc
 
     profile = (await get_profile_bundle("user_stage"))["profile"]
     assert profile["current_stage"] == "order_intent"
+
+
+@pytest.mark.asyncio
+async def test_complaint_does_not_erase_stable_profile_summary(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+    stable_summary = (
+        "客户在浙江，养了100盆花，正在咨询建兰和大花蕙兰的品种推荐及购买链接；"
+        "客户有明确购买意向，但客服反复询问预算和喜好导致沟通效率低。"
+    )
+    client.patch(
+        "/api/v1/users/user_stable/profile",
+        json={
+            "product_interests": ["建兰", "大花蕙兰"],
+            "pain_points": ["希望快速获得品种推荐和购买链接"],
+            "ai_summary": stable_summary,
+        },
+    )
+
+    async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
+        del prompt, purpose
+        return {
+            "risk_level": "normal",
+            "customer_tags": [],
+            "product_interests": [],
+            "pain_points": [],
+            "ai_summary": "客户说客服很笨，一直问问题。",
+        }
+
+    monkeypatch.setattr(
+        "app.services.user_profile_service.generate_json",
+        fake_generate_json,
+    )
+    message = NormalizedMessage(
+        trace_id="trace_complaint",
+        channel="wechat",
+        user_id="user_stable",
+        session_id="default",
+        message="你怎么一直问问题",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="human",
+        primary_intent="complaint",
+        sales_stage="human_pending",
+        confidence=0.95,
+        need_human=True,
+    )
+    reply = FinalReply(
+        answer="我为您转人工处理。",
+        reply_type="human",
+        route="human",
+        need_human=True,
+        metadata={"tag_result": {"labels": [], "risk_level": "high"}},
+    )
+
+    await update_profile_after_chat(message, intent, reply)
+
+    profile = (await get_profile_bundle("user_stable"))["profile"]
+    assert profile["ai_summary"] == stable_summary
+    assert profile["product_interests"] == ["建兰", "大花蕙兰"]
+    assert profile["pain_points"] == ["希望快速获得品种推荐和购买链接"]
+    assert profile["risk_level"] == "high"
 
 
 @pytest.mark.asyncio

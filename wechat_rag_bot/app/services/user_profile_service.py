@@ -42,6 +42,18 @@ PROFILE_RECORD_FORMAT_INSTRUCTION = (
     "`customer` 是客户原话，是画像事实来源；`assistant` 和 `human` 是客服回复，"
     "只能用于理解客户追问、指代关系和上下文，不能当作客户事实。"
 )
+PROFILE_STABILITY_INSTRUCTION = (
+    "画像必须优先保留地区、规模、偏好、预算、购买意向、长期痛点等稳定事实。"
+    "短期情绪、抱怨、辱骂或催促不能覆盖长期稳定事实，也不要在 `ai_summary` 中复述攻击性原话；"
+    "它们只用于理解当前服务状态。"
+)
+SUMMARY_BLOCKED_INTENTS = {
+    "greeting",
+    "chitchat",
+    "complaint",
+    "refund_request",
+    "ask_after_sale",
+}
 
 DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分析助手。
 
@@ -184,7 +196,11 @@ async def update_profile_after_chat(message, intent, reply) -> None:
         profile.last_active_at = _now()
         _apply_tag_result(profile, reply.metadata.get("tag_result"))
         _apply_sales_action(profile, intent, reply.metadata.get("sales_action"))
-        _apply_profile_analysis(profile, profile_analysis)
+        _apply_profile_analysis(
+            profile,
+            profile_analysis,
+            update_summary=intent.primary_intent not in SUMMARY_BLOCKED_INTENTS,
+        )
         profile.updated_at = _now()
         if reply.route == "human" or reply.need_human:
             handoff = reply.metadata.get("handoff", {})
@@ -212,6 +228,9 @@ async def update_profile_after_chat(message, intent, reply) -> None:
 def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     if not isinstance(tag_result, dict):
         return
+    risk_level = tag_result.get("risk_level")
+    if isinstance(risk_level, str) and risk_level.strip():
+        profile.risk_level = risk_level.strip()
     labels = _string_list(tag_result.get("labels"))
     if not labels:
         return
@@ -234,9 +253,6 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     )
     profile.product_interests_json = _json_dumps(product_interests)
     profile.pain_points_json = _json_dumps(pain_points)
-    risk_level = tag_result.get("risk_level")
-    if isinstance(risk_level, str) and risk_level.strip():
-        profile.risk_level = risk_level.strip()
 
 
 def _apply_sales_action(profile: UserProfileModel, intent, sales_action: Any) -> None:
@@ -275,13 +291,16 @@ def _build_profile_analysis_prompt(user_records: list[dict]) -> str:
 
 
 def _profile_prompt_with_record_format(prompt: str) -> str:
-    if (
+    result = prompt.rstrip()
+    if not (
         "读取每条记录的 `role` 和 `content` 字段" in prompt
         and "customer" in prompt
         and "assistant" in prompt
     ):
-        return prompt
-    return f"{prompt.rstrip()}\n{PROFILE_RECORD_FORMAT_INSTRUCTION}"
+        result = f"{result}\n{PROFILE_RECORD_FORMAT_INSTRUCTION}"
+    if "短期情绪、抱怨、辱骂或催促不能覆盖长期稳定事实" not in result:
+        result = f"{result}\n{PROFILE_STABILITY_INSTRUCTION}"
+    return result
 
 
 def _wrap_prompt_record_content(user_records: list[dict]) -> list[dict]:
@@ -310,9 +329,14 @@ def _is_valid_profile_analysis(value: Any) -> bool:
     )
 
 
-def _apply_profile_analysis(profile: UserProfileModel, analysis: dict) -> None:
+def _apply_profile_analysis(
+    profile: UserProfileModel,
+    analysis: dict,
+    *,
+    update_summary: bool = True,
+) -> None:
     risk_level = _risk_value(analysis.get("risk_level"))
-    if risk_level:
+    if risk_level and _risk_rank(risk_level) > _risk_rank(profile.risk_level):
         profile.risk_level = risk_level
 
     profile.customer_tags_json = _json_dumps(
@@ -322,12 +346,36 @@ def _apply_profile_analysis(profile: UserProfileModel, analysis: dict) -> None:
         )
     )
     profile.product_interests_json = _json_dumps(
-        _string_list(analysis.get("product_interests"))
+        _dedupe(
+            [
+                *_json_loads(profile.product_interests_json, []),
+                *_string_list(analysis.get("product_interests")),
+            ]
+        )
     )
-    profile.pain_points_json = _json_dumps(_string_list(analysis.get("pain_points")))
+    profile.pain_points_json = _json_dumps(
+        _merge_descriptive_list(
+            _json_loads(profile.pain_points_json, []),
+            _string_list(analysis.get("pain_points")),
+        )
+    )
     ai_summary = analysis.get("ai_summary")
-    if isinstance(ai_summary, str):
+    if update_summary and isinstance(ai_summary, str) and ai_summary.strip():
         profile.ai_summary = ai_summary.strip()
+
+
+def _risk_rank(value: str | None) -> int:
+    return {"normal": 0, "medium": 1, "high": 2}.get(value or "", 0)
+
+
+def _merge_descriptive_list(existing: list[str], incoming: list[str]) -> list[str]:
+    merged = _dedupe(existing)
+    for value in incoming:
+        if any(value in item for item in merged):
+            continue
+        merged = [item for item in merged if item not in value]
+        merged.append(value)
+    return merged
 
 
 def _fallback_profile_analysis(user_records: list[dict]) -> dict:
