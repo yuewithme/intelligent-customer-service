@@ -12,6 +12,7 @@ async def select_context(request: ContextSelectionInput) -> ContextPackage:
         "risk_level": request.state.get("risk_level", "normal"),
         "last_intent": request.state.get("last_intent"),
         "last_route": request.state.get("last_route"),
+        "sales_action": request.state.get("metadata", {}).get("sales_action"),
     }
     recent_turns = request.memories[-recent_turns_count:] if recent_turns_count > 0 else []
     long_memory_summary = _long_memory_summary(request.profile) if include_long_summary else ""

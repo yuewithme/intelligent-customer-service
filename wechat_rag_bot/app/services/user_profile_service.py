@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -182,6 +182,7 @@ async def update_profile_after_chat(message, intent, reply) -> None:
         profile.last_template_id = reply.template_id
         profile.last_active_at = _now()
         _apply_tag_result(profile, reply.metadata.get("tag_result"))
+        _apply_sales_action(profile, intent, reply.metadata.get("sales_action"))
         _apply_profile_analysis(profile, profile_analysis)
         profile.updated_at = _now()
         if reply.route == "human" or reply.need_human:
@@ -235,6 +236,37 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     risk_level = tag_result.get("risk_level")
     if isinstance(risk_level, str) and risk_level.strip():
         profile.risk_level = risk_level.strip()
+
+
+def _apply_sales_action(profile: UserProfileModel, intent, sales_action: Any) -> None:
+    if not isinstance(sales_action, dict):
+        return
+    opportunity = _json_loads(profile.active_opportunity_json, {})
+    slots = {
+        **(opportunity.get("slots") if isinstance(opportunity.get("slots"), dict) else {}),
+        **(
+            sales_action.get("known_slots")
+            if isinstance(sales_action.get("known_slots"), dict)
+            else {}
+        ),
+    }
+    asked_slots = _string_list(opportunity.get("asked_slots"))
+    question_slot = sales_action.get("question_slot")
+    if isinstance(question_slot, str) and question_slot:
+        asked_slots = _append_unique(asked_slots, question_slot)
+    profile.active_opportunity_json = _json_dumps(
+        {
+            "status": "active",
+            "sales_stage": intent.sales_stage,
+            "slots": slots,
+            "asked_slots": asked_slots,
+            "last_sales_action": sales_action.get("sales_action"),
+            "last_reply_goal": sales_action.get("reply_goal"),
+            "recommended_product_ids": _string_list(
+                sales_action.get("recommended_product_ids")
+            ),
+        }
+    )
 
 
 async def _build_profile_analysis(user_records: list[dict]) -> dict:
@@ -687,6 +719,7 @@ def _get_session() -> Session:
     if factory is None:
         engine = create_engine(url)
         Base.metadata.create_all(engine, tables=_profile_tables)
+        _ensure_profile_columns(engine)
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[url] = factory
     return factory()
@@ -806,6 +839,7 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "ai_summary": profile.ai_summary,
         "preference_summary": profile.preference_summary,
         "pain_points": _json_loads(profile.pain_points_json, []),
+        "active_opportunity": _json_loads(profile.active_opportunity_json, {}),
         "last_intent": profile.last_intent,
         "last_route": profile.last_route,
         "last_template_id": profile.last_template_id,
@@ -813,6 +847,18 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "created_at": _datetime_to_iso(profile.created_at),
         "updated_at": _datetime_to_iso(profile.updated_at),
     }
+
+
+def _ensure_profile_columns(engine) -> None:
+    columns = {column["name"] for column in inspect(engine).get_columns("user_profiles")}
+    if "active_opportunity_json" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE user_profiles "
+                    "ADD COLUMN active_opportunity_json TEXT DEFAULT '{}'"
+                )
+            )
 
 
 def _memory_to_dict(row: ConversationMemoryModel) -> dict:

@@ -238,6 +238,32 @@ def test_rag_prompt_discourages_metadata_and_truncated_chunks():
 
 
 @pytest.mark.asyncio
+async def test_rag_prompt_includes_sales_action_constraints():
+    from app.schemas.context import ContextPackage
+    from app.schemas.policy import PolicyDecision
+
+    prompt = await rag_service.build_rag_prompt(
+        question="多少钱",
+        docs=[{"file_name": "product.md", "text": "价格为199元"}],
+        policy=PolicyDecision(route="rag_answer"),
+        context=ContextPackage(
+            session_state={
+                "sales_action": {
+                    "reply_goal": "回答价格并确认使用数量",
+                    "sales_action": "discover_need",
+                    "question_slot": "plant_count",
+                }
+            }
+        ),
+    )
+
+    assert "回答价格并确认使用数量" in prompt
+    assert "plant_count" in prompt
+    assert "Answer the user's current question first" in prompt
+    assert "Ask at most one follow-up question" in prompt
+
+
+@pytest.mark.asyncio
 async def test_volcengine_llm_uses_ark_openai_compatible_endpoint(monkeypatch):
     from app.config import get_settings
 

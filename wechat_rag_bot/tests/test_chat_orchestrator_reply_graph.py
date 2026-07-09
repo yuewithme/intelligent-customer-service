@@ -224,6 +224,10 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
         del intent, user_state, message
         return PolicyDecision(route="template_reply", reason="test_policy")
 
+    async def get_profile_bundle(user_id):
+        del user_id
+        return {"profile": {}, "recent_memories": []}
+
     async def legacy_build_reply(
         route,
         intent,
@@ -232,7 +236,8 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
         stage_latencies,
         policy_decision=None,
     ):
-        del route, intent, message, user_state, policy_decision
+        del route, intent, message, policy_decision
+        captured["reply_sales_action"] = user_state.metadata.get("sales_action")
         stage_latencies["talk_script_ms"] = 0
         stage_latencies["template_ms"] = 0
         stage_latencies["rag_ms"] = 0
@@ -252,11 +257,13 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
         }
 
     async def update_profile_after_chat(message, intent, reply):
-        del message, reply
+        del message
         captured["profile_stage"] = intent.sales_stage
+        captured["profile_sales_action"] = reply.metadata.get("sales_action")
 
     monkeypatch.setattr(chat_orchestrator, "classify_intent", classify_intent)
     monkeypatch.setattr(chat_orchestrator, "decide_route", decide_route)
+    monkeypatch.setattr(chat_orchestrator, "get_profile_bundle", get_profile_bundle)
     monkeypatch.setattr(chat_orchestrator, "_build_reply", legacy_build_reply)
     monkeypatch.setattr(chat_orchestrator, "update_user_state", update_user_state)
     monkeypatch.setattr(chat_orchestrator, "update_profile_after_chat", update_profile_after_chat)
@@ -268,6 +275,9 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
     assert result["intent"]["sales_stage"] == "need_discovery"
     assert captured["state_update"]["sales_stage"] == "need_discovery"
     assert captured["profile_stage"] == "need_discovery"
+    assert captured["reply_sales_action"]["sales_action"] == "discover_need"
+    assert captured["reply_sales_action"]["question_slot"] == "pain_point"
+    assert captured["profile_sales_action"] == captured["reply_sales_action"]
 
 
 @pytest.mark.asyncio

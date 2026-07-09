@@ -19,6 +19,7 @@ from app.services.reply_builder import (
     build_unsupported_reply,
 )
 from app.services.rule_guard_service import check_rules
+from app.services.sales_action_service import apply_sales_action, decide_sales_action
 from app.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
 from app.services.state_service import get_user_state, update_user_state
 from app.services.tagger_service import build_tag_result
@@ -110,6 +111,11 @@ async def handle_chat(request: ChatRequest) -> dict:
                 },
             }
         )
+        sales_action = decide_sales_action(
+            user_state=user_state,
+            intent=routed_intent,
+        )
+        user_state.metadata["sales_action"] = sales_action.model_dump()
 
         stage_started = time.perf_counter()
         if get_settings().reply_graph_enabled:
@@ -132,7 +138,9 @@ async def handle_chat(request: ChatRequest) -> dict:
                 stage_latencies,
                 policy_decision=rich_decision or decision,
             )
+        reply = apply_sales_action(reply, sales_action)
         stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
+        reply.metadata["sales_action"] = sales_action.model_dump()
         if tag_result is not None:
             reply.metadata["tag_result"] = tag_result.model_dump()
         if rich_decision is not None:

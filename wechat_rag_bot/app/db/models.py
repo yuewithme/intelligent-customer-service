@@ -167,6 +167,7 @@ class UserProfileModel(Base):
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     preference_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     pain_points_json: Mapped[str] = mapped_column(Text, default="[]")
+    active_opportunity_json: Mapped[str] = mapped_column(Text, default="{}")
     last_intent: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_template_id: Mapped[str | None] = mapped_column(String(256), nullable=True)

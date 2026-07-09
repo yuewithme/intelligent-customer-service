@@ -258,6 +258,50 @@ async def test_profile_analysis_does_not_override_decided_sales_stage(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_profile_persists_active_sales_opportunity(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    message = NormalizedMessage(
+        trace_id="trace_opportunity",
+        channel="wechat",
+        user_id="user_opportunity",
+        session_id="default",
+        message="兰花烂根了",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="care_question",
+        sales_stage="need_discovery",
+        confidence=0.9,
+        slots={"pain_point": "root_rot"},
+    )
+    reply = FinalReply(
+        answer="大概有多少盆？",
+        reply_type="rag",
+        route="rag_answer",
+        metadata={
+            "sales_action": {
+                "sales_action": "discover_need",
+                "reply_goal": "确认使用数量",
+                "question_slot": "plant_count",
+                "known_slots": {"pain_point": "root_rot"},
+                "recommended_product_ids": [],
+            }
+        },
+    )
+
+    await update_profile_after_chat(message, intent, reply)
+
+    profile = (await get_profile_bundle("user_opportunity"))["profile"]
+    opportunity = profile["active_opportunity"]
+    assert opportunity["sales_stage"] == "need_discovery"
+    assert opportunity["slots"] == {"pain_point": "root_rot"}
+    assert opportunity["asked_slots"] == ["plant_count"]
+    assert opportunity["last_sales_action"] == "discover_need"
+
+
+@pytest.mark.asyncio
 async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     message = NormalizedMessage(

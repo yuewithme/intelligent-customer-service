@@ -87,6 +87,15 @@ def _render_context(context) -> str:
         parts.append(f"User profile summary:\n{context.profile_summary}")
     if context.session_state:
         parts.append(f"Session state:\n{context.session_state}")
+        sales_action = context.session_state.get("sales_action")
+        if sales_action:
+            parts.append(
+                "Sales reply requirements:\n"
+                f"{sales_action}\n"
+                "Answer the user's current question first. "
+                "Ask at most one follow-up question, and only ask for question_slot. "
+                "Do not repeat known facts or fabricate product facts."
+            )
     if context.recent_turns:
         turns = "\n".join(f"{turn.get('role')}: {turn.get('content')}" for turn in context.recent_turns)
         parts.append(f"Recent conversation:\n{turns}")
