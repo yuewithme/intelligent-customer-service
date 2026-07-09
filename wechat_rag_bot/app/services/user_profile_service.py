@@ -297,10 +297,6 @@ def _is_valid_profile_analysis(value: Any) -> bool:
 
 
 def _apply_profile_analysis(profile: UserProfileModel, analysis: dict) -> None:
-    current_stage = _stage_value(analysis.get("current_stage"))
-    if current_stage:
-        profile.current_stage = current_stage
-
     risk_level = _risk_value(analysis.get("risk_level"))
     if risk_level:
         profile.risk_level = risk_level

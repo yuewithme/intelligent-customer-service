@@ -60,3 +60,29 @@ def test_price_objection_after_price_moves_to_objection_handling():
 
     assert result.stage == "objection_handling"
     assert result.reason == "objection_intent"
+
+
+def test_weak_intent_does_not_regress_order_stage():
+    state = UserState(user_id="user_1", sales_stage="order_intent")
+
+    result = decide_sales_stage(
+        user_state=state,
+        intent=_intent("care_question", sales_stage="pain_confirmed"),
+        tag_result=_tag("care_question"),
+    )
+
+    assert result.stage == "order_intent"
+    assert result.reason == "keep_current_stage"
+
+
+def test_greeting_does_not_regress_price_stage():
+    state = UserState(user_id="user_1", sales_stage="price_discussed")
+
+    result = decide_sales_stage(
+        user_state=state,
+        intent=_intent("greeting", sales_stage="greeting"),
+        tag_result=_tag("greeting"),
+    )
+
+    assert result.stage == "price_discussed"
+    assert result.reason == "keep_current_stage"

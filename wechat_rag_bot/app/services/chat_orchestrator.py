@@ -19,7 +19,7 @@ from app.services.reply_builder import (
     build_unsupported_reply,
 )
 from app.services.rule_guard_service import check_rules
-from app.services.sales_stage_service import decide_sales_stage
+from app.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
 from app.services.state_service import get_user_state, update_user_state
 from app.services.tagger_service import build_tag_result
 from app.services.template_reply_service import build_default_template_reply
@@ -442,6 +442,9 @@ async def _hydrate_user_state_from_profile(user_id: str, user_state) -> None:
     profile = bundle.get("profile") if isinstance(bundle, dict) else {}
     if not isinstance(profile, dict):
         profile = {}
+    persisted_stage = normalize_sales_stage(profile.get("current_stage"))
+    if normalize_sales_stage(user_state.sales_stage) == "unknown" and persisted_stage != "unknown":
+        user_state.sales_stage = persisted_stage
     profile_tags = profile.get("customer_tags") or []
     if isinstance(profile_tags, list):
         user_state.customer_tags = _merge_list(user_state.customer_tags, profile_tags)

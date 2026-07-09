@@ -218,6 +218,46 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_profile_analysis_does_not_override_decided_sales_stage(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
+        del prompt, purpose
+        return {"current_stage": "greeting", "risk_level": "normal"}
+
+    monkeypatch.setattr(
+        "app.services.user_profile_service.generate_json",
+        fake_generate_json,
+    )
+    message = NormalizedMessage(
+        trace_id="trace_stage",
+        channel="wechat",
+        user_id="user_stage",
+        session_id="default",
+        message="我要下单",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="order_intent",
+        sales_stage="order_intent",
+        confidence=0.95,
+    )
+    reply = FinalReply(
+        answer="好的",
+        reply_type="template",
+        route="template_reply",
+        metadata={},
+    )
+
+    await update_profile_after_chat(message, intent, reply)
+
+    profile = (await get_profile_bundle("user_stage"))["profile"]
+    assert profile["current_stage"] == "order_intent"
+
+
+@pytest.mark.asyncio
 async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     message = NormalizedMessage(

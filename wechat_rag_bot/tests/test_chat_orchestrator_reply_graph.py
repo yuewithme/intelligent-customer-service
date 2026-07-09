@@ -268,3 +268,23 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
     assert result["intent"]["sales_stage"] == "need_discovery"
     assert captured["state_update"]["sales_stage"] == "need_discovery"
     assert captured["profile_stage"] == "need_discovery"
+
+
+@pytest.mark.asyncio
+async def test_hydrate_user_state_restores_persisted_sales_stage(monkeypatch):
+    from app.services import chat_orchestrator
+
+    state = UserState(user_id="user_001", sales_stage="unknown")
+
+    async def get_profile_bundle(user_id):
+        assert user_id == "user_001"
+        return {
+            "profile": {"current_stage": "price_discussed", "customer_tags": []},
+            "recent_memories": [],
+        }
+
+    monkeypatch.setattr(chat_orchestrator, "get_profile_bundle", get_profile_bundle)
+
+    await chat_orchestrator._hydrate_user_state_from_profile("user_001", state)
+
+    assert state.sales_stage == "price_discussed"

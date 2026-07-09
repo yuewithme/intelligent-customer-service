@@ -26,6 +26,17 @@ NEED_READY_STAGES = {
     "order_intent",
 }
 
+STAGE_ORDER = {
+    "unknown": 0,
+    "greeting": 1,
+    "need_discovery": 2,
+    "pain_confirmed": 3,
+    "solution_recommended": 4,
+    "price_discussed": 5,
+    "objection_handling": 6,
+    "order_intent": 7,
+}
+
 
 class SalesStageDecision(BaseModel):
     stage: str
@@ -53,33 +64,42 @@ def decide_sales_stage(
 
     if intent.primary_intent == "ask_price":
         if current_stage in NEED_READY_STAGES or _has_need_evidence(tag_result):
-            return SalesStageDecision(
-                stage="price_discussed",
-                reason="price_after_need_or_solution",
+            return _advance_or_keep(
+                current_stage,
+                "price_discussed",
+                "price_after_need_or_solution",
             )
-        return SalesStageDecision(
-            stage="need_discovery",
-            reason="price_before_need_discovery",
+        return _advance_or_keep(
+            current_stage,
+            "need_discovery",
+            "price_before_need_discovery",
         )
 
     if _has_pain_evidence(tag_result):
-        return SalesStageDecision(stage="pain_confirmed", reason="pain_evidence")
+        return _advance_or_keep(current_stage, "pain_confirmed", "pain_evidence")
 
     if _has_product_interest(tag_result) and current_stage in {"pain_confirmed", "need_discovery"}:
-        return SalesStageDecision(
-            stage="solution_recommended",
-            reason="product_interest_after_need",
+        return _advance_or_keep(
+            current_stage,
+            "solution_recommended",
+            "product_interest_after_need",
         )
 
     stage_from_intent = normalize_sales_stage(intent.sales_stage)
     if stage_from_intent != "unknown":
-        return SalesStageDecision(stage=stage_from_intent, reason="intent_sales_stage")
+        return _advance_or_keep(current_stage, stage_from_intent, "intent_sales_stage")
 
     return SalesStageDecision(stage=current_stage, reason="keep_current_stage")
 
 
 def normalize_sales_stage(stage: str | None) -> str:
     return stage if isinstance(stage, str) and stage in SALES_STAGES else "unknown"
+
+
+def _advance_or_keep(current_stage: str, next_stage: str, reason: str) -> SalesStageDecision:
+    if STAGE_ORDER.get(next_stage, 0) < STAGE_ORDER.get(current_stage, 0):
+        return SalesStageDecision(stage=current_stage, reason="keep_current_stage")
+    return SalesStageDecision(stage=next_stage, reason=reason)
 
 
 def _has_need_evidence(tag_result: TagResult) -> bool:
