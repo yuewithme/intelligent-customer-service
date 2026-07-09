@@ -83,6 +83,10 @@ def test_template_reply_executes_single_sales_question():
         "这款目前是199元。具体用量要结合您的实际使用数量判断，"
         "您大概有多少盆需要使用？"
     )
+    assert result.answer_segments == [
+        "这款目前是199元。",
+        "具体用量要结合您的实际使用数量判断，您大概有多少盆需要使用？",
+    ]
 
 
 def test_objection_intent_overrides_stage_default_action():

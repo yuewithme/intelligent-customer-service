@@ -1,3 +1,4 @@
+import re
 import time
 
 from app.config import get_settings
@@ -418,7 +419,7 @@ def _to_chat_data(
         "session_id": session_id,
         "sources": reply.sources,
         "usage": reply.usage,
-        "answer_segments": _answer_segments(reply.answer),
+        "answer_segments": _answer_segments(reply.answer, reply.answer_segments),
         "reply_type": reply.reply_type,
         "route": reply.route,
         "intent": intent.model_dump(),
@@ -471,8 +472,39 @@ def _merge_list(existing: list, incoming: list) -> list:
     return merged
 
 
-def _answer_segments(answer: str) -> list[str]:
-    return [part.strip() for part in answer.splitlines() if part.strip()]
+def _answer_segments(
+    answer: str,
+    preferred: list[str] | None = None,
+) -> list[str]:
+    structured = [part.strip() for part in preferred or [] if part.strip()]
+    if structured:
+        return _limit_segments(structured)
+
+    paragraphs = [part.strip() for part in answer.splitlines() if part.strip()]
+    if len(paragraphs) > 1:
+        return _limit_segments(paragraphs)
+
+    text = answer.strip()
+    if not text or len(text) <= 80:
+        return [text] if text else []
+    sentences = [
+        part.strip()
+        for part in re.split(r"(?<=[。！？!?])", text)
+        if part.strip()
+    ]
+    segments: list[str] = []
+    for sentence in sentences:
+        if segments and len(segments[-1]) + len(sentence) <= 80:
+            segments[-1] += sentence
+        else:
+            segments.append(sentence)
+    return _limit_segments(segments)
+
+
+def _limit_segments(segments: list[str]) -> list[str]:
+    if len(segments) <= 3:
+        return segments
+    return [segments[0], segments[1], "".join(segments[2:])]
 
 
 def _success_log_payload(message, intent, decision, reply: FinalReply) -> dict:

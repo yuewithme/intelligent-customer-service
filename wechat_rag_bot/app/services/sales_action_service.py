@@ -114,8 +114,12 @@ def apply_sales_action(
         "pain_point": "为了给您更准确的建议，",
         "plant_count": "具体用量要结合您的实际使用数量判断，",
     }[decision.question_slot]
+    follow_up = f"{bridge}{question}"
     return reply.model_copy(
-        update={"answer": f"{reply.answer.rstrip()}{bridge}{question}"}
+        update={
+            "answer": f"{reply.answer.rstrip()}{follow_up}",
+            "answer_segments": [reply.answer.strip(), follow_up],
+        }
     )
 
 
