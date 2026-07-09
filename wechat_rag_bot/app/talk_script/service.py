@@ -18,6 +18,40 @@ from app.talk_script.repository import (
 
 Classifier = Callable[..., Awaitable[ClassifierDecision]]
 
+CRITICAL_HUMAN_REASONS = (
+    "human",
+    "manual",
+    "refund",
+    "return",
+    "cancel",
+    "complaint",
+    "report",
+    "compensation",
+    "resend",
+    "replace",
+    "order",
+    "payment",
+    "logistics",
+    "dosage",
+    "mixing",
+    "人工",
+    "退款",
+    "退货",
+    "取消",
+    "投诉",
+    "举报",
+    "赔付",
+    "赔偿",
+    "补发",
+    "换货",
+    "订单",
+    "支付",
+    "物流",
+    "药剂剂量",
+    "混用",
+    "配比",
+)
+
 
 async def match_talk_script(
     *,
@@ -54,9 +88,7 @@ async def match_talk_script(
         questions=questions,
     )
     if not candidates:
-        result = await _handoff(
-            customer_id=customer_id,
-            current_message=current_message,
+        result = _pass_through(
             scene_id=scene_id,
             candidate_question_ids=[],
             reason="no_candidate_questions",
@@ -81,17 +113,39 @@ async def match_talk_script(
     )
     candidate_ids = [candidate.question_id for candidate in candidates]
 
-    if decision.need_human or decision.need_slot_filling or not decision.matched:
-        reason = (
-            "need_human"
-            if decision.need_human
-            else "need_slot_filling"
-            if decision.need_slot_filling
-            else "classifier_unmatched"
+    if decision.need_human:
+        if _is_critical_human_request(current_message, decision.reason):
+            result = await _handoff(
+                customer_id=customer_id,
+                current_message=current_message,
+                scene_id=scene_id,
+                candidate_question_ids=candidate_ids,
+                reason="need_human",
+                confidence=decision.confidence,
+                need_slot_filling=decision.need_slot_filling,
+            )
+        else:
+            result = _pass_through(
+                scene_id=scene_id,
+                candidate_question_ids=candidate_ids,
+                reason="need_human_non_critical",
+                confidence=decision.confidence,
+                need_slot_filling=decision.need_slot_filling,
+            )
+        _record_result(
+            result,
+            trace_id,
+            customer_id,
+            session_id,
+            current_message,
+            normalized_message,
+            match_reason=decision.reason,
         )
-        result = await _handoff(
-            customer_id=customer_id,
-            current_message=current_message,
+        return result
+
+    if decision.need_slot_filling or not decision.matched:
+        reason = "need_slot_filling" if decision.need_slot_filling else "classifier_unmatched"
+        result = _pass_through(
             scene_id=scene_id,
             candidate_question_ids=candidate_ids,
             reason=reason,
@@ -111,9 +165,7 @@ async def match_talk_script(
 
     question = get_active_question(decision.question_id or "")
     if question is None:
-        result = await _handoff(
-            customer_id=customer_id,
-            current_message=current_message,
+        result = _pass_through(
             scene_id=scene_id,
             candidate_question_ids=candidate_ids,
             reason="question_not_found",
@@ -131,9 +183,7 @@ async def match_talk_script(
         return result
 
     if decision.confidence < question.confidence_threshold:
-        result = await _handoff(
-            customer_id=customer_id,
-            current_message=current_message,
+        result = _pass_through(
             scene_id=scene_id,
             candidate_question_ids=candidate_ids,
             reason="confidence_below_threshold",
@@ -153,9 +203,7 @@ async def match_talk_script(
 
     template = get_active_template(question.default_template_id)
     if template is None:
-        result = await _handoff(
-            customer_id=customer_id,
-            current_message=current_message,
+        result = _pass_through(
             scene_id=scene_id,
             candidate_question_ids=candidate_ids,
             reason="template_not_found",
@@ -220,6 +268,31 @@ async def match_talk_script(
         match_reason=decision.reason,
     )
     return result
+
+
+def _is_critical_human_request(text: str, reason: str | None = None) -> bool:
+    haystack = f"{text or ''} {reason or ''}".lower()
+    return any(word.lower() in haystack for word in CRITICAL_HUMAN_REASONS)
+
+
+def _pass_through(
+    *,
+    scene_id: str | None,
+    candidate_question_ids: list[str],
+    reason: str,
+    confidence: float = 0.0,
+    need_slot_filling: bool = False,
+) -> TalkScriptMatchResult:
+    return TalkScriptMatchResult(
+        status="pass_through",
+        scene_id=scene_id,
+        answer="",
+        confidence=confidence,
+        need_slot_filling=need_slot_filling,
+        need_human=False,
+        reason=reason,
+        candidate_question_ids=candidate_question_ids,
+    )
 
 
 async def _handoff(

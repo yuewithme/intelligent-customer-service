@@ -100,6 +100,35 @@ async def test_build_tag_result_extracts_customer_memory_tags_from_message_and_s
 
 
 @pytest.mark.asyncio
+async def test_build_tag_result_does_not_carry_high_risk_into_normal_care_question():
+    message = NormalizedMessage(
+        trace_id="trace_risk",
+        channel="api",
+        user_id="user_risk",
+        session_id="sess_risk",
+        message="root rot and yellow leaves, what should I do?",
+        kb_id="kb_default",
+        metadata={},
+    )
+    state = UserState(
+        user_id="user_risk",
+        session_id="sess_risk",
+        risk_level="high",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="orchid_care",
+        confidence=0.9,
+        need_rag=True,
+        reason="normal care question",
+    )
+
+    result = await build_tag_result(message=message, user_state=state, intent=intent)
+
+    assert result.risk_level == "normal"
+
+
+@pytest.mark.asyncio
 async def test_build_tag_result_extracts_region_and_plant_count_from_raw_message():
     message = NormalizedMessage(
         trace_id="trace_3",

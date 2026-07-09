@@ -117,6 +117,133 @@ def test_import_excel_loads_valid_talk_script_library(talk_script_db, tmp_path):
     assert template.answer_default == "收到后先不要急着换盆。"
 
 
+def _seed_single_talk_script_question():
+    from app.talk_script.repository import replace_talk_script_library
+
+    replace_talk_script_library(
+        scenes=[
+            {
+                "scene_id": "S04",
+                "scene_name": "care",
+                "typical_user_messages": "care orchid root leaf fertilizer refund",
+                "priority": 60,
+                "status": "active",
+            }
+        ],
+        questions=[
+            {
+                "question_id": "Q04_01_001",
+                "scene_id": "S04",
+                "standard_question": "care question",
+                "keywords": "care root leaf fertilizer refund",
+                "default_template_id": "T04_01_001",
+                "confidence_threshold": 0.75,
+                "priority": 80,
+                "status": "active",
+            }
+        ],
+        templates=[
+            {
+                "template_id": "T04_01_001",
+                "question_id": "Q04_01_001",
+                "answer_default": "care answer",
+                "status": "active",
+            }
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_match_talk_script_passes_through_when_classifier_needs_slot_filling(
+    talk_script_db,
+):
+    from app.talk_script.models import ClassifierDecision
+    from app.talk_script.service import match_talk_script
+
+    _seed_single_talk_script_question()
+
+    async def classifier(**kwargs):
+        del kwargs
+        return ClassifierDecision(
+            matched=False,
+            question_id=None,
+            confidence=0.0,
+            need_slot_filling=True,
+            need_human=False,
+            reason="missing key care details",
+        )
+
+    result = await match_talk_script(
+        customer_id="cust_slot",
+        current_message="care fertilizer",
+        classifier=classifier,
+    )
+
+    assert result.status == "pass_through"
+    assert result.need_human is False
+    assert result.reason == "need_slot_filling"
+
+
+@pytest.mark.asyncio
+async def test_match_talk_script_passes_through_when_classifier_marks_care_issue_human(
+    talk_script_db,
+):
+    from app.talk_script.models import ClassifierDecision
+    from app.talk_script.service import match_talk_script
+
+    _seed_single_talk_script_question()
+
+    async def classifier(**kwargs):
+        del kwargs
+        return ClassifierDecision(
+            matched=False,
+            question_id=None,
+            confidence=0.9,
+            need_slot_filling=False,
+            need_human=True,
+            reason="severe orchid care issue",
+        )
+
+    result = await match_talk_script(
+        customer_id="cust_care_handoff",
+        current_message="care root leaf problem",
+        classifier=classifier,
+    )
+
+    assert result.status == "pass_through"
+    assert result.need_human is False
+    assert result.reason == "need_human_non_critical"
+
+
+@pytest.mark.asyncio
+async def test_match_talk_script_keeps_handoff_for_refund_request(talk_script_db):
+    from app.talk_script.models import ClassifierDecision
+    from app.talk_script.service import match_talk_script
+
+    _seed_single_talk_script_question()
+
+    async def classifier(**kwargs):
+        del kwargs
+        return ClassifierDecision(
+            matched=False,
+            question_id=None,
+            confidence=0.95,
+            need_slot_filling=False,
+            need_human=True,
+            reason="refund requested",
+        )
+
+    result = await match_talk_script(
+        customer_id="cust_refund",
+        current_message="refund and human support",
+        classifier=classifier,
+    )
+
+    assert result.status == "handoff"
+    assert result.need_human is True
+    assert result.reason == "need_human"
+
+
 @pytest.mark.asyncio
 async def test_match_talk_script_routes_common_price_objection_to_trade_scene(
     talk_script_db,
@@ -320,7 +447,7 @@ async def test_match_talk_script_passes_through_when_template_already_sent_to_cu
 
 
 @pytest.mark.asyncio
-async def test_match_talk_script_handoffs_when_confidence_is_low(talk_script_db):
+async def test_match_talk_script_passes_through_when_confidence_is_low(talk_script_db):
     from app.talk_script.models import ClassifierDecision
     from app.talk_script.repository import replace_talk_script_library
     from app.talk_script.service import match_talk_script
@@ -372,8 +499,8 @@ async def test_match_talk_script_handoffs_when_confidence_is_low(talk_script_db)
         classifier=classifier,
     )
 
-    assert result.status == "handoff"
-    assert result.need_human is True
+    assert result.status == "pass_through"
+    assert result.need_human is False
     assert result.answer == ""
     assert result.reason == "confidence_below_threshold"
 

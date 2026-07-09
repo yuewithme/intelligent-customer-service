@@ -223,15 +223,22 @@ async def test_template_reply_falls_back_to_default_template(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_template_reply_missing_default_template_handoffs(monkeypatch):
+async def test_template_reply_missing_default_template_falls_back_to_rag(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def pass_talk_script(**kwargs):
         del kwargs
         return TalkScriptMatchResult(status="pass_through")
 
+    async def answer_knowledge(message, user_state, policy_decision=None):
+        del message, user_state, policy_decision
+        return {
+            "answer": "I can recommend one first. Are you looking for an easy beginner plant or a stronger fragrance?",
+            "sources": [],
+        }
+
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
-    monkeypatch.setattr(reply_workflow_graph, "build_handoff_reply", _handoff_reply)
+    monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
     reply = await reply_workflow_graph.build_reply_with_graph(
         route="template_reply",
@@ -242,10 +249,10 @@ async def test_template_reply_missing_default_template_handoffs(monkeypatch):
     )
 
     _assert_reply(reply)
-    assert reply.route == "human"
-    assert reply.reply_type == "human"
-    assert reply.need_human is True
-    assert reply.metadata["handoff"]["reason"] == "template_not_matched_to_handoff"
+    assert reply.route == "rag_answer"
+    assert reply.reply_type == "rag"
+    assert reply.need_human is False
+    assert "recommend" in reply.answer
 
 
 @pytest.mark.asyncio

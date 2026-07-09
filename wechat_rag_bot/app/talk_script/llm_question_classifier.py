@@ -76,10 +76,11 @@ def _build_prompt(
 1. 只能从候选 question_id 中选择。
 2. 如果没有合适候选，输出 matched=false。
 3. 如果用户问题信息不足，输出 need_slot_filling=true。
-4. 如果用户描述售后异常、投诉、退款、苗情严重问题，优先判断 need_human=true。
-5. 不能自由生成客服回复。
-6. 必须参考 positive_examples 和 negative_examples。
-7. 如果候选都不合适，必须返回 matched=false，不要硬选。
+4. 只有用户明确要求人工、退款、退货、赔付、补发、投诉、举报或订单纠纷时，才输出 need_human=true。
+5. 黑斑、黄叶、烂根、腐苗、快死了、不开花、不会养，如果只是咨询养护或需要判断原因，不要输出 need_human=true；信息不足时输出 need_slot_filling=true，让后续大模型自然追问。
+6. 不能自由生成客服回复。
+7. 必须参考 positive_examples 和 negative_examples。
+8. 如果候选都不合适，必须返回 matched=false，不要硬选。
 
 当前用户消息：
 {current_message}

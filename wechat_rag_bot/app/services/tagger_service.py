@@ -147,10 +147,9 @@ def _emotion_from_message(text: str) -> str:
 
 
 def _risk_from(intent: IntentResult, user_state: UserState) -> str:
+    del user_state
     if intent.need_human or intent.primary_intent in {"complaint", "refund_request", "human_request"}:
         return "high"
-    if user_state.risk_level and user_state.risk_level != "normal":
-        return user_state.risk_level
     return "normal"
 
 

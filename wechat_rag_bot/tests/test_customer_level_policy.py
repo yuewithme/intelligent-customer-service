@@ -116,7 +116,7 @@ async def test_tagger_keeps_existing_customer_level_when_message_has_no_new_evid
 
 
 @pytest.mark.asyncio
-async def test_policy_uses_l1_l3_prompt_blocks_and_hands_off_l4_l6():
+async def test_policy_uses_l1_l3_prompt_blocks_and_keeps_l4_l6_in_rag():
     l2_tag = TagResult(
         intent="orchid_care",
         route="rag_answer",
@@ -137,6 +137,6 @@ async def test_policy_uses_l1_l3_prompt_blocks_and_hands_off_l4_l6():
 
     assert "customer_level.l2.identity" in l2_decision.prompt_block_ids
     assert "customer_level.l2.recommendation" in l2_decision.prompt_block_ids
-    assert l5_decision.route == "human"
-    assert l5_decision.action == "human"
-    assert l5_decision.reason == "advanced_customer_level_to_human"
+    assert l5_decision.route == "rag_answer"
+    assert l5_decision.action == "rag_answer"
+    assert l5_decision.reason == "advanced_customer_level_professional_rag"

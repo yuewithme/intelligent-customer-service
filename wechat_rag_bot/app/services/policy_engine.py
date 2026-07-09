@@ -12,14 +12,25 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
     business_tag_prompt_blocks = get_business_tag_prompt_block_ids(tag.labels)
     advanced_level = advanced_customer_level_from_labels(tag.labels)
 
-    if advanced_level is not None:
+    if advanced_level is not None and tag.route != "human" and tag.risk_level != "high":
         return PolicyDecision(
-            route="human",
-            action="human",
-            reason="advanced_customer_level_to_human",
+            route="rag_answer",
+            action="rag_answer",
+            reason="advanced_customer_level_professional_rag",
             original_route=tag.route,
-            next_action="human_handoff",
-            template_ids=[f"handoff_customer_level_{advanced_level.lower()}"],
+            prompt_block_ids=[
+                "base.customer_service",
+                "tone.concise_professional",
+                *customer_level_prompt_blocks,
+                *business_tag_prompt_blocks,
+                "output.customer_reply",
+            ],
+            context_policy={
+                "recent_turns": 6,
+                "include_profile_summary": True,
+                "include_long_memory_summary": True,
+            },
+            retrieval_policy={},
         )
 
     if tag.risk_level == "high" or tag.route == "human":

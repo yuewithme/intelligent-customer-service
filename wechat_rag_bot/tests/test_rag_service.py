@@ -237,6 +237,22 @@ def test_rag_prompt_discourages_metadata_and_truncated_chunks():
     assert "直接输出可发送给用户的完整客服话术" in prompt
 
 
+def test_rag_prompt_uses_minimal_natural_followup_rule():
+    prompt = rag_service.PROMPT_TEMPLATE.format(
+        context="兰花养护资料",
+        question="黑斑黄叶腐苗，去年全军覆没",
+    )
+    fallback_prompt = rag_service.LLM_FALLBACK_PROMPT_TEMPLATE.format(
+        question="那您推荐一款吧"
+    )
+
+    for value in (prompt, fallback_prompt):
+        assert "信息不足时" in value
+        assert "自然追问 1-2 个关键问题" in value
+        assert "不要像表单" in value
+        assert "不要直接转人工" in value
+
+
 @pytest.mark.asyncio
 async def test_rag_prompt_includes_sales_action_constraints():
     from app.schemas.context import ContextPackage
