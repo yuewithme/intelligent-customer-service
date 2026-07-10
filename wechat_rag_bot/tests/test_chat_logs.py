@@ -4,6 +4,36 @@ from app.config import get_settings
 from app.main import app
 
 
+def test_chat_log_metadata_keeps_reply_decision_trace_without_business_secrets():
+    from app.services.chat_log_service import sanitize_log_payload
+
+    payload = {
+        "user_message": "我刚付过了，怎么还显示失败？",
+        "answer": "系统当前显示支付失败，请先核对是否实际扣款。",
+        "metadata": {
+            "decision": {
+                "action": "template_reply",
+                "reason": "template_intent",
+                "trace": [
+                    {
+                        "source": "planner",
+                        "proposed_action": "template_reply",
+                        "reason": "template_intent",
+                    }
+                ],
+                "business_facts": {"tool_state": {"payment_status": "failed"}},
+            },
+            "authorization": "Bearer secret",
+        },
+    }
+
+    record = sanitize_log_payload(payload)
+
+    assert record["metadata"]["decision"]["trace"][0]["source"] == "planner"
+    assert "business_facts" not in record["metadata"]["decision"]
+    assert "authorization" not in record["metadata"]
+
+
 def _reset_settings(monkeypatch, tmp_path, *, enabled: bool = True, auth: bool = False):
     db_path = tmp_path / "chat_logs.db"
     app_db_path = tmp_path / "rag.db"
@@ -362,6 +392,7 @@ def test_chat_api_generates_log_without_changing_legacy_fields(monkeypatch, tmp_
     assert response.status_code == 200
     data = response.json()["data"]
     assert {"answer", "session_id", "sources", "usage"}.issubset(data)
+    assert "decision" not in data["metadata"]
 
     logs = client.get("/api/v1/admin/chat-logs", params={"user_id": "user_001"})
     assert logs.status_code == 200
@@ -369,6 +400,13 @@ def test_chat_api_generates_log_without_changing_legacy_fields(monkeypatch, tmp_
     logged = logs.json()["data"]["items"][0]
     assert logged["answer"] == data["answer"]
     assert logged["latency_ms"] >= 0
+
+    detail = client.get(f"/api/v1/admin/chat-logs/{data['trace_id']}")
+    assert detail.status_code == 200
+    decision = detail.json()["data"]["metadata"]["decision"]
+    assert decision["action"]
+    assert decision["trace"][-1]["source"] == "planner"
+    assert "business_facts" not in decision
 
 
 def test_failed_chat_request_generates_failed_log(monkeypatch, tmp_path):

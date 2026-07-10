@@ -19,6 +19,8 @@ async def test_chat_response_contains_tag_and_policy_metadata():
 
     assert "tag_result" in result["metadata"]
     assert "policy_decision" in result["metadata"]
+    assert "decision" not in result["metadata"]
+    assert "reply_plan" not in result["metadata"]
     assert result["metadata"]["tag_result"]["segment"] == "beginner"
     assert result["metadata"]["policy_decision"]["action"] in {
         "rag_answer",

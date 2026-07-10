@@ -13,6 +13,8 @@ from app.db.models import Base, ChatLogModel
 
 logger = logging.getLogger("wechat_rag_bot.chat_logs")
 SENSITIVE_KEYS = {"token", "password", "api_key", "secret", "authorization"}
+DECISION_KEYS = {"action", "reason", "original_route", "trace"}
+DECISION_TRACE_KEYS = {"source", "proposed_action", "reason", "accepted"}
 _sessionmakers: dict[str, sessionmaker] = {}
 
 
@@ -21,6 +23,9 @@ def sanitize_log_payload(payload: dict) -> dict:
     sanitized = _sanitize_value(payload)
     if not isinstance(sanitized, dict):
         return {}
+    metadata = sanitized.get("metadata")
+    if isinstance(metadata, dict) and isinstance(metadata.get("decision"), dict):
+        metadata["decision"] = _sanitize_decision(metadata["decision"])
     if isinstance(sanitized.get("user_message"), str):
         sanitized["user_message"] = sanitized["user_message"][
             : settings.chat_log_max_message_length
@@ -28,6 +33,20 @@ def sanitize_log_payload(payload: dict) -> dict:
     if isinstance(sanitized.get("answer"), str):
         sanitized["answer"] = sanitized["answer"][: settings.chat_log_max_answer_length]
     return sanitized
+
+
+def _sanitize_decision(decision: dict) -> dict:
+    reduced = {key: decision[key] for key in DECISION_KEYS if key in decision}
+    trace = reduced.get("trace")
+    if isinstance(trace, list):
+        reduced["trace"] = [
+            {key: step[key] for key in DECISION_TRACE_KEYS if key in step}
+            for step in trace
+            if isinstance(step, dict)
+        ]
+    else:
+        reduced["trace"] = []
+    return reduced
 
 
 async def record_chat_log(log: dict) -> None:

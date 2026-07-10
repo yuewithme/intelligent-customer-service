@@ -268,6 +268,7 @@ def _to_chat_data(
     template = {}
     if reply.template_id:
         template = {"template_id": reply.template_id}
+    public_metadata = _public_reply_metadata(reply.metadata)
     return {
         "answer": reply.answer,
         "session_id": session_id,
@@ -281,9 +282,33 @@ def _to_chat_data(
         "need_human": reply.need_human,
         "next_action": reply.next_action,
         "trace_id": trace_id,
-        "metadata": reply.metadata,
+        "metadata": public_metadata,
         "handoff": _legacy_handoff(reply.metadata.get("handoff")),
     }
+
+
+def _public_reply_metadata(metadata: dict) -> dict:
+    internal_keys = {
+        "business_context",
+        "business_facts",
+        "decision",
+        "reply_plan",
+        "tool_state",
+    }
+
+    def strip(value):
+        if isinstance(value, dict):
+            return {
+                key: strip(item)
+                for key, item in value.items()
+                if str(key).lower() not in internal_keys
+            }
+        if isinstance(value, list):
+            return [strip(item) for item in value]
+        return value
+
+    cleaned = strip(metadata)
+    return cleaned if isinstance(cleaned, dict) else {}
 
 
 def _legacy_handoff(handoff: dict | None) -> dict | None:
