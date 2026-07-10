@@ -6,10 +6,8 @@
 |---|---|---:|---|
 | 真实单轮 | `single_turn.jsonl` | 30 | 10个真实案例的关键决策节点 |
 | 真实多轮 | `multi_turn.jsonl` | 10 | 每个真实案例一条完整任务 |
-| 派生边界 | `boundary.jsonl` | 15 | 基于真实场景改变一个业务条件 |
+| 边界场景 | `boundary.jsonl` | 15 | 订单、活动、权限等业务边界 |
 | 合计 |  | 55 |  |
-
-`source_type=real`表示题目来自案例事实；`source_type=derived`表示为测试边界而构造，不得当作真实聊天。
 
 统一的人工或LLM裁判方法见`judge_protocol.md`。
 
@@ -64,8 +62,8 @@
 ## 构建与验证
 
 ```powershell
-node docs/evaluation/dataset_v1/build_dataset.mjs
-node docs/evaluation/dataset_v1/validate_dataset.mjs
+node docs/evaluation/dataset_v2/build_dataset.mjs
+node docs/evaluation/dataset_v2/validate_dataset.mjs
 ```
 
-构建脚本是数据源，生成三个JSONL文件；验证脚本检查数量、ID、字段、分值、能力代码、来源类型和数据隔离字段。
+构建脚本是数据源，生成三个JSONL文件；验证脚本检查数量、ID、字段、分值、能力代码和案例覆盖。

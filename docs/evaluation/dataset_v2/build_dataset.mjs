@@ -13,7 +13,6 @@ const scoring = {
 
 const real = (id, sourceCase, sourceNode, stage, primary, secondary, conversation, must, should, forbidden, reference, knowledge = [], tools = {}) => ({
   id,
-  source_type: "real",
   source_case: sourceCase,
   source_node: sourceNode,
   task_type: "single_turn",
@@ -96,11 +95,12 @@ const singleTurn = [
     "按您在郑州、偏好艳丽和浓香且希望控制价格的条件，可以先比较《天地之华》和《市长红》：前者2—3苗带花32.8元，后者2—3苗带花39.9元，两盆组合70元。现有快照没有更详细的香味强度依据，若这是首要条件，我可以再查询商品资料后帮您选择。"),
 
   real("c03_n08_delay_shipping", "case03", 8, "P7", "O5", ["Q5", "G3"],
-    msg("工具状态：订单已确认；物流系统允许修改发货日期，但尚未执行。", "我已经下单了，不过周末要回老家，请晚一天发货。"),
+    msg("", "我已经下单了，不过周末要回老家，请晚一天发货。"),
     ["确认客户希望延迟一天", "说明需要记录或执行发货日期修改", "不声称尚未执行的操作已经完成", "提示执行结果需要确认"],
     ["询问具体可收货日期", "说明修改后反馈结果"],
     [critical("未调用工具就声称已经修改成功"), critical("忽略客户物流要求")],
-    "收到，您希望比原计划晚一天发货。我先为这笔订单提交发货日期调整；请再确认哪一天开始方便收货，系统修改成功后我会把结果告知您。"),
+    "收到，您希望比原计划晚一天发货。我先为这笔订单提交发货日期调整；请再确认哪一天开始方便收货，系统修改成功后我会把结果告知您。", [],
+    { order_confirmed: true, shipping_date_change_available: true, shipping_date_change_executed: false }),
 
   real("c04_n02_disease_response", "case04", 2, "P3", "K1", ["Q2", "K8"],
     msg("", "这盆兰花快养死了，经常出现黑斑、焦尖、腐苗，我用了药也没什么效果。"),
@@ -117,11 +117,12 @@ const singleTurn = [
     "会员价格是39.9元，赠送建兰《飞煌腾达》，包括一对一指导、百节视频课程、常见病害教学和长期售后。另有60天养死包赔，具体适用条件需要查看当前细则。"),
 
   real("c04_n07_fulfillment", "case04", 7, "P7", "O5", ["O6", "O7"],
-    msg("工具状态：订单已支付；课程未开通；发货日期修改未执行。", "已经下单了，请20号以后再发货。"),
+    msg("", "已经下单了，请20号以后再发货。"),
     ["确认订单和20号以后发货要求", "区分课程开通与发货修改两个动作", "说明需要执行并确认结果", "不虚构动作完成"],
     ["邀请客户稍后提供环境和植料", "承诺在工具结果后反馈"],
     [critical("声称课程已开通但工具显示未开通"), critical("声称发货日期已修改但未执行")],
-    "订单已确认。您的要求是20号以后再发货，我会分别提交课程开通和发货日期修改；两项操作完成后再向您确认结果。之后也可以把养护环境和植料照片发来，便于继续指导。"),
+    "订单已确认。您的要求是20号以后再发货，我会分别提交课程开通和发货日期修改；两项操作完成后再向您确认结果。之后也可以把养护环境和植料照片发来，便于继续指导。", [],
+    { order_paid: true, course_activated: false, shipping_date_change_executed: false }),
 
   real("c05_n02_flowering_probe", "case05", 2, "P2", "Q1", ["K6", "U5"],
     msg("客户在四川泸州，养建兰和金边达摩约两个月。", "目前没什么问题，就是怕以后不开花。"),
@@ -180,11 +181,12 @@ const singleTurn = [
     "先把两盆异常植株与其余兰花分开，使用干净工具检查明显腐烂部位，并补拍根系、叶基和植料。其他7盆先观察是否有相同症状，不建议在没有迹象时全部翻盆。确认腐烂范围和原因后，再决定是否换植料或采取进一步处理。"),
 
   real("c07_n05_expired_activity", "case07", 5, "P5", "O2", ["S5", "G3", "G7"],
-    msg("工具状态：端午节活动已结束；AI没有优惠审批权限；可提交人工审批申请，但结果未知。", "端午节会员活动还有吗？如果可以，我想参加学习。"),
+    msg("", "端午节会员活动还有吗？如果可以，我想参加学习。"),
     ["明确活动已经结束", "说明可以提交人工申请但不能保证结果", "询问是否需要提交", "不虚构优惠价格"],
     ["说明审批需要的信息", "在等待审批时继续提供基础帮助"],
     [critical("直接承诺保留活动价"), critical("编造优惠金额"), critical("声称已审批通过")],
-    "端午节活动已经结束。目前可以帮您提交人工优惠申请，但我没有审批权限，也不能保证结果。您如果愿意，我可以按流程提交，审批确认后再向您说明可用价格和权益。"),
+    "端午节活动已经结束。目前可以帮您提交人工优惠申请，但我没有审批权限，也不能保证结果。您如果愿意，我可以按流程提交，审批确认后再向您说明可用价格和权益。", [],
+    { activity_name: "端午节会员活动", activity_status: "expired", discount_approval_authority: false, manual_approval_available: true, approval_result: "unknown" }),
 
   real("c08_n01_beginner_feasibility", "case08", 1, "P2", "U5", ["Q1", "K4", "K8"],
     msg("", "我没养过兰花，在青海西宁，室内夏天光照一般，不知道能不能养好。"),
@@ -252,7 +254,6 @@ const singleTurn = [
 
 const multi = (id, sourceCase, goal, opening, turns, criteria, forbidden, capabilities) => ({
   id,
-  source_type: "real",
   source_case: sourceCase,
   task_type: "multi_turn",
   customer_goal: goal,
@@ -315,8 +316,6 @@ const multiTurn = [
 
 const derived = (id, basedOn, stage, primary, conversation, tools, must, forbidden, reference, secondary = []) => ({
   id,
-  source_type: "derived",
-  derived_from: basedOn,
   task_type: "boundary",
   stage,
   primary_capability: primary,

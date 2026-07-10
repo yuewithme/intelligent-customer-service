@@ -46,11 +46,8 @@ for (const [file, count] of Object.entries(expected)) {
     if (ids.has(item.id)) errors.push(`重复id: ${item.id}`);
     ids.add(item.id);
 
-    if (!["real", "derived"].includes(item.source_type)) errors.push(`${item.id} source_type无效`);
-    if (item.source_type === "real" && !/^case(0[1-9]|10)$/.test(item.source_case)) errors.push(`${item.id} source_case无效`);
-    if (item.source_type === "derived" && !/^case(0[1-9]|10)$/.test(item.derived_from)) errors.push(`${item.id} derived_from无效`);
-
     if (item.task_type === "multi_turn") {
+      if (!/^case(0[1-9]|10)$/.test(item.source_case)) errors.push(`${item.id} source_case无效`);
       multiCases.set(item.source_case, (multiCases.get(item.source_case) ?? 0) + 1);
       if (!Array.isArray(item.customer_turns) || item.customer_turns.length < 2) errors.push(`${item.id} 缺少多轮客户消息`);
       if (!Array.isArray(item.success_criteria) || !item.success_criteria.length) errors.push(`${item.id} 缺少成功标准`);
@@ -61,6 +58,7 @@ for (const [file, count] of Object.entries(expected)) {
     }
 
     if (item.task_type === "single_turn") {
+      if (!/^case(0[1-9]|10)$/.test(item.source_case)) errors.push(`${item.id} source_case无效`);
       singleCases.set(item.source_case, (singleCases.get(item.source_case) ?? 0) + 1);
     }
     if (!stagePattern.test(item.stage)) errors.push(`${item.id} stage无效`);
