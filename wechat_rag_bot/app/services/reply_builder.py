@@ -49,9 +49,14 @@ def build_template_then_rag_reply(
 
 
 def build_clarify_reply(intent: IntentResult) -> FinalReply:
-    del intent
+    if intent.primary_intent in {"care_question", "knowledge_question"}:
+        answer = "我先帮您缩小排查范围。现在主要是黄叶、烂根、黑斑，还是不开花？"
+    elif intent.primary_intent in {"order_intent", "ask_price", "price_objection"}:
+        answer = "可以的，我先按您的情况帮您缩小范围。您更看重好养、花香，还是预算合适？"
+    else:
+        answer = "我先确认一下，您现在最想解决的是哪一个具体问题？可以直接说当前情况或想了解的内容。"
     return FinalReply(
-        answer="我理解你的意思，不过想确认一下，你主要是想了解价格、养护方法、发货售后，还是想直接咨询人工？",
+        answer=answer,
         reply_type="clarify",
         route="clarify",
     )

@@ -44,9 +44,8 @@ async def decide_route(
         return _handoff_decision("human_required", "human")
     if intent.route == "clarify":
         return PolicyDecision(
-            route="rag_answer",
-            reason="clarify_to_llm_fallback",
-            fallback_route="clarify",
+            route="clarify",
+            reason="clarify_missing_information",
             original_route="clarify",
         )
     if intent.route == "unsupported":

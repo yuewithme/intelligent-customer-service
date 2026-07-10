@@ -18,7 +18,7 @@ def _message() -> NormalizedMessage:
 
 
 @pytest.mark.asyncio
-async def test_clarify_intent_uses_rag_fallback_instead_of_handoff():
+async def test_clarify_intent_stays_clarify_without_rag_or_handoff():
     intent = IntentResult(
         route="clarify",
         primary_intent="unknown",
@@ -28,8 +28,8 @@ async def test_clarify_intent_uses_rag_fallback_instead_of_handoff():
 
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
-    assert decision.route == "rag_answer"
-    assert decision.reason == "clarify_to_llm_fallback"
+    assert decision.route == "clarify"
+    assert decision.reason == "clarify_missing_information"
     assert decision.original_route == "clarify"
     assert decision.next_action is None
 

@@ -29,11 +29,6 @@ CRITICAL_HUMAN_REASONS = (
     "compensation",
     "resend",
     "replace",
-    "order",
-    "payment",
-    "logistics",
-    "dosage",
-    "mixing",
     "人工",
     "退款",
     "退货",
@@ -44,12 +39,6 @@ CRITICAL_HUMAN_REASONS = (
     "赔偿",
     "补发",
     "换货",
-    "订单",
-    "支付",
-    "物流",
-    "药剂剂量",
-    "混用",
-    "配比",
 )
 
 
@@ -271,7 +260,8 @@ async def match_talk_script(
 
 
 def _is_critical_human_request(text: str, reason: str | None = None) -> bool:
-    haystack = f"{text or ''} {reason or ''}".lower()
+    del reason
+    haystack = (text or "").lower()
     return any(word.lower() in haystack for word in CRITICAL_HUMAN_REASONS)
 
 

@@ -322,12 +322,7 @@ async def _build_reply(
         stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
         stage_latencies.setdefault("template_ms", 0)
         if _is_rag_no_answer(rag_result):
-            return await build_handoff_reply(
-                message=message,
-                intent=intent,
-                reason="rag_no_answer_to_handoff",
-                original_route="rag_answer",
-            )
+            return build_clarify_reply(intent)
         return build_rag_reply(rag_result, intent)
     if route == "template_then_rag":
         from app.services.rag_service import answer_knowledge
@@ -341,12 +336,7 @@ async def _build_reply(
         )
         stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
         if _is_rag_no_answer(rag_result):
-            return await build_handoff_reply(
-                message=message,
-                intent=intent,
-                reason="rag_no_answer_to_handoff",
-                original_route="template_then_rag",
-            )
+            return build_clarify_reply(intent)
         return build_rag_reply(rag_result, intent)
     stage_latencies.setdefault("template_ms", 0)
     stage_latencies.setdefault("rag_ms", 0)

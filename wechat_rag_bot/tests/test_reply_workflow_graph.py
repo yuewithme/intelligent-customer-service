@@ -154,7 +154,7 @@ async def test_rag_answer_with_answer_returns_rag_reply(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rag_answer_without_answer_handoffs(monkeypatch):
+async def test_rag_answer_without_answer_clarifies(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def pass_talk_script(**kwargs):
@@ -167,7 +167,6 @@ async def test_rag_answer_without_answer_handoffs(monkeypatch):
 
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
-    monkeypatch.setattr(reply_workflow_graph, "build_handoff_reply", _handoff_reply)
 
     reply = await reply_workflow_graph.build_reply_with_graph(
         route="rag_answer",
@@ -178,11 +177,10 @@ async def test_rag_answer_without_answer_handoffs(monkeypatch):
     )
 
     _assert_reply(reply)
-    assert reply.route == "human"
-    assert reply.reply_type == "human"
-    assert reply.need_human is True
-    assert reply.metadata["handoff"]["reason"] == "rag_no_answer_to_handoff"
-    assert reply.metadata["original_route"] == "rag_answer"
+    assert reply.route == "clarify"
+    assert reply.reply_type == "clarify"
+    assert reply.need_human is False
+    assert reply.answer
 
 
 @pytest.mark.asyncio

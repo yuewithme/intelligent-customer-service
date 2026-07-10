@@ -28,14 +28,14 @@ def test_rag_no_answer_detection_keeps_llm_fallback_without_sources():
     assert _is_rag_no_answer({"answer": "知识库中没有找到明确答案。", "sources": []}) is True
 
 
-def test_unclear_input_routes_to_llm_fallback_with_original_route():
+def test_unclear_input_stays_in_clarify_route():
     data = _chat("乱七八糟不明确输入", "intent_route_clarify")
 
     assert data["answer"]
-    assert data["route"] == "rag_answer"
+    assert data["route"] == "clarify"
     assert data["need_human"] is False
     assert data["intent"]["slots"]["original_route"] == "clarify"
-    assert data["intent"]["reason"] == "clarify_to_llm_fallback"
+    assert data["intent"]["reason"] == "clarify_missing_information"
 
 
 def test_refund_routes_to_human_without_normal_reply():

@@ -120,11 +120,7 @@ async def rag_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
     stage_latencies.setdefault("template_ms", 0)
     if _is_rag_no_answer(rag_result):
-        return {
-            "handoff_reason": "rag_no_answer_to_handoff",
-            "handoff_original_route": "rag_answer",
-            "handoff_context": None,
-        }
+        return {"reply": build_clarify_reply(state["intent"])}
     return {"reply": build_rag_reply(rag_result, state["intent"])}
 
 
@@ -142,11 +138,7 @@ async def template_then_rag_node(state: ReplyWorkflowState) -> ReplyWorkflowStat
     )
     stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
     if _is_rag_no_answer(rag_result):
-        return {
-            "handoff_reason": "rag_no_answer_to_handoff",
-            "handoff_original_route": "template_then_rag",
-            "handoff_context": None,
-        }
+        return {"reply": build_clarify_reply(state["intent"])}
     return {"reply": build_rag_reply(rag_result, state["intent"])}
 
 
