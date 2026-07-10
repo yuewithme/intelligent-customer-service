@@ -51,6 +51,10 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
     async def get_user_state(user_id, session_id):
         return UserState(user_id=user_id, session_id=session_id)
 
+    async def get_profile_bundle(user_id):
+        del user_id
+        return {"profile": {}, "recent_memories": []}
+
     async def check_rules(message, user_state):
         del message, user_state
         return None
@@ -80,6 +84,7 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
 
     monkeypatch.setattr(chat_orchestrator, "normalize_chat_request", normalize_chat_request)
     monkeypatch.setattr(chat_orchestrator, "get_user_state", get_user_state)
+    monkeypatch.setattr(chat_orchestrator, "get_profile_bundle", get_profile_bundle)
     monkeypatch.setattr(chat_orchestrator, "check_rules", check_rules)
     monkeypatch.setattr(
         chat_orchestrator,

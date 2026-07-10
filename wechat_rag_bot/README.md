@@ -15,14 +15,18 @@
                   ↓
             Intent Router
                   ↓
-            Policy Engine
+      Policy / Tag / Sales Evidence
                   ↓
- Template Engine / Knowledge RAG / Clarify / Human
+            Reply Planner
                   ↓
-            Reply Builder
+              ReplyPlan
+                  ↓
+ LangGraph: Template / Business / RAG / Clarify / Human
                   ↓
              State Update
 ```
+
+回复决策只有一条权威链路：意图、规则、标签和销售阶段服务只产出证据，`reply_planner` 是唯一的优先级解析器，`ReplyPlan` 是内部执行契约，LangGraph 是唯一回复执行器。业务快照和工具状态只作为 `BusinessFacts` 输入，必须经过业务渲染器转换为客户语言，不能直接拼入答案。精简决策轨迹只写入管理日志，不向客户返回完整计划或工具状态。
 
 ## 本地启动
 
@@ -70,6 +74,8 @@ LLM_MODEL=doubao-seed-1-6-flash-250615
 
 RAG_LLM_PROVIDER=
 RAG_LLM_MODEL=
+BUSINESS_LLM_PROVIDER=
+BUSINESS_LLM_MODEL=
 INTENT_LLM_PROVIDER=
 INTENT_LLM_MODEL=
 TALK_SCRIPT_LLM_PROVIDER=
@@ -98,7 +104,9 @@ python -m app.scripts.import_talk_scripts "C:/Users/32456/Downloads/兰花私域
 
 ```text
 intent_service
-  -> policy_service
+  -> reply_planner
+  -> ReplyPlan
+  -> LangGraph
   -> talk_script_matcher
        matched: 返回固定 answer_default
        handoff: answer=""，need_human=true，next_action=human_handoff
@@ -178,17 +186,17 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
 
 意图识别模块只输出结构化 `IntentResult`，不直接生成回复，也不直接调用模板、RAG 或人工系统。当前版本规则优先，意图样本可辅助增强置信度，LLM JSON 分类仅预留在低置信场景，默认关闭。
 
-7 类 route 对应内部流程：
+意图层仍可产出以下 route 作为决策证据，最终执行动作由 `reply_planner` 统一解析：
 
 - `human`：人工、退款、投诉、强烈不满，直接转人工。
 - `template_reply`：价格、优惠、物流、售后、下单、付款，进入模板流程。
 - `rag_answer`：知识、流程、方法、资料、说明类问题，进入知识库 RAG。
-- `template_then_rag`：销售顾虑叠加知识担忧，模板和 RAG 都可用时组合回复。
+- `template_then_rag`：兼容的混合意图证据；规划器会规范化为单一 `rag_answer` 执行动作，并在 `original_route` 中保留来源。
 - `chitchat`：你好、在吗、谢谢等寒暄。
 - `clarify`：表达不清或规则低置信。
 - `unsupported`：明显业务外或不支持的问题。
 
-MVP 阶段先保证不乱答：`clarify`、`unsupported`、RAG 无答案、模板未命中都会统一转人工。转人工响应 `answer=""`，`reply_type="human"`，`route="human"`，`need_human=true`，`next_action="human_handoff"`，并在 `metadata.handoff` 中返回 `ticket_id`、`status`、`reason`；不会生成普通客服话术。
+明确人工、退款和高风险投诉会进入人工接管。转人工响应 `answer=""`，`reply_type="human"`，`route="human"`，`need_human=true`，`next_action="human_handoff"`，并在 `metadata.handoff` 中返回 `ticket_id`、`status`、`reason`；`clarify`、`unsupported`、RAG 无答案和模板未命中分别使用图内对应的安全兜底，不再维护第二套旧执行器。
 
 后续可把 `clarify` 改为追问，把 `unsupported` 改为业务兜底，把 RAG 无答案改为相似推荐，并接入真实 LLM 意图 JSON 分类。
 
@@ -515,7 +523,7 @@ curl -H "Authorization: Bearer change_me" \
   "http://localhost:8000/api/v1/admin/chat-logs/request_xxx"
 ```
 
-详情会额外返回 `template_score`、`policy_reason`、`intent_reason`、`stage_latencies` 和过滤后的 `metadata`。如果 `trace_id` 不存在，响应：
+详情会额外返回 `template_score`、`policy_reason`、`intent_reason`、`stage_latencies` 和过滤后的 `metadata`。管理端 `metadata.decision` 保存精简的动作、原因和决策轨迹；业务事实、工具状态、完整 `ReplyPlan` 以及鉴权字段不会写入该轨迹，也不会通过聊天响应返回。如果 `trace_id` 不存在，响应：
 
 ```json
 {

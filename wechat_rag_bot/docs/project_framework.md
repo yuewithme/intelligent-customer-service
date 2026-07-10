@@ -371,11 +371,26 @@ base system prompt
 
 ## 6. 路由与回复策略
 
+当前回复链路以 `ReplyPlan` 为唯一内部执行契约：
+
+```text
+intent / rule / tag / sales-stage services produce evidence
+  -> reply_planner resolves precedence once
+  -> ReplyPlan carries action, constraints, business facts and decision trace
+  -> LangGraph executes the plan
+  -> FinalReply updates state, memory and logs
+```
+
+- `reply_planner` 是唯一的策略优先级解析器，`handle_chat()` 不再覆盖已选路由。
+- LangGraph 是唯一回复执行器，不再保留功能开关或旧回复构建分支。
+- 业务快照、商品和工具状态只作为 `BusinessFacts`；客户答案必须经过专用业务渲染器。
+- 管理日志只保留精简决策轨迹，客户响应不包含完整计划、业务事实或工具状态。
+
 | route | 语义 | 后续动作 |
 | --- | --- | --- |
 | `template_reply` | 价格、售后、物流、下单、优惠等适合模板回答的问题 | 先查确定性话术库，再查模板；模板缺失则转人工 |
 | `rag_answer` | 知识、资料、方法、说明类问题 | 先查确定性话术库，再走知识库 RAG；无答案则转人工 |
-| `template_then_rag` | 需要销售话术加知识解释的混合问题 | 模板和 RAG 都可用时组合回复，否则转人工 |
+| `template_then_rag` | 兼容的混合意图证据 | 规划器规范化为单一 `rag_answer` 动作，并保留 `original_route` |
 | `human` | 投诉、退款、强烈不满、明确需要人工等 | 创建转人工回复 |
 | `chitchat` | 简单寒暄 | 直接构造轻量回复 |
 | `clarify` | 表达不清或低置信度 | 转入 RAG/LLM 兜底追问或给原则性建议 |
