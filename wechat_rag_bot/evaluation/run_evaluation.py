@@ -21,6 +21,28 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     ]
 
 
+def load_jsonl_if_exists(path: Path) -> list[dict[str, Any]]:
+    return load_jsonl(path) if path.exists() else []
+
+
+def append_jsonl(path: Path, row: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        handle.flush()
+
+
+def choose_pending_items(
+    items: list[dict[str, Any]], existing_by_id: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if item["id"] not in existing_by_id
+        or existing_by_id[item["id"]].get("error")
+    ]
+
+
 def build_single_message(item: dict[str, Any]) -> str:
     conversation = item["conversation"]
     current = conversation[-1]["content"]
@@ -241,6 +263,7 @@ async def judge_result(
     result: dict[str, Any],
     protocol: str,
     semaphore: asyncio.Semaphore,
+    attempts: int = 1,
 ) -> dict[str, Any]:
     base = {
         "id": result["id"],
@@ -255,29 +278,32 @@ async def judge_result(
             "critical_error": False,
             "judge_error": f"system_error: {result['error']}",
         }
-    try:
-        async with semaphore:
-            response = await generate_answer(
-                build_judge_prompt(item, result, protocol),
-                purpose="review",
-            )
-        judged = parse_judge_json(response["answer"])
-        score = float(judged["score"])
-        if not 0 <= score <= 100:
-            raise ValueError(f"score out of range: {score}")
-        return {
-            **base,
-            **judged,
-            "score": score,
-            "judge_error": None,
-        }
-    except Exception as exc:
-        return {
-            **base,
-            "score": None,
-            "critical_error": False,
-            "judge_error": str(exc),
-        }
+    last_error: Exception | None = None
+    for _ in range(max(1, attempts)):
+        try:
+            async with semaphore:
+                response = await generate_answer(
+                    build_judge_prompt(item, result, protocol),
+                    purpose="review",
+                )
+            judged = parse_judge_json(response["answer"])
+            score = float(judged["score"])
+            if not 0 <= score <= 100:
+                raise ValueError(f"score out of range: {score}")
+            return {
+                **base,
+                **judged,
+                "score": score,
+                "judge_error": None,
+            }
+        except Exception as exc:
+            last_error = exc
+    return {
+        **base,
+        "score": None,
+        "critical_error": False,
+        "judge_error": f"judge failed after {max(1, attempts)} attempts: {last_error}",
+    }
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -371,30 +397,52 @@ async def async_main(args: argparse.Namespace) -> int:
         args.kb_id,
         args.concurrency,
     )
+    raw_path = output_dir / "raw_responses.jsonl"
+    scores_path = output_dir / "scores.jsonl"
+    items = [*singles, *multis]
+    item_by_id = {item["id"]: item for item in items}
+    raw_by_id = {row["id"]: row for row in load_jsonl_if_exists(raw_path)}
+    pending_singles = choose_pending_items(singles, raw_by_id)
+    pending_multis = choose_pending_items(multis, raw_by_id)
     timeout = httpx.Timeout(args.timeout)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        tasks = [runner.run_single(client, item) for item in singles]
-        tasks.extend(runner.run_multi(client, item) for item in multis)
-        results = await asyncio.gather(*tasks)
+        tasks = [runner.run_single(client, item) for item in pending_singles]
+        tasks.extend(runner.run_multi(client, item) for item in pending_multis)
+        for task in asyncio.as_completed(tasks):
+            result = await task
+            raw_by_id[result["id"]] = result
+            append_jsonl(raw_path, result)
 
-    item_by_id = {item["id"]: item for item in [*singles, *multis]}
+    results = [raw_by_id[item["id"]] for item in items if item["id"] in raw_by_id]
+    retried_ids = {item["id"] for item in [*pending_singles, *pending_multis]}
     judge_semaphore = asyncio.Semaphore(args.judge_concurrency)
-    scores = await asyncio.gather(
-        *[
-            judge_result(
-                item_by_id[result["id"]],
-                result,
-                protocol,
-                judge_semaphore,
-            )
-            for result in results
-        ]
-    )
+    scores_by_id = {row["id"]: row for row in load_jsonl_if_exists(scores_path)}
+    score_targets = [
+        result
+        for result in results
+        if result["id"] in retried_ids
+        or scores_by_id.get(result["id"], {}).get("score") is None
+    ]
+    judge_tasks = [
+        judge_result(
+            item_by_id[result["id"]],
+            result,
+            protocol,
+            judge_semaphore,
+            attempts=args.judge_attempts,
+        )
+        for result in score_targets
+    ]
+    for task in asyncio.as_completed(judge_tasks):
+        score = await task
+        scores_by_id[score["id"]] = score
+        append_jsonl(scores_path, score)
+    scores = [scores_by_id[item["id"]] for item in items if item["id"] in scores_by_id]
     summary = aggregate_scores(scores)
     system_config = get_model_config("rag")
     judge_config = get_model_config("review")
-    write_jsonl(output_dir / "raw_responses.jsonl", results)
-    write_jsonl(output_dir / "scores.jsonl", scores)
+    write_jsonl(raw_path, results)
+    write_jsonl(scores_path, scores)
     (output_dir / "summary.json").write_text(
         json.dumps(
             {
@@ -435,6 +483,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--judge-concurrency", type=int, default=2)
+    parser.add_argument("--judge-attempts", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=120)
     return parser.parse_args()
 

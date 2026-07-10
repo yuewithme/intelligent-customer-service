@@ -31,6 +31,9 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if get_settings().evaluation_mode:
+        yield
+        return
     stop_event = asyncio.Event()
     app.state.eyun_risk_control_stop_event = stop_event
     app.state.eyun_risk_control_task = asyncio.create_task(

@@ -53,11 +53,13 @@ async def handle_chat(request: ChatRequest) -> dict:
     try:
         stage_started = time.perf_counter()
         message = await normalize_chat_request(request)
+        is_evaluation = _is_evaluation_request(message)
         stage_latencies["normalize_ms"] = _elapsed_ms(stage_started)
 
         stage_started = time.perf_counter()
         user_state = await get_user_state(message.user_id, message.session_id)
-        await _hydrate_user_state_from_profile(message.user_id, user_state)
+        if not is_evaluation:
+            await _hydrate_user_state_from_profile(message.user_id, user_state)
         stage_latencies["state_ms"] = _elapsed_ms(stage_started)
 
         stage_started = time.perf_counter()
@@ -156,34 +158,36 @@ async def handle_chat(request: ChatRequest) -> dict:
             routed_intent,
             reply,
         )
-        await append_conversation_memory(
-            user_id=message.user_id,
-            tenant_id=message.tenant_id,
-            session_id=message.session_id,
-            role="user",
-            content=message.message,
-            intent=routed_intent.primary_intent,
-            route=reply.route,
-            template_id=reply.template_id,
-            trace_id=message.trace_id,
-        )
-        if reply.answer:
+        if not is_evaluation:
             await append_conversation_memory(
                 user_id=message.user_id,
                 tenant_id=message.tenant_id,
                 session_id=message.session_id,
-                role="assistant",
-                content=reply.answer,
+                role="user",
+                content=message.message,
                 intent=routed_intent.primary_intent,
                 route=reply.route,
                 template_id=reply.template_id,
                 trace_id=message.trace_id,
             )
-        await update_profile_after_chat(message, routed_intent, reply)
+            if reply.answer:
+                await append_conversation_memory(
+                    user_id=message.user_id,
+                    tenant_id=message.tenant_id,
+                    session_id=message.session_id,
+                    role="assistant",
+                    content=reply.answer,
+                    intent=routed_intent.primary_intent,
+                    route=reply.route,
+                    template_id=reply.template_id,
+                    trace_id=message.trace_id,
+                )
+            await update_profile_after_chat(message, routed_intent, reply)
         stage_latencies["state_update_ms"] = _elapsed_ms(stage_started)
 
         result = _to_chat_data(message.session_id, message.trace_id, routed_intent, reply)
-        await record_ai_turn(message=message, result=result)
+        if not is_evaluation:
+            await record_ai_turn(message=message, result=result)
         log_payload = _success_log_payload(
             message=message,
             intent=routed_intent,
@@ -453,6 +457,10 @@ def _legacy_handoff(handoff: dict | None) -> dict | None:
         "rag_no_answer_to_handoff": "rag_no_answer",
     }.get(reason, reason)
     return {**handoff, "reason": legacy_reason}
+
+
+def _is_evaluation_request(message) -> bool:
+    return bool(getattr(message, "metadata", {}).get("evaluation_id"))
 
 
 async def _hydrate_user_state_from_profile(user_id: str, user_state) -> None:
