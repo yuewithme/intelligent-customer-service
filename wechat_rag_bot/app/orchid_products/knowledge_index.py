@@ -113,6 +113,8 @@ async def search_orchid_knowledge_chunks(
                     "category_name": row.category_name,
                     "variety_name": row.variety_name,
                     "chunk_type": row.chunk_type,
+                    "source_table": row.source_table,
+                    "entity_type": row.entity_type,
                 }
             )
 
@@ -144,6 +146,8 @@ def _qdrant_point(row: OrchidKnowledgeChunkModel, vector: list[float]) -> dict[s
             "category_name": row.category_name,
             "variety_name": row.variety_name,
             "chunk_type": row.chunk_type,
+            "source_table": row.source_table,
+            "entity_type": row.entity_type,
         },
     }
 

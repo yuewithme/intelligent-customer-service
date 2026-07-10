@@ -114,13 +114,17 @@ def _default_search_kb_ids(kb_id: str) -> list[str]:
 
 
 def select_care_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        doc
-        for doc in docs
-        if not str(doc.get("section") or "").upper().startswith(
-            SALES_SECTION_PREFIXES
-        )
-    ]
+    selected = []
+    for doc in docs:
+        section = str(doc.get("section") or "").strip()
+        if section.upper().startswith(SALES_SECTION_PREFIXES):
+            continue
+        if doc.get("source_table") == "orchid_sales_copy":
+            continue
+        if doc.get("entity_type") == "sales_copy" or section.endswith("话术"):
+            continue
+        selected.append(doc)
+    return selected
 
 
 def _context(docs: list[dict[str, Any]]) -> str:

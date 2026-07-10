@@ -109,6 +109,8 @@ async def test_index_orchid_knowledge_chunks_upserts_qdrant_payload(monkeypatch,
     assert captured[0]["payload"]["kb_id"] == "kb_orchid_basic"
     assert captured[0]["payload"]["file_name"] == "兰花产品知识库"
     assert captured[0]["payload"]["variety_name"] == "东方红荷"
+    assert captured[0]["payload"]["source_table"] == "orchid_value_points"
+    assert captured[0]["payload"]["entity_type"] == "variety"
 
 
 @pytest.mark.asyncio

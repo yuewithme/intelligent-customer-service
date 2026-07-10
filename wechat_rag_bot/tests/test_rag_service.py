@@ -12,10 +12,20 @@ def test_care_retrieval_excludes_sales_sections():
         {"section": "CHUNK SCRIPT-0001｜催单", "text": "sales"},
         {"section": "CHUNK FLOW-0001｜成交", "text": "flow"},
         {"section": "CHUNK SOP-0001｜跟进", "text": "sop"},
+        {
+            "section": "青山玉泉 - 花期话术",
+            "chunk_type": "花期",
+            "text": "legacy sales copy",
+        },
+        {
+            "section": "青山玉泉 - 花期",
+            "source_table": "orchid_sales_copy",
+            "text": "typed sales copy",
+        },
         {"section": "烂根处理", "text": "structured orchid knowledge"},
     ]
 
-    assert rag_service.select_care_docs(docs) == [docs[0], docs[4]]
+    assert rag_service.select_care_docs(docs) == [docs[0], docs[6]]
 
 
 @pytest.mark.asyncio
