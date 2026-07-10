@@ -1,22 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
-<title>Project Architecture Overview</title>
-<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;max-width:736px;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+<title>智能客服系统架构</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;max-width:1440px;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
 </head>
 <body>
-<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Project Architecture Overview" srcdoc="&lt;!doctype html&gt;
-&lt;html lang=&quot;en&quot;&gt;
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="智能客服系统架构" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;zh-CN&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot;&gt;
 &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
 &lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
 &lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
-&lt;title&gt;Project Architecture Overview&lt;/title&gt;
+&lt;title&gt;智能客服系统架构&lt;/title&gt;
 &lt;style&gt;:root {
   color-scheme: light dark;
   background-color: var(--background) !important;
@@ -748,292 +748,342 @@ svg {
 html&gt;body{padding:0}&lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
-&lt;div id=&quot;ics-architecture-visual&quot;&gt;
+&lt;div id=&quot;ics-showcase&quot;&gt;
   &lt;style&gt;
-    #ics-architecture-visual {
+    #ics-showcase {
+      width: 100%;
       color: var(--foreground);
       background: var(--background);
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;
-      padding: 20px;
+      padding: 28px;
     }
-    #ics-architecture-visual * { box-sizing: border-box; }
-    #ics-architecture-visual .hero { display: grid; gap: 8px; margin-bottom: 18px; }
-    #ics-architecture-visual .eyebrow { color: var(--muted-foreground); letter-spacing: .08em; text-transform: uppercase; }
-    #ics-architecture-visual h1,
-    #ics-architecture-visual h2,
-    #ics-architecture-visual h3,
-    #ics-architecture-visual p { margin: 0; }
-    #ics-architecture-visual .hero p { color: var(--muted-foreground); max-width: 920px; }
-    #ics-architecture-visual .stats { margin: 16px 0; }
-    #ics-architecture-visual .tabs { margin: 18px 0 22px; }
-    #ics-architecture-visual .tab-panel { display: none; }
-    #ics-architecture-visual .tab-panel.is-active { display: block; }
-    #ics-architecture-visual .section-head { display: grid; gap: 4px; margin: 24px 0 14px; }
-    #ics-architecture-visual .section-head p { color: var(--muted-foreground); }
-    #ics-architecture-visual .layer-stack { display: grid; gap: 10px; }
-    #ics-architecture-visual .layer {
+    #ics-showcase * { box-sizing: border-box; }
+    #ics-showcase h1,
+    #ics-showcase h2,
+    #ics-showcase h3,
+    #ics-showcase p { margin: 0; }
+    #ics-showcase .hero {
       display: grid;
-      grid-template-columns: 120px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: end;
+      padding: 6px 0 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    #ics-showcase .hero-copy { display: grid; gap: 8px; }
+    #ics-showcase .eyebrow { color: var(--muted-foreground); letter-spacing: .12em; }
+    #ics-showcase .hero-copy p { max-width: 780px; color: var(--muted-foreground); }
+    #ics-showcase .hero-meta { display: flex; gap: 20px; color: var(--muted-foreground); }
+    #ics-showcase .hero-meta span { display: grid; gap: 2px; text-align: right; }
+    #ics-showcase .hero-meta strong { color: var(--foreground); font-weight: 500; }
+    #ics-showcase .tabs { margin: 18px 0 24px; }
+    #ics-showcase .tab-panel { display: none; }
+    #ics-showcase .tab-panel.is-active { display: block; }
+    #ics-showcase .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: end;
+      margin: 0 0 14px;
+    }
+    #ics-showcase .section-head p { color: var(--muted-foreground); max-width: 680px; text-align: right; }
+    #ics-showcase .flow-canvas {
+      padding: 18px;
+      background: color-mix(in srgb, var(--card) 72%, transparent);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    #ics-showcase .canvas-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+      color: var(--muted-foreground);
+    }
+    #ics-showcase .canvas-label strong { color: var(--foreground); font-weight: 500; }
+    #ics-showcase .architecture-stack { display: grid; gap: 9px; }
+    #ics-showcase .architecture-layer {
+      display: grid;
+      grid-template-columns: 116px minmax(0, 1fr);
       gap: 14px;
       align-items: stretch;
     }
-    #ics-architecture-visual .layer-label {
+    #ics-showcase .layer-name {
       display: flex;
       align-items: center;
       color: var(--muted-foreground);
+      border-right: 1px solid var(--border);
+      padding-right: 14px;
     }
-    #ics-architecture-visual .node-row {
+    #ics-showcase .layer-nodes {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 8px;
+      grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
+      gap: 9px;
     }
-    #ics-architecture-visual .node {
-      padding: 12px;
-      background: color-mix(in srgb, var(--viz-series-1) 10%, var(--card));
-      color: var(--card-foreground);
-      border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-      border-radius: 8px;
-      min-height: 64px;
+    #ics-showcase .node {
+      min-width: 0;
+      min-height: 70px;
+      padding: 12px 13px;
       display: grid;
       align-content: center;
-      gap: 3px;
+      gap: 4px;
+      background: color-mix(in srgb, var(--viz-series-1) 9%, var(--background));
+      border: 1px solid color-mix(in srgb, var(--viz-series-1) 24%, var(--border));
+      border-radius: 9px;
+      overflow-wrap: anywhere;
     }
-    #ics-architecture-visual .node strong { font-weight: 500; }
-    #ics-architecture-visual .node span { color: var(--muted-foreground); }
-    #ics-architecture-visual .node.channel { background: color-mix(in srgb, var(--viz-series-2) 10%, var(--card)); }
-    #ics-architecture-visual .node.data { background: color-mix(in srgb, var(--viz-series-3) 10%, var(--card)); }
-    #ics-architecture-visual .node.external { background: color-mix(in srgb, var(--viz-series-4) 10%, var(--card)); }
-    #ics-architecture-visual .down-arrow { text-align: center; color: var(--muted-foreground); padding-left: 134px; }
-    #ics-architecture-visual .module-grid {
+    #ics-showcase .node strong { font-weight: 500; }
+    #ics-showcase .node span { color: var(--muted-foreground); }
+    #ics-showcase .node.channel { background: color-mix(in srgb, var(--viz-series-2) 9%, var(--background)); border-color: color-mix(in srgb, var(--viz-series-2) 24%, var(--border)); }
+    #ics-showcase .node.data { background: color-mix(in srgb, var(--viz-series-3) 9%, var(--background)); border-color: color-mix(in srgb, var(--viz-series-3) 24%, var(--border)); }
+    #ics-showcase .node.external { background: color-mix(in srgb, var(--viz-series-4) 9%, var(--background)); border-color: color-mix(in srgb, var(--viz-series-4) 24%, var(--border)); }
+    #ics-showcase .layer-connector {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-template-columns: 116px minmax(0, 1fr);
+      gap: 14px;
+      min-height: 18px;
+    }
+    #ics-showcase .layer-connector span:last-child { text-align: center; color: var(--muted-foreground); }
+    #ics-showcase .summary-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
+      margin-top: 14px;
     }
-    #ics-architecture-visual .module-group { display: grid; gap: 8px; }
-    #ics-architecture-visual .module-group h3 { padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-    #ics-architecture-visual .module-list { display: grid; gap: 6px; }
-    #ics-architecture-visual .module-item {
+    #ics-showcase .summary-item { padding: 10px 0 2px; border-top: 2px solid var(--viz-series-1); display: grid; gap: 3px; }
+    #ics-showcase .summary-item span { color: var(--muted-foreground); }
+    #ics-showcase .flow-grid { display: grid; gap: 14px; }
+    #ics-showcase .flow-track {
+      display: flex;
+      gap: 0;
+      align-items: stretch;
+    }
+    #ics-showcase .flow-node {
+      flex: 1 1 0;
+      min-width: 0;
+      min-height: 92px;
+      padding: 12px;
       display: grid;
-      grid-template-columns: minmax(110px, .8fr) minmax(0, 1.5fr);
+      align-content: center;
+      gap: 5px;
+      background: color-mix(in srgb, var(--viz-series-1) 8%, var(--background));
+      border: 1px solid color-mix(in srgb, var(--viz-series-1) 22%, var(--border));
+      border-radius: 9px;
+      overflow-wrap: anywhere;
+    }
+    #ics-showcase .flow-node strong { font-weight: 500; }
+    #ics-showcase .flow-node span { color: var(--muted-foreground); }
+    #ics-showcase .flow-node.warm { background: color-mix(in srgb, var(--viz-series-2) 8%, var(--background)); border-color: color-mix(in srgb, var(--viz-series-2) 22%, var(--border)); }
+    #ics-showcase .flow-node.green { background: color-mix(in srgb, var(--viz-series-3) 8%, var(--background)); border-color: color-mix(in srgb, var(--viz-series-3) 22%, var(--border)); }
+    #ics-showcase .flow-node.pink { background: color-mix(in srgb, var(--viz-series-4) 8%, var(--background)); border-color: color-mix(in srgb, var(--viz-series-4) 22%, var(--border)); }
+    #ics-showcase .flow-node.channel { background: color-mix(in srgb, var(--viz-series-2) 8%, var(--background)); border-color: color-mix(in srgb, var(--viz-series-2) 22%, var(--border)); }
+    #ics-showcase .connector {
+      flex: 0 0 28px;
+      display: grid;
+      place-items: center;
+      color: var(--muted-foreground);
+    }
+    #ics-showcase .stage-row {
+      display: grid;
+      grid-template-columns: 94px minmax(0, 1fr);
+      gap: 12px;
+      align-items: stretch;
+    }
+    #ics-showcase .stage-label { display: grid; align-content: center; color: var(--muted-foreground); }
+    #ics-showcase .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    #ics-showcase .fanout {
+      display: grid;
+      grid-template-columns: minmax(150px, .8fr) 42px minmax(0, 2fr);
       gap: 10px;
-      padding: 7px 0;
-      border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+      align-items: center;
     }
-    #ics-architecture-visual .module-item span { color: var(--muted-foreground); }
-    #ics-architecture-visual .flow {
+    #ics-showcase .fanout-arrow { text-align: center; color: var(--muted-foreground); }
+    #ics-showcase .fanout-targets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    #ics-showcase .channel-lanes { display: grid; gap: 12px; }
+    #ics-showcase .channel-lane {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 28px 18px;
-      counter-reset: flow;
+      grid-template-columns: 128px minmax(0, 1fr);
+      gap: 12px;
+      align-items: stretch;
     }
-    #ics-architecture-visual .flow-step {
+    #ics-showcase .channel-name { display: grid; align-content: center; color: var(--muted-foreground); }
+    #ics-showcase .data-cycle {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+    #ics-showcase .cycle-step {
+      min-width: 0;
       position: relative;
       padding: 13px;
-      border-left: 3px solid var(--viz-series-1);
-      background: color-mix(in srgb, var(--viz-series-1) 7%, transparent);
       min-height: 92px;
       display: grid;
-      align-content: start;
-      gap: 5px;
-      counter-increment: flow;
+      align-content: center;
+      gap: 4px;
+      border-top: 3px solid var(--viz-series-3);
+      background: color-mix(in srgb, var(--viz-series-3) 7%, transparent);
+      overflow-wrap: anywhere;
     }
-    #ics-architecture-visual .flow-step::before {
-      content: counter(flow, decimal-leading-zero);
-      color: var(--muted-foreground);
+    #ics-showcase .cycle-step span { color: var(--muted-foreground); }
+    #ics-showcase .relation-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; color: var(--muted-foreground); }
+    #ics-showcase .relation-legend span { display: inline-flex; gap: 7px; align-items: center; }
+    #ics-showcase .swatch { width: 12px; height: 4px; border-radius: 999px; background: var(--viz-series-1); }
+    #ics-showcase .swatch.s2 { background: var(--viz-series-2); }
+    #ics-showcase .swatch.s3 { background: var(--viz-series-3); }
+    #ics-showcase .swatch.s4 { background: var(--viz-series-4); }
+    @media (max-width: 1050px) {
+      #ics-showcase { padding: 18px; }
+      #ics-showcase .hero { grid-template-columns: 1fr; }
+      #ics-showcase .hero-meta span { text-align: left; }
+      #ics-showcase .section-head { display: grid; }
+      #ics-showcase .section-head p { text-align: left; }
+      #ics-showcase .architecture-layer { grid-template-columns: 1fr; }
+      #ics-showcase .layer-name { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 6px; }
+      #ics-showcase .layer-connector { grid-template-columns: 1fr; }
+      #ics-showcase .layer-connector span:first-child { display: none; }
+      #ics-showcase .layer-nodes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #ics-showcase .split-grid { grid-template-columns: 1fr; }
+      #ics-showcase .fanout-targets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #ics-showcase .data-cycle { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
-    #ics-architecture-visual .flow-step::after {
-      content: &quot;→&quot;;
-      position: absolute;
-      right: -23px;
-      top: 38%;
-      color: var(--muted-foreground);
-    }
-    #ics-architecture-visual .flow-step:nth-child(4n)::after,
-    #ics-architecture-visual .flow-step:last-child::after { content: &quot;&quot;; }
-    #ics-architecture-visual .flow-step span { color: var(--muted-foreground); }
-    #ics-architecture-visual .channel-flows { display: grid; gap: 18px; }
-    #ics-architecture-visual .channel-flow { display: grid; gap: 9px; }
-    #ics-architecture-visual .lane {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 22px;
-    }
-    #ics-architecture-visual .lane-item {
-      position: relative;
-      padding: 10px;
-      background: color-mix(in srgb, var(--viz-series-2) 8%, transparent);
-      border-bottom: 2px solid var(--viz-series-2);
-      text-align: center;
-    }
-    #ics-architecture-visual .lane-item:not(:last-child)::after {
-      content: &quot;→&quot;;
-      position: absolute;
-      right: -17px;
-      color: var(--muted-foreground);
-    }
-    #ics-architecture-visual .data-map { display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 18px; align-items: stretch; }
-    #ics-architecture-visual .data-column { display: grid; gap: 8px; align-content: start; }
-    #ics-architecture-visual .data-column h3 { margin-bottom: 4px; }
-    #ics-architecture-visual .data-edge { color: var(--muted-foreground); text-align: center; align-self: center; }
-    #ics-architecture-visual .risk-stack { display: grid; gap: 12px; }
-    #ics-architecture-visual .risk {
-      display: grid;
-      grid-template-columns: 90px minmax(180px, .8fr) minmax(0, 1.6fr);
-      gap: 14px;
-      padding: 14px 0;
-      border-bottom: 1px solid var(--border);
-      align-items: start;
-    }
-    #ics-architecture-visual .risk-rank { color: var(--muted-foreground); }
-    #ics-architecture-visual .risk-main { display: grid; gap: 5px; }
-    #ics-architecture-visual .risk-main span,
-    #ics-architecture-visual .risk-detail { color: var(--muted-foreground); }
-    #ics-architecture-visual .priority { display: grid; gap: 9px; margin-top: 18px; }
-    #ics-architecture-visual .priority-row { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: center; }
-    #ics-architecture-visual .priority-bar { height: 12px; background: var(--muted); overflow: hidden; border-radius: 999px; }
-    #ics-architecture-visual .priority-fill { height: 100%; background: var(--viz-series-1); }
-    #ics-architecture-visual .w100 { width: 100%; }
-    #ics-architecture-visual .w82 { width: 82%; }
-    #ics-architecture-visual .w68 { width: 68%; }
-    #ics-architecture-visual .w52 { width: 52%; }
-    #ics-architecture-visual .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; color: var(--muted-foreground); }
-    #ics-architecture-visual .legend span { display: inline-flex; align-items: center; gap: 6px; }
-    #ics-architecture-visual .swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--viz-series-1); }
-    #ics-architecture-visual .swatch.s2 { background: var(--viz-series-2); }
-    #ics-architecture-visual .swatch.s3 { background: var(--viz-series-3); }
-    #ics-architecture-visual .swatch.s4 { background: var(--viz-series-4); }
-    @media (max-width: 820px) {
-      #ics-architecture-visual { padding: 12px; }
-      #ics-architecture-visual .layer { grid-template-columns: 1fr; gap: 6px; }
-      #ics-architecture-visual .down-arrow { padding-left: 0; }
-      #ics-architecture-visual .flow { grid-template-columns: 1fr 1fr; }
-      #ics-architecture-visual .flow-step:nth-child(4n)::after { content: &quot;→&quot;; }
-      #ics-architecture-visual .flow-step:nth-child(2n)::after { content: &quot;&quot;; }
-      #ics-architecture-visual .data-map { grid-template-columns: 1fr; }
-      #ics-architecture-visual .data-edge { transform: rotate(90deg); }
-      #ics-architecture-visual .risk { grid-template-columns: 64px minmax(0, 1fr); }
-      #ics-architecture-visual .risk-detail { grid-column: 2; }
-    }
-    @media (max-width: 480px) {
-      #ics-architecture-visual .flow { grid-template-columns: 1fr; }
-      #ics-architecture-visual .flow-step::after { content: &quot;↓&quot; !important; right: 50%; top: auto; bottom: -24px; }
-      #ics-architecture-visual .flow-step:last-child::after { content: &quot;&quot; !important; }
-      #ics-architecture-visual .lane { grid-template-columns: 1fr; }
-      #ics-architecture-visual .lane-item:not(:last-child)::after { content: &quot;↓&quot;; right: 50%; bottom: -20px; }
-      #ics-architecture-visual .module-item { grid-template-columns: 1fr; gap: 2px; }
-      #ics-architecture-visual .risk { grid-template-columns: 1fr; }
-      #ics-architecture-visual .risk-detail { grid-column: 1; }
+    @media (max-width: 720px) {
+      #ics-showcase { padding: 12px; }
+      #ics-showcase .hero-meta { flex-wrap: wrap; }
+      #ics-showcase .summary-strip { grid-template-columns: 1fr; }
+      #ics-showcase .stage-row,
+      #ics-showcase .channel-lane { grid-template-columns: 1fr; }
+      #ics-showcase .flow-track { flex-direction: column; gap: 7px; }
+      #ics-showcase .connector { min-height: 22px; }
+      #ics-showcase .connector::before { content: &quot;↓&quot;; }
+      #ics-showcase .connector { font-size: 0; }
+      #ics-showcase .connector::before { font-size: var(--font-size-base); }
+      #ics-showcase .fanout { grid-template-columns: 1fr; }
+      #ics-showcase .fanout-arrow { transform: rotate(90deg); }
+      #ics-showcase .fanout-targets,
+      #ics-showcase .layer-nodes,
+      #ics-showcase .data-cycle { grid-template-columns: 1fr; }
     }
   &lt;/style&gt;
 
   &lt;header class=&quot;hero&quot;&gt;
-    &lt;div class=&quot;eyebrow text-small&quot;&gt;INTELLIGENT CUSTOMER SERVICE · CURRENT WORKSPACE&lt;/div&gt;
-    &lt;h1&gt;智能客服系统架构总览&lt;/h1&gt;
-    &lt;p&gt;模块化单体：FastAPI 后端承载渠道接入、AI 编排、会话与风控；Vue 管理台提供人工接管与运营配置。&lt;/p&gt;
+    &lt;div class=&quot;hero-copy&quot;&gt;
+      &lt;div class=&quot;eyebrow text-small&quot;&gt;SYSTEM MAP · 2026.07&lt;/div&gt;
+      &lt;h1&gt;智能客服系统架构&lt;/h1&gt;
+      &lt;p&gt;以统一聊天编排为中心，连接渠道、AI 决策、回复能力、业务数据和人工工作台。&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;hero-meta text-small&quot; aria-label=&quot;项目概况&quot;&gt;
+      &lt;span&gt;&lt;strong&gt;模块化单体&lt;/strong&gt;架构形态&lt;/span&gt;
+      &lt;span&gt;&lt;strong&gt;FastAPI + Vue 3&lt;/strong&gt;技术栈&lt;/span&gt;
+      &lt;span&gt;&lt;strong&gt;SQLite + Qdrant&lt;/strong&gt;数据底座&lt;/span&gt;
+    &lt;/div&gt;
   &lt;/header&gt;
 
-  &lt;div class=&quot;viz-grid stats&quot; aria-label=&quot;项目规模摘要&quot;&gt;
-    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;span class=&quot;text-muted&quot;&gt;后端模块&lt;/span&gt;&lt;span class=&quot;viz-stat-value&quot;&gt;97&lt;/span&gt;&lt;span class=&quot;text-small text-muted&quot;&gt;Python 文件&lt;/span&gt;&lt;/div&gt;
-    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;span class=&quot;text-muted&quot;&gt;后端代码&lt;/span&gt;&lt;span class=&quot;viz-stat-value&quot;&gt;10,952&lt;/span&gt;&lt;span class=&quot;text-small text-muted&quot;&gt;Python 行数&lt;/span&gt;&lt;/div&gt;
-    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;span class=&quot;text-muted&quot;&gt;自动化测试&lt;/span&gt;&lt;span class=&quot;viz-stat-value&quot;&gt;239&lt;/span&gt;&lt;span class=&quot;text-small text-muted&quot;&gt;测试用例&lt;/span&gt;&lt;/div&gt;
-    &lt;div class=&quot;card viz-stat&quot;&gt;&lt;span class=&quot;text-muted&quot;&gt;前端源码&lt;/span&gt;&lt;span class=&quot;viz-stat-value&quot;&gt;24,927&lt;/span&gt;&lt;span class=&quot;text-small text-muted&quot;&gt;Vue / TypeScript 行数&lt;/span&gt;&lt;/div&gt;
-  &lt;/div&gt;
-
-  &lt;nav class=&quot;viz-controls tabs&quot; aria-label=&quot;架构视图切换&quot;&gt;
-    &lt;button type=&quot;button&quot; class=&quot;btn btn-primary&quot; data-tab=&quot;overview&quot; aria-pressed=&quot;true&quot;&gt;整体架构&lt;/button&gt;
-    &lt;button type=&quot;button&quot; class=&quot;btn&quot; data-tab=&quot;modules&quot; aria-pressed=&quot;false&quot;&gt;模块地图&lt;/button&gt;
-    &lt;button type=&quot;button&quot; class=&quot;btn&quot; data-tab=&quot;chat-flow&quot; aria-pressed=&quot;false&quot;&gt;聊天信息流&lt;/button&gt;
-    &lt;button type=&quot;button&quot; class=&quot;btn&quot; data-tab=&quot;channels&quot; aria-pressed=&quot;false&quot;&gt;渠道与工作台&lt;/button&gt;
-    &lt;button type=&quot;button&quot; class=&quot;btn&quot; data-tab=&quot;data&quot; aria-pressed=&quot;false&quot;&gt;数据与依赖&lt;/button&gt;
-    &lt;button type=&quot;button&quot; class=&quot;btn&quot; data-tab=&quot;risks&quot; aria-pressed=&quot;false&quot;&gt;痛点与优先级&lt;/button&gt;
+  &lt;nav class=&quot;viz-controls tabs&quot; aria-label=&quot;架构视图&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;btn btn-primary&quot; data-tab=&quot;system-map&quot; aria-pressed=&quot;true&quot;&gt;系统全景&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;btn&quot; data-tab=&quot;core-flow&quot; aria-pressed=&quot;false&quot;&gt;核心消息流&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;btn&quot; data-tab=&quot;module-flow&quot; aria-pressed=&quot;false&quot;&gt;模块关系流&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;btn&quot; data-tab=&quot;channel-flow&quot; aria-pressed=&quot;false&quot;&gt;渠道信息流&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;btn&quot; data-tab=&quot;data-flow&quot; aria-pressed=&quot;false&quot;&gt;数据生命周期&lt;/button&gt;
   &lt;/nav&gt;
 
-  &lt;section id=&quot;overview&quot; class=&quot;tab-panel is-active&quot; aria-label=&quot;整体架构&quot;&gt;
-    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;六层模块化单体&lt;/h2&gt;&lt;p&gt;所有渠道进入统一聊天编排，回复能力共享状态、策略、知识与人工接管基础设施。&lt;/p&gt;&lt;/div&gt;
-    &lt;div class=&quot;layer-stack&quot;&gt;
-      &lt;div class=&quot;layer&quot;&gt;&lt;div class=&quot;layer-label&quot;&gt;接入端&lt;/div&gt;&lt;div class=&quot;node-row&quot;&gt;&lt;div class=&quot;node channel&quot;&gt;&lt;strong&gt;Chat API&lt;/strong&gt;&lt;span&gt;第三方系统 / 评测&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node channel&quot;&gt;&lt;strong&gt;微信公众号&lt;/strong&gt;&lt;span&gt;XML 回调&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node channel&quot;&gt;&lt;strong&gt;Eyun / 企业微信&lt;/strong&gt;&lt;span&gt;工作台消息回调&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node channel&quot;&gt;&lt;strong&gt;Vue 管理台&lt;/strong&gt;&lt;span&gt;人工接管与运营配置&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;down-arrow&quot; aria-hidden=&quot;true&quot;&gt;↓&lt;/div&gt;
-      &lt;div class=&quot;layer&quot;&gt;&lt;div class=&quot;layer-label&quot;&gt;API 接入层&lt;/div&gt;&lt;div class=&quot;node-row&quot;&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;FastAPI Routers&lt;/strong&gt;&lt;span&gt;Chat / WeChat / Eyun / Admin / Knowledge&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;认证与协议适配&lt;/strong&gt;&lt;span&gt;Bearer、签名、XML、标准响应&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;down-arrow&quot; aria-hidden=&quot;true&quot;&gt;↓&lt;/div&gt;
-      &lt;div class=&quot;layer&quot;&gt;&lt;div class=&quot;layer-label&quot;&gt;核心编排层&lt;/div&gt;&lt;div class=&quot;node-row&quot;&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Chat Orchestrator&lt;/strong&gt;&lt;span&gt;统一入口与生命周期&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Intent + Policy&lt;/strong&gt;&lt;span&gt;意图、标签、风险、销售阶段&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;LangGraph&lt;/strong&gt;&lt;span&gt;回复分支执行&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;down-arrow&quot; aria-hidden=&quot;true&quot;&gt;↓&lt;/div&gt;
-      &lt;div class=&quot;layer&quot;&gt;&lt;div class=&quot;layer-label&quot;&gt;回复能力层&lt;/div&gt;&lt;div class=&quot;node-row&quot;&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;确定性话术&lt;/strong&gt;&lt;span&gt;SQLite 模板库&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;业务事实模板&lt;/strong&gt;&lt;span&gt;商品 / 订单 / 活动状态&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;RAG&lt;/strong&gt;&lt;span&gt;Embedding + 检索 + 重排 + LLM&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;人工接管&lt;/strong&gt;&lt;span&gt;工单与监督工作台&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;down-arrow&quot; aria-hidden=&quot;true&quot;&gt;↓&lt;/div&gt;
-      &lt;div class=&quot;layer&quot;&gt;&lt;div class=&quot;layer-label&quot;&gt;数据与集成层&lt;/div&gt;&lt;div class=&quot;node-row&quot;&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;SQLite&lt;/strong&gt;&lt;span&gt;会话、画像、队列、话术、日志&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;Qdrant&lt;/strong&gt;&lt;span&gt;知识向量索引&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node external&quot;&gt;&lt;strong&gt;模型服务&lt;/strong&gt;&lt;span&gt;LLM / Embedding&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node external&quot;&gt;&lt;strong&gt;Eyun API&lt;/strong&gt;&lt;span&gt;联系人与消息发送&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+  &lt;section id=&quot;system-map&quot; class=&quot;tab-panel is-active&quot; aria-label=&quot;系统全景&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;系统全景&lt;/h2&gt;&lt;p&gt;自上而下展示入口、编排、能力、数据和外部服务之间的依赖关系。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;flow-canvas&quot;&gt;
+      &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;模块化单体分层&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;请求向下流动 · 状态与结果向上返回&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;architecture-stack&quot;&gt;
+        &lt;div class=&quot;architecture-layer&quot;&gt;&lt;div class=&quot;layer-name&quot;&gt;渠道入口&lt;/div&gt;&lt;div class=&quot;layer-nodes&quot; style=&quot;--cols:5&quot;&gt;&lt;div class=&quot;node channel&quot;&gt;&lt;strong&gt;Chat API&lt;/strong&gt;&lt;span&gt;第三方系统与评测&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node channel&quot;&gt;&lt;strong&gt;微信公众号&lt;/strong&gt;&lt;span&gt;签名与 XML 回调&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node channel&quot;&gt;&lt;strong&gt;Eyun / 企业微信&lt;/strong&gt;&lt;span&gt;工作台消息回调&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node channel&quot;&gt;&lt;strong&gt;管理工作台&lt;/strong&gt;&lt;span&gt;人工监督与接管&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node channel&quot;&gt;&lt;strong&gt;运营 API&lt;/strong&gt;&lt;span&gt;知识、模板、画像&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;layer-connector&quot;&gt;&lt;span&gt;&lt;/span&gt;&lt;span&gt;↓ 标准化请求 / REST / SSE&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;architecture-layer&quot;&gt;&lt;div class=&quot;layer-name&quot;&gt;接入层&lt;/div&gt;&lt;div class=&quot;layer-nodes&quot; style=&quot;--cols:4&quot;&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;FastAPI Routers&lt;/strong&gt;&lt;span&gt;API 路由与响应协议&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Auth / Gate&lt;/strong&gt;&lt;span&gt;Bearer 与管理端访问控制&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Channel Adapter&lt;/strong&gt;&lt;span&gt;消息规范化&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Callback Services&lt;/strong&gt;&lt;span&gt;微信 / Eyun 协议适配&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;layer-connector&quot;&gt;&lt;span&gt;&lt;/span&gt;&lt;span&gt;↓ NormalizedMessage&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;architecture-layer&quot;&gt;&lt;div class=&quot;layer-name&quot;&gt;核心编排&lt;/div&gt;&lt;div class=&quot;layer-nodes&quot; style=&quot;--cols:5&quot;&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Chat Orchestrator&lt;/strong&gt;&lt;span&gt;单轮处理生命周期&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Intent Service&lt;/strong&gt;&lt;span&gt;规则与模型分类&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Policy Services&lt;/strong&gt;&lt;span&gt;路由与业务策略&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Tag / Sales Stage&lt;/strong&gt;&lt;span&gt;标签、阶段与动作&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Reply Graph&lt;/strong&gt;&lt;span&gt;LangGraph 分支执行&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;layer-connector&quot;&gt;&lt;span&gt;&lt;/span&gt;&lt;span&gt;↓ FinalReply / State Delta&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;architecture-layer&quot;&gt;&lt;div class=&quot;layer-name&quot;&gt;回复能力&lt;/div&gt;&lt;div class=&quot;layer-nodes&quot; style=&quot;--cols:5&quot;&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;确定性话术&lt;/strong&gt;&lt;span&gt;精确匹配&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;模板回复&lt;/strong&gt;&lt;span&gt;业务事实与固定模板&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;RAG&lt;/strong&gt;&lt;span&gt;检索、重排、生成&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;人工接管&lt;/strong&gt;&lt;span&gt;工单与会话状态&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Sales Action&lt;/strong&gt;&lt;span&gt;追问与下一步动作&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;layer-connector&quot;&gt;&lt;span&gt;&lt;/span&gt;&lt;span&gt;↓ 查询 / 写入 / 外部调用&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;architecture-layer&quot;&gt;&lt;div class=&quot;layer-name&quot;&gt;数据与外部&lt;/div&gt;&lt;div class=&quot;layer-nodes&quot; style=&quot;--cols:5&quot;&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;SQLite&lt;/strong&gt;&lt;span&gt;会话、画像、话术、队列&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;Chat Logs&lt;/strong&gt;&lt;span&gt;链路与阶段耗时&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;Qdrant&lt;/strong&gt;&lt;span&gt;知识向量索引&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node external&quot;&gt;&lt;strong&gt;LLM / Embedding&lt;/strong&gt;&lt;span&gt;模型供应商&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node external&quot;&gt;&lt;strong&gt;Eyun API&lt;/strong&gt;&lt;span&gt;联系人、媒体、发送&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
     &lt;/div&gt;
-    &lt;div class=&quot;legend text-small&quot;&gt;&lt;span&gt;&lt;i class=&quot;swatch&quot;&gt;&lt;/i&gt;内部服务&lt;/span&gt;&lt;span&gt;&lt;i class=&quot;swatch s2&quot;&gt;&lt;/i&gt;渠道&lt;/span&gt;&lt;span&gt;&lt;i class=&quot;swatch s3&quot;&gt;&lt;/i&gt;数据&lt;/span&gt;&lt;span&gt;&lt;i class=&quot;swatch s4&quot;&gt;&lt;/i&gt;外部依赖&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;summary-strip&quot;&gt;&lt;div class=&quot;summary-item&quot;&gt;&lt;strong&gt;统一入口&lt;/strong&gt;&lt;span&gt;所有 AI 回复复用 &lt;code&gt;handle_chat()&lt;/code&gt;&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;summary-item&quot;&gt;&lt;strong&gt;统一输出&lt;/strong&gt;&lt;span&gt;回复收敛为 &lt;code&gt;FinalReply&lt;/code&gt;&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;summary-item&quot;&gt;&lt;strong&gt;人工闭环&lt;/strong&gt;&lt;span&gt;会话状态通过 REST + SSE 进入工作台&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
   &lt;/section&gt;
 
-  &lt;section id=&quot;modules&quot; class=&quot;tab-panel&quot; aria-label=&quot;模块地图&quot;&gt;
-    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;模块职责地图&lt;/h2&gt;&lt;p&gt;核心业务集中在 &lt;code&gt;wechat_rag_bot/app&lt;/code&gt;，管理端业务页面集中在 &lt;code&gt;admin-web/src/views&lt;/code&gt;。&lt;/p&gt;&lt;/div&gt;
-    &lt;div class=&quot;module-grid&quot;&gt;
-      &lt;div class=&quot;module-group&quot;&gt;&lt;h3&gt;接入与协议&lt;/h3&gt;&lt;div class=&quot;module-list&quot;&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;routers/chat.py&lt;/strong&gt;&lt;span&gt;统一聊天 API&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;routers/wechat.py&lt;/strong&gt;&lt;span&gt;公众号签名与 XML 回调&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;routers/eyun.py&lt;/strong&gt;&lt;span&gt;Eyun 回调快速确认&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;channel_service.py&lt;/strong&gt;&lt;span&gt;标准化渠道消息&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;module-group&quot;&gt;&lt;h3&gt;AI 决策&lt;/h3&gt;&lt;div class=&quot;module-list&quot;&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;chat_orchestrator.py&lt;/strong&gt;&lt;span&gt;聊天总编排&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;intent_service.py&lt;/strong&gt;&lt;span&gt;规则与 LLM 意图识别&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;policy_service.py&lt;/strong&gt;&lt;span&gt;基础路由策略&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;policy_engine.py&lt;/strong&gt;&lt;span&gt;标签与客户分层策略&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;sales_stage_service.py&lt;/strong&gt;&lt;span&gt;销售阶段推进&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;module-group&quot;&gt;&lt;h3&gt;回复生成&lt;/h3&gt;&lt;div class=&quot;module-list&quot;&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;reply_workflow_graph.py&lt;/strong&gt;&lt;span&gt;LangGraph 回复工作流&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;talk_script/&lt;/strong&gt;&lt;span&gt;确定性话术匹配&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;template_reply_service.py&lt;/strong&gt;&lt;span&gt;默认模板与业务事实&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;rag_service.py&lt;/strong&gt;&lt;span&gt;知识问答主链路&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;reply_builder.py&lt;/strong&gt;&lt;span&gt;统一 FinalReply&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;module-group&quot;&gt;&lt;h3&gt;用户与会话&lt;/h3&gt;&lt;div class=&quot;module-list&quot;&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;state_service.py&lt;/strong&gt;&lt;span&gt;进程内即时状态&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;user_profile_service.py&lt;/strong&gt;&lt;span&gt;画像、记忆与画像事件&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;conversation_service.py&lt;/strong&gt;&lt;span&gt;客服会话与消息&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;conversation_event_service.py&lt;/strong&gt;&lt;span&gt;SSE 进程内事件 Broker&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;module-group&quot;&gt;&lt;h3&gt;知识与商品&lt;/h3&gt;&lt;div class=&quot;module-list&quot;&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;knowledge_service.py&lt;/strong&gt;&lt;span&gt;文档解析与切片&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;embedding_service.py&lt;/strong&gt;&lt;span&gt;文本向量化&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;qdrant_service.py&lt;/strong&gt;&lt;span&gt;向量检索&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;rerank_service.py&lt;/strong&gt;&lt;span&gt;候选文档重排&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;orchid_products/&lt;/strong&gt;&lt;span&gt;兰花商品与知识模型&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;module-group&quot;&gt;&lt;h3&gt;运营与基础设施&lt;/h3&gt;&lt;div class=&quot;module-list&quot;&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;message_risk_control_service.py&lt;/strong&gt;&lt;span&gt;Eyun 去重、合并、限速、发送队列&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;chat_log_service.py&lt;/strong&gt;&lt;span&gt;链路日志与统计&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;admin-web/workbench&lt;/strong&gt;&lt;span&gt;会话监督与人工接管&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;module-item&quot;&gt;&lt;strong&gt;evaluation/&lt;/strong&gt;&lt;span&gt;端到端业务评测&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-    &lt;/div&gt;
-  &lt;/section&gt;
-
-  &lt;section id=&quot;chat-flow&quot; class=&quot;tab-panel&quot; aria-label=&quot;聊天信息流&quot;&gt;
-    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;统一聊天主链路&lt;/h2&gt;&lt;p&gt;当前单轮请求包含多次策略覆盖和多处状态写入。&lt;/p&gt;&lt;/div&gt;
-    &lt;div class=&quot;flow&quot; role=&quot;list&quot; aria-label=&quot;聊天处理的十二个步骤&quot;&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;渠道标准化&lt;/strong&gt;&lt;span&gt;生成 trace、session、tenant、metadata&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;读取状态&lt;/strong&gt;&lt;span&gt;即时状态、用户画像、历史记忆&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;规则保护&lt;/strong&gt;&lt;span&gt;高风险、人工请求、固定规则&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;意图识别&lt;/strong&gt;&lt;span&gt;意图样本检索 + 规则/LLM 分类&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;基础 Policy&lt;/strong&gt;&lt;span&gt;template / rag / human / clarify&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;标签与阶段&lt;/strong&gt;&lt;span&gt;客户标签、销售阶段、实体槽位&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;标签 Policy&lt;/strong&gt;&lt;span&gt;客户等级、知识库、Prompt 约束&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;业务上下文覆盖&lt;/strong&gt;&lt;span&gt;商品、订单、活动等结构化事实&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;Reply Graph&lt;/strong&gt;&lt;span&gt;话术、模板、RAG、人工分支&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;销售动作&lt;/strong&gt;&lt;span&gt;追问、推荐、推进、下一步&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;状态写回&lt;/strong&gt;&lt;span&gt;状态、记忆、画像、会话表&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;flow-step&quot; role=&quot;listitem&quot;&gt;&lt;strong&gt;日志与响应&lt;/strong&gt;&lt;span&gt;FinalReply、阶段耗时、APIResponse&lt;/span&gt;&lt;/div&gt;
+  &lt;section id=&quot;core-flow&quot; class=&quot;tab-panel&quot; aria-label=&quot;核心消息流&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;核心消息流&lt;/h2&gt;&lt;p&gt;从渠道消息进入，到回复生成、状态回写和日志落盘的完整调用链。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;flow-grid&quot;&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;阶段 A · 请求理解&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;输入 → 状态 → 意图&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;stage-row&quot;&gt;&lt;div class=&quot;stage-label&quot;&gt;理解阶段&lt;/div&gt;&lt;div class=&quot;flow-track&quot; style=&quot;--steps:7&quot;&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;ChatRequest&lt;/strong&gt;&lt;span&gt;渠道原始输入&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;normalize&lt;/strong&gt;&lt;span&gt;trace / session / tenant&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;User State&lt;/strong&gt;&lt;span&gt;画像与会话记忆&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;Rule Guard&lt;/strong&gt;&lt;span&gt;固定规则与风险&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;stage-row&quot; style=&quot;margin-top:9px&quot;&gt;&lt;div class=&quot;stage-label&quot;&gt;&lt;/div&gt;&lt;div class=&quot;flow-track&quot; style=&quot;--steps:7&quot;&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;Intent Examples&lt;/strong&gt;&lt;span&gt;相似样本检索&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;Intent Classifier&lt;/strong&gt;&lt;span&gt;规则 / LLM&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;IntentResult&lt;/strong&gt;&lt;span&gt;意图、置信度、槽位&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;Base Policy&lt;/strong&gt;&lt;span&gt;初始回复路由&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;阶段 B · 策略与回复&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;标签策略 → LangGraph → FinalReply&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;stage-row&quot;&gt;&lt;div class=&quot;stage-label&quot;&gt;决策阶段&lt;/div&gt;&lt;div class=&quot;flow-track&quot; style=&quot;--steps:9&quot;&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;Tagger&lt;/strong&gt;&lt;span&gt;客户标签与实体&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;Sales Stage&lt;/strong&gt;&lt;span&gt;销售阶段判断&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;Rich Policy&lt;/strong&gt;&lt;span&gt;知识库与 Prompt&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;Business Context&lt;/strong&gt;&lt;span&gt;商品、订单、活动事实&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;Reply Graph&lt;/strong&gt;&lt;span&gt;回复分支执行&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;fanout&quot; style=&quot;margin-top:12px&quot;&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;Reply Graph&lt;/strong&gt;&lt;span&gt;按最终 route 分派&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;fanout-arrow&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;fanout-targets&quot;&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;Talk Script&lt;/strong&gt;&lt;span&gt;确定性话术&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;Template&lt;/strong&gt;&lt;span&gt;模板与业务事实&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;RAG&lt;/strong&gt;&lt;span&gt;知识生成&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node pink&quot;&gt;&lt;strong&gt;Human&lt;/strong&gt;&lt;span&gt;人工接管&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;Clarify&lt;/strong&gt;&lt;span&gt;信息补充&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;Chitchat&lt;/strong&gt;&lt;span&gt;闲聊响应&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;阶段 C · 输出与状态回写&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;FinalReply 一次生成，多处消费&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;fanout&quot;&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;FinalReply&lt;/strong&gt;&lt;span&gt;answer / route / metadata / sources&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;fanout-arrow&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;fanout-targets&quot;&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;User State&lt;/strong&gt;&lt;span&gt;阶段、标签、机会&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Conversation Memory&lt;/strong&gt;&lt;span&gt;用户与助手记忆&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;User Profile&lt;/strong&gt;&lt;span&gt;异步画像分析&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Conversation&lt;/strong&gt;&lt;span&gt;工作台消息流&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Chat Log&lt;/strong&gt;&lt;span&gt;路由与耗时&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Channel Response&lt;/strong&gt;&lt;span&gt;JSON / XML / Outbox&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
     &lt;/div&gt;
   &lt;/section&gt;
 
-  &lt;section id=&quot;channels&quot; class=&quot;tab-panel&quot; aria-label=&quot;渠道与工作台信息流&quot;&gt;
-    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;三条渠道信息流&lt;/h2&gt;&lt;p&gt;Chat API 和公众号同步调用主链路；Eyun 使用持久化队列、延迟和限速发送。&lt;/p&gt;&lt;/div&gt;
-    &lt;div class=&quot;channel-flows&quot;&gt;
-      &lt;div class=&quot;channel-flow&quot;&gt;&lt;h3&gt;Chat API&lt;/h3&gt;&lt;div class=&quot;lane&quot;&gt;&lt;div class=&quot;lane-item&quot;&gt;POST /api/v1/chat&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;统一编排&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;JSON Reply&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;channel-flow&quot;&gt;&lt;h3&gt;微信公众号&lt;/h3&gt;&lt;div class=&quot;lane&quot;&gt;&lt;div class=&quot;lane-item&quot;&gt;签名校验&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;XML 解析与去重&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;统一编排&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;XML 回复&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;channel-flow&quot;&gt;&lt;h3&gt;Eyun / 企业微信&lt;/h3&gt;&lt;div class=&quot;lane&quot;&gt;&lt;div class=&quot;lane-item&quot;&gt;回调立即 ACK&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;记录客户消息&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;SQLite 合并队列&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;后台 Worker&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;统一编排&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;限速 Outbox&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;Eyun 发送&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;channel-flow&quot;&gt;&lt;h3&gt;人工工作台&lt;/h3&gt;&lt;div class=&quot;lane&quot;&gt;&lt;div class=&quot;lane-item&quot;&gt;REST 拉取会话&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;SSE 会话变化&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;认领 / 回复&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;接管 / 释放 AI&lt;/div&gt;&lt;div class=&quot;lane-item&quot;&gt;Eyun 人工发送&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+  &lt;section id=&quot;module-flow&quot; class=&quot;tab-panel&quot; aria-label=&quot;模块关系流&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;模块关系流&lt;/h2&gt;&lt;p&gt;按“决策流、回复流、状态流”观察服务模块之间的调用关系。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;split-grid&quot;&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;决策模块关系&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;services/&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;flow-track&quot; style=&quot;--steps:9&quot;&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;state_service&lt;/strong&gt;&lt;span&gt;当前状态&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;intent_service&lt;/strong&gt;&lt;span&gt;意图分类&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;policy_service&lt;/strong&gt;&lt;span&gt;基础路由&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;tagger_service&lt;/strong&gt;&lt;span&gt;标签实体&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node warm&quot;&gt;&lt;strong&gt;policy_engine&lt;/strong&gt;&lt;span&gt;标签策略&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;回复模块关系&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;reply graph&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;flow-track&quot; style=&quot;--steps:7&quot;&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;reply_workflow_graph&lt;/strong&gt;&lt;span&gt;route 分派&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;talk_script&lt;/strong&gt;&lt;span&gt;优先匹配&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;template / rag / handoff&lt;/strong&gt;&lt;span&gt;生成回复&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;reply_builder&lt;/strong&gt;&lt;span&gt;FinalReply&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;RAG 内部信息流&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;rag_service&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;flow-track&quot; style=&quot;--steps:9&quot;&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Context Selector&lt;/strong&gt;&lt;span&gt;历史与画像&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Embedding&lt;/strong&gt;&lt;span&gt;查询向量&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Qdrant Search&lt;/strong&gt;&lt;span&gt;候选知识&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Rerank&lt;/strong&gt;&lt;span&gt;相关性排序&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Prompt + LLM&lt;/strong&gt;&lt;span&gt;受约束生成&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;状态持久化关系&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;profile / conversation / log&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;fanout&quot;&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Chat Result&lt;/strong&gt;&lt;span&gt;一轮结果&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;fanout-arrow&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;fanout-targets&quot;&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;state_service&lt;/strong&gt;&lt;span&gt;即时状态&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;user_profile_service&lt;/strong&gt;&lt;span&gt;画像与记忆&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;conversation_service&lt;/strong&gt;&lt;span&gt;客服会话&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;chat_log_service&lt;/strong&gt;&lt;span&gt;链路日志&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;event_broker&lt;/strong&gt;&lt;span&gt;SSE 事件&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;risk_control&lt;/strong&gt;&lt;span&gt;Eyun Outbox&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;relation-legend text-small&quot;&gt;&lt;span&gt;&lt;i class=&quot;swatch&quot;&gt;&lt;/i&gt;核心编排&lt;/span&gt;&lt;span&gt;&lt;i class=&quot;swatch s2&quot;&gt;&lt;/i&gt;策略判断&lt;/span&gt;&lt;span&gt;&lt;i class=&quot;swatch s3&quot;&gt;&lt;/i&gt;数据与回复&lt;/span&gt;&lt;span&gt;&lt;i class=&quot;swatch s4&quot;&gt;&lt;/i&gt;外部或人工&lt;/span&gt;&lt;/div&gt;
+  &lt;/section&gt;
+
+  &lt;section id=&quot;channel-flow&quot; class=&quot;tab-panel&quot; aria-label=&quot;渠道信息流&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;渠道信息流&lt;/h2&gt;&lt;p&gt;四类入口最终共享聊天主链路，但消息确认、发送和人工介入方式不同。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;flow-canvas&quot;&gt;
+      &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;渠道并行泳道&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;入口 → 编排 → 输出&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;channel-lanes&quot;&gt;
+        &lt;div class=&quot;channel-lane&quot;&gt;&lt;div class=&quot;channel-name&quot;&gt;Chat API&lt;/div&gt;&lt;div class=&quot;flow-track&quot; style=&quot;--steps:5&quot;&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;POST /chat&lt;/strong&gt;&lt;span&gt;ChatRequest&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;handle_chat&lt;/strong&gt;&lt;span&gt;同步编排&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;JSON Response&lt;/strong&gt;&lt;span&gt;APIResponse&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;channel-lane&quot;&gt;&lt;div class=&quot;channel-name&quot;&gt;微信公众号&lt;/div&gt;&lt;div class=&quot;flow-track&quot; style=&quot;--steps:9&quot;&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;Callback&lt;/strong&gt;&lt;span&gt;签名校验&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;XML Parse&lt;/strong&gt;&lt;span&gt;文本与去重&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;handle_chat&lt;/strong&gt;&lt;span&gt;同步编排&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;XML Build&lt;/strong&gt;&lt;span&gt;公众号格式&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;WeChat&lt;/strong&gt;&lt;span&gt;客户收到回复&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;channel-lane&quot;&gt;&lt;div class=&quot;channel-name&quot;&gt;Eyun / 企业微信&lt;/div&gt;&lt;div class=&quot;flow-track&quot; style=&quot;--steps:13&quot;&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;Callback&lt;/strong&gt;&lt;span&gt;立即 ACK&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;Record&lt;/strong&gt;&lt;span&gt;客户消息&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Inbound Batch&lt;/strong&gt;&lt;span&gt;合并与防抖&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node&quot;&gt;&lt;strong&gt;Worker&lt;/strong&gt;&lt;span&gt;统一编排&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Outbox&lt;/strong&gt;&lt;span&gt;延迟与限速&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;Eyun Send API&lt;/strong&gt;&lt;span&gt;发送给客户&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;Customer&lt;/strong&gt;&lt;span&gt;企业微信会话&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;channel-lane&quot;&gt;&lt;div class=&quot;channel-name&quot;&gt;人工工作台&lt;/div&gt;&lt;div class=&quot;flow-track&quot; style=&quot;--steps:11&quot;&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;REST + SSE&lt;/strong&gt;&lt;span&gt;会话列表与变化&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node pink&quot;&gt;&lt;strong&gt;Claim&lt;/strong&gt;&lt;span&gt;人工认领&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node pink&quot;&gt;&lt;strong&gt;Reply&lt;/strong&gt;&lt;span&gt;人工回复&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node green&quot;&gt;&lt;strong&gt;Conversation DB&lt;/strong&gt;&lt;span&gt;状态与消息&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node channel&quot;&gt;&lt;strong&gt;Eyun Send&lt;/strong&gt;&lt;span&gt;发送人工消息&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;connector&quot;&gt;→&lt;/div&gt;&lt;div class=&quot;flow-node pink&quot;&gt;&lt;strong&gt;Release / Resolve&lt;/strong&gt;&lt;span&gt;恢复 AI 或结束&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
     &lt;/div&gt;
   &lt;/section&gt;
 
-  &lt;section id=&quot;data&quot; class=&quot;tab-panel&quot; aria-label=&quot;数据与外部依赖&quot;&gt;
-    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;数据边界与外部依赖&lt;/h2&gt;&lt;p&gt;当前生产部署以单 API 实例和本地持久化卷为中心。&lt;/p&gt;&lt;/div&gt;
-    &lt;div class=&quot;data-map&quot;&gt;
-      &lt;div class=&quot;data-column&quot;&gt;&lt;h3&gt;业务写入&lt;/h3&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;聊天主链路&lt;/strong&gt;&lt;span&gt;状态、记忆、会话、日志&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;知识入库&lt;/strong&gt;&lt;span&gt;上传、解析、切片、向量化&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Eyun Worker&lt;/strong&gt;&lt;span&gt;Inbound Batch / Outbox / Rate&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node&quot;&gt;&lt;strong&gt;运营后台&lt;/strong&gt;&lt;span&gt;话术、用户画像、人工状态&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;data-column&quot;&gt;&lt;h3&gt;存储&lt;/h3&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;rag.db / SQLite&lt;/strong&gt;&lt;span&gt;会话、消息、画像、记忆、话术、商品、风险控制队列&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;chat_logs.db / SQLite&lt;/strong&gt;&lt;span&gt;聊天链路、意图、路由、耗时、异常&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;Qdrant&lt;/strong&gt;&lt;span&gt;知识块、意图样本与向量检索&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;上传目录&lt;/strong&gt;&lt;span&gt;TXT / Markdown / PDF 原始文件&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node data&quot;&gt;&lt;strong&gt;进程内状态&lt;/strong&gt;&lt;span&gt;UserState、SSE Broker、缓存、后台任务&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;data-column&quot;&gt;&lt;h3&gt;外部服务&lt;/h3&gt;&lt;div class=&quot;node external&quot;&gt;&lt;strong&gt;LLM Provider&lt;/strong&gt;&lt;span&gt;通义、豆包、DeepSeek、OpenAI 兼容接口&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node external&quot;&gt;&lt;strong&gt;Embedding&lt;/strong&gt;&lt;span&gt;BGE-M3 本地模型或远程 API&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node external&quot;&gt;&lt;strong&gt;Qdrant Cloud&lt;/strong&gt;&lt;span&gt;生产向量数据库&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;node external&quot;&gt;&lt;strong&gt;Eyun API&lt;/strong&gt;&lt;span&gt;联系人快照、媒体解析、消息发送&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
-    &lt;/div&gt;
-  &lt;/section&gt;
-
-  &lt;section id=&quot;risks&quot; class=&quot;tab-panel&quot; aria-label=&quot;架构痛点与治理优先级&quot;&gt;
-    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;架构痛点排序&lt;/h2&gt;&lt;p&gt;第一优先级是收敛决策链路，其余问题按生产扩展风险依次治理。&lt;/p&gt;&lt;/div&gt;
-    &lt;div class=&quot;risk-stack&quot;&gt;
-      &lt;div class=&quot;risk&quot;&gt;&lt;div class=&quot;risk-rank&quot;&gt;P0 · 核心&lt;/div&gt;&lt;div class=&quot;risk-main&quot;&gt;&lt;strong&gt;回复决策没有唯一事实源&lt;/strong&gt;&lt;span&gt;基础 Policy、标签 Policy、业务上下文和回复图可连续覆盖路由&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;risk-detail&quot;&gt;直接表现为内部业务字段直出、误转人工、多轮销售阶段丢失；修改一个策略需要理解多个覆盖层。&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;risk&quot;&gt;&lt;div class=&quot;risk-rank&quot;&gt;P1 · 产品&lt;/div&gt;&lt;div class=&quot;risk-main&quot;&gt;&lt;strong&gt;事实与表达没有解耦&lt;/strong&gt;&lt;span&gt;tool_state 可以直接拼成客户回复&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;risk-detail&quot;&gt;订单、支付、活动等内部键值可能暴露给客户，业务事实也无法按场景转成可执行的自然语言。&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;risk&quot;&gt;&lt;div class=&quot;risk-rank&quot;&gt;P1 · 运行&lt;/div&gt;&lt;div class=&quot;risk-main&quot;&gt;&lt;strong&gt;单实例状态模型&lt;/strong&gt;&lt;span&gt;进程内 UserState、SSE Broker、Worker&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;risk-detail&quot;&gt;水平扩容后会出现状态不一致、事件不可见和多个 Worker 竞争；当前 Docker 方案事实上依赖单 API 实例。&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;risk&quot;&gt;&lt;div class=&quot;risk-rank&quot;&gt;P1 · 性能&lt;/div&gt;&lt;div class=&quot;risk-main&quot;&gt;&lt;strong&gt;异步接口内同步数据库 I/O&lt;/strong&gt;&lt;span&gt;async service 直接调用同步 SQLAlchemy Session&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;risk-detail&quot;&gt;并发升高后会阻塞事件循环，与长耗时模型调用叠加，扩大尾延迟和超时影响。&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;risk&quot;&gt;&lt;div class=&quot;risk-rank&quot;&gt;P2 · 维护&lt;/div&gt;&lt;div class=&quot;risk-main&quot;&gt;&lt;strong&gt;双回复实现与运行时建表&lt;/strong&gt;&lt;span&gt;LangGraph + legacy _build_reply；create_all + ALTER TABLE&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;risk-detail&quot;&gt;两套回复分支容易漂移；数据库缺少正式版本迁移和可审计回滚路径。&lt;/div&gt;&lt;/div&gt;
-    &lt;/div&gt;
-    &lt;div class=&quot;section-head&quot;&gt;&lt;h3&gt;建议治理顺序&lt;/h3&gt;&lt;/div&gt;
-    &lt;div class=&quot;priority&quot; aria-label=&quot;治理优先级&quot;&gt;
-      &lt;div class=&quot;priority-row&quot;&gt;&lt;span&gt;统一 ReplyPlan&lt;/span&gt;&lt;div class=&quot;priority-bar&quot;&gt;&lt;div class=&quot;priority-fill w100&quot;&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;priority-row&quot;&gt;&lt;span&gt;事实表达层&lt;/span&gt;&lt;div class=&quot;priority-bar&quot;&gt;&lt;div class=&quot;priority-fill w82&quot;&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;priority-row&quot;&gt;&lt;span&gt;单一执行图&lt;/span&gt;&lt;div class=&quot;priority-bar&quot;&gt;&lt;div class=&quot;priority-fill w68&quot;&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-      &lt;div class=&quot;priority-row&quot;&gt;&lt;span&gt;数据基础设施&lt;/span&gt;&lt;div class=&quot;priority-bar&quot;&gt;&lt;div class=&quot;priority-fill w52&quot;&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+  &lt;section id=&quot;data-flow&quot; class=&quot;tab-panel&quot; aria-label=&quot;数据生命周期&quot;&gt;
+    &lt;div class=&quot;section-head&quot;&gt;&lt;h2&gt;数据生命周期&lt;/h2&gt;&lt;p&gt;知识、对话、用户画像和工作台状态通过不同路径进入系统并被持续消费。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;flow-grid&quot;&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;知识入库流&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;文件 → 向量索引&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;data-cycle&quot;&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;上传文件&lt;/strong&gt;&lt;span&gt;TXT / MD / PDF&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;解析与清洗&lt;/strong&gt;&lt;span&gt;抽取正文和元信息&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;文档切片&lt;/strong&gt;&lt;span&gt;fixed / adaptive&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Embedding&lt;/strong&gt;&lt;span&gt;BGE 或远程 API&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Qdrant&lt;/strong&gt;&lt;span&gt;知识块与过滤字段&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;对话数据流&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;消息 → 画像 → 下一轮上下文&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;data-cycle&quot;&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;客户消息&lt;/strong&gt;&lt;span&gt;NormalizedMessage&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Conversation&lt;/strong&gt;&lt;span&gt;工作台消息记录&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Memory&lt;/strong&gt;&lt;span&gt;用户 / 助手轮次&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Profile Analysis&lt;/strong&gt;&lt;span&gt;标签、偏好、痛点&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Context Selector&lt;/strong&gt;&lt;span&gt;进入下一轮 Prompt&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;flow-canvas&quot;&gt;
+        &lt;div class=&quot;canvas-label&quot;&gt;&lt;strong&gt;运营闭环&lt;/strong&gt;&lt;span class=&quot;text-small&quot;&gt;系统事件 → 人工操作 → 渠道&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;data-cycle&quot;&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Conversation Event&lt;/strong&gt;&lt;span&gt;状态变化&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;SSE Broker&lt;/strong&gt;&lt;span&gt;推送工作台&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Operator Action&lt;/strong&gt;&lt;span&gt;认领、回复、释放&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Conversation DB&lt;/strong&gt;&lt;span&gt;落盘状态&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;cycle-step&quot;&gt;&lt;strong&gt;Eyun Outbox&lt;/strong&gt;&lt;span&gt;限速发送&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;
+      &lt;/div&gt;
     &lt;/div&gt;
   &lt;/section&gt;
 
   &lt;script&gt;
     (() =&gt; {
-      const root = document.getElementById(&#x27;ics-architecture-visual&#x27;);
+      const root = document.getElementById(&#x27;ics-showcase&#x27;);
       if (!root) return;
       const buttons = Array.from(root.querySelectorAll(&#x27;[data-tab]&#x27;));
       const panels = Array.from(root.querySelectorAll(&#x27;.tab-panel&#x27;));
