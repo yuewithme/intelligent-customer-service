@@ -74,8 +74,8 @@ async def test_talk_script_matched_returns_template_reply(monkeypatch):
 
     latencies = {}
     reply = await reply_workflow_graph.build_reply_with_graph(
-        route="rag_answer",
-        intent=_intent("rag_answer"),
+        route="template_reply",
+        intent=_intent("template_reply"),
         message=_message(),
         user_state=_state(),
         stage_latencies=latencies,
@@ -122,9 +122,9 @@ async def test_talk_script_handoff_returns_human(monkeypatch):
 async def test_rag_answer_with_answer_returns_rag_reply(monkeypatch):
     from app.services import reply_workflow_graph
 
-    async def pass_talk_script(**kwargs):
+    async def fail_talk_script(**kwargs):
         del kwargs
-        return TalkScriptMatchResult(status="pass_through")
+        raise AssertionError("rag route must not enter talk-script matching")
 
     async def answer_knowledge(message, user_state, policy_decision=None):
         del message, user_state, policy_decision
@@ -134,7 +134,7 @@ async def test_rag_answer_with_answer_returns_rag_reply(monkeypatch):
             "usage": {"tokens": 2},
         }
 
-    monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
+    monkeypatch.setattr(reply_workflow_graph, "match_talk_script", fail_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
     reply = await reply_workflow_graph.build_reply_with_graph(

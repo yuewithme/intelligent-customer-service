@@ -521,7 +521,9 @@ async def test_match_talk_script_passes_through_when_no_scene_matches(talk_scrip
 
 
 @pytest.mark.asyncio
-async def test_chat_orchestrator_uses_talk_script_before_rag(talk_script_db, monkeypatch):
+async def test_chat_orchestrator_skips_talk_script_for_rag_route(
+    talk_script_db, monkeypatch
+):
     from app.schemas.chat import ChatRequest
     from app.schemas.intent import IntentResult
     from app.services import chat_orchestrator
@@ -572,15 +574,15 @@ async def test_chat_orchestrator_uses_talk_script_before_rag(talk_script_db, mon
             need_rag=True,
         )
 
-    async def fail_rag(message, user_state):
-        del message, user_state
-        raise AssertionError("RAG should not run when talk script matches")
+    async def fake_rag(message, user_state, policy_decision=None):
+        del message, user_state, policy_decision
+        return {"answer": "收到后先不要急着换盆。", "sources": []}
 
     monkeypatch.setattr(
         chat_orchestrator, "retrieve_intent_examples", fake_retrieve_intent_examples
     )
     monkeypatch.setattr(chat_orchestrator, "classify_intent", fake_classify_intent)
-    monkeypatch.setattr("app.services.rag_service.answer_knowledge", fail_rag)
+    monkeypatch.setattr("app.services.rag_service.answer_knowledge", fake_rag)
 
     result = await chat_orchestrator.handle_chat(
         ChatRequest(
@@ -592,9 +594,9 @@ async def test_chat_orchestrator_uses_talk_script_before_rag(talk_script_db, mon
     )
 
     assert result["answer"] == "收到后先不要急着换盆。"
-    assert result["reply_type"] == "template"
-    assert result["route"] == "template_reply"
-    assert result["template"] == {"template_id": "T04_01_001"}
+    assert result["reply_type"] == "rag"
+    assert result["route"] == "rag_answer"
+    assert result["template"] == {}
     assert result["need_human"] is False
 
 

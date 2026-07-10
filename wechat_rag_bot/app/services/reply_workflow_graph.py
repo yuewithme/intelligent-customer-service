@@ -36,7 +36,7 @@ class ReplyWorkflowState(TypedDict, total=False):
     handoff_context: dict | None
 
 
-TALK_SCRIPT_ROUTES = {"template_reply", "template_then_rag", "rag_answer"}
+TALK_SCRIPT_ROUTES = {"template_reply", "template_then_rag"}
 
 
 async def talk_script_node(state: ReplyWorkflowState) -> ReplyWorkflowState:

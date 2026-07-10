@@ -245,7 +245,7 @@ async def _build_reply(
     policy_decision=None,
 ) -> FinalReply:
     stage_latencies = stage_latencies if stage_latencies is not None else {}
-    if route in {"template_reply", "template_then_rag", "rag_answer"}:
+    if route in {"template_reply", "template_then_rag"}:
         stage_started = time.perf_counter()
         talk_script = await match_talk_script(
             customer_id=message.user_id,
