@@ -13,12 +13,3 @@ async def build_business_context(message) -> BusinessFacts:
         else {},
         skus=list_orchid_skus(variety_names=requested, limit=10) if requested else [],
     )
-
-
-def has_business_context(message) -> bool:
-    metadata = message.metadata if isinstance(message.metadata, dict) else {}
-    return bool(
-        metadata.get("business_snapshot")
-        or metadata.get("tool_state")
-        or metadata.get("requested_varieties")
-    )

@@ -42,6 +42,6 @@ def test_clarify_route_asks_followup_without_rag_or_handoff():
 
 
 def test_rag_answer_without_sources_is_not_handoff_by_itself():
-    from app.services.chat_orchestrator import _is_rag_no_answer
+    from app.services.reply_workflow_graph import _is_rag_no_answer
 
     assert _is_rag_no_answer({"answer": "可以先放在通风散光处观察。", "sources": []}) is False

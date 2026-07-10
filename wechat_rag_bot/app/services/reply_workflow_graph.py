@@ -318,53 +318,6 @@ async def execute_reply_plan(
     return result["reply"]
 
 
-async def build_reply_with_graph(
-    *,
-    route: str,
-    intent: IntentResult,
-    message,
-    user_state,
-    stage_latencies: dict[str, int],
-    policy_decision: PolicyDecision | None = None,
-) -> FinalReply:
-    from app.services.business_context_service import build_business_context
-
-    action = "rag_answer" if route == "template_then_rag" else route
-    if action not in {
-        "template_reply",
-        "rag_answer",
-        "human",
-        "chitchat",
-        "unsupported",
-        "clarify",
-    }:
-        action = "clarify"
-    policy = policy_decision or PolicyDecision(
-        route=route,
-        reason=intent.reason or "legacy_graph_adapter",
-    )
-    plan = ReplyPlan(
-        action=action,
-        original_route=policy.original_route or route,
-        reason=policy.reason or "legacy_graph_adapter",
-        need_human=action == "human",
-        next_action="human_handoff" if action == "human" else policy.next_action,
-        knowledge_base_ids=list(policy.knowledge_base_ids),
-        template_ids=list(policy.template_ids),
-        prompt_block_ids=list(policy.prompt_block_ids),
-        context_policy=dict(policy.context_policy),
-        retrieval_policy=dict(policy.retrieval_policy),
-        business_facts=await build_business_context(message),
-    )
-    return await execute_reply_plan(
-        plan=plan,
-        intent=intent,
-        message=message,
-        user_state=user_state,
-        stage_latencies=stage_latencies,
-    )
-
-
 def _elapsed_ms(started: float) -> int:
     return round((time.perf_counter() - started) * 1000)
 

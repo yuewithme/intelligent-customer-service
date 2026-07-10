@@ -86,7 +86,6 @@ class Settings(BaseSettings):
     template_min_score: float = Field(default=0.5, ge=0, le=1)
     state_provider: str = "memory"
     rule_guard_enabled: bool = True
-    reply_graph_enabled: bool = True
     debug_api_enabled: bool = True
     chunk_size: int = Field(default=600, ge=1)
     chunk_overlap: int = Field(default=100, ge=0)

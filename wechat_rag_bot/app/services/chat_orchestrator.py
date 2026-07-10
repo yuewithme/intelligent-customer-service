@@ -10,31 +10,24 @@ from app.schemas.policy import PolicyDecision
 from app.schemas.reply import FinalReply
 from app.services.channel_service import normalize_chat_request
 from app.services.chat_log_service import record_chat_log
+from app.services.business_context_service import build_business_context
 from app.services.conversation_service import record_ai_turn
 from app.services.intent_example_service import retrieve_intent_examples
 from app.services.intent_service import classify_intent
 from app.services.policy_service import decide_route
 from app.services.policy_engine import decide_policy
-from app.services.reply_builder import (
-    build_chitchat_reply,
-    build_clarify_reply,
-    build_rag_reply,
-    build_unsupported_reply,
-)
+from app.services.reply_planner import resolve_reply_plan
+from app.services.reply_workflow_graph import execute_reply_plan
 from app.services.rule_guard_service import check_rules
 from app.services.sales_action_service import apply_sales_action, decide_sales_action
 from app.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
 from app.services.state_service import get_user_state, update_user_state
 from app.services.tagger_service import build_tag_result
-from app.services.template_reply_service import build_default_template_reply
 from app.services.user_profile_service import (
     append_conversation_memory,
     get_profile_bundle,
     update_profile_after_chat,
 )
-from app.talk_script.service import match_talk_script
-from app.talk_script.human_handoff_service import request_human_handoff
-from app.utils.ids import generate_id
 from app.utils.logger import log_event
 
 
@@ -104,28 +97,23 @@ async def handle_chat(request: ChatRequest) -> dict:
         )
         tag_result = tag_result.model_copy(update={"stage": sales_stage_decision.stage})
         rich_decision = await decide_policy(tag_result)
-        if rich_decision.reason != "default_tag_policy":
-            decision = rich_decision
-        from app.services.business_context_service import has_business_context
-
-        if decision.route != "human" and has_business_context(message):
-            decision = PolicyDecision(
-                route="template_reply",
-                reason="structured_business_context",
-                original_route=decision.route,
-            )
-            rich_decision = decision
+        facts = await build_business_context(message)
+        plan = resolve_reply_plan(
+            base=decision,
+            tagged=rich_decision,
+            facts=facts,
+        )
         stage_latencies["tag_policy_ms"] = _elapsed_ms(stage_started)
 
-        route = decision.route
+        route = plan.action
         routed_intent = intent.model_copy(
             update={
                 "route": route,
                 "sales_stage": sales_stage_decision.stage,
-                "reason": decision.reason or intent.reason,
+                "reason": plan.reason,
                 "slots": {
                     **intent.slots,
-                    "original_route": decision.original_route or intent.route,
+                    "original_route": plan.original_route or intent.route,
                     "sales_stage_reason": sales_stage_decision.reason,
                 },
             }
@@ -137,29 +125,22 @@ async def handle_chat(request: ChatRequest) -> dict:
         user_state.metadata["sales_action"] = sales_action.model_dump()
 
         stage_started = time.perf_counter()
-        if get_settings().reply_graph_enabled:
-            from app.services.reply_workflow_graph import build_reply_with_graph
-
-            reply = await build_reply_with_graph(
-                route=route,
-                intent=routed_intent,
-                message=message,
-                user_state=user_state,
-                stage_latencies=stage_latencies,
-                policy_decision=rich_decision or decision,
-            )
-        else:
-            reply = await _build_reply(
-                route,
-                routed_intent,
-                message,
-                user_state,
-                stage_latencies,
-                policy_decision=rich_decision or decision,
-            )
+        reply = await execute_reply_plan(
+            plan=plan,
+            intent=routed_intent,
+            message=message,
+            user_state=user_state,
+            stage_latencies=stage_latencies,
+        )
         reply = apply_sales_action(reply, sales_action)
         stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
         reply.metadata["sales_action"] = sales_action.model_dump()
+        reply.metadata["decision"] = {
+            "action": plan.action,
+            "reason": plan.reason,
+            "original_route": plan.original_route,
+            "trace": [step.model_dump() for step in plan.decision_trace],
+        }
         if tag_result is not None:
             reply.metadata["tag_result"] = tag_result.model_dump()
         if rich_decision is not None:
@@ -256,110 +237,6 @@ async def handle_chat(request: ChatRequest) -> dict:
             await record_chat_log(log_payload)
 
 
-async def _build_reply(
-    route: str,
-    intent: IntentResult,
-    message,
-    user_state,
-    stage_latencies: dict[str, int] | None = None,
-    policy_decision=None,
-) -> FinalReply:
-    stage_latencies = stage_latencies if stage_latencies is not None else {}
-    if route in {"template_reply", "template_then_rag"}:
-        stage_started = time.perf_counter()
-        talk_script = await match_talk_script(
-            customer_id=message.user_id,
-            current_message=message.message,
-            trace_id=message.trace_id,
-            session_id=message.session_id,
-            recent_messages=[],
-            customer_tags={"tags": user_state.customer_tags},
-        )
-        stage_latencies["talk_script_ms"] = _elapsed_ms(stage_started)
-        if talk_script.status == "matched":
-            stage_latencies.setdefault("template_ms", 0)
-            stage_latencies.setdefault("rag_ms", 0)
-            return FinalReply(
-                answer=talk_script.answer,
-                reply_type="template",
-                route="template_reply",
-                template_id=talk_script.template_id,
-                need_human=False,
-                metadata={
-                    "talk_script": talk_script.model_dump(),
-                    "score": talk_script.confidence,
-                },
-            )
-        if talk_script.status == "handoff" and not _is_soft_talk_script_handoff(
-            talk_script.reason
-        ):
-            stage_latencies.setdefault("template_ms", 0)
-            stage_latencies.setdefault("rag_ms", 0)
-            return await build_handoff_reply(
-                message=message,
-                intent=intent,
-                reason=talk_script.reason or "talk_script_to_handoff",
-                original_route=route,
-                context={"talk_script": talk_script.model_dump()},
-            )
-    else:
-        stage_latencies.setdefault("talk_script_ms", 0)
-    if route == "template_reply":
-        stage_started = time.perf_counter()
-        reply = await build_default_template_reply(message, intent, user_state)
-        stage_latencies["template_ms"] = _elapsed_ms(stage_started)
-        if reply is not None:
-            return reply
-        stage_latencies["rag_ms"] = 0
-        return build_clarify_reply(intent)
-    if route == "rag_answer":
-        from app.services.rag_service import answer_knowledge
-
-        stage_started = time.perf_counter()
-        rag_result = await answer_knowledge(
-            message,
-            user_state,
-            policy_decision=policy_decision,
-        )
-        for key, value in rag_result.get("stage_latencies", {}).items():
-            stage_latencies[f"rag_{key}"] = value
-        stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
-        stage_latencies.setdefault("template_ms", 0)
-        if _is_rag_no_answer(rag_result):
-            return build_clarify_reply(intent)
-        return build_rag_reply(rag_result, intent)
-    if route == "template_then_rag":
-        from app.services.rag_service import answer_knowledge
-
-        stage_latencies.setdefault("template_ms", 0)
-        stage_started = time.perf_counter()
-        rag_result = await answer_knowledge(
-            message,
-            user_state,
-            policy_decision=policy_decision,
-        )
-        for key, value in rag_result.get("stage_latencies", {}).items():
-            stage_latencies[f"rag_{key}"] = value
-        stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
-        if _is_rag_no_answer(rag_result):
-            return build_clarify_reply(intent)
-        return build_rag_reply(rag_result, intent)
-    stage_latencies.setdefault("template_ms", 0)
-    stage_latencies.setdefault("rag_ms", 0)
-    if route == "human":
-        return await build_handoff_reply(
-            message=message,
-            intent=intent,
-            reason=intent.reason or "human_required",
-            original_route=intent.slots.get("original_route") or intent.route,
-        )
-    if route == "chitchat":
-        return build_chitchat_reply(intent)
-    if route == "unsupported":
-        return build_unsupported_reply(intent)
-    return build_clarify_reply(intent)
-
-
 def _schedule_background_task(coroutine, *, trace_id: str, task_name: str) -> None:
     task = asyncio.create_task(coroutine)
     _background_tasks.add(task)
@@ -380,64 +257,6 @@ def _schedule_background_task(coroutine, *, trace_id: str, task_name: str) -> No
             )
 
     task.add_done_callback(handle_done)
-
-
-async def build_handoff_reply(
-    *,
-    message,
-    intent: IntentResult,
-    reason: str,
-    original_route: str | None = None,
-    context: dict | None = None,
-) -> FinalReply:
-    ticket_id = generate_id("handoff")
-    handoff = await request_human_handoff(
-        customer_id=message.user_id,
-        current_message=message.message,
-        reason=reason,
-        context={
-            "ticket_id": ticket_id,
-            "trace_id": message.trace_id,
-            "session_id": message.session_id,
-            "intent": intent.model_dump(),
-            "original_route": original_route,
-            **(context or {}),
-        },
-    )
-    return FinalReply(
-        answer="",
-        reply_type="human",
-        route="human",
-        need_human=True,
-        next_action="human_handoff",
-        metadata={
-            "handoff": {
-                "ticket_id": ticket_id,
-                "status": handoff.status,
-                "reason": reason,
-            },
-            "original_route": original_route,
-            **(context or {}),
-        },
-    )
-
-
-def _is_rag_no_answer(rag_result: dict) -> bool:
-    answer = (rag_result.get("answer") or "").strip()
-    return (
-        not answer
-        or answer == "知识库中没有找到明确答案。"
-    )
-
-
-def _is_soft_talk_script_handoff(reason: str | None) -> bool:
-    return reason in {
-        "classifier_unmatched",
-        "confidence_below_threshold",
-        "no_candidate_questions",
-        "question_not_found",
-        "template_not_found",
-    }
 
 
 def _to_chat_data(

@@ -21,7 +21,7 @@ def _chat(message: str, user_id: str = "intent_route_user") -> dict:
 
 
 def test_rag_no_answer_detection_keeps_llm_fallback_without_sources():
-    from app.services.chat_orchestrator import _is_rag_no_answer
+    from app.services.reply_workflow_graph import _is_rag_no_answer
 
     assert _is_rag_no_answer({"answer": "可以先放在通风散光处观察。", "sources": []}) is False
     assert _is_rag_no_answer({"answer": "", "sources": []}) is True

@@ -194,36 +194,42 @@ def test_mock_intent_routes_knowledge_price_and_mixed_messages():
 
 
 def test_template_routes_create_and_search():
-    client = TestClient(app)
-    create_response = client.post(
-        "/api/v1/templates",
-        json={
-            "template_id": "tpl_price_objection_test",
-            "intent": "price_objection",
-            "stage": "objection_handling",
-            "trigger_examples": ["有点贵"],
-            "content": "价格确实需要综合品质和售后来看。",
-            "priority": 90,
-        },
-    )
-    assert create_response.status_code == 200
-    assert create_response.json()["data"] == {
-        "template_id": "tpl_price_objection_test",
-        "status": "indexed",
-    }
+    from app.services.template_service import _templates
 
-    search_response = client.post(
-        "/api/v1/templates/search",
-        json={
-            "message": "有点贵，我再考虑一下",
-            "intent": "price_objection",
-            "stage": "objection_handling",
-            "customer_tags": ["price_sensitive"],
-            "top_k": 5,
-        },
-    )
-    assert search_response.status_code == 200
-    assert search_response.json()["data"]["templates"]
+    template_id = "tpl_price_objection_test"
+    try:
+        client = TestClient(app)
+        create_response = client.post(
+            "/api/v1/templates",
+            json={
+                "template_id": template_id,
+                "intent": "price_objection",
+                "stage": "objection_handling",
+                "trigger_examples": ["有点贵"],
+                "content": "价格确实需要综合品质和售后来看。",
+                "priority": 90,
+            },
+        )
+        assert create_response.status_code == 200
+        assert create_response.json()["data"] == {
+            "template_id": template_id,
+            "status": "indexed",
+        }
+
+        search_response = client.post(
+            "/api/v1/templates/search",
+            json={
+                "message": "有点贵，我再考虑一下",
+                "intent": "price_objection",
+                "stage": "objection_handling",
+                "customer_tags": ["price_sensitive"],
+                "top_k": 5,
+            },
+        )
+        assert search_response.status_code == 200
+        assert search_response.json()["data"]["templates"]
+    finally:
+        _templates.pop(template_id, None)
 
 
 def test_intent_examples_debug_and_state_routes():
