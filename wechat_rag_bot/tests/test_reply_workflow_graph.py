@@ -223,19 +223,16 @@ async def test_template_reply_falls_back_to_default_template(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_template_reply_missing_default_template_falls_back_to_rag(monkeypatch):
+async def test_template_reply_missing_default_template_returns_clarify_without_rag(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def pass_talk_script(**kwargs):
         del kwargs
         return TalkScriptMatchResult(status="pass_through")
 
-    async def answer_knowledge(message, user_state, policy_decision=None):
-        del message, user_state, policy_decision
-        return {
-            "answer": "I can recommend one first. Are you looking for an easy beginner plant or a stronger fragrance?",
-            "sources": [],
-        }
+    async def answer_knowledge(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("transaction template miss must not call generic RAG")
 
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
@@ -249,10 +246,10 @@ async def test_template_reply_missing_default_template_falls_back_to_rag(monkeyp
     )
 
     _assert_reply(reply)
-    assert reply.route == "rag_answer"
-    assert reply.reply_type == "rag"
+    assert reply.route == "clarify"
+    assert reply.reply_type == "clarify"
     assert reply.need_human is False
-    assert "recommend" in reply.answer
+    assert reply.answer
 
 
 @pytest.mark.asyncio

@@ -93,8 +93,6 @@ def route_reply_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
 
 
 async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
-    from app.services.rag_service import answer_knowledge
-
     stage_latencies = state["stage_latencies"]
     stage_started = time.perf_counter()
     reply = await build_default_template_reply(
@@ -105,21 +103,8 @@ async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     stage_latencies["template_ms"] = _elapsed_ms(stage_started)
     if reply is not None:
         return {"reply": reply}
-
-    stage_started = time.perf_counter()
-    rag_result = await answer_knowledge(
-        state["message"],
-        state["user_state"],
-        policy_decision=state.get("policy_decision"),
-    )
-    stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
-    if not _is_rag_no_answer(rag_result):
-        return {"reply": build_rag_reply(rag_result, state["intent"])}
-    return {
-        "handoff_reason": "rag_no_answer_to_handoff",
-        "handoff_original_route": "template_reply",
-        "handoff_context": {"template_miss": True},
-    }
+    stage_latencies["rag_ms"] = 0
+    return {"reply": build_clarify_reply(state["intent"])}
 
 
 async def rag_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
