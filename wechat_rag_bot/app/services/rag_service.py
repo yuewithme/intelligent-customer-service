@@ -21,6 +21,11 @@ from app.utils.time import now_iso
 
 
 DEFAULT_ORCHID_KB_ID = "kb_orchid_basic"
+SALES_SECTION_PREFIXES = (
+    "CHUNK SCRIPT-",
+    "CHUNK FLOW-",
+    "CHUNK SOP-",
+)
 
 
 PROMPT_TEMPLATE = """
@@ -106,6 +111,16 @@ def _default_search_kb_ids(kb_id: str) -> list[str]:
     if DEFAULT_ORCHID_KB_ID not in ids:
         ids.append(DEFAULT_ORCHID_KB_ID)
     return ids
+
+
+def select_care_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        doc
+        for doc in docs
+        if not str(doc.get("section") or "").upper().startswith(
+            SALES_SECTION_PREFIXES
+        )
+    ]
 
 
 def _context(docs: list[dict[str, Any]]) -> str:
@@ -207,7 +222,7 @@ async def rag_chat(
                 )
             )
         docs = await rerank_service.rerank(
-            message.strip(), candidates, settings.rag_top_n
+            message.strip(), select_care_docs(candidates), settings.rag_top_n
         )
         sources = [_source(doc) for doc in docs]
         if docs:

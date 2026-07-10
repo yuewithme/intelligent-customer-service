@@ -6,6 +6,18 @@ from app.schemas.policy import PolicyDecision
 from app.services import llm_service, rag_service
 
 
+def test_care_retrieval_excludes_sales_sections():
+    docs = [
+        {"section": "CHUNK CARE-0001｜养护问答", "text": "care"},
+        {"section": "CHUNK SCRIPT-0001｜催单", "text": "sales"},
+        {"section": "CHUNK FLOW-0001｜成交", "text": "flow"},
+        {"section": "CHUNK SOP-0001｜跟进", "text": "sop"},
+        {"section": "烂根处理", "text": "structured orchid knowledge"},
+    ]
+
+    assert rag_service.select_care_docs(docs) == [docs[0], docs[4]]
+
+
 @pytest.mark.asyncio
 async def test_rag_chat_orchestrates_services(monkeypatch):
     from app.config import get_settings
