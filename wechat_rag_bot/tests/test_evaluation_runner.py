@@ -11,6 +11,8 @@ from evaluation.run_evaluation import (
     build_single_message,
     choose_pending_items,
     judge_result,
+    EvaluationRunner,
+    is_successful_chat_result,
     load_jsonl,
     parse_judge_json,
     run_chat_stage,
@@ -91,7 +93,11 @@ def test_merge_by_id_replaces_only_matching_rows():
 def test_choose_pending_items_skips_completed_rows_and_retries_failed_rows():
     items = [{"id": "done"}, {"id": "failed"}, {"id": "new"}]
     existing = {
-        "done": {"id": "done", "error": None},
+        "done": {
+            "id": "done",
+            "responses": [{"session_id": "s1"}],
+            "error": None,
+        },
         "failed": {"id": "failed", "error": "timeout"},
     }
 
@@ -99,6 +105,106 @@ def test_choose_pending_items_skips_completed_rows_and_retries_failed_rows():
         {"id": "failed"},
         {"id": "new"},
     ]
+
+
+def test_empty_response_row_is_not_completed():
+    row = {"id": "empty", "responses": [], "error": ""}
+
+    assert is_successful_chat_result(row) is False
+    assert choose_pending_items([{"id": "empty"}], {"empty": row}) == [
+        {"id": "empty"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_boundary_item_runs_as_chat_and_passes_tool_state(monkeypatch):
+    runner = EvaluationRunner("http://example.test", "key", "kb", 1)
+    captured = {}
+
+    async def fake_chat(client, **kwargs):
+        del client
+        captured.update(kwargs)
+        return {"answer": "reply", "session_id": "s1", "latency_ms": 1}
+
+    monkeypatch.setattr(runner, "_chat", fake_chat)
+    item = {
+        "id": "b01",
+        "task_type": "boundary",
+        "derived_from": "case01",
+        "primary_capability": "G5",
+        "conversation": [{"role": "user", "content": "stop"}],
+        "tool_state": {"activity": "expired"},
+    }
+
+    result = await runner.run_single(object(), item)
+
+    assert result["subset"] == "boundary"
+    assert result["source_case"] == "case01"
+    assert captured["metadata"]["tool_state"] == {"activity": "expired"}
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_includes_accumulated_transcript(monkeypatch):
+    runner = EvaluationRunner("http://example.test", "key", "kb", 1)
+    messages = []
+
+    async def fake_chat(client, **kwargs):
+        del client
+        messages.append(kwargs["message"])
+        turn = len(messages)
+        return {
+            "answer": f"assistant {turn}",
+            "session_id": "s1",
+            "latency_ms": 1,
+        }
+
+    monkeypatch.setattr(runner, "_chat", fake_chat)
+    item = {
+        "id": "m01",
+        "source_case": "case01",
+        "customer_turns": ["customer one", "customer two"],
+        "initial_context": "known background",
+    }
+
+    await runner.run_multi(object(), item)
+
+    assert "known background" in messages[1]
+    assert "customer one" in messages[1]
+    assert "assistant 1" in messages[1]
+    assert messages[1].endswith("customer two")
+
+
+@pytest.mark.asyncio
+async def test_chat_latency_excludes_semaphore_wait():
+    runner = EvaluationRunner("http://example.test", "key", "kb", 1)
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "code": 0,
+                "data": {"answer": "ok", "session_id": "s1"},
+            }
+
+    class Client:
+        async def post(self, *args, **kwargs):
+            del args, kwargs
+            return Response()
+
+    await runner.semaphore.acquire()
+    task = asyncio.create_task(
+        runner._chat(
+            Client(), item_id="i1", user_id="u1", message="hello"
+        )
+    )
+    await asyncio.sleep(0.05)
+    runner.semaphore.release()
+    result = await task
+
+    assert result["queue_wait_ms"] >= 40
+    assert result["latency_ms"] < 40
 
 
 def test_append_jsonl_preserves_prior_rows_for_interrupted_evaluation(tmp_path: Path):

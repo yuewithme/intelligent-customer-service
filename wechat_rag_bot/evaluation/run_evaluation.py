@@ -39,8 +39,21 @@ def choose_pending_items(
         item
         for item in items
         if item["id"] not in existing_by_id
-        or existing_by_id[item["id"]].get("error")
+        or not is_successful_chat_result(existing_by_id[item["id"]])
     ]
+
+
+def is_successful_chat_result(result: dict[str, Any]) -> bool:
+    if result.get("error"):
+        return False
+    responses = result.get("responses")
+    if not isinstance(responses, list) or not responses:
+        return False
+    expected_turns = int(result.get("expected_turns") or 1)
+    return len(responses) >= expected_turns and all(
+        isinstance(response, dict) and response.get("session_id")
+        for response in responses
+    )
 
 
 def select_run_stages(*, chat_only: bool, judge_only: bool) -> tuple[bool, bool]:
@@ -57,9 +70,11 @@ async def run_chat_stage(
     multis: list[dict[str, Any]],
     raw_path: Path,
     raw_by_id: dict[str, dict[str, Any]],
+    boundaries: list[dict[str, Any]] | None = None,
 ) -> set[str]:
     completed_ids: set[str] = set()
     tasks = [runner.run_single(client, item) for item in singles]
+    tasks.extend(runner.run_single(client, item) for item in boundaries or [])
     tasks.extend(runner.run_multi(client, item) for item in multis)
     for task in asyncio.as_completed(tasks):
         result = await task
@@ -72,7 +87,11 @@ async def run_chat_stage(
 def build_single_message(item: dict[str, Any]) -> str:
     conversation = item["conversation"]
     current = conversation[-1]["content"]
-    context = [turn["content"] for turn in conversation[:-1]]
+    role_labels = {"assistant": "客服", "user": "客户", "system": "背景"}
+    context = [
+        f"{role_labels.get(turn.get('role'), '背景')}：{turn['content']}"
+        for turn in conversation[:-1]
+    ]
     if not context:
         return current
     return (
@@ -81,6 +100,34 @@ def build_single_message(item: dict[str, Any]) -> str:
         + "\n\n【客户当前消息】\n"
         + current
     )
+
+
+def build_evaluation_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    conversation = item.get("conversation") or []
+    assistant_context = [
+        turn.get("content", "")
+        for turn in conversation[:-1]
+        if turn.get("role") == "assistant" and turn.get("content")
+    ]
+    return {
+        "tool_state": item.get("tool_state") or {},
+        "business_snapshot": "\n".join(assistant_context),
+    }
+
+
+def build_multi_message(
+    *,
+    initial_context: str,
+    transcript: list[str],
+    current_message: str,
+) -> str:
+    parts = []
+    if initial_context:
+        parts.append("【已知客户背景】\n" + initial_context)
+    if transcript:
+        parts.append("【最近对话】\n" + "\n".join(transcript))
+    parts.append("【客户当前消息】\n" + current_message)
+    return "\n\n".join(parts)
 
 
 def parse_judge_json(content: str) -> dict[str, Any]:
@@ -148,6 +195,7 @@ class EvaluationRunner:
         user_id: str,
         message: str,
         session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload = {
             "channel": "api",
@@ -158,16 +206,19 @@ class EvaluationRunner:
             "metadata": {
                 "evaluation_id": item_id,
                 "skip_customer_record": True,
+                **(metadata or {}),
             },
         }
-        started = time.perf_counter()
+        queued_at = time.perf_counter()
         async with self.semaphore:
+            queue_wait_ms = round((time.perf_counter() - queued_at) * 1000)
+            started = time.perf_counter()
             response = await client.post(
                 self.endpoint,
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json=payload,
             )
-        latency_ms = round((time.perf_counter() - started) * 1000)
+            latency_ms = round((time.perf_counter() - started) * 1000)
         response.raise_for_status()
         body = response.json()
         if body.get("code") != 0:
@@ -183,6 +234,7 @@ class EvaluationRunner:
             "next_action": data.get("next_action"),
             "trace_id": data.get("trace_id"),
             "latency_ms": latency_ms,
+            "queue_wait_ms": queue_wait_ms,
         }
 
     async def run_single(
@@ -195,22 +247,25 @@ class EvaluationRunner:
                 item_id=item_id,
                 user_id=f"eval_{item_id}",
                 message=build_single_message(item),
+                metadata=build_evaluation_metadata(item),
             )
             return {
                 "id": item_id,
-                "subset": "single_turn",
-                "source_case": item["source_case"],
+                "subset": item.get("task_type", "single_turn"),
+                "source_case": item.get("source_case") or item.get("derived_from") or "boundary",
                 "primary_capability": item["primary_capability"],
                 "responses": [result],
+                "expected_turns": 1,
                 "error": None,
             }
         except Exception as exc:
             return {
                 "id": item_id,
-                "subset": "single_turn",
-                "source_case": item["source_case"],
+                "subset": item.get("task_type", "single_turn"),
+                "source_case": item.get("source_case") or item.get("derived_from") or "boundary",
                 "primary_capability": item["primary_capability"],
                 "responses": [],
+                "expected_turns": 1,
                 "error": str(exc),
             }
 
@@ -220,24 +275,26 @@ class EvaluationRunner:
         item_id = item["id"]
         responses = []
         session_id = None
+        transcript: list[str] = []
         try:
-            for index, customer_turn in enumerate(item["customer_turns"]):
-                message = customer_turn
-                if index == 0 and item.get("initial_context"):
-                    message = (
-                        "【已知客户背景】\n"
-                        + item["initial_context"]
-                        + "\n\n【客户当前消息】\n"
-                        + customer_turn
-                    )
+            for customer_turn in item["customer_turns"]:
+                message = build_multi_message(
+                    initial_context=item.get("initial_context", ""),
+                    transcript=transcript,
+                    current_message=customer_turn,
+                )
                 result = await self._chat(
                     client,
                     item_id=item_id,
                     user_id=f"eval_{item_id}",
                     session_id=session_id,
                     message=message,
+                    metadata={"tool_state": item.get("tool_state") or {}},
                 )
                 session_id = result["session_id"]
+                transcript.extend(
+                    [f"客户：{customer_turn}", f"客服：{result.get('answer', '')}"]
+                )
                 responses.append(
                     {
                         "customer": customer_turn,
@@ -250,6 +307,7 @@ class EvaluationRunner:
                 "source_case": item["source_case"],
                 "primary_capability": "MULTI",
                 "responses": responses,
+                "expected_turns": len(item["customer_turns"]),
                 "error": None,
             }
         except Exception as exc:
@@ -259,6 +317,7 @@ class EvaluationRunner:
                 "source_case": item["source_case"],
                 "primary_capability": "MULTI",
                 "responses": responses,
+                "expected_turns": len(item["customer_turns"]),
                 "error": str(exc),
             }
 
@@ -437,11 +496,12 @@ async def async_main(args: argparse.Namespace) -> int:
             raw_path.unlink(missing_ok=True)
         if run_judge:
             scores_path.unlink(missing_ok=True)
-    items = [*singles, *multis]
+    items = [*singles, *multis, *boundary]
     item_by_id = {item["id"]: item for item in items}
     raw_by_id = {row["id"]: row for row in load_jsonl_if_exists(raw_path)}
     pending_singles = choose_pending_items(singles, raw_by_id) if resume else singles
     pending_multis = choose_pending_items(multis, raw_by_id) if resume else multis
+    pending_boundaries = choose_pending_items(boundary, raw_by_id) if resume else boundary
     completed_chat_ids: set[str] = set()
     if run_chat:
         runner = EvaluationRunner(
@@ -457,6 +517,7 @@ async def async_main(args: argparse.Namespace) -> int:
                 client=client,
                 singles=pending_singles,
                 multis=pending_multis,
+                boundaries=pending_boundaries,
                 raw_path=raw_path,
                 raw_by_id=raw_by_id,
             )
@@ -513,7 +574,7 @@ async def async_main(args: argparse.Namespace) -> int:
                 **summary,
                 "system_model": f"{system_config.provider}/{system_config.model}",
                 "judge_model": f"{judge_config.provider}/{judge_config.model}",
-                "skipped_boundary": len(boundary),
+                "skipped_boundary": 0,
             },
             ensure_ascii=False,
             indent=2,
@@ -527,7 +588,7 @@ async def async_main(args: argparse.Namespace) -> int:
         scores,
         system_model=f"{system_config.provider}/{system_config.model}",
         judge_model=f"{judge_config.provider}/{judge_config.model}",
-        skipped_boundary=len(boundary),
+        skipped_boundary=0,
     )
     print(json.dumps(summary, ensure_ascii=False))
     return 0 if summary.get("overall", {}).get("count") else 1
