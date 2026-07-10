@@ -1,3 +1,4 @@
+import asyncio
 import re
 import time
 
@@ -34,6 +35,9 @@ from app.talk_script.service import match_talk_script
 from app.talk_script.human_handoff_service import request_human_handoff
 from app.utils.ids import generate_id
 from app.utils.logger import log_event
+
+
+_background_tasks: set[asyncio.Task] = set()
 
 
 async def handle_chat(request: ChatRequest) -> dict:
@@ -182,7 +186,11 @@ async def handle_chat(request: ChatRequest) -> dict:
                     template_id=reply.template_id,
                     trace_id=message.trace_id,
                 )
-            await update_profile_after_chat(message, routed_intent, reply)
+            _schedule_background_task(
+                update_profile_after_chat(message, routed_intent, reply),
+                trace_id=message.trace_id,
+                task_name="profile_analysis",
+            )
         stage_latencies["state_update_ms"] = _elapsed_ms(stage_started)
 
         result = _to_chat_data(message.session_id, message.trace_id, routed_intent, reply)
@@ -344,6 +352,28 @@ async def _build_reply(
     if route == "unsupported":
         return build_unsupported_reply(intent)
     return build_clarify_reply(intent)
+
+
+def _schedule_background_task(coroutine, *, trace_id: str, task_name: str) -> None:
+    task = asyncio.create_task(coroutine)
+    _background_tasks.add(task)
+
+    def handle_done(done_task: asyncio.Task) -> None:
+        _background_tasks.discard(done_task)
+        if done_task.cancelled():
+            return
+        error = done_task.exception()
+        if error is not None:
+            log_event(
+                {
+                    "trace_id": trace_id,
+                    "task": task_name,
+                    "status": "failed",
+                    "error": str(error),
+                }
+            )
+
+    task.add_done_callback(handle_done)
 
 
 async def build_handoff_reply(

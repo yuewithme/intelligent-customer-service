@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from types import ModuleType, SimpleNamespace
 
@@ -80,6 +81,52 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
     monkeypatch.setattr(chat_orchestrator, "update_profile_after_chat", noop)
     monkeypatch.setattr(chat_orchestrator, "record_chat_log", noop)
     monkeypatch.setattr(chat_orchestrator, "record_ai_turn", noop)
+
+
+@pytest.mark.asyncio
+async def test_chat_returns_before_profile_analysis_finishes(monkeypatch):
+    from app.services import chat_orchestrator
+
+    _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(reply_graph_enabled=False, intent_example_top_k=5),
+    )
+
+    async def legacy_build_reply(*args, **kwargs):
+        del args, kwargs
+        return _reply("fast reply")
+
+    async def slow_profile(*args, **kwargs):
+        del args, kwargs
+        started.set()
+        await release.wait()
+
+    monkeypatch.setattr(chat_orchestrator, "_build_reply", legacy_build_reply)
+    monkeypatch.setattr(chat_orchestrator, "update_profile_after_chat", slow_profile)
+
+    chat_task = asyncio.create_task(
+        chat_orchestrator.handle_chat(
+            ChatRequest(
+                channel="api",
+                user_id="user_001",
+                message="hello",
+                kb_id="kb_default",
+            )
+        )
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    try:
+        result = await asyncio.wait_for(asyncio.shield(chat_task), timeout=0.1)
+    finally:
+        release.set()
+        await chat_task
+
+    assert result["answer"] == "fast reply"
 
 
 @pytest.mark.asyncio
@@ -271,6 +318,7 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
     result = await chat_orchestrator.handle_chat(
         ChatRequest(channel="api", user_id="user_001", message="多少钱", kb_id="kb_default")
     )
+    await asyncio.sleep(0)
 
     assert result["intent"]["sales_stage"] == "need_discovery"
     assert captured["state_update"]["sales_stage"] == "need_discovery"
