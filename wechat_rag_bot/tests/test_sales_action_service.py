@@ -141,6 +141,24 @@ def test_template_reply_executes_single_sales_question():
     ]
 
 
+def test_template_reply_does_not_append_generic_pain_point_question():
+    decision = decide_sales_action(
+        user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
+        intent=_intent(),
+    )
+    reply = FinalReply(
+        answer="好的，我先按您说的情况处理。",
+        reply_type="template",
+        route="template_reply",
+    )
+
+    result = apply_sales_action(reply, decision)
+
+    assert decision.question_slot == "pain_point"
+    assert result.answer == "好的，我先按您说的情况处理。"
+    assert "最想解决" not in result.answer
+
+
 def test_objection_intent_overrides_stage_default_action():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="price_discussed"),

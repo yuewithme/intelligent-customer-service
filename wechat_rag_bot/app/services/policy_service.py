@@ -27,6 +27,7 @@ TEMPLATE_INTENTS = {
     "ask_after_sale",
     "order_intent",
     "payment_intent",
+    "purchase_rejection",
 }
 
 

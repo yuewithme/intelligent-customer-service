@@ -31,24 +31,31 @@ def resolve_reply_plan(
     if base.route == "human" or tagged.route == "human":
         selected = tagged if tagged.route == "human" else base
         action = "human"
+        selected_reason = selected.reason or "human_required"
+    elif facts.available:
+        selected = tagged if tagged.reason != "default_tag_policy" else base
+        action = "template_reply"
+        selected_reason = "business_facts_available"
     elif tagged.reason != "default_tag_policy":
         selected = tagged
         action = _execution_action(tagged.route)
+        selected_reason = selected.reason or "selected_policy"
     else:
         selected = base
         action = _execution_action(base.route)
+        selected_reason = selected.reason or "selected_policy"
 
     trace.append(
         DecisionStep(
             source="planner",
             proposed_action=action,
-            reason=selected.reason or "selected_policy",
+            reason=selected_reason,
         )
     )
     return ReplyPlan(
         action=action,
         original_route=selected.original_route or base.original_route or base.route,
-        reason=selected.reason or "selected_policy",
+        reason=selected_reason,
         need_human=action == "human",
         next_action="human_handoff" if action == "human" else selected.next_action,
         knowledge_base_ids=list(selected.knowledge_base_ids),

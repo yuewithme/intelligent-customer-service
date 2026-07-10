@@ -71,6 +71,7 @@ AI 模型按用途读取配置。`LLM_PROVIDER` / `LLM_MODEL` 是通用默认值
 ```dotenv
 LLM_PROVIDER=volcengine
 LLM_MODEL=doubao-seed-1-6-flash-250615
+LLM_TIMEOUT_SECONDS=180
 
 RAG_LLM_PROVIDER=
 RAG_LLM_MODEL=
@@ -86,6 +87,8 @@ REVIEW_LLM_PROVIDER=
 REVIEW_LLM_MODEL=
 PROFILE_ANALYSIS_PROMPT=
 ```
+
+复杂回复链路允许单次模型请求最多等待 180 秒；评测客户端默认等待 240 秒，为 API 编排和网络传输预留空间。
 
 如果要给固定话术库单独指定分类模型，只需要配置 `TALK_SCRIPT_LLM_PROVIDER` 和 `TALK_SCRIPT_LLM_MODEL`。
 用户画像生成使用 `PROFILE_LLM_PROVIDER` / `PROFILE_LLM_MODEL`，输入只包含用户消息原文记录；`PROFILE_ANALYSIS_PROMPT` 为空时使用内置画像提示词。

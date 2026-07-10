@@ -49,6 +49,7 @@ class Settings(BaseSettings):
 
     llm_provider: str = "mock"
     llm_model: str = "deepseek-chat"
+    llm_timeout_seconds: float = Field(default=180, ge=1)
     rag_llm_provider: str = ""
     rag_llm_model: str = ""
     business_llm_provider: str = ""

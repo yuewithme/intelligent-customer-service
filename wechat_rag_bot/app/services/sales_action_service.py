@@ -107,14 +107,14 @@ def apply_sales_action(
 ) -> FinalReply:
     if reply.reply_type != "template" or not decision.question_slot:
         return reply
+    if decision.question_slot == "pain_point":
+        return reply
     question = {
-        "pain_point": "您现在最想解决的具体问题是什么？",
         "plant_count": "您大概有多少盆需要使用？",
     }.get(decision.question_slot)
     if not question or question in reply.answer:
         return reply
     bridge = {
-        "pain_point": "为了给您更准确的建议，",
         "plant_count": "具体用量要结合您的实际使用数量判断，",
     }[decision.question_slot]
     follow_up = f"{bridge}{question}"

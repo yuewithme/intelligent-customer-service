@@ -7,7 +7,7 @@ from app.services.policy_engine import decide_policy
 @pytest.mark.asyncio
 async def test_beginner_orchid_care_uses_basic_kb_and_beginner_prompt_blocks():
     tag = TagResult(
-        intent="orchid_care",
+        intent="care_question",
         route="rag_answer",
         segment="beginner",
         emotion="anxious",
@@ -19,7 +19,7 @@ async def test_beginner_orchid_care_uses_basic_kb_and_beginner_prompt_blocks():
 
     assert decision.route == "rag_answer"
     assert decision.action == "rag_answer"
-    assert decision.knowledge_base_ids == ["kb_orchid_basic", "kb_care_faq"]
+    assert decision.knowledge_base_ids == ["kb_orchid_basic"]
     assert "segment.beginner" in decision.prompt_block_ids
     assert "tone.patient_step_by_step" in decision.prompt_block_ids
     assert decision.context_policy["recent_turns"] == 6
@@ -62,6 +62,10 @@ async def test_advanced_customer_level_uses_rag_not_default_handoff():
 
     assert decision.route == "rag_answer"
     assert decision.action == "rag_answer"
+    assert decision.knowledge_base_ids == [
+        "kb_orchid_advanced",
+        "kb_best_practices",
+    ]
     assert decision.next_action is None
     assert decision.reason != "advanced_customer_level_to_human"
 
@@ -83,4 +87,8 @@ async def test_care_pain_words_do_not_handoff_without_human_route_or_high_risk()
     decision = await decide_policy(tag)
 
     assert decision.route == "rag_answer"
+    assert decision.knowledge_base_ids == [
+        "kb_orchid_basic",
+        "kb_best_practices",
+    ]
     assert decision.next_action is None

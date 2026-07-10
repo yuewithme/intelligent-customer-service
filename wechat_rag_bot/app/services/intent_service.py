@@ -17,6 +17,17 @@ CUSTOMER_SERVICE_REQUEST_WORDS = ("转客服", "找客服", "接客服", "人工
 LOGISTICS_WORDS = ("物流", "发货", "快递", "多久到", "什么时候到", "运费")
 ORDER_WORDS = ("怎么买", "下单", "付款", "支付", "购买", "拍下")
 AFTER_SALE_WORDS = ("售后", "坏了", "破损", "质量问题")
+PURCHASE_REJECTION_WORDS = (
+    "不要再推荐",
+    "不要再给我推荐",
+    "别再推荐",
+    "别再给我推荐",
+    "不用推荐",
+    "不想买",
+    "先不买",
+)
+SHIPPING_DAMAGE_WORDS = ("花盆碎", "盆碎", "苗歪", "运输破损", "收到后破损")
+ORDER_INFO_WORDS = ("身份证号", "详细地址", "收货地址", "电话号码", "电话")
 KNOWLEDGE_PATTERNS = (
     "是什么",
     "怎么",
@@ -128,6 +139,39 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
     has_price = price_intent is not None
     has_care = hit_any(text, CARE_WORDS)
     has_knowledge = hit_any(text, KNOWLEDGE_PATTERNS) or "知识" in text or "资料" in text
+    if hit_any(text, PURCHASE_REJECTION_WORDS):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "purchase_rejection",
+                "sales_stage": "objection_handling",
+                "confidence": 0.92,
+                "need_template": True,
+                "reason": "soft_rule_purchase_rejection",
+            }
+        )
+    if hit_any(text, SHIPPING_DAMAGE_WORDS):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "ask_after_sale",
+                "sales_stage": "after_sale",
+                "confidence": 0.92,
+                "need_template": True,
+                "reason": "soft_rule_shipping_damage",
+            }
+        )
+    if hit_any(text, ORDER_INFO_WORDS):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "order_intent",
+                "sales_stage": "order_intent",
+                "confidence": 0.9,
+                "need_template": True,
+                "reason": "soft_rule_order_information",
+            }
+        )
     if has_price and has_care:
         return _validated_intent(
             {

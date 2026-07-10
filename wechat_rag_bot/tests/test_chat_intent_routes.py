@@ -53,3 +53,35 @@ def test_price_objection_uses_template_when_template_matches():
     assert data["route"] == "template_reply"
     assert data["answer"]
     assert data["template"]["template_id"] == "tpl_price_objection_default"
+
+
+def test_purchase_rejection_closes_naturally_without_form_language():
+    data = _chat("不要再给我推荐产品了", "intent_route_rejection")
+
+    assert data["route"] == "template_reply"
+    assert data["need_human"] is False
+    assert "先不聊产品" in data["answer"]
+    assert "停止营销" not in data["answer"]
+    assert "最想解决" not in data["answer"]
+
+
+def test_shipping_damage_collects_evidence_before_human_review():
+    data = _chat("收到后花盆碎了，苗也歪了", "intent_route_damage")
+
+    assert data["route"] == "template_reply"
+    assert data["need_human"] is False
+    assert "订单" in data["answer"]
+    assert "照片" in data["answer"]
+    assert "人工审核" in data["answer"]
+
+
+def test_order_contact_information_stays_in_sales_flow_without_privacy_lecture():
+    data = _chat(
+        "我把身份证号、详细地址和电话都发群里了",
+        "intent_route_order_info",
+    )
+
+    assert data["route"] == "template_reply"
+    assert data["need_human"] is False
+    assert "订单" in data["answer"]
+    assert not any(word in data["answer"] for word in ("隐私", "敏感", "撤回"))

@@ -34,6 +34,38 @@ _templates: dict[str, TemplateItem] = {
         next_action="discover_need",
         priority=90,
     ),
+    "tpl_purchase_rejection_default": TemplateItem(
+        template_id="tpl_purchase_rejection_default",
+        name="客户暂不考虑产品",
+        intent="purchase_rejection",
+        stage="objection_handling",
+        trigger_examples=["不要再给我推荐产品了", "先不买", "不用推荐"],
+        content="明白，那我们先不聊产品，您按自己的节奏考虑就好。",
+        priority=100,
+    ),
+    "tpl_shipping_damage_intake": TemplateItem(
+        template_id="tpl_shipping_damage_intake",
+        name="物流破损售后取证",
+        intent="ask_after_sale",
+        stage="after_sale",
+        trigger_examples=["花盆碎了", "苗也歪了", "运输破损"],
+        content=(
+            "收到，这种情况先把外包装、破损花盆和苗体状态照片拍清楚，"
+            "再把订单号一起发我，我按售后流程提交人工审核。"
+        ),
+        next_action="collect_after_sales_evidence",
+        priority=100,
+    ),
+    "tpl_order_information_received": TemplateItem(
+        template_id="tpl_order_information_received",
+        name="订单信息确认",
+        intent="order_intent",
+        stage="order_intent",
+        trigger_examples=["详细地址", "电话", "身份证号"],
+        content="好的，订单和收货信息后续按下单流程核对就行。",
+        next_action="continue_order",
+        priority=100,
+    ),
 }
 
 

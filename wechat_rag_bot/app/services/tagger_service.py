@@ -76,7 +76,7 @@ def _memory_labels(text: str, intent: IntentResult) -> list[str]:
     plant_count = _plant_count_from_text(text)
     if plant_count:
         labels.append(f"plant_count:{plant_count}")
-    if _has_any(text, ("烂根", "爛根", "root rot")):
+    if _has_any(text, ("烂根", "爛根", "黑根", "空根", "root rot")):
         labels.append("pain_point:兰花烂根")
         labels.append("product_interest:兰花养护")
     elif _has_any(text, ("兰花", "蘭花", "orchid")):

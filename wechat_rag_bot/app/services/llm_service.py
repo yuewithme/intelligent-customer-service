@@ -77,7 +77,7 @@ async def generate_answer(prompt: str, purpose: str = "rag") -> dict:
     settings = get_settings()
     api_key = getattr(settings, key_name)
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
             response = await client.post(
                 f"{base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
@@ -121,7 +121,7 @@ async def generate_json(prompt: str, purpose: str = "intent") -> dict:
     last_error: Exception | None = None
     for _ in range(2):
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
+            async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
                 response = await client.post(
                     f"{base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},

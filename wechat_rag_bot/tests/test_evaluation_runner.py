@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,10 +18,17 @@ from evaluation.run_evaluation import (
     is_successful_chat_result,
     load_jsonl,
     parse_judge_json,
+    parse_args,
     run_chat_stage,
     select_run_stages,
 )
 from evaluation.retry_evaluation import merge_by_id
+
+
+def test_evaluation_default_timeout_allows_complex_reply_pipeline(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["run_evaluation"])
+
+    assert parse_args().timeout == 240
 
 
 def test_build_single_message_wraps_context_without_exposing_rubric():

@@ -7,6 +7,29 @@ from app.services.customer_level_service import (
 )
 
 
+CARE_INTENTS = {"orchid_care", "care_question"}
+
+
+def _is_care_tag(tag: TagResult) -> bool:
+    return tag.intent in CARE_INTENTS or any(
+        label.startswith("pain_point:")
+        or label == "product_interest:兰花养护"
+        for label in tag.labels
+    )
+
+
+def _care_knowledge_base_ids(
+    tag: TagResult,
+    *,
+    advanced: bool = False,
+) -> list[str]:
+    if advanced or tag.segment == "advanced":
+        return ["kb_orchid_advanced", "kb_best_practices"]
+    if any(label.startswith("pain_point:") for label in tag.labels):
+        return ["kb_orchid_basic", "kb_best_practices"]
+    return ["kb_orchid_basic"]
+
+
 async def decide_policy(tag: TagResult) -> PolicyDecision:
     customer_level_prompt_blocks = prompt_blocks_for_customer_level_labels(tag.labels)
     business_tag_prompt_blocks = get_business_tag_prompt_block_ids(tag.labels)
@@ -18,6 +41,11 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
             action="rag_answer",
             reason="advanced_customer_level_professional_rag",
             original_route=tag.route,
+            knowledge_base_ids=(
+                _care_knowledge_base_ids(tag, advanced=True)
+                if _is_care_tag(tag)
+                else []
+            ),
             prompt_block_ids=[
                 "base.customer_service",
                 "tone.concise_professional",
@@ -43,13 +71,13 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
             template_ids=["handoff_risk_high"],
         )
 
-    if tag.intent == "orchid_care" and tag.segment == "beginner":
+    if _is_care_tag(tag) and tag.segment == "beginner":
         return PolicyDecision(
             route="rag_answer",
             action="rag_answer",
             reason="beginner_orchid_care_policy",
             original_route=tag.route,
-            knowledge_base_ids=["kb_orchid_basic", "kb_care_faq"],
+            knowledge_base_ids=_care_knowledge_base_ids(tag),
             template_ids=["opening_beginner_care"],
             prompt_block_ids=[
                 "base.customer_service",
@@ -73,13 +101,13 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
             },
         )
 
-    if tag.intent == "orchid_care" and tag.segment == "advanced":
+    if _is_care_tag(tag) and tag.segment == "advanced":
         return PolicyDecision(
             route="rag_answer",
             action="rag_answer",
             reason="advanced_orchid_care_policy",
             original_route=tag.route,
-            knowledge_base_ids=["kb_orchid_advanced", "kb_best_practices"],
+            knowledge_base_ids=_care_knowledge_base_ids(tag),
             template_ids=["opening_advanced_care"],
             prompt_block_ids=[
                 "base.customer_service",
@@ -99,6 +127,32 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
             retrieval_policy={
                 "focus": ["constraints", "advanced_treatment", "key_parameters", "best_practices"],
                 "exclude": ["basic_concepts", "over_explanation"],
+            },
+        )
+
+    if _is_care_tag(tag):
+        return PolicyDecision(
+            route="rag_answer",
+            action="rag_answer",
+            reason="tagged_orchid_care_policy",
+            original_route=tag.route,
+            knowledge_base_ids=_care_knowledge_base_ids(tag),
+            prompt_block_ids=[
+                "base.customer_service",
+                "scenario.orchid_care",
+                "intent.orchid_problem",
+                *customer_level_prompt_blocks,
+                *business_tag_prompt_blocks,
+                "output.customer_reply",
+            ],
+            context_policy={
+                "recent_turns": 4,
+                "include_profile_summary": True,
+                "include_long_memory_summary": False,
+            },
+            retrieval_policy={
+                "focus": ["symptoms", "safe_checks", "care_constraints"],
+                "exclude": ["sales_copy", "unsupported_fixed_parameters"],
             },
         )
 

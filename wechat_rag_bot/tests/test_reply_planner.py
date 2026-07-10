@@ -74,14 +74,15 @@ def test_business_facts_are_attached_without_overriding_a_human_route():
     assert plan.business_facts.tool_state == {"order_status": "paid"}
 
 
-def test_business_facts_do_not_replace_a_knowledge_route():
+def test_business_facts_replace_a_knowledge_route_with_grounded_execution():
     plan = resolve_reply_plan(
         base=_decision("rag_answer", "knowledge_intent"),
         tagged=_decision("rag_answer", "default_tag_policy"),
         facts=BusinessFacts(snapshot="会员39.9元"),
     )
 
-    assert plan.action == "rag_answer"
+    assert plan.action == "template_reply"
+    assert plan.reason == "business_facts_available"
 
 
 def test_compound_legacy_route_is_normalized_to_one_execution_action():

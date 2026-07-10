@@ -700,7 +700,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--judge-concurrency", type=int, default=2)
     parser.add_argument("--judge-attempts", type=int, default=3)
-    parser.add_argument("--timeout", type=float, default=120)
+    parser.add_argument("--timeout", type=float, default=240)
     stages = parser.add_mutually_exclusive_group()
     stages.add_argument("--chat-only", action="store_true")
     stages.add_argument("--judge-only", action="store_true")

@@ -35,6 +35,9 @@ def _message(text: str) -> NormalizedMessage:
         ("我要转人工", "human", "human_request"),
         ("乱七八糟不明确输入", "clarify", "unknown"),
         ("帮我写代码", "unsupported", "unsupported"),
+        ("不要再给我推荐产品了", "template_reply", "purchase_rejection"),
+        ("收到后花盆碎了，苗也歪了", "template_reply", "ask_after_sale"),
+        ("我把身份证号、详细地址和电话都发群里了", "template_reply", "order_intent"),
     ],
 )
 async def test_rule_intent_classification_routes(text, route, primary_intent):

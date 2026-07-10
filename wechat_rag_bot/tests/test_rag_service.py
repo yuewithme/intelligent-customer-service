@@ -381,7 +381,7 @@ async def test_volcengine_llm_uses_ark_openai_compatible_endpoint(monkeypatch):
 
     class FakeClient:
         def __init__(self, timeout):
-            self.timeout = timeout
+            captured["timeout"] = timeout
 
         async def __aenter__(self):
             return self
@@ -409,4 +409,5 @@ async def test_volcengine_llm_uses_ark_openai_compatible_endpoint(monkeypatch):
     assert captured["url"] == "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer ark_test_key"
     assert captured["json"]["model"] == "deepseek-chat"
+    assert captured["timeout"] == 180
     assert result["answer"] == "火山方舟回答"
