@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     llm_model: str = "deepseek-chat"
     rag_llm_provider: str = ""
     rag_llm_model: str = ""
+    business_llm_provider: str = ""
+    business_llm_model: str = ""
     intent_llm_provider: str = ""
     intent_llm_model: str = ""
     intent_provider: str = "rule"

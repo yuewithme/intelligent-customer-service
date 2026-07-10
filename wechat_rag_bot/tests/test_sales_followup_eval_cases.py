@@ -2,6 +2,7 @@ import pytest
 
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
+from app.schemas.reply_plan import ReplyPlan
 from app.schemas.state import UserState
 from app.talk_script.models import TalkScriptMatchResult
 
@@ -30,6 +31,10 @@ def _intent(route: str, primary_intent: str) -> IntentResult:
     )
 
 
+def _plan(action: str) -> ReplyPlan:
+    return ReplyPlan(action=action, reason="eval_case", original_route=action)
+
+
 @pytest.mark.asyncio
 async def test_disease_case_generates_followup_not_handoff(monkeypatch):
     from app.services import reply_workflow_graph
@@ -48,8 +53,8 @@ async def test_disease_case_generates_followup_not_handoff(monkeypatch):
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="rag_answer",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("rag_answer"),
         intent=_intent("rag_answer", "care_question"),
         message=_message("black spots yellow leaves root rot"),
         user_state=_state(),
@@ -77,8 +82,8 @@ async def test_recommend_short_sentence_asks_sales_qualifying_question(monkeypat
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", fail_rag)
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="template_reply",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("template_reply"),
         intent=_intent("template_reply", "order_intent"),
         message=_message("recommend one"),
         user_state=_state(),

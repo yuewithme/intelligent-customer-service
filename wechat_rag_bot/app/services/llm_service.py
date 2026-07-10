@@ -150,6 +150,10 @@ def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
     purpose = purpose.lower()
     chains = {
         "rag": (("rag_llm_provider", "rag_llm_model"),),
+        "business": (
+            ("business_llm_provider", "business_llm_model"),
+            ("rag_llm_provider", "rag_llm_model"),
+        ),
         "intent": (("intent_llm_provider", "intent_llm_model"),),
         "talk_script": (
             ("talk_script_llm_provider", "talk_script_llm_model"),

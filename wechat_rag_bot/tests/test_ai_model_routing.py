@@ -62,6 +62,27 @@ def test_rag_model_config_prefers_dedicated_provider(monkeypatch):
     assert config.model == "deepseek-rag"
 
 
+def test_business_model_config_prefers_dedicated_provider(monkeypatch):
+    from app.config import get_settings
+    from app.services.llm_service import get_model_config
+
+    monkeypatch.setenv("LLM_PROVIDER", "volcengine")
+    monkeypatch.setenv("LLM_MODEL", "doubao-default")
+    monkeypatch.setenv("RAG_LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("RAG_LLM_MODEL", "deepseek-rag")
+    monkeypatch.setenv("BUSINESS_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("BUSINESS_LLM_MODEL", "gpt-business")
+    get_settings.cache_clear()
+
+    try:
+        config = get_model_config("business")
+    finally:
+        get_settings.cache_clear()
+
+    assert config.provider == "openai"
+    assert config.model == "gpt-business"
+
+
 def test_profile_model_config_prefers_dedicated_provider(monkeypatch):
     from app.config import get_settings
     from app.services.llm_service import get_model_config

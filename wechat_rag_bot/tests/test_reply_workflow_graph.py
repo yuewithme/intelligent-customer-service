@@ -4,8 +4,8 @@ import pytest
 
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
-from app.schemas.policy import PolicyDecision
 from app.schemas.reply import FinalReply
+from app.schemas.reply_plan import BusinessFacts, ReplyPlan
 from app.schemas.state import UserState
 from app.schemas.template import TemplateItem
 from app.talk_script.models import TalkScriptMatchResult
@@ -33,6 +33,15 @@ def _intent(route: str, primary_intent: str = "care_question") -> IntentResult:
         confidence=0.9,
         reason="test_reason",
         slots={"original_route": route},
+    )
+
+
+def _plan(action: str, **updates) -> ReplyPlan:
+    return ReplyPlan(
+        action=action,
+        reason="test_plan",
+        original_route=updates.pop("original_route", action),
+        **updates,
     )
 
 
@@ -73,8 +82,8 @@ async def test_talk_script_matched_returns_template_reply(monkeypatch):
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", match_talk_script)
 
     latencies = {}
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="template_reply",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("template_reply"),
         intent=_intent("template_reply"),
         message=_message(),
         user_state=_state(),
@@ -102,8 +111,8 @@ async def test_talk_script_handoff_returns_human(monkeypatch):
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", match_talk_script)
     monkeypatch.setattr(reply_workflow_graph, "build_handoff_reply", _handoff_reply)
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="template_reply",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("template_reply"),
         intent=_intent("template_reply"),
         message=_message(),
         user_state=_state(),
@@ -137,8 +146,8 @@ async def test_rag_answer_with_answer_returns_rag_reply(monkeypatch):
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", fail_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="rag_answer",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("rag_answer"),
         intent=_intent("rag_answer"),
         message=_message(),
         user_state=_state(),
@@ -168,8 +177,8 @@ async def test_rag_answer_without_answer_clarifies(monkeypatch):
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="rag_answer",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("rag_answer"),
         intent=_intent("rag_answer"),
         message=_message(),
         user_state=_state(),
@@ -205,8 +214,8 @@ async def test_template_reply_falls_back_to_default_template(monkeypatch):
         select_default_template,
     )
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="template_reply",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("template_reply"),
         intent=_intent("template_reply", primary_intent="price_objection"),
         message=_message("这个有点贵"),
         user_state=_state(),
@@ -218,6 +227,34 @@ async def test_template_reply_falls_back_to_default_template(monkeypatch):
     assert reply.reply_type == "template"
     assert reply.need_human is False
     assert reply.template_id == "tpl_price_objection_default"
+
+
+@pytest.mark.asyncio
+async def test_plan_with_business_facts_uses_grounded_renderer(monkeypatch):
+    from app.services import reply_workflow_graph
+
+    async def render(message, facts):
+        del message
+        assert facts.tool_state == {"payment_status": "failed"}
+        return FinalReply(
+            answer="系统当前显示支付失败，请先核对扣款状态。",
+            reply_type="template",
+            route="template_reply",
+        )
+
+    monkeypatch.setattr(reply_workflow_graph, "render_business_reply", render)
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan(
+            "template_reply",
+            business_facts=BusinessFacts(tool_state={"payment_status": "failed"}),
+        ),
+        intent=_intent("template_reply", primary_intent="payment_intent"),
+        message=_message("我刚付过了，怎么还显示失败？"),
+        user_state=_state(),
+        stage_latencies={},
+    )
+
+    assert "支付失败" in reply.answer
 
 
 @pytest.mark.asyncio
@@ -235,8 +272,8 @@ async def test_template_reply_missing_default_template_returns_clarify_without_r
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="template_reply",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("template_reply"),
         intent=_intent("template_reply", primary_intent="unknown_intent"),
         message=_message("没有对应模板"),
         user_state=_state(),
@@ -251,7 +288,7 @@ async def test_template_reply_missing_default_template_returns_clarify_without_r
 
 
 @pytest.mark.asyncio
-async def test_template_then_rag_uses_rag_without_legacy_template(monkeypatch):
+async def test_rag_plan_uses_rag_without_legacy_template(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def pass_talk_script(**kwargs):
@@ -265,8 +302,8 @@ async def test_template_then_rag_uses_rag_without_legacy_template(monkeypatch):
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="template_then_rag",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("rag_answer", original_route="template_then_rag"),
         intent=_intent("template_then_rag"),
         message=_message(),
         user_state=_state(),
@@ -285,8 +322,9 @@ async def test_template_then_rag_uses_rag_without_legacy_template(monkeypatch):
 async def test_rag_node_passes_policy_decision_to_rag(monkeypatch):
     from app.services import reply_workflow_graph
 
-    policy = PolicyDecision(
-        route="rag_answer",
+    plan = ReplyPlan(
+        action="rag_answer",
+        original_route="rag_answer",
         reason="beginner_orchid_care_policy",
         knowledge_base_ids=["kb_orchid_basic"],
         prompt_block_ids=["base.customer_service", "segment.beginner"],
@@ -298,19 +336,21 @@ async def test_rag_node_passes_policy_decision_to_rag(monkeypatch):
 
     async def answer_knowledge(message, user_state, policy_decision=None):
         del message, user_state
-        assert policy_decision == policy
+        assert policy_decision is not None
+        assert policy_decision.reason == plan.reason
+        assert policy_decision.knowledge_base_ids == plan.knowledge_base_ids
+        assert policy_decision.prompt_block_ids == plan.prompt_block_ids
         return {"answer": "rag answer", "sources": []}
 
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="rag_answer",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=plan,
         intent=_intent("rag_answer"),
         message=_message(),
         user_state=_state(),
         stage_latencies={},
-        policy_decision=policy,
     )
 
     assert reply.route == "rag_answer"
@@ -323,8 +363,8 @@ async def test_human_route_handoffs(monkeypatch):
 
     monkeypatch.setattr(reply_workflow_graph, "build_handoff_reply", _handoff_reply)
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route="human",
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("human", need_human=True, next_action="human_handoff"),
         intent=_intent("human"),
         message=_message(),
         user_state=_state(),
@@ -335,7 +375,7 @@ async def test_human_route_handoffs(monkeypatch):
     assert reply.route == "human"
     assert reply.reply_type == "human"
     assert reply.need_human is True
-    assert reply.metadata["handoff"]["reason"] == "test_reason"
+    assert reply.metadata["handoff"]["reason"] == "test_plan"
 
 
 @pytest.mark.asyncio
@@ -350,8 +390,8 @@ async def test_human_route_handoffs(monkeypatch):
 async def test_simple_routes_return_existing_builder_replies(route, reply_type):
     from app.services import reply_workflow_graph
 
-    reply = await reply_workflow_graph.build_reply_with_graph(
-        route=route,
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan(route),
         intent=_intent(route),
         message=_message(),
         user_state=_state(),

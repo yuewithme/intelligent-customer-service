@@ -148,6 +148,29 @@ def test_rule_guard_routes_human_refund_and_complaint_to_human():
         assert data["intent"]["primary_intent"] == primary_intent
 
 
+def test_refund_contract_keeps_empty_handoff_reply():
+    response = TestClient(app).post(
+        "/api/v1/chat",
+        json={
+            "channel": "api",
+            "user_id": "refund_contract_user",
+            "message": "会员我不想要了，怎么退款？",
+            "kb_id": "kb_default",
+            "metadata": {
+                "tool_state": {
+                    "order_status": "paid",
+                    "refund_policy": "未提供",
+                }
+            },
+        },
+    )
+
+    data = response.json()["data"]
+    assert data["answer"] == ""
+    assert data["need_human"] is True
+    assert data["next_action"] == "human_handoff"
+
+
 def test_mock_intent_routes_knowledge_price_and_mixed_messages():
     client = TestClient(app)
     cases = [
