@@ -1,3 +1,5 @@
+import pytest
+
 from app.schemas.intent import IntentResult
 from app.schemas.reply import FinalReply
 from app.schemas.state import UserState
@@ -48,6 +50,56 @@ def test_discovery_does_not_repeat_an_asked_slot():
 
     assert decision.question_slot is None
     assert decision.required_slots == []
+
+
+def test_sales_action_reads_synchronous_active_opportunity():
+    state = UserState(
+        user_id="user_1",
+        sales_stage="need_discovery",
+        metadata={
+            "active_opportunity": {
+                "slots": {"pain_point": "root_rot", "budget": "100"},
+                "asked_slots": ["plant_count"],
+            }
+        },
+    )
+
+    decision = decide_sales_action(user_state=state, intent=_intent())
+
+    assert decision.known_slots["budget"] == "100"
+    assert decision.question_slot is None
+
+
+@pytest.mark.asyncio
+async def test_state_update_persists_sales_slots_without_profile_analysis():
+    from app.services import state_service
+
+    state_service._state_store.clear()
+    intent = _intent(budget="100", region="四川", pain_point="root_rot")
+    reply = FinalReply(
+        answer="reply",
+        reply_type="template",
+        route="template_reply",
+        metadata={
+            "sales_action": {
+                "sales_action": "discover_need",
+                "customer_signal": "interested",
+                "known_slots": intent.slots,
+                "question_slot": "plant_count",
+            },
+            "tag_result": {
+                "labels": ["budget:100", "region:四川"],
+                "entities": {"budget": "100", "region": "四川"},
+            },
+        },
+    )
+
+    await state_service.update_user_state("user_1", "s1", intent, reply)
+    state = await state_service.get_user_state("user_1", "s1")
+
+    assert state.metadata["active_opportunity"]["slots"]["budget"] == "100"
+    assert state.metadata["active_opportunity"]["asked_slots"] == ["plant_count"]
+    assert "budget:100" in state.customer_tags
 
 
 def test_after_sale_disables_sales_progression():

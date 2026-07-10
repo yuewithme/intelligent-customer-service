@@ -1,6 +1,7 @@
 from app.schemas.intent import IntentResult
 from app.schemas.reply import FinalReply
 from app.schemas.state import UserState
+from app.services.sales_action_service import evolve_opportunity
 
 
 _state_store: dict[str, UserState] = {}
@@ -44,6 +45,30 @@ async def update_user_state(
         state.sales_stage = intent.sales_stage
     if reply.need_human:
         state.risk_level = "elevated"
+    tag_result = reply.metadata.get("tag_result")
+    if isinstance(tag_result, dict):
+        labels = tag_result.get("labels")
+        if isinstance(labels, list):
+            state.customer_tags = _merge_strings(state.customer_tags, labels)
+        entities = tag_result.get("entities")
+        if isinstance(entities, dict):
+            state.metadata["known_slots"] = {
+                **_dict_value(state.metadata.get("known_slots")),
+                **entities,
+            }
+    sales_action = reply.metadata.get("sales_action")
+    if isinstance(sales_action, dict):
+        action = dict(sales_action)
+        action["known_slots"] = {
+            **_dict_value(state.metadata.get("known_slots")),
+            **intent.slots,
+            **_dict_value(action.get("known_slots")),
+        }
+        state.metadata["active_opportunity"] = evolve_opportunity(
+            _dict_value(state.metadata.get("active_opportunity")),
+            sales_stage=intent.sales_stage,
+            sales_action=action,
+        )
 
 
 async def patch_user_state(user_id: str, updates: dict) -> UserState:
@@ -52,3 +77,15 @@ async def patch_user_state(user_id: str, updates: dict) -> UserState:
         if field in _allowed_update_fields:
             setattr(state, field, value)
     return state
+
+
+def _dict_value(value) -> dict:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _merge_strings(existing: list[str], incoming: list) -> list[str]:
+    result = list(existing)
+    for value in incoming:
+        if isinstance(value, str) and value and value not in result:
+            result.append(value)
+    return result

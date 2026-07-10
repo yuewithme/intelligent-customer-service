@@ -36,7 +36,10 @@ def decide_sales_action(
     intent: IntentResult,
 ) -> SalesActionDecision:
     profile = user_state.metadata.get("profile", {})
-    opportunity = profile.get("active_opportunity", {}) if isinstance(profile, dict) else {}
+    profile_opportunity = (
+        profile.get("active_opportunity", {}) if isinstance(profile, dict) else {}
+    )
+    opportunity = user_state.metadata.get("active_opportunity") or profile_opportunity
     known_slots = {
         **_dict_value(opportunity.get("slots")),
         **{
