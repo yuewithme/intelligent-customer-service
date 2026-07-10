@@ -11,7 +11,10 @@ from evaluation.run_evaluation import (
     build_single_message,
     choose_pending_items,
     judge_result,
+    load_jsonl,
     parse_judge_json,
+    run_chat_stage,
+    select_run_stages,
 )
 from evaluation.retry_evaluation import merge_by_id
 
@@ -108,6 +111,48 @@ def test_append_jsonl_preserves_prior_rows_for_interrupted_evaluation(tmp_path: 
         "first",
         "second",
     ]
+
+
+def test_judge_only_mode_disables_chat_stage():
+    assert select_run_stages(chat_only=False, judge_only=True) == (False, True)
+
+
+@pytest.mark.asyncio
+async def test_completed_chat_is_appended_before_next_chat_finishes(tmp_path: Path):
+    release = asyncio.Event()
+
+    class FakeRunner:
+        async def run_single(self, client, item):
+            del client
+            if item["id"] == "slow":
+                await release.wait()
+            return {"id": item["id"], "responses": [], "error": None}
+
+        async def run_multi(self, client, item):
+            raise AssertionError((client, item))
+
+    raw_path = tmp_path / "raw_responses.jsonl"
+    raw_by_id = {}
+    stage = asyncio.create_task(
+        run_chat_stage(
+            runner=FakeRunner(),
+            client=object(),
+            singles=[{"id": "fast"}, {"id": "slow"}],
+            multis=[],
+            raw_path=raw_path,
+            raw_by_id=raw_by_id,
+        )
+    )
+
+    for _ in range(20):
+        if raw_path.exists() and raw_path.read_text(encoding="utf-8").strip():
+            break
+        await asyncio.sleep(0)
+
+    assert [row["id"] for row in load_jsonl(raw_path)] == ["fast"]
+    assert not stage.done()
+    release.set()
+    await stage
 
 
 @pytest.mark.asyncio

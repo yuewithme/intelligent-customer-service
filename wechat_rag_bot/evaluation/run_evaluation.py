@@ -43,6 +43,32 @@ def choose_pending_items(
     ]
 
 
+def select_run_stages(*, chat_only: bool, judge_only: bool) -> tuple[bool, bool]:
+    if chat_only and judge_only:
+        raise ValueError("--chat-only and --judge-only cannot be used together")
+    return (not judge_only, not chat_only)
+
+
+async def run_chat_stage(
+    *,
+    runner,
+    client,
+    singles: list[dict[str, Any]],
+    multis: list[dict[str, Any]],
+    raw_path: Path,
+    raw_by_id: dict[str, dict[str, Any]],
+) -> set[str]:
+    completed_ids: set[str] = set()
+    tasks = [runner.run_single(client, item) for item in singles]
+    tasks.extend(runner.run_multi(client, item) for item in multis)
+    for task in asyncio.as_completed(tasks):
+        result = await task
+        raw_by_id[result["id"]] = result
+        append_jsonl(raw_path, result)
+        completed_ids.add(result["id"])
+    return completed_ids
+
+
 def build_single_message(item: dict[str, Any]) -> str:
     conversation = item["conversation"]
     current = conversation[-1]["content"]
@@ -388,41 +414,80 @@ async def async_main(args: argparse.Namespace) -> int:
     singles = load_jsonl(dataset_dir / "single_turn.jsonl")
     multis = load_jsonl(dataset_dir / "multi_turn.jsonl")
     boundary = load_jsonl(dataset_dir / "boundary.jsonl")
-    protocol = (dataset_dir / "judge_protocol.md").read_text(encoding="utf-8")
+    run_chat, run_judge = select_run_stages(
+        chat_only=getattr(args, "chat_only", False),
+        judge_only=getattr(args, "judge_only", False),
+    )
+    resume = getattr(args, "resume", False)
+    protocol = (
+        (dataset_dir / "judge_protocol.md").read_text(encoding="utf-8")
+        if run_judge
+        else ""
+    )
 
     settings = get_settings()
-    runner = EvaluationRunner(
-        args.base_url,
-        settings.api_key,
-        args.kb_id,
-        args.concurrency,
-    )
     raw_path = output_dir / "raw_responses.jsonl"
     scores_path = output_dir / "scores.jsonl"
+    if run_judge and not run_chat and not raw_path.exists():
+        raise FileNotFoundError(
+            f"--judge-only requires existing raw responses: {raw_path}"
+        )
+    if not resume:
+        if run_chat:
+            raw_path.unlink(missing_ok=True)
+        if run_judge:
+            scores_path.unlink(missing_ok=True)
     items = [*singles, *multis]
     item_by_id = {item["id"]: item for item in items}
     raw_by_id = {row["id"]: row for row in load_jsonl_if_exists(raw_path)}
-    pending_singles = choose_pending_items(singles, raw_by_id)
-    pending_multis = choose_pending_items(multis, raw_by_id)
-    timeout = httpx.Timeout(args.timeout)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        tasks = [runner.run_single(client, item) for item in pending_singles]
-        tasks.extend(runner.run_multi(client, item) for item in pending_multis)
-        for task in asyncio.as_completed(tasks):
-            result = await task
-            raw_by_id[result["id"]] = result
-            append_jsonl(raw_path, result)
+    pending_singles = choose_pending_items(singles, raw_by_id) if resume else singles
+    pending_multis = choose_pending_items(multis, raw_by_id) if resume else multis
+    completed_chat_ids: set[str] = set()
+    if run_chat:
+        runner = EvaluationRunner(
+            args.base_url,
+            settings.api_key,
+            args.kb_id,
+            args.concurrency,
+        )
+        timeout = httpx.Timeout(args.timeout)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            completed_chat_ids = await run_chat_stage(
+                runner=runner,
+                client=client,
+                singles=pending_singles,
+                multis=pending_multis,
+                raw_path=raw_path,
+                raw_by_id=raw_by_id,
+            )
 
     results = [raw_by_id[item["id"]] for item in items if item["id"] in raw_by_id]
-    retried_ids = {item["id"] for item in [*pending_singles, *pending_multis]}
+    write_jsonl(raw_path, results)
+    if not run_judge:
+        print(
+            json.dumps(
+                {
+                    "chat_completed": len(results),
+                    "chat_failed": sum(bool(row.get("error")) for row in results),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0 if len(results) == len(items) and not any(
+            row.get("error") for row in results
+        ) else 1
+
     judge_semaphore = asyncio.Semaphore(args.judge_concurrency)
     scores_by_id = {row["id"]: row for row in load_jsonl_if_exists(scores_path)}
-    score_targets = [
-        result
-        for result in results
-        if result["id"] in retried_ids
-        or scores_by_id.get(result["id"], {}).get("score") is None
-    ]
+    if resume:
+        score_targets = [
+            result
+            for result in results
+            if result["id"] in completed_chat_ids
+            or scores_by_id.get(result["id"], {}).get("score") is None
+        ]
+    else:
+        score_targets = results
     judge_tasks = [
         judge_result(
             item_by_id[result["id"]],
@@ -441,7 +506,6 @@ async def async_main(args: argparse.Namespace) -> int:
     summary = aggregate_scores(scores)
     system_config = get_model_config("rag")
     judge_config = get_model_config("review")
-    write_jsonl(raw_path, results)
     write_jsonl(scores_path, scores)
     (output_dir / "summary.json").write_text(
         json.dumps(
@@ -485,6 +549,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--judge-concurrency", type=int, default=2)
     parser.add_argument("--judge-attempts", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=120)
+    stages = parser.add_mutually_exclusive_group()
+    stages.add_argument("--chat-only", action="store_true")
+    stages.add_argument("--judge-only", action="store_true")
+    parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
 
 
