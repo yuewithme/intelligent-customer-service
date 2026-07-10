@@ -24,6 +24,16 @@ _templates: dict[str, TemplateItem] = {
         content="正常会尽快安排发货，具体时效会结合地区和库存确认。你也可以把收货城市发我，我帮你进一步确认。",
         priority=50,
     ),
+    "tpl_order_recommend_default": TemplateItem(
+        template_id="tpl_order_recommend_default",
+        name="产品推荐需求确认",
+        intent="order_intent",
+        stage="need_discovery",
+        trigger_examples=["推荐一款", "帮我选", "买哪个"],
+        content="可以的，我先按您的情况帮您缩小范围。您更看重好养、花香，还是预算合适？",
+        next_action="discover_need",
+        priority=90,
+    ),
 }
 
 

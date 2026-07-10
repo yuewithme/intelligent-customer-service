@@ -70,15 +70,12 @@ async def test_recommend_short_sentence_asks_sales_qualifying_question(monkeypat
         del kwargs
         return TalkScriptMatchResult(status="pass_through")
 
-    async def answer_knowledge(message, user_state, policy_decision=None):
+    async def fail_rag(message, user_state, policy_decision=None):
         del message, user_state, policy_decision
-        return {
-            "answer": "I can recommend one first by the beginner-safe direction. Do you want an affordable practice plant, or one with clearer fragrance?",
-            "sources": [],
-        }
+        raise AssertionError("transaction fallback must not enter general RAG")
 
     monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
-    monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
+    monkeypatch.setattr("app.services.rag_service.answer_knowledge", fail_rag)
 
     reply = await reply_workflow_graph.build_reply_with_graph(
         route="template_reply",
@@ -88,6 +85,6 @@ async def test_recommend_short_sentence_asks_sales_qualifying_question(monkeypat
         stage_latencies={},
     )
 
-    assert reply.route == "rag_answer"
+    assert reply.route == "template_reply"
     assert reply.need_human is False
-    assert "beginner" in reply.answer or "practice" in reply.answer
+    assert "更看重" in reply.answer
