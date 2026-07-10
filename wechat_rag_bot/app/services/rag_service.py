@@ -107,6 +107,8 @@ def _source(doc: dict[str, Any]) -> dict[str, Any]:
 
 
 def _default_search_kb_ids(kb_id: str) -> list[str]:
+    if kb_id == "kb_default":
+        return [DEFAULT_ORCHID_KB_ID]
     ids = [kb_id]
     if DEFAULT_ORCHID_KB_ID not in ids:
         ids.append(DEFAULT_ORCHID_KB_ID)
@@ -185,6 +187,13 @@ async def rag_chat(
     status = "success"
     answer = ""
     sources: list[dict[str, Any]] = []
+    stage_latencies = {
+        "embedding_ms": 0,
+        "search_ms": 0,
+        "rerank_ms": 0,
+        "prompt_ms": 0,
+        "generation_ms": 0,
+    }
 
     if not message or not message.strip():
         raise AppError(ErrorCode.MESSAGE_EMPTY)
@@ -202,12 +211,18 @@ async def rag_chat(
                 "sources": sources,
                 "session_id": active_session_id,
                 "usage": usage,
+                "stage_latencies": stage_latencies,
             }
 
+        stage_started = time.perf_counter()
         vector = await embedding_service.embed_text(message.strip())
+        stage_latencies["embedding_ms"] = round(
+            (time.perf_counter() - stage_started) * 1000
+        )
         knowledge_base_ids = policy.knowledge_base_ids if policy else []
         search_kb_ids = knowledge_base_ids or _default_search_kb_ids(kb_id)
         candidates = []
+        stage_started = time.perf_counter()
         for search_kb_id in search_kb_ids:
             candidates.extend(
                 await qdrant_service.search_chunks(
@@ -225,11 +240,19 @@ async def rag_chat(
                     top_k=settings.rag_top_k,
                 )
             )
+        stage_latencies["search_ms"] = round(
+            (time.perf_counter() - stage_started) * 1000
+        )
+        stage_started = time.perf_counter()
         docs = await rerank_service.rerank(
             message.strip(), select_care_docs(candidates), settings.rag_top_n
         )
+        stage_latencies["rerank_ms"] = round(
+            (time.perf_counter() - stage_started) * 1000
+        )
         sources = [_source(doc) for doc in docs]
         if docs:
+            stage_started = time.perf_counter()
             prompt = await build_rag_prompt(
                 question=message.strip(),
                 docs=docs,
@@ -237,7 +260,14 @@ async def rag_chat(
                 context=context,
                 templates=templates,
             )
+            stage_latencies["prompt_ms"] = round(
+                (time.perf_counter() - stage_started) * 1000
+            )
+            stage_started = time.perf_counter()
             result = await llm_service.generate_answer(prompt)
+            stage_latencies["generation_ms"] = round(
+                (time.perf_counter() - stage_started) * 1000
+            )
             answer = result["answer"]
             usage = result.get("usage", {})
         else:
@@ -248,6 +278,7 @@ async def rag_chat(
             "sources": sources,
             "session_id": active_session_id,
             "usage": usage,
+            "stage_latencies": stage_latencies,
         }
     except Exception:
         status = "failed"
@@ -306,4 +337,5 @@ async def answer_knowledge(message, user_state, policy_decision: PolicyDecision 
         "answer": result.get("answer", ""),
         "sources": result.get("sources", []),
         "usage": result.get("usage", {}),
+        "stage_latencies": result.get("stage_latencies", {}),
     }

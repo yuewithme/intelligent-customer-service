@@ -89,7 +89,14 @@ async def test_rag_chat_orchestrates_services(monkeypatch):
         "score": 0.87,
     }
     assert result["usage"]["completion_tokens"] == 8
-    assert calls[1][2]["kb_id"] == "kb_default"
+    assert set(result["stage_latencies"]) == {
+        "embedding_ms",
+        "search_ms",
+        "rerank_ms",
+        "prompt_ms",
+        "generation_ms",
+    }
+    assert calls[1][2]["kb_id"] == "kb_orchid_basic"
     assert calls[1][2]["tenant_id"] == "tenant_default"
     llm_prompt = next(call[1] for call in calls if call[0] == "llm")
     assert "读取【参考资料】与【用户问题】" in llm_prompt
@@ -165,7 +172,7 @@ async def test_rag_chat_uses_policy_knowledge_base_and_prompt_blocks(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_rag_chat_includes_orchid_kb_with_default_kb(monkeypatch):
+async def test_rag_chat_uses_clean_orchid_kb_for_default_kb(monkeypatch):
     from app.config import get_settings
 
     searched_kb_ids = []
@@ -213,7 +220,7 @@ async def test_rag_chat_includes_orchid_kb_with_default_kb(monkeypatch):
     finally:
         get_settings.cache_clear()
 
-    assert searched_kb_ids == ["kb_default", "kb_orchid_basic"]
+    assert searched_kb_ids == ["kb_orchid_basic"]
     assert result["answer"] == "建兰养护先看通风和植料干湿。"
     assert result["sources"][0]["file_name"] == "兰花产品知识库"
 

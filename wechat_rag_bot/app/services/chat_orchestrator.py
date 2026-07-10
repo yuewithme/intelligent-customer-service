@@ -319,6 +319,8 @@ async def _build_reply(
             user_state,
             policy_decision=policy_decision,
         )
+        for key, value in rag_result.get("stage_latencies", {}).items():
+            stage_latencies[f"rag_{key}"] = value
         stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
         stage_latencies.setdefault("template_ms", 0)
         if _is_rag_no_answer(rag_result):
@@ -334,6 +336,8 @@ async def _build_reply(
             user_state,
             policy_decision=policy_decision,
         )
+        for key, value in rag_result.get("stage_latencies", {}).items():
+            stage_latencies[f"rag_{key}"] = value
         stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
         if _is_rag_no_answer(rag_result):
             return build_clarify_reply(intent)

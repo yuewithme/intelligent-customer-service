@@ -735,8 +735,9 @@ def test_answer_segments_groups_long_content_into_at_most_three_messages():
     assert len(segments) == 3
     assert "".join(segments) == answer
     assert all(segment.endswith("。") for segment in segments)
+
+
 def test_ordinary_logistics_question_is_not_a_critical_handoff():
     from app.talk_script.service import _is_critical_human_request
 
     assert not _is_critical_human_request("物流什么时候到", "need_human")
-

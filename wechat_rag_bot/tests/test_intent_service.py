@@ -110,27 +110,17 @@ async def test_explicit_sales_and_human_requests_still_route_to_templates_or_hum
 
 
 @pytest.mark.asyncio
-async def test_llm_intent_is_primary_for_non_hard_rule_messages(monkeypatch):
+async def test_clear_soft_rule_bypasses_llm(monkeypatch):
     from app.config import get_settings
     from app.services import intent_service
 
-    captured = {}
-
-    async def fake_classify_by_llm(message, user_state, candidates=None):
-        del user_state, candidates
-        captured["message"] = message.message
-        return IntentResult(
-            route="rag_answer",
-            primary_intent="care_question",
-            sales_stage="pain_confirmed",
-            confidence=0.91,
-            need_rag=True,
-            reason="llm_understood_care_question",
-        )
+    async def fail_classify_by_llm(message, user_state, candidates=None):
+        del message, user_state, candidates
+        raise AssertionError("clear existing soft rules should bypass the LLM")
 
     monkeypatch.setenv("INTENT_LLM_ENABLED", "true")
     get_settings.cache_clear()
-    monkeypatch.setattr(intent_service, "classify_by_llm", fake_classify_by_llm)
+    monkeypatch.setattr(intent_service, "classify_by_llm", fail_classify_by_llm)
 
     try:
         intent = await classify_intent(
@@ -140,10 +130,9 @@ async def test_llm_intent_is_primary_for_non_hard_rule_messages(monkeypatch):
     finally:
         get_settings.cache_clear()
 
-    assert captured["message"] == "名贵兰花怎么养护？"
     assert intent.route == "rag_answer"
     assert intent.primary_intent == "care_question"
-    assert intent.reason == "llm_understood_care_question"
+    assert intent.reason == "soft_rule_care"
 
 
 @pytest.mark.asyncio

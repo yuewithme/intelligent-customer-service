@@ -255,6 +255,16 @@ async def classify_intent(
     settings = get_settings()
     llm_enabled = bool(getattr(settings, "intent_llm_enabled", False))
     confidence_threshold = getattr(settings, "intent_confidence_threshold", 0.6)
+    rule_intent = classify_by_soft_rules(message.message)
+    if (
+        rule_intent.route != "clarify"
+        and rule_intent.confidence >= confidence_threshold
+    ):
+        if candidates and rule_intent.route == candidates[0].get("route"):
+            rule_intent = rule_intent.model_copy(
+                update={"confidence": min(rule_intent.confidence + 0.05, 1.0)}
+            )
+        return _with_decision_blocker(rule_intent, message.message)
     if llm_enabled:
         try:
             llm_intent = await classify_by_llm(message, user_state, candidates)
@@ -263,7 +273,6 @@ async def classify_intent(
         except AppError:
             pass
 
-    rule_intent = classify_by_soft_rules(message.message)
     if candidates and rule_intent.route == candidates[0].get("route"):
         rule_intent = rule_intent.model_copy(
             update={"confidence": min(rule_intent.confidence + 0.05, 1.0)}
