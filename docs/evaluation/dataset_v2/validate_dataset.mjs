@@ -51,6 +51,9 @@ for (const [file, count] of Object.entries(expected)) {
       multiCases.set(item.source_case, (multiCases.get(item.source_case) ?? 0) + 1);
       if (!Array.isArray(item.customer_turns) || item.customer_turns.length < 2) errors.push(`${item.id} 缺少多轮客户消息`);
       if (!Array.isArray(item.success_criteria) || !item.success_criteria.length) errors.push(`${item.id} 缺少成功标准`);
+      if (!Array.isArray(item.turn_metadata) || item.turn_metadata.length !== item.customer_turns.length) {
+        errors.push(`${item.id} turn_metadata必须与客户轮次数一致`);
+      }
       if (!Array.isArray(item.capabilities) || item.capabilities.some((code) => !definedCapabilities.has(code))) {
         errors.push(`${item.id} 多轮能力代码未在能力地图定义`);
       }
@@ -67,9 +70,12 @@ for (const [file, count] of Object.entries(expected)) {
       errors.push(`${item.id} 辅助能力无效`);
     }
     if (!Array.isArray(item.conversation) || item.conversation.at(-1)?.role !== "user") errors.push(`${item.id} 对话必须以客户消息结束`);
+    if (item.conversation?.some((turn) => turn.role === "system")) errors.push(`${item.id} 不得用system消息模拟客户或业务上下文`);
+    if (Object.hasOwn(item, "knowledge_context") && !item.knowledge_context?.length) errors.push(`${item.id} 不应保留空knowledge_context`);
     if (!Array.isArray(item.must_have) || item.must_have.length < 2) errors.push(`${item.id} must_have不足`);
     if (!Array.isArray(item.must_not) || !item.must_not.length) errors.push(`${item.id} must_not不足`);
-    if (!item.reference_answer) errors.push(`${item.id} 缺少参考回答`);
+    if (!item.reference_answer && item.expected_action !== "human_handoff") errors.push(`${item.id} 缺少参考回答`);
+    if (item.expected_action === "human_handoff" && item.reference_answer !== "") errors.push(`${item.id} 转人工题参考回答必须为空`);
 
     const score = item.scoring ?? {};
     if (score.must_have_points + score.should_have_points + score.expression_points !== 100) {

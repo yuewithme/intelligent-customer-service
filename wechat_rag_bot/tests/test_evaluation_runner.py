@@ -8,6 +8,8 @@ import pytest
 from evaluation.run_evaluation import (
     aggregate_scores,
     append_jsonl,
+    build_evaluation_metadata,
+    calculate_judge_score,
     build_single_message,
     choose_pending_items,
     judge_result,
@@ -37,6 +39,33 @@ def test_build_single_message_wraps_context_without_exposing_rubric():
     assert "【客户当前消息】" in message
     assert message.endswith("去年全部养死了。")
     assert "不应出现在输入中" not in message
+
+
+def test_evaluation_metadata_uses_structured_business_snapshot():
+    item = {
+        "conversation": [{"role": "user", "content": "给我推荐一款。"}],
+        "business_snapshot": "《东方红荷》2—3苗26.8元。",
+        "tool_state": {"stock": 3},
+    }
+
+    metadata = build_evaluation_metadata(item)
+
+    assert metadata == {
+        "business_snapshot": "《东方红荷》2—3苗26.8元。",
+        "tool_state": {"stock": 3},
+    }
+
+
+def test_build_single_message_uses_structured_customer_context():
+    item = {
+        "conversation": [{"role": "user", "content": "现在该怎么办？"}],
+        "customer_context": "客户在西安，刚入门，正在排查黑根和空根。",
+    }
+
+    message = build_single_message(item)
+
+    assert "客户在西安，刚入门" in message
+    assert message.endswith("现在该怎么办？")
 
 
 def test_parse_judge_json_accepts_markdown_fence():
@@ -78,6 +107,30 @@ def test_aggregate_scores_groups_by_subset_and_capability():
     assert report["overall"]["critical_error_rate"] == 0.3333
     assert report["by_subset"]["single_turn"]["average_score"] == 70
     assert report["by_capability"]["Q2"]["count"] == 2
+
+
+def test_calculate_judge_score_uses_rubric_statuses_instead_of_model_total():
+    item = {
+        "task_type": "single_turn",
+        "scoring": {
+            "must_have_points": 70,
+            "should_have_points": 20,
+            "expression_points": 10,
+            "critical_error_cap": 40,
+        },
+    }
+    judged = {
+        "score": 99,
+        "must_have": [{"status": "met"}, {"status": "partial"}],
+        "should_have": [{"status": "met"}, {"status": "missed"}],
+        "expression_score": 8,
+        "violations": [
+            {"triggered": True, "critical": False},
+            {"triggered": False, "critical": True},
+        ],
+    }
+
+    assert calculate_judge_score(item, judged) == (60.5, False)
 
 
 def test_merge_by_id_replaces_only_matching_rows():
@@ -144,13 +197,13 @@ async def test_boundary_item_runs_as_chat_and_passes_tool_state(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_multi_turn_includes_accumulated_transcript(monkeypatch):
+async def test_multi_turn_passes_history_as_metadata_not_current_message(monkeypatch):
     runner = EvaluationRunner("http://example.test", "key", "kb", 1)
     messages = []
 
     async def fake_chat(client, **kwargs):
         del client
-        messages.append(kwargs["message"])
+        messages.append((kwargs["message"], kwargs["metadata"]))
         turn = len(messages)
         return {
             "answer": f"assistant {turn}",
@@ -164,14 +217,62 @@ async def test_multi_turn_includes_accumulated_transcript(monkeypatch):
         "source_case": "case01",
         "customer_turns": ["customer one", "customer two"],
         "initial_context": "known background",
+        "turn_metadata": [
+            {},
+            {
+                "business_snapshot": "会员39.9元。",
+                "tool_state": {"order_status": "unverified"},
+            },
+        ],
     }
 
     await runner.run_multi(object(), item)
 
-    assert "known background" in messages[1]
-    assert "customer one" in messages[1]
-    assert "assistant 1" in messages[1]
-    assert messages[1].endswith("customer two")
+    second_message, second_metadata = messages[1]
+    assert second_message == "customer two"
+    assert second_metadata["business_snapshot"] == "会员39.9元。"
+    assert second_metadata["tool_state"] == {"order_status": "unverified"}
+    assert second_metadata["evaluation_context"] == {
+        "customer_context": "known background",
+        "recent_turns": [
+            {"role": "user", "content": "customer one"},
+            {"role": "assistant", "content": "assistant 1"},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_expected_handoff_is_scored_from_action_without_calling_judge(monkeypatch):
+    import evaluation.run_evaluation as runner_module
+
+    async def fail_generate_answer(prompt: str, purpose: str):
+        raise AssertionError((prompt, purpose))
+
+    monkeypatch.setattr(runner_module, "generate_answer", fail_generate_answer)
+    item = {"id": "b15", "expected_action": "human_handoff"}
+    result = {
+        "id": "b15",
+        "subset": "boundary",
+        "source_case": "boundary",
+        "primary_capability": "O8",
+        "responses": [
+            {
+                "answer": "",
+                "route": "human",
+                "need_human": True,
+                "next_action": "human_handoff",
+            }
+        ],
+        "error": None,
+    }
+
+    judged = await judge_result(
+        item, result, "protocol", asyncio.Semaphore(1), attempts=1
+    )
+
+    assert judged["score"] == 100
+    assert judged["action_match"] is True
+    assert judged["judge_error"] is None
 
 
 @pytest.mark.asyncio
@@ -315,7 +416,24 @@ async def test_lifespan_skips_eyun_worker_in_evaluation_mode(monkeypatch):
 
 
 def test_evaluation_request_is_detected_from_runner_metadata():
-    from app.services.chat_orchestrator import _is_evaluation_request
+    from app.services.chat_orchestrator import _apply_evaluation_context, _is_evaluation_request
 
     assert _is_evaluation_request(SimpleNamespace(metadata={"evaluation_id": "c01_n02"}))
     assert not _is_evaluation_request(SimpleNamespace(metadata={}))
+
+    state = SimpleNamespace(metadata={})
+    _apply_evaluation_context(
+        SimpleNamespace(
+            metadata={
+                "evaluation_context": {
+                    "customer_context": "客户在西安，刚入门。",
+                    "recent_turns": [{"role": "user", "content": "之前烂根。"}],
+                }
+            }
+        ),
+        state,
+    )
+    assert state.metadata["profile"]["ai_summary"] == "客户在西安，刚入门。"
+    assert state.metadata["recent_turns"] == [
+        {"role": "user", "content": "之前烂根。"}
+    ]

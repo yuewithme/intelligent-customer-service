@@ -393,6 +393,107 @@ const boundary = [
     "我已记录您的退款诉求。当前没有可用的退款政策信息，不能直接承诺结果或说无法退款；我会转人工按现行规则核验，并需要您的订单号用于处理。", ["Q4", "G3"])
 ];
 
+const memberSnapshot = "会员39.9元，包含一对一指导、百节视频课程、常见病害教学和新手养护课程，赠送建兰《七仙女》；有效期与60天包赔细则需要按当前政策核验。";
+const memberFeihuangSnapshot = "会员39.9元，赠送建兰《飞煌腾达》，包含一对一指导、百节视频课程、常见病害教学和长期售后；60天包赔细则未提供。";
+
+const multiTurnMetadata = {
+  m01_disease_to_member: [
+    {}, {},
+    { business_snapshot: memberSnapshot },
+    { business_snapshot: memberSnapshot },
+    { tool_state: { order_status: "unverified" } }
+  ],
+  m02_root_care: [
+    {}, {}, {},
+    { business_snapshot: memberSnapshot },
+    { tool_state: { order_status: "unverified" } }
+  ],
+  m03_non_store_order: [
+    { tool_state: { order_lookup: "not_found" } },
+    {},
+    { business_snapshot: "《天地之华》2—3苗带花32.8元；《市长红》2—3苗带花39.9元；两盆组合70元。" },
+    { business_snapshot: "兰花专用植料39.9元；商品可按页面规格选择是否带盆。" },
+    { tool_state: { order_confirmed: true, shipping_date_change_available: true, shipping_date_change_executed: false } }
+  ],
+  m04_disease_learning: [
+    {}, {},
+    { business_snapshot: memberFeihuangSnapshot },
+    { tool_state: { order_paid: true, course_activated: false, shipping_date_change_executed: false } }
+  ],
+  m05_flowering_concern: [
+    {}, {}, {},
+    { business_snapshot: memberSnapshot },
+    { tool_state: { order_status: "unverified" } }
+  ],
+  m06_reflowering: [
+    {}, {},
+    { business_snapshot: memberSnapshot },
+    { business_snapshot: memberSnapshot }
+  ],
+  m07_photo_and_activity: [
+    { tool_state: { image_quality: "insufficient" } },
+    {}, {},
+    { tool_state: { activity_status: "expired", manual_approval_available: true, approval_result: "unknown" } }
+  ],
+  m08_first_purchase: [
+    {},
+    { business_snapshot: "建兰《青山玉泉》为素花、香味清雅、抗病性强、老种苗，可带花苞发货；价格和库存未提供。" },
+    { business_snapshot: "当前链接对应已种在花盆中的《青山玉泉》，带盆发货。" },
+    { tool_state: { order_status: "unverified" } }
+  ],
+  m09_restart_bundle: [
+    {},
+    { business_snapshot: "《东方红荷》2—3苗26.8元，带花苞发货、花香浓郁，并提供单品资料、视频课程和一对一指导。" },
+    { business_snapshot: "苗26.8元，专用植料39.9元，组合66元，赠送肥料。" },
+    { tool_state: { order_status: "unverified", shipping_address_status: "unverified" } }
+  ],
+  m10_budget_adjustment: [
+    {}, {},
+    { business_snapshot: "蕙兰《温州素》3苗88元；春兰《吴凤》3—4苗42.8元、7—8苗75.8元。" },
+    { tool_state: { matching_products: [] } },
+    { tool_state: { payment_status: "unverified" } }
+  ]
+};
+
+function normalizeSingleItem(item) {
+  const current = item.conversation.at(-1);
+  const priorText = item.conversation
+    .slice(0, -1)
+    .map((turn) => turn.content)
+    .filter(Boolean)
+    .join("\n");
+  const markers = ["业务快照：", "商品快照：", "历史案例话术：", "首个方案为"];
+  const indexes = markers.map((marker) => priorText.indexOf(marker)).filter((index) => index >= 0);
+  const businessIndex = indexes.length ? Math.min(...indexes) : -1;
+
+  if (item.id === "c07_n01_photo_diagnosis") {
+    item.customer_context = "客户刚上传了一张兰花根部照片。";
+    item.tool_state = { ...item.tool_state, image_quality: "insufficient" };
+  } else if (businessIndex >= 0) {
+    const customerContext = priorText.slice(0, businessIndex).trim();
+    if (customerContext) item.customer_context = customerContext;
+    item.business_snapshot = priorText.slice(businessIndex).trim();
+  } else if (priorText) {
+    item.customer_context = priorText;
+  }
+
+  item.conversation = [current];
+  delete item.knowledge_context;
+  return item;
+}
+
+singleTurn.forEach(normalizeSingleItem);
+boundary.forEach(normalizeSingleItem);
+multiTurn.forEach((item) => {
+  item.turn_metadata = multiTurnMetadata[item.id];
+});
+
+const refundItem = boundary.find((item) => item.id === "b15_refund_request");
+refundItem.expected_action = "human_handoff";
+refundItem.must_have = ["触发人工接管", "need_human为true", "next_action为human_handoff", "AI保持空回复"];
+refundItem.should_have = ["不向客户发送自动退款结论"];
+refundItem.reference_answer = "";
+
 function writeJsonl(name, items) {
   const content = items.map((item) => JSON.stringify(item)).join("\n") + "\n";
   fs.writeFileSync(path.join(dir, name), content, "utf8");

@@ -63,7 +63,9 @@ async def handle_chat(request: ChatRequest) -> dict:
 
         stage_started = time.perf_counter()
         user_state = await get_user_state(message.user_id, message.session_id)
-        if not is_evaluation:
+        if is_evaluation:
+            _apply_evaluation_context(message, user_state)
+        else:
             await _hydrate_user_state_from_profile(message.user_id, user_state)
         stage_latencies["state_ms"] = _elapsed_ms(stage_started)
 
@@ -478,6 +480,19 @@ def _legacy_handoff(handoff: dict | None) -> dict | None:
 
 def _is_evaluation_request(message) -> bool:
     return bool(getattr(message, "metadata", {}).get("evaluation_id"))
+
+
+def _apply_evaluation_context(message, user_state) -> None:
+    metadata = getattr(message, "metadata", {})
+    context = metadata.get("evaluation_context") if isinstance(metadata, dict) else None
+    if not isinstance(context, dict):
+        return
+    customer_context = str(context.get("customer_context") or "").strip()
+    recent_turns = context.get("recent_turns")
+    if customer_context:
+        user_state.metadata["profile"] = {"ai_summary": customer_context}
+    if isinstance(recent_turns, list):
+        user_state.metadata["recent_turns"] = recent_turns
 
 
 async def _hydrate_user_state_from_profile(user_id: str, user_state) -> None:

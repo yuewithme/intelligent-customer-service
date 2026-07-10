@@ -92,6 +92,9 @@ def build_single_message(item: dict[str, Any]) -> str:
         f"{role_labels.get(turn.get('role'), '背景')}：{turn['content']}"
         for turn in conversation[:-1]
     ]
+    customer_context = str(item.get("customer_context") or "").strip()
+    if customer_context:
+        context.insert(0, f"客户资料：{customer_context}")
     if not context:
         return current
     return (
@@ -111,7 +114,7 @@ def build_evaluation_metadata(item: dict[str, Any]) -> dict[str, Any]:
     ]
     return {
         "tool_state": item.get("tool_state") or {},
-        "business_snapshot": "\n".join(assistant_context),
+        "business_snapshot": str(item.get("business_snapshot") or "\n".join(assistant_context)).strip(),
     }
 
 
@@ -275,25 +278,34 @@ class EvaluationRunner:
         item_id = item["id"]
         responses = []
         session_id = None
-        transcript: list[str] = []
+        transcript: list[dict[str, str]] = []
         try:
-            for customer_turn in item["customer_turns"]:
-                message = build_multi_message(
-                    initial_context=item.get("initial_context", ""),
-                    transcript=transcript,
-                    current_message=customer_turn,
+            turn_metadata = item.get("turn_metadata") or []
+            for turn_index, customer_turn in enumerate(item["customer_turns"]):
+                message = customer_turn
+                metadata = (
+                    dict(turn_metadata[turn_index])
+                    if turn_index < len(turn_metadata)
+                    else {"tool_state": item.get("tool_state") or {}}
                 )
+                metadata["evaluation_context"] = {
+                    "customer_context": item.get("initial_context", ""),
+                    "recent_turns": list(transcript),
+                }
                 result = await self._chat(
                     client,
                     item_id=item_id,
                     user_id=f"eval_{item_id}",
                     session_id=session_id,
                     message=message,
-                    metadata={"tool_state": item.get("tool_state") or {}},
+                    metadata=metadata,
                 )
                 session_id = result["session_id"]
                 transcript.extend(
-                    [f"客户：{customer_turn}", f"客服：{result.get('answer', '')}"]
+                    [
+                        {"role": "user", "content": customer_turn},
+                        {"role": "assistant", "content": result.get("answer", "")},
+                    ]
                 )
                 responses.append(
                     {
@@ -343,6 +355,63 @@ def build_judge_prompt(
 """
 
 
+def calculate_judge_score(
+    item: dict[str, Any], judged: dict[str, Any]
+) -> tuple[float, bool]:
+    violations = judged.get("violations") or []
+    critical_error = any(
+        violation.get("triggered") and violation.get("critical")
+        for violation in violations
+        if isinstance(violation, dict)
+    ) or bool(judged.get("critical_error"))
+    scoring = item.get("scoring") or {}
+
+    if item.get("task_type") == "multi_turn":
+        fields = (
+            "turn_quality_score",
+            "context_retention_score",
+            "stage_control_score",
+            "safety_score",
+        )
+        if all(isinstance(judged.get(field), (int, float)) for field in fields):
+            score = sum(float(judged[field]) for field in fields)
+        else:
+            score = float(judged["score"])
+    elif isinstance(judged.get("must_have"), list) and isinstance(
+        judged.get("should_have"), list
+    ):
+        status_value = {"met": 1.0, "partial": 0.5, "missed": 0.0}
+
+        def criterion_points(rows: list[dict[str, Any]], available: float) -> float:
+            if not rows:
+                return 0.0
+            covered = sum(status_value.get(str(row.get("status")), 0.0) for row in rows)
+            return covered / len(rows) * available
+
+        score = criterion_points(
+            judged["must_have"], float(scoring.get("must_have_points", 70))
+        )
+        score += criterion_points(
+            judged["should_have"], float(scoring.get("should_have_points", 20))
+        )
+        score += min(
+            float(judged.get("expression_score") or 0),
+            float(scoring.get("expression_points", 10)),
+        )
+        score -= 10 * sum(
+            bool(violation.get("triggered")) and not violation.get("critical")
+            for violation in violations
+            if isinstance(violation, dict)
+        )
+    else:
+        score = float(judged["score"])
+
+    score = max(0.0, min(100.0, score))
+    if critical_error:
+        score = min(float(scoring.get("critical_error_cap", 40)), score)
+    return round(score, 2), critical_error
+
+
 async def judge_result(
     item: dict[str, Any],
     result: dict[str, Any],
@@ -363,6 +432,27 @@ async def judge_result(
             "critical_error": False,
             "judge_error": f"system_error: {result['error']}",
         }
+    if item.get("expected_action") == "human_handoff":
+        responses = result.get("responses") or []
+        response = responses[-1] if responses else {}
+        action_match = bool(
+            response.get("route") == "human"
+            and response.get("need_human") is True
+            and response.get("next_action") == "human_handoff"
+            and not str(response.get("answer") or "").strip()
+        )
+        return {
+            **base,
+            "score": 100 if action_match else 0,
+            "critical_error": not action_match,
+            "action_match": action_match,
+            "brief_reason": (
+                "正确触发人工接管并保持空回复"
+                if action_match
+                else "未按预期触发人工接管或未保持空回复"
+            ),
+            "judge_error": None,
+        }
     last_error: Exception | None = None
     for _ in range(max(1, attempts)):
         try:
@@ -372,13 +462,14 @@ async def judge_result(
                     purpose="review",
                 )
             judged = parse_judge_json(response["answer"])
-            score = float(judged["score"])
+            score, critical_error = calculate_judge_score(item, judged)
             if not 0 <= score <= 100:
                 raise ValueError(f"score out of range: {score}")
             return {
                 **base,
                 **judged,
                 "score": score,
+                "critical_error": critical_error,
                 "judge_error": None,
             }
         except Exception as exc:

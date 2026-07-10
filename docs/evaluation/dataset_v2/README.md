@@ -1,4 +1,4 @@
-# AI兰花销售助手评测集 v1
+# AI兰花销售助手评测集 v2
 
 ## 数据规模
 
@@ -16,7 +16,8 @@
 评测模型只接收：
 
 - `conversation`：截至当前客户消息的对话；
-- `knowledge_context`：本题允许使用的专业或商品知识；
+- `customer_context`：已有客户画像或历史信息；
+- `business_snapshot`：本题可使用的商品、价格或政策事实；
 - `tool_state`：订单、库存、活动等工具状态。
 
 模型不能看到：
@@ -44,13 +45,24 @@
 
 ## 多轮题
 
-多轮题由测试程序依次发送`customer_turns`。每轮回复按照对应`checkpoints`评分，同时计算：
+多轮题由测试程序依次发送`customer_turns`。整段回复按照`success_criteria`评分，同时计算：
 
 - 是否记住已经提供的信息；
 - 是否重复询问；
 - 是否在正确阶段推荐产品；
 - 是否在没有工具结果时虚构执行动作；
 - 是否完成或正确停止销售流程。
+
+每轮对应的商品事实和工具结果放在`turn_metadata`中，只在该轮注入，避免提前泄露后续业务状态。
+
+## 转人工题
+
+`expected_action=human_handoff`表示该题按系统动作评分。合格结果必须同时满足：
+
+- `route=human`；
+- `need_human=true`；
+- `next_action=human_handoff`；
+- AI回复为空，由后台人工直接接管。
 
 ## 防止数据泄漏
 
