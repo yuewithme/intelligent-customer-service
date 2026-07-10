@@ -6,6 +6,7 @@ from app.config import get_settings
 from app.schemas.chat import ChatRequest
 from app.schemas.common import AppError, ErrorCode
 from app.schemas.intent import IntentResult
+from app.schemas.policy import PolicyDecision
 from app.schemas.reply import FinalReply
 from app.services.channel_service import normalize_chat_request
 from app.services.chat_log_service import record_chat_log
@@ -103,6 +104,15 @@ async def handle_chat(request: ChatRequest) -> dict:
         rich_decision = await decide_policy(tag_result)
         if rich_decision.reason != "default_tag_policy":
             decision = rich_decision
+        from app.services.business_context_service import has_business_context
+
+        if decision.route != "human" and has_business_context(message):
+            decision = PolicyDecision(
+                route="template_reply",
+                reason="structured_business_context",
+                original_route=decision.route,
+            )
+            rich_decision = decision
         stage_latencies["tag_policy_ms"] = _elapsed_ms(stage_started)
 
         route = decision.route

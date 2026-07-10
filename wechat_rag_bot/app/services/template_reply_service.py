@@ -11,6 +11,11 @@ async def build_default_template_reply(
     intent: IntentResult,
     user_state: UserState,
 ) -> FinalReply | None:
+    from app.services.business_context_service import build_business_context
+
+    business_reply = (await build_business_context(message)).to_reply()
+    if business_reply is not None:
+        return business_reply
     template = await select_template(message, intent, user_state)
     if template is None:
         return None

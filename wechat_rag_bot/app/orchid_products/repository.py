@@ -91,6 +91,30 @@ def replace_orchid_product_library(payload: OrchidImportPayload) -> dict[str, An
     return result
 
 
+def list_orchid_skus(
+    *,
+    variety_names: list[str] | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    with get_session_factory()() as session:
+        query = session.query(OrchidSkuModel)
+        if variety_names:
+            query = query.filter(OrchidSkuModel.variety_name.in_(variety_names))
+        rows = query.order_by(OrchidSkuModel.id).limit(max(1, min(limit, 100))).all()
+        return [
+            {
+                "variety_name": row.variety_name,
+                "category_name": row.category_name,
+                "seedling_count": row.seedling_count,
+                "package_spec": row.package_spec,
+                "flower_bud_status": row.flower_bud_status,
+                "price": row.price,
+                "price_text": row.price_text,
+            }
+            for row in rows
+        ]
+
+
 def _clear(session: Session) -> None:
     for model in [
         OrchidKnowledgeChunkModel,
