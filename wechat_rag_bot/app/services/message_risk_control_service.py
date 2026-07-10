@@ -5,7 +5,7 @@ import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -43,6 +43,7 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
     w_id = str(data.get("wId") or payload.get("wId") or settings.eyun_wid or "")
     from_user = str(data.get("fromUser") or "")
     from_group = str(data.get("fromGroup") or "")
+    profile_user_id = str(payload.get("_profile_user_id") or "").strip() or None
     target_wc_id = from_group or from_user
     wc_id = str(payload.get("wcId") or data.get("toUser") or "")
     batch_key = build_eyun_batch_key(
@@ -70,6 +71,7 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
                 target_wc_id=target_wc_id,
                 from_user=from_user or None,
                 from_group=from_group or None,
+                profile_user_id=profile_user_id,
                 account=str(payload.get("account") or "") or None,
                 message_type=str(payload.get("messageType") or ""),
                 content=content,
@@ -86,6 +88,7 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
             batch.target_wc_id = target_wc_id
             batch.from_user = from_user or None
             batch.from_group = from_group or None
+            batch.profile_user_id = profile_user_id
             batch.account = str(payload.get("account") or "") or None
             batch.message_type = str(payload.get("messageType") or "")
             batch.content = content
@@ -96,6 +99,7 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
         else:
             batch.content = f"{batch.content}\n{content}" if batch.content else content
             batch.message_count = (batch.message_count or 0) + 1
+            batch.profile_user_id = profile_user_id or batch.profile_user_id
             batch.due_at = due_at
             batch.updated_at = now
 
@@ -261,7 +265,11 @@ async def _process_inbound_batch(batch_id: int) -> None:
         chat_result = await handle_chat(
             ChatRequest(
                 channel="wechat",
-                user_id=batch_data["from_user"] or batch_data["target_wc_id"],
+                user_id=(
+                    batch_data["profile_user_id"]
+                    or batch_data["from_user"]
+                    or batch_data["target_wc_id"]
+                ),
                 session_id=batch_data["from_group"],
                 message=batch_data["content"],
                 kb_id=get_settings().wechat_default_kb_id,
@@ -295,7 +303,9 @@ async def _process_inbound_batch(batch_id: int) -> None:
 
 def _conversation_blocks_ai(batch: dict[str, Any]) -> bool:
     conversation_id = make_conversation_id(
-        "wechat", batch["from_user"] or batch["target_wc_id"], batch["from_group"]
+        "wechat",
+        batch["profile_user_id"] or batch["from_user"] or batch["target_wc_id"],
+        batch["from_group"],
     )
     with _get_session() as session:
         conversation = session.scalar(
@@ -418,9 +428,32 @@ def _get_session() -> Session:
                 EyunSendRateModel.__table__,
             ],
         )
+        _ensure_profile_user_id_column(engine)
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[settings.chat_log_db_url] = factory
     return factory()
+
+
+def _ensure_profile_user_id_column(engine) -> None:
+    columns = {
+        column["name"]
+        for column in inspect(engine).get_columns("eyun_inbound_batches")
+    }
+    if "profile_user_id" in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE eyun_inbound_batches "
+                "ADD COLUMN profile_user_id VARCHAR(256)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_eyun_inbound_batches_profile_user_id "
+                "ON eyun_inbound_batches (profile_user_id)"
+            )
+        )
 
 
 def _get_batch(session: Session, batch_key: str) -> EyunInboundBatchModel | None:
@@ -442,6 +475,7 @@ def _inbound_batch_to_dict(row: EyunInboundBatchModel | None) -> dict[str, Any]:
         "target_wc_id": row.target_wc_id,
         "from_user": row.from_user,
         "from_group": row.from_group,
+        "profile_user_id": row.profile_user_id,
         "account": row.account,
         "message_type": row.message_type,
         "content": row.content,

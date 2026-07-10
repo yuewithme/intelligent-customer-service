@@ -238,6 +238,44 @@ async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_process_due_batch_uses_canonical_profile_user_id(monkeypatch, tmp_path):
+    del tmp_path
+    from app.services import message_risk_control_service as service
+
+    monkeypatch.setenv("EYUN_INBOUND_DEBOUNCE_SECONDS", "0")
+    get_settings.cache_clear()
+
+    calls = []
+
+    async def fake_handle_chat(request):
+        calls.append(request)
+        return {"answer": "ok"}
+
+    async def fake_enqueue_outbound(**kwargs):
+        return kwargs
+
+    monkeypatch.setattr(service, "handle_chat", fake_handle_chat)
+    monkeypatch.setattr(service, "enqueue_eyun_outbound", fake_enqueue_outbound)
+    payload = {
+        "_profile_user_id": "profile_internal_1",
+        "messageType": "60001",
+        "wcId": "owner_1",
+        "data": {
+            "wId": "wid",
+            "fromUser": "external_customer",
+            "toUser": "owner_1",
+            "content": "hello",
+            "newMsgId": 9001,
+        },
+    }
+    await service.enqueue_eyun_inbound(payload)
+    await service.process_due_eyun_inbound_batches(limit=5)
+
+    assert calls[0].user_id == "profile_internal_1"
+    assert calls[0].metadata["from_user"] == "external_customer"
+
+
+@pytest.mark.asyncio
 async def test_process_due_batch_skips_group_messages(monkeypatch):
     from app.services.message_risk_control_service import (
         _get_session,

@@ -6,15 +6,132 @@ from app.main import app
 
 def _reset_settings(monkeypatch, tmp_path):
     db_path = tmp_path / "chat_logs.db"
+    profile_db_path = tmp_path / "profiles.db"
     monkeypatch.setenv("CHAT_LOG_ENABLED", "true")
     monkeypatch.setenv("CHAT_LOG_PROVIDER", "sqlite")
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{db_path.as_posix()}")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{profile_db_path.as_posix()}")
     monkeypatch.setenv("API_AUTH_ENABLED", "false")
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     monkeypatch.setenv("LLM_PROVIDER", "mock")
     monkeypatch.setenv("INTENT_LLM_PROVIDER", "mock")
     monkeypatch.setenv("STATE_PROVIDER", "memory")
     get_settings.cache_clear()
+
+
+def test_private_callback_records_and_queues_canonical_profile_user_id(
+    monkeypatch, tmp_path
+):
+    from app.schemas.profile_identity import ProviderIdentityKey, ResolvedProfileIdentity
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    recorded = []
+    queued = []
+
+    async def fake_resolve(**kwargs):
+        assert kwargs["key"].owner_external_id == "wxid_bot"
+        assert kwargs["key"].external_user_id == "wxid_customer"
+        return ResolvedProfileIdentity(
+            profile_user_id="profile_internal_1",
+            key=ProviderIdentityKey(
+                provider="eyun",
+                owner_external_id="wxid_bot",
+                external_user_id="wxid_customer",
+            ),
+            created=True,
+        )
+
+    async def fake_record(**kwargs):
+        recorded.append(kwargs)
+
+    async def fake_enqueue(payload):
+        queued.append(payload)
+        return {"batch_key": "wid:wxid_customer"}
+
+    async def fake_contact(**kwargs):
+        return {"nickname": "张姐"}
+
+    monkeypatch.setattr(eyun_callback_service, "resolve_private_contact", fake_resolve)
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
+    monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "account": "sales_a",
+            "messageType": "60001",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": "你好",
+                "newMsgId": 101,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert recorded[0]["user_id"] == "profile_internal_1"
+    assert queued[0]["_profile_user_id"] == "profile_internal_1"
+
+
+def test_private_non_text_callback_creates_canonical_profile_before_recording(
+    monkeypatch, tmp_path
+):
+    from app.schemas.profile_identity import ProviderIdentityKey, ResolvedProfileIdentity
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    recorded = []
+
+    async def fake_resolve(**kwargs):
+        return ResolvedProfileIdentity(
+            profile_user_id="profile_image_user",
+            key=ProviderIdentityKey(
+                provider="eyun",
+                owner_external_id="wxid_bot",
+                external_user_id="wxid_customer",
+            ),
+            created=True,
+        )
+
+    async def fake_record(**kwargs):
+        recorded.append(kwargs)
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_fetch_image_url(**kwargs):
+        return "https://cdn.example.com/image.jpg"
+
+    monkeypatch.setattr(eyun_callback_service, "resolve_private_contact", fake_resolve)
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
+    monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "account": "sales_a",
+            "messageType": "60002",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": "<msg><img /></msg>",
+                "newMsgId": 102,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert recorded[0]["user_id"] == "profile_image_user"
 
 
 def test_eyun_callback_accepts_json_payload(monkeypatch, tmp_path):
@@ -165,11 +282,11 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     conversations = client.get("/api/v1/admin/conversations").json()["data"]
     assert conversations["total"] == 1
     item = conversations["items"][0]
-    assert item["conversation_id"] == "wechat:wxid_customer:default"
+    assert item["conversation_id"].startswith("wechat:profile_")
     assert item["status"] == "handoff_pending"
     assert item["last_message"] == "[图片]"
 
-    detail = client.get("/api/v1/admin/conversations/wechat:wxid_customer:default")
+    detail = client.get(f"/api/v1/admin/conversations/{item['conversation_id']}")
     messages = detail.json()["data"]["messages"]
     assert [message["content"] for message in messages] == ["hello", "[图片]"]
     assert all(message["sender_type"] == "customer" for message in messages)
@@ -292,8 +409,18 @@ def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
         )
         assert response.status_code == 200
 
+        conversations = client.get("/api/v1/admin/conversations").json()["data"]
+        expected_label = {
+            "60003": "[视频]",
+            "60004": "[语音]",
+            "60006": "[表情]",
+            "60007": "[链接]",
+        }[message_type]
+        conversation = next(
+            item for item in conversations["items"] if item["last_message"] == expected_label
+        )
         detail = client.get(
-            f"/api/v1/admin/conversations/wechat:wxid_customer_{index}:default"
+            f"/api/v1/admin/conversations/{conversation['conversation_id']}"
         ).json()["data"]
         media = detail["messages"][0]["metadata"]["media"]
         assert media["type"] == expected_type

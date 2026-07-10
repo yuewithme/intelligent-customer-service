@@ -1,6 +1,15 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -66,6 +75,7 @@ class EyunInboundBatchModel(Base):
     target_wc_id: Mapped[str] = mapped_column(String(256), index=True)
     from_user: Mapped[str | None] = mapped_column(String(256), nullable=True)
     from_group: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    profile_user_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     account: Mapped[str | None] = mapped_column(String(256), nullable=True)
     message_type: Mapped[str] = mapped_column(String(32), index=True)
     content: Mapped[str] = mapped_column(Text)
@@ -172,6 +182,58 @@ class UserProfileModel(Base):
     last_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_template_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class UserIdentityModel(Base):
+    __tablename__ = "user_identities"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "provider",
+            "owner_external_id",
+            "external_user_id",
+            name="uq_user_identity_provider_contact",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_user_id: Mapped[str] = mapped_column(
+        String(256),
+        ForeignKey("user_profiles.user_id", ondelete="CASCADE"),
+        index=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    channel: Mapped[str] = mapped_column(String(64), default="wechat")
+    owner_external_id: Mapped[str] = mapped_column(String(256), index=True)
+    external_user_id: Mapped[str] = mapped_column(String(256), index=True)
+    latest_w_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_account: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    alias_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    nickname: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    remark_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    province: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    label_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ProfileRefreshJobModel(Base):
+    __tablename__ = "profile_refresh_jobs"
+
+    profile_user_id: Mapped[str] = mapped_column(
+        String(256),
+        ForeignKey("user_profiles.user_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 

@@ -7,9 +7,11 @@ from xml.etree import ElementTree
 import httpx
 
 from app.config import get_settings
+from app.schemas.profile_identity import ContactSnapshot, ProviderIdentityKey
 from app.services.conversation_service import AI_WAITING, HANDOFF_PENDING, record_customer_message
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
 from app.services.message_risk_control_service import enqueue_eyun_inbound
+from app.services.profile_identity_service import resolve_private_contact
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_callback")
@@ -63,9 +65,14 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         return eyun_success()
 
     metadata = await _eyun_workbench_metadata(payload, data)
+    profile_user_id = _eyun_conversation_user_id(data)
+    if not str(data.get("fromGroup") or "").strip():
+        profile_user_id = await _resolve_private_profile_user_id(payload, data, metadata)
+        metadata["profile_user_id"] = profile_user_id
+        metadata["external_user_id"] = str(data.get("fromUser") or "")
     await record_customer_message(
         channel="wechat",
-        user_id=_eyun_conversation_user_id(data),
+        user_id=profile_user_id,
         session_id="default",
         content=_eyun_display_content(payload),
         message_id=_eyun_message_id(data),
@@ -83,8 +90,39 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     if not content:
         return eyun_success()
 
-    await enqueue_eyun_inbound(payload)
+    await enqueue_eyun_inbound({**payload, "_profile_user_id": profile_user_id})
     return eyun_success()
+
+
+async def _resolve_private_profile_user_id(
+    payload: dict[str, Any], data: dict[str, Any], metadata: dict[str, Any]
+) -> str:
+    external_user_id = str(data.get("fromUser") or "").strip()
+    owner_external_id = str(payload.get("wcId") or data.get("toUser") or "").strip()
+    if not owner_external_id:
+        owner_external_id = f"account:{str(payload.get('account') or 'default')}"
+    key = ProviderIdentityKey(
+        tenant_id=str(payload.get("tenant_id") or "tenant_default"),
+        provider="eyun",
+        owner_external_id=owner_external_id,
+        external_user_id=external_user_id,
+    )
+    resolved = await resolve_private_contact(
+        key=key,
+        channel="wechat",
+        latest_w_id=str(data.get("wId") or payload.get("wId") or "") or None,
+        source_account=str(payload.get("account") or "") or None,
+        contact=ContactSnapshot(
+            user_name=external_user_id,
+            nickname=metadata.get("nickname"),
+            remark_name=metadata.get("remark_name"),
+            avatar_url=metadata.get("avatar_url"),
+            province=metadata.get("province"),
+            city=metadata.get("city"),
+            label_ids=metadata.get("label_ids") or [],
+        ),
+    )
+    return resolved.profile_user_id
 
 
 def _eyun_non_text_label(message_type: str) -> str:
