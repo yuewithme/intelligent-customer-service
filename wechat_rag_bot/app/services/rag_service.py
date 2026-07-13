@@ -310,7 +310,6 @@ async def answer_knowledge(message, user_state, policy_decision: PolicyDecision 
                 profile=user_state.metadata.get("profile", {}),
                 state=user_state.model_dump(),
                 memories=user_state.metadata.get("recent_turns", []),
-                sales_memory=user_state.metadata.get("sales_memory", {}),
                 context_policy=policy_decision.context_policy,
             )
         )

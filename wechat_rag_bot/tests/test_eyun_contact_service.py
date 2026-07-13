@@ -24,40 +24,25 @@ def test_contact_snapshot_prefers_remark_and_large_avatar():
     }
 
 
-def test_contact_snapshot_falls_back_to_nickname_and_small_avatar():
+def test_contact_snapshot_parses_official_alias_and_label_list_fields():
     snapshot = parse_contact_snapshot(
         {
             "code": "1000",
             "data": [
                 {
-                    "remark": "",
-                    "nickName": "贵杰",
-                    "bigHead": "",
-                    "smallHead": "https://example.com/avatar-small.jpg",
+                    "userName": "wxid_customer",
+                    "aliasName": "orchid_friend",
+                    "labelList": "12,18",
                 }
             ],
         }
     )
 
     assert snapshot == {
-        "nickname": "贵杰",
-        "avatar_url": "https://example.com/avatar-small.jpg",
+        "alias_name": "orchid_friend",
+        "label_ids": ["12", "18"],
     }
 
 
-def test_contact_snapshot_labels_openim_contact_when_provider_name_is_empty():
-    snapshot = parse_contact_snapshot(
-        {
-            "code": "1000",
-            "data": [
-                {
-                    "userName": "25984982682373090@openim",
-                    "remark": None,
-                    "nickName": "",
-                    "bigHead": None,
-                }
-            ],
-        }
-    )
-
-    assert snapshot == {"display_name": "企业微信用户（73090）"}
+def test_contact_snapshot_ignores_failed_provider_response():
+    assert parse_contact_snapshot({"code": "1001", "data": []}) == {}

@@ -23,7 +23,6 @@ from app.routers import (
 )
 from app.schemas.common import AppError, ErrorCode
 from app.services.message_risk_control_service import eyun_risk_control_worker
-from app.services.profile_refresh_service import profile_refresh_worker
 from app.utils.logger import configure_logging
 
 
@@ -40,17 +39,11 @@ async def lifespan(app: FastAPI):
     app.state.eyun_risk_control_task = asyncio.create_task(
         eyun_risk_control_worker(stop_event)
     )
-    app.state.profile_refresh_task = asyncio.create_task(
-        profile_refresh_worker(stop_event)
-    )
     try:
         yield
     finally:
         stop_event.set()
-        await asyncio.gather(
-            app.state.eyun_risk_control_task,
-            app.state.profile_refresh_task,
-        )
+        await app.state.eyun_risk_control_task
 
 
 app = FastAPI(title=get_settings().app_name, lifespan=lifespan)

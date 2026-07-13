@@ -17,10 +17,8 @@ from app.services.policy_service import decide_route
 from app.services.policy_engine import decide_policy
 from app.services.reply_planner import resolve_reply_plan
 from app.services.reply_workflow_graph import execute_reply_plan
-from app.services.profile_refresh_service import schedule_profile_refresh
 from app.services.rule_guard_service import check_rules
 from app.services.sales_action_service import apply_sales_action, decide_sales_action
-from app.services.sales_memory_service import apply_deterministic_sales_memory
 from app.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
 from app.services.state_service import get_user_state, update_user_state
 from app.services.tagger_service import build_tag_result
@@ -178,8 +176,6 @@ async def handle_chat(request: ChatRequest) -> dict:
                     trace_id=message.trace_id,
                 )
             await apply_deterministic_profile_update(message, routed_intent, reply)
-            await apply_deterministic_sales_memory(message, routed_intent, reply)
-            await schedule_profile_refresh(message.user_id, delay_seconds=30)
         stage_latencies["state_update_ms"] = _elapsed_ms(stage_started)
 
         result = _to_chat_data(message.session_id, message.trace_id, routed_intent, reply)
@@ -331,10 +327,6 @@ async def _hydrate_user_state_from_profile(user_id: str, user_state) -> None:
         **user_state.metadata,
         "profile": profile,
         "recent_turns": bundle.get("recent_memories", []),
-        "sales_memory": {
-            "facts": bundle.get("facts", []),
-            "unresolved_episodes": bundle.get("unresolved_episodes", []),
-        },
     }
 
 

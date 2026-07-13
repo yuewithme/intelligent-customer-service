@@ -103,63 +103,8 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
     monkeypatch.setattr(
         chat_orchestrator, "apply_deterministic_profile_update", noop
     )
-    monkeypatch.setattr(
-        chat_orchestrator, "apply_deterministic_sales_memory", noop, raising=False
-    )
-    monkeypatch.setattr(
-        chat_orchestrator, "schedule_profile_refresh", noop, raising=False
-    )
     monkeypatch.setattr(chat_orchestrator, "record_chat_log", noop)
     monkeypatch.setattr(chat_orchestrator, "record_ai_turn", noop)
-
-
-@pytest.mark.asyncio
-async def test_chat_writes_deterministic_memory_and_schedules_durable_refresh(
-    monkeypatch,
-):
-    from app.services import chat_orchestrator
-
-    _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator)
-    calls = []
-
-    monkeypatch.setattr(
-        chat_orchestrator,
-        "get_settings",
-        lambda: SimpleNamespace(intent_example_top_k=5),
-    )
-
-    async def execute_reply_plan(**kwargs):
-        del kwargs
-        return _reply("fast reply")
-
-    async def apply_memory(message, intent, reply):
-        calls.append(("deterministic", message.user_id, intent.primary_intent, reply.route))
-
-    async def schedule_refresh(profile_user_id, *, delay_seconds):
-        calls.append(("refresh", profile_user_id, delay_seconds))
-
-    monkeypatch.setattr(chat_orchestrator, "execute_reply_plan", execute_reply_plan)
-    monkeypatch.setattr(
-        chat_orchestrator, "apply_deterministic_sales_memory", apply_memory, raising=False
-    )
-    monkeypatch.setattr(
-        chat_orchestrator, "schedule_profile_refresh", schedule_refresh, raising=False
-    )
-
-    result = await chat_orchestrator.handle_chat(
-        ChatRequest(
-            channel="api",
-            user_id="user_001",
-            message="hello",
-            kb_id="kb_default",
-        )
-    )
-
-    assert result["answer"] == "fast reply"
-    assert calls == [
-        ("deterministic", "user_001", "care_question", "rag_answer"),
-        ("refresh", "user_001", 30),
-    ]
 
 
 @pytest.mark.asyncio

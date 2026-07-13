@@ -10,7 +10,7 @@ from app.config import get_settings
 logger = logging.getLogger("wechat_rag_bot.eyun_contact")
 
 _CACHE_TTL_SECONDS = 300
-_contact_cache: dict[tuple[str, str], tuple[float, dict[str, str]]] = {}
+_contact_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 
 
 def _text(data: dict[str, Any], *keys: str) -> str | None:
@@ -21,7 +21,7 @@ def _text(data: dict[str, Any], *keys: str) -> str | None:
     return None
 
 
-def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, str]:
+def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, Any]:
     if str(response.get("code")) != "1000":
         return {}
     data = response.get("data")
@@ -33,6 +33,8 @@ def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, str]:
     user_name = _text(contact, "userName", "username")
     remark = _text(contact, "remark", "remarkName", "conRemark")
     nickname = _text(contact, "nickName", "nickname")
+    alias_name = _text(contact, "aliasName")
+    label_list = _text(contact, "labelList")
     avatar_url = _text(
         contact,
         "bigHead",
@@ -43,11 +45,17 @@ def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, str]:
         "avatar",
     )
 
-    snapshot: dict[str, str] = {}
+    snapshot: dict[str, Any] = {}
     if remark:
         snapshot["remark_name"] = remark
     if nickname:
         snapshot["nickname"] = nickname
+    if alias_name:
+        snapshot["alias_name"] = alias_name
+    if label_list:
+        snapshot["label_ids"] = [
+            value.strip() for value in label_list.split(",") if value.strip()
+        ]
     if not remark and not nickname and user_name and user_name.endswith("@openim"):
         suffix = user_name.removesuffix("@openim")[-5:]
         snapshot["display_name"] = f"企业微信用户（{suffix}）"
@@ -56,7 +64,7 @@ def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, str]:
     return snapshot
 
 
-async def get_eyun_contact_snapshot(*, w_id: str, wc_id: str) -> dict[str, str]:
+async def get_eyun_contact_snapshot(*, w_id: str, wc_id: str) -> dict[str, Any]:
     if not w_id or not wc_id:
         return {}
 

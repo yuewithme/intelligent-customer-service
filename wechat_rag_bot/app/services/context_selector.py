@@ -16,34 +16,31 @@ async def select_context(request: ContextSelectionInput) -> ContextPackage:
     }
     recent_turns = request.memories[-recent_turns_count:] if recent_turns_count > 0 else []
     long_memory_summary = _long_memory_summary(request.profile) if include_long_summary else ""
-    memory_facts = [
-        {"fact_key": item.get("fact_key"), "value": item.get("value")}
-        for item in request.sales_memory.get("facts", [])
-        if isinstance(item, dict) and item.get("fact_key") and item.get("value") is not None
-    ]
-    unresolved_sales_events = [
-        {"episode_type": item.get("episode_type"), "summary": item.get("summary")}
-        for item in request.sales_memory.get("unresolved_episodes", [])
-        if isinstance(item, dict) and item.get("episode_type") and item.get("summary")
-    ]
-
     return ContextPackage(
         profile_summary=profile_summary,
         session_state=session_state,
         recent_turns=recent_turns,
         long_memory_summary=long_memory_summary,
-        memory_facts=memory_facts,
-        unresolved_sales_events=unresolved_sales_events,
     )
 
 
 def _profile_summary(profile: dict) -> dict:
-    return {
+    basic_info = profile.get("basic_info") if isinstance(profile.get("basic_info"), dict) else {}
+    safe_basic_info = {
+        key: str(basic_info.get(key))[:120]
+        for key in ("nickname", "remark_name")
+        if basic_info.get(key) not in (None, "", [])
+    }
+    values = {
+        "basic_info": safe_basic_info,
         "ai_summary": profile.get("ai_summary"),
         "preference_summary": profile.get("preference_summary"),
         "pain_points": profile.get("pain_points", []),
         "customer_tags": profile.get("customer_tags", []),
+        "product_interests": profile.get("product_interests", []),
+        "active_opportunity": profile.get("active_opportunity", {}),
     }
+    return {key: value for key, value in values.items() if value not in (None, "", [], {})}
 
 
 def _long_memory_summary(profile: dict) -> str:

@@ -238,7 +238,7 @@ async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_process_due_batch_uses_canonical_profile_user_id(monkeypatch, tmp_path):
+async def test_process_due_batch_ignores_obsolete_profile_id_and_uses_sender(monkeypatch, tmp_path):
     del tmp_path
     from app.services import message_risk_control_service as service
 
@@ -271,7 +271,7 @@ async def test_process_due_batch_uses_canonical_profile_user_id(monkeypatch, tmp
     await service.enqueue_eyun_inbound(payload)
     await service.process_due_eyun_inbound_batches(limit=5)
 
-    assert calls[0].user_id == "profile_internal_1"
+    assert calls[0].user_id == "external_customer"
     assert calls[0].metadata["from_user"] == "external_customer"
 
 

@@ -19,28 +19,18 @@ def _reset_settings(monkeypatch, tmp_path):
     get_settings.cache_clear()
 
 
-def test_private_callback_records_and_queues_canonical_profile_user_id(
-    monkeypatch, tmp_path
-):
-    from app.schemas.profile_identity import ProviderIdentityKey, ResolvedProfileIdentity
+def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
     queued = []
 
-    async def fake_resolve(**kwargs):
-        assert kwargs["key"].owner_external_id == "wxid_bot"
-        assert kwargs["key"].external_user_id == "wxid_customer"
-        return ResolvedProfileIdentity(
-            profile_user_id="profile_internal_1",
-            key=ProviderIdentityKey(
-                provider="eyun",
-                owner_external_id="wxid_bot",
-                external_user_id="wxid_customer",
-            ),
-            created=True,
-        )
+    profiles = []
+
+    async def fake_ensure(user_id, **kwargs):
+        profiles.append((user_id, kwargs))
+        return {"user_id": user_id}
 
     async def fake_record(**kwargs):
         recorded.append(kwargs)
@@ -52,7 +42,9 @@ def test_private_callback_records_and_queues_canonical_profile_user_id(
     async def fake_contact(**kwargs):
         return {"nickname": "张姐"}
 
-    monkeypatch.setattr(eyun_callback_service, "resolve_private_contact", fake_resolve)
+    monkeypatch.setattr(
+        eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
+    )
     monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
     monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
     monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
@@ -75,29 +67,31 @@ def test_private_callback_records_and_queues_canonical_profile_user_id(
     )
 
     assert response.status_code == 200
-    assert recorded[0]["user_id"] == "profile_internal_1"
-    assert queued[0]["_profile_user_id"] == "profile_internal_1"
+    assert recorded[0]["user_id"] == "wxid_customer"
+    assert "_profile_user_id" not in queued[0]
+    assert profiles == [
+        (
+            "wxid_customer",
+            {
+                "tenant_id": "tenant_default",
+                "channel": "wechat",
+                "basic_info": {
+                    "owner_wc_id": "wxid_bot",
+                    "nickname": "张姐",
+                },
+            },
+        )
+    ]
 
 
-def test_private_non_text_callback_creates_canonical_profile_before_recording(
-    monkeypatch, tmp_path
-):
-    from app.schemas.profile_identity import ProviderIdentityKey, ResolvedProfileIdentity
+def test_private_non_text_callback_uses_external_user_id(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
 
-    async def fake_resolve(**kwargs):
-        return ResolvedProfileIdentity(
-            profile_user_id="profile_image_user",
-            key=ProviderIdentityKey(
-                provider="eyun",
-                owner_external_id="wxid_bot",
-                external_user_id="wxid_customer",
-            ),
-            created=True,
-        )
+    async def fake_ensure(user_id, **kwargs):
+        return {"user_id": user_id}
 
     async def fake_record(**kwargs):
         recorded.append(kwargs)
@@ -108,7 +102,9 @@ def test_private_non_text_callback_creates_canonical_profile_before_recording(
     async def fake_fetch_image_url(**kwargs):
         return "https://cdn.example.com/image.jpg"
 
-    monkeypatch.setattr(eyun_callback_service, "resolve_private_contact", fake_resolve)
+    monkeypatch.setattr(
+        eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
+    )
     monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
     monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
     monkeypatch.setattr(eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url)
@@ -131,7 +127,7 @@ def test_private_non_text_callback_creates_canonical_profile_before_recording(
     )
 
     assert response.status_code == 200
-    assert recorded[0]["user_id"] == "profile_image_user"
+    assert recorded[0]["user_id"] == "wxid_customer"
 
 
 def test_eyun_callback_accepts_json_payload(monkeypatch, tmp_path):
@@ -282,7 +278,7 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     conversations = client.get("/api/v1/admin/conversations").json()["data"]
     assert conversations["total"] == 1
     item = conversations["items"][0]
-    assert item["conversation_id"].startswith("wechat:profile_")
+    assert item["conversation_id"] == "wechat:wxid_customer:default"
     assert item["status"] == "handoff_pending"
     assert item["last_message"] == "[图片]"
 

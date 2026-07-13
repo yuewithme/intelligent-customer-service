@@ -23,6 +23,14 @@ _profile_tables = [
     ConversationMemoryModel.__table__,
     ProfileEventModel.__table__,
 ]
+_basic_info_fields = {
+    "owner_wc_id",
+    "nickname",
+    "remark_name",
+    "alias_name",
+    "avatar_url",
+    "label_ids",
+}
 _allowed_patch_fields = {
     "current_stage",
     "risk_level",
@@ -78,13 +86,6 @@ async def get_profile_bundle(user_id: str) -> dict:
             "recent_memories": _list_memories(session, user_id, 10),
             "events": _list_events(session, user_id, 20),
         }
-    from app.services.sales_memory_service import (
-        list_memory_facts,
-        list_unresolved_sales_episodes,
-    )
-
-    bundle["facts"] = await list_memory_facts(user_id, current_only=True)
-    bundle["unresolved_episodes"] = await list_unresolved_sales_episodes(user_id)
     return bundle
 
 
@@ -127,12 +128,29 @@ async def get_recent_memories(user_id: str, limit: int = 10) -> dict:
 
 
 async def ensure_user_profile(
-    user_id: str, *, tenant_id: str = "tenant_default", channel: str = "api"
+    user_id: str,
+    *,
+    tenant_id: str = "tenant_default",
+    channel: str = "api",
+    basic_info: dict | None = None,
 ) -> dict:
     with _get_session() as session:
         profile = _get_or_create_profile(
             session, user_id, tenant_id=tenant_id, channel=channel
         )
+        if basic_info:
+            current = _json_loads(profile.basic_info_json, {})
+            profile.basic_info_json = _json_dumps(
+                {
+                    **current,
+                    **{
+                        key: value
+                        for key, value in basic_info.items()
+                        if key in _basic_info_fields and value not in (None, "", [])
+                    },
+                }
+            )
+            profile.updated_at = _now()
         session.commit()
         return _profile_to_dict(profile)
 
@@ -836,6 +854,7 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "preference_summary": profile.preference_summary,
         "pain_points": _json_loads(profile.pain_points_json, []),
         "active_opportunity": _json_loads(profile.active_opportunity_json, {}),
+        "basic_info": _json_loads(profile.basic_info_json, {}),
         "last_intent": profile.last_intent,
         "last_route": profile.last_route,
         "last_template_id": profile.last_template_id,
@@ -853,6 +872,14 @@ def _ensure_profile_columns(engine) -> None:
                 text(
                     "ALTER TABLE user_profiles "
                     "ADD COLUMN active_opportunity_json TEXT DEFAULT '{}'"
+                )
+            )
+    if "basic_info_json" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE user_profiles "
+                    "ADD COLUMN basic_info_json TEXT DEFAULT '{}'"
                 )
             )
 

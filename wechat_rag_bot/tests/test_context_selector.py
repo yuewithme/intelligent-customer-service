@@ -8,15 +8,10 @@ from app.services.context_selector import select_context
 async def test_select_context_keeps_recent_turns_and_profile_summary():
     request = ContextSelectionInput(
         profile={
-            "user_id": "user_1",
-            "ai_summary": "The user is a beginner and asks about root rot often.",
-            "preference_summary": "Prefers step-by-step explanations.",
-            "pain_points": ["worried about failing to keep orchids alive"],
+            "ai_summary": "The user is a beginner.",
+            "pain_points": ["worried about keeping orchids alive"],
         },
-        state={
-            "sales_stage": "care_support",
-            "risk_level": "normal",
-        },
+        state={"sales_stage": "care_support", "risk_level": "normal"},
         memories=[
             {"role": "user", "content": "first turn"},
             {"role": "assistant", "content": "first reply"},
@@ -32,43 +27,39 @@ async def test_select_context_keeps_recent_turns_and_profile_summary():
 
     result = await select_context(request)
 
-    assert result.profile_summary["ai_summary"] == "The user is a beginner and asks about root rot often."
+    assert result.profile_summary["ai_summary"] == "The user is a beginner."
     assert result.session_state["sales_stage"] == "care_support"
-    assert [turn["content"] for turn in result.recent_turns] == ["second turn", "second reply"]
-    assert "worried about failing to keep orchids alive" in result.long_memory_summary
+    assert [turn["content"] for turn in result.recent_turns] == [
+        "second turn",
+        "second reply",
+    ]
+    assert "worried about keeping orchids alive" in result.long_memory_summary
 
 
 @pytest.mark.asyncio
-async def test_select_context_carries_current_facts_and_unresolved_events():
+async def test_select_context_carries_persisted_basic_info_and_sales_profile():
     request = ContextSelectionInput(
-        profile={},
+        profile={
+            "basic_info": {
+                "nickname": "张" * 200,
+                "remark_name": "广西张姐",
+                "owner_wc_id": "wxid_bot",
+            },
+            "customer_tags": ["100-200盆", "建兰"],
+            "product_interests": ["建兰"],
+            "pain_points": ["夏季容易烂根"],
+            "active_opportunity": {"stage": "solution_recommended"},
+        },
         state={"sales_stage": "after_sale"},
         memories=[],
-        sales_memory={
-            "facts": [
-                {
-                    "id": 1,
-                    "fact_key": "customer.region",
-                    "value": "广西省",
-                    "source_trace_id": "internal_trace",
-                }
-            ],
-            "unresolved_episodes": [
-                {
-                    "id": 2,
-                    "episode_type": "complaint",
-                    "summary": "客户反馈收到的花盆破损，等待处理",
-                    "source_trace_id": "internal_trace",
-                }
-            ],
-        },
     )
 
     result = await select_context(request)
 
-    assert result.memory_facts == [
-        {"fact_key": "customer.region", "value": "广西省"}
-    ]
-    assert result.unresolved_sales_events == [
-        {"episode_type": "complaint", "summary": "客户反馈收到的花盆破损，等待处理"}
-    ]
+    assert result.profile_summary == {
+        "basic_info": {"nickname": "张" * 120, "remark_name": "广西张姐"},
+        "customer_tags": ["100-200盆", "建兰"],
+        "product_interests": ["建兰"],
+        "pain_points": ["夏季容易烂根"],
+        "active_opportunity": {"stage": "solution_recommended"},
+    }

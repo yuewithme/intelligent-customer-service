@@ -4,11 +4,9 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
-    ForeignKey,
     Integer,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped, mapped_column
@@ -75,7 +73,6 @@ class EyunInboundBatchModel(Base):
     target_wc_id: Mapped[str] = mapped_column(String(256), index=True)
     from_user: Mapped[str | None] = mapped_column(String(256), nullable=True)
     from_group: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    profile_user_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     account: Mapped[str | None] = mapped_column(String(256), nullable=True)
     message_type: Mapped[str] = mapped_column(String(32), index=True)
     content: Mapped[str] = mapped_column(Text)
@@ -178,117 +175,11 @@ class UserProfileModel(Base):
     preference_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     pain_points_json: Mapped[str] = mapped_column(Text, default="[]")
     active_opportunity_json: Mapped[str] = mapped_column(Text, default="{}")
+    basic_info_json: Mapped[str] = mapped_column(Text, default="{}")
     last_intent: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_template_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class UserIdentityModel(Base):
-    __tablename__ = "user_identities"
-    __table_args__ = (
-        UniqueConstraint(
-            "tenant_id",
-            "provider",
-            "owner_external_id",
-            "external_user_id",
-            name="uq_user_identity_provider_contact",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    profile_user_id: Mapped[str] = mapped_column(
-        String(256),
-        ForeignKey("user_profiles.user_id", ondelete="CASCADE"),
-        index=True,
-    )
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
-    provider: Mapped[str] = mapped_column(String(64), index=True)
-    channel: Mapped[str] = mapped_column(String(64), default="wechat")
-    owner_external_id: Mapped[str] = mapped_column(String(256), index=True)
-    external_user_id: Mapped[str] = mapped_column(String(256), index=True)
-    latest_w_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    source_account: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    alias_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    nickname: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    remark_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    province: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    city: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    label_ids_json: Mapped[str] = mapped_column(Text, default="[]")
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class ProfileRefreshJobModel(Base):
-    __tablename__ = "profile_refresh_jobs"
-
-    profile_user_id: Mapped[str] = mapped_column(
-        String(256),
-        ForeignKey("user_profiles.user_id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
-    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class UserMemoryFactModel(Base):
-    __tablename__ = "user_memory_facts"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    profile_user_id: Mapped[str] = mapped_column(
-        String(256),
-        ForeignKey("user_profiles.user_id", ondelete="CASCADE"),
-        index=True,
-    )
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
-    fact_key: Mapped[str] = mapped_column(String(128), index=True)
-    value_json: Mapped[str] = mapped_column(Text)
-    normalized_value: Mapped[str] = mapped_column(Text, index=True)
-    source_kind: Mapped[str] = mapped_column(String(64), index=True)
-    source_trace_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    confidence: Mapped[float] = mapped_column(Float, default=0.5)
-    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, nullable=True)
-    last_observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    supersedes_fact_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("user_memory_facts.id"), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class SalesMemoryEpisodeModel(Base):
-    __tablename__ = "sales_memory_episodes"
-    __table_args__ = (
-        UniqueConstraint(
-            "profile_user_id",
-            "episode_type",
-            "source_trace_id",
-            name="uq_sales_episode_trace_type",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    profile_user_id: Mapped[str] = mapped_column(
-        String(256),
-        ForeignKey("user_profiles.user_id", ondelete="CASCADE"),
-        index=True,
-    )
-    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
-    episode_type: Mapped[str] = mapped_column(String(64), index=True)
-    summary: Mapped[str] = mapped_column(Text)
-    source_trace_id: Mapped[str] = mapped_column(String(128), index=True)
-    importance: Mapped[float] = mapped_column(Float, default=0.5)
-    confidence: Mapped[float] = mapped_column(Float, default=0.8)
-    resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
