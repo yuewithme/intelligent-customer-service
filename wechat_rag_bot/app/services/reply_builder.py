@@ -1,5 +1,6 @@
 from app.schemas.intent import IntentResult
 from app.schemas.reply import FinalReply
+from app.config import get_settings
 from app.schemas.template import TemplateReply
 
 
@@ -69,6 +70,22 @@ def build_human_reply(intent: IntentResult) -> FinalReply:
         route="human",
         need_human=True,
         metadata={"intent": intent.primary_intent},
+    )
+
+
+def build_opening_reply() -> FinalReply:
+    settings = get_settings()
+    answer = settings.eyun_opening_text
+    outbound_messages = [{"type": "text", "content": answer}]
+    if settings.eyun_opening_image_url:
+        outbound_messages.append(
+            {"type": "image", "content": settings.eyun_opening_image_url}
+        )
+    return FinalReply(
+        answer=answer,
+        outbound_messages=outbound_messages,
+        reply_type="chitchat",
+        route="chitchat",
     )
 
 

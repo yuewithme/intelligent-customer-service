@@ -722,6 +722,13 @@ docker compose -p intelligent-customer-service -f docker-compose.prod.yml down
 
 SSE 是实时更新主通道，浏览器每 30 秒执行一次静默同步作为断线或漏事件兜底。组件更新时保留现有内容和滚动位置，不显示全屏加载遮罩；用户停留在消息底部时，新消息到达后自动跟随到底部。
 
+易云消息回调不包含完整联系人资料。处理私聊批次时，系统使用回调中的最新 `data.wId` 和发送方 `fromUser` 调用官方 `POST /getContact` 接口补全联系人：
+
+- 显示名优先使用 `data[].remark`，备注为空时回退 `data[].nickName`。
+- 头像优先使用 `data[].bigHead`，为空时回退 `data[].smallHead`。
+- 联系人结果缓存 5 分钟，接口失败不阻断消息主流程。
+- 不使用固定 `EYUN_WID` 覆盖回调中的 `wId`，因为微信实例重新登录后 `wId` 可能变化。
+
 ## 14. 当前实现边界
 
 - 业务 API 固定使用 `code/message/data` 统一响应 envelope。

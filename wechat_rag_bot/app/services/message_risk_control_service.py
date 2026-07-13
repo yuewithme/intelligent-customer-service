@@ -20,6 +20,7 @@ from app.db.models import (
 from app.schemas.chat import ChatRequest
 from app.services.chat_orchestrator import handle_chat
 from app.services.conversation_service import HUMAN_ACTIVE, RESOLVED, make_conversation_id
+from app.services.eyun_contact_service import get_eyun_contact_snapshot
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
@@ -75,7 +76,7 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
                 content=content,
                 message_count=1,
                 status="pending",
-                due_at=due_at,
+                due_at=now,
                 created_at=now,
                 updated_at=now,
             )
@@ -276,6 +277,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
             return
         batch_data = _inbound_batch_to_dict(batch)
         customer_snapshot = _latest_customer_snapshot(session, batch_data["batch_key"])
+        is_first_inbound = is_first_eyun_inbound_message(session, batch_data["batch_key"])
 
     try:
         if batch_data["from_group"]:
@@ -286,27 +288,36 @@ async def _process_inbound_batch(batch_id: int) -> None:
             _mark_batch(batch_id, "skipped")
             return
 
-        chat_result = await handle_chat(
-            ChatRequest(
-                channel="wechat",
-                user_id=batch_data["from_user"] or batch_data["target_wc_id"],
-                session_id=batch_data["from_group"],
-                message=batch_data["content"],
-                kb_id=get_settings().wechat_default_kb_id,
-                metadata={
-                    "provider": "eyun",
-                    "account": batch_data["account"],
-                    "message_type": batch_data["message_type"],
-                    "wc_id": batch_data["wc_id"],
-                    "w_id": batch_data["w_id"],
-                    "from_user": batch_data["from_user"],
-                    "from_group": batch_data["from_group"],
-                    "batch_key": batch_data["batch_key"],
-                    "message_count": batch_data["message_count"],
-                    **customer_snapshot,
-                },
-            )
+        contact_snapshot = await get_eyun_contact_snapshot(
+            w_id=batch_data["w_id"],
+            wc_id=batch_data["from_user"] or batch_data["target_wc_id"],
         )
+        customer_snapshot.update(contact_snapshot)
+
+        if is_first_inbound:
+            chat_result = _opening_chat_result()
+        else:
+            chat_result = await handle_chat(
+                ChatRequest(
+                    channel="wechat",
+                    user_id=batch_data["from_user"] or batch_data["target_wc_id"],
+                    session_id=batch_data["from_group"],
+                    message=batch_data["content"],
+                    kb_id=get_settings().wechat_default_kb_id,
+                    metadata={
+                        "provider": "eyun",
+                        "account": batch_data["account"],
+                        "message_type": batch_data["message_type"],
+                        "wc_id": batch_data["wc_id"],
+                        "w_id": batch_data["w_id"],
+                        "from_user": batch_data["from_user"],
+                        "from_group": batch_data["from_group"],
+                        "batch_key": batch_data["batch_key"],
+                        "message_count": batch_data["message_count"],
+                        **customer_snapshot,
+                    },
+                )
+            )
         if batch_data["w_id"] and batch_data["target_wc_id"]:
             for message in _outbound_messages(chat_result):
                 kwargs = {
@@ -360,6 +371,25 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, str]]:
         if valid:
             return valid
     return [{"type": "text", "content": answer} for answer in _answer_segments(chat_result)]
+
+
+def is_first_eyun_inbound_message(session: Session, batch_key: str) -> bool:
+    messages = session.scalars(
+        select(EyunInboundMessageModel.id)
+        .where(EyunInboundMessageModel.batch_key == batch_key)
+        .limit(2)
+    ).all()
+    return len(messages) == 1
+
+
+def _opening_chat_result() -> dict[str, Any]:
+    from app.services.reply_builder import build_opening_reply
+
+    reply = build_opening_reply()
+    return {
+        "answer": reply.answer,
+        "outbound_messages": [message.model_dump() for message in reply.outbound_messages],
+    }
 
 
 def _encode_outbound_content(message_type: str, content: str) -> str:

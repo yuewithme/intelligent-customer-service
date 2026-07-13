@@ -22,12 +22,6 @@ const adminRoutes: AppRouteRecordRaw[] = [
     meta: { title: '客服运营', icon: 'ep:operation', alwaysShow: true },
     children: [
       {
-        path: 'current-activities',
-        component: () => import('@/views/current-activities/index.vue'),
-        name: 'CurrentActivities',
-        meta: { title: '目前活动', icon: 'ep:promotion' }
-      },
-      {
         path: 'chat-logs',
         component: () => import('@/views/chat-logs/index.vue'),
         name: 'ChatLogs',
@@ -53,6 +47,12 @@ const adminRoutes: AppRouteRecordRaw[] = [
     name: 'KnowledgeOps',
     meta: { title: '知识运营', icon: 'ep:collection', alwaysShow: true },
     children: [
+      {
+        path: 'current-activities',
+        component: () => import('@/views/current-activities/index.vue'),
+        name: 'CurrentActivities',
+        meta: { title: '目前活动', icon: 'ep:promotion' }
+      },
       {
         path: 'knowledge',
         component: () => import('@/views/knowledge/index.vue'),

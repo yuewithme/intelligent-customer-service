@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     eyun_base_url: str = ""
     eyun_authorization: str = ""
     eyun_wid: str = ""
+    eyun_opening_text: str = (
+        "我是萧岚苑的养兰师傅🌹咱们资料包含：图文，视频课程，一对一群版本等\n"
+        "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n\n"
+        "1. 家里目前养了多少盆兰花？（还没养扣“0”😝）\n"
+        "2. 具体养了哪些品种？"
+    )
+    eyun_opening_image_url: str = ""
     eyun_inbound_debounce_seconds: int = Field(default=60, alias="EYUN_INBOUND_DEBOUNCE_SECONDS")
     eyun_send_max_per_minute: int = Field(default=40, alias="EYUN_SEND_MAX_PER_MINUTE")
     eyun_send_min_interval_seconds: float = Field(default=1.6, alias="EYUN_SEND_MIN_INTERVAL_SECONDS")

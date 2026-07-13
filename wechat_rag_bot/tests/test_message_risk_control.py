@@ -196,8 +196,22 @@ async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
             }
         )
 
+    async def fake_contact_snapshot(*, w_id, wc_id):
+        assert w_id == "wid"
+        assert wc_id == "user"
+        return {
+            "remark_name": "兰友张姐",
+            "nickname": "张女士",
+            "avatar_url": "https://example.com/avatar.jpg",
+        }
+
     monkeypatch.setattr(
         "app.services.message_risk_control_service.handle_chat", fake_handle_chat
+    )
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.get_eyun_contact_snapshot",
+        fake_contact_snapshot,
+        raising=False,
     )
     monkeypatch.setattr(
         "app.services.message_risk_control_service.enqueue_eyun_outbound",
@@ -234,6 +248,8 @@ async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
     assert attempted == 1
     assert len(calls) == 1
     assert calls[0].message == "first\nsecond"
+    assert calls[0].metadata["remark_name"] == "兰友张姐"
+    assert calls[0].metadata["avatar_url"] == "https://example.com/avatar.jpg"
     assert outbound[0]["content"] == "merged reply"
 
 
@@ -254,8 +270,17 @@ async def test_process_due_batch_ignores_obsolete_profile_id_and_uses_sender(mon
     async def fake_enqueue_outbound(**kwargs):
         return kwargs
 
+    async def fake_contact_snapshot(**kwargs):
+        return {}
+
     monkeypatch.setattr(service, "handle_chat", fake_handle_chat)
     monkeypatch.setattr(service, "enqueue_eyun_outbound", fake_enqueue_outbound)
+    monkeypatch.setattr(
+        service,
+        "is_first_eyun_inbound_message",
+        lambda session, batch_key: False,
+    )
+    monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact_snapshot)
     payload = {
         "_profile_user_id": "profile_internal_1",
         "messageType": "60001",
