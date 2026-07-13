@@ -424,5 +424,6 @@ def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
             assert media["original_url"] == expected_url
             assert "url" not in media
             assert media["fallback"] is True
+            assert media["resolve_status"] == "pending"
         else:
             assert media["url"] == expected_url

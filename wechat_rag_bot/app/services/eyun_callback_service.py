@@ -243,6 +243,7 @@ def extract_eyun_media_metadata(
 
     if kind == "video" and media.get("url"):
         media["original_url"] = media.pop("url")
+        media["resolve_status"] = "pending"
 
     if message_type.endswith("002"):
         media["thumb_base64"] = str(data.get("img") or "")

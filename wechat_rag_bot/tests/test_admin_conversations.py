@@ -160,6 +160,7 @@ def test_existing_eyun_messages_recover_media_from_raw_content(monkeypatch, tmp_
         "type": "video",
         "original_url": "https://cdn.example.com/old.mp4",
         "fallback": True,
+        "resolve_status": "pending",
     }
 
 
@@ -330,6 +331,57 @@ def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
     assert response.json()["data"]["metadata"]["media"]["url"] == (
         "/static/media/playable.mp4"
     )
+    assert response.json()["data"]["metadata"]["media"]["resolve_status"] == (
+        "succeeded"
+    )
+
+
+def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fake_contact_snapshot(**kwargs):
+        return {}
+
+    async def fail_download(**kwargs):
+        raise RuntimeError("provider download failed")
+
+    monkeypatch.setattr(
+        eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
+    )
+    monkeypatch.setattr(eyun_callback_service, "download_eyun_video", fail_download)
+    client = TestClient(app)
+    client.post(
+        "/wechat/callback",
+        json={
+            "account": "test_account",
+            "messageType": "60003",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid_test",
+                "fromUser": "wxid_sender",
+                "toUser": "wxid_bot",
+                "content": "<msg><videomsg /></msg>",
+                "msgId": 789,
+                "newMsgId": 790,
+                "self": False,
+            },
+        },
+    )
+    detail_url = "/api/v1/admin/conversations/wechat:wxid_sender:default"
+    message_id = client.get(detail_url).json()["data"]["messages"][0]["id"]
+
+    response = client.post(
+        f"/api/v1/admin/conversations/messages/{message_id}/resolve-media"
+    )
+    media = client.get(detail_url).json()["data"]["messages"][0]["metadata"][
+        "media"
+    ]
+
+    assert response.status_code == 502
+    assert media["resolve_status"] == "failed"
+    assert media["resolve_error"] == "provider_download_failed"
 
 
 def test_message_panel_does_not_resolve_video_on_playback_error():
@@ -345,6 +397,9 @@ def test_message_panel_does_not_resolve_video_on_playback_error():
 
     assert '@error="resolveVideo(message)"' not in panel
     assert '@error="markVideoFailed(message)"' in panel
+    assert "autoResolvePendingVideos" in panel
+    assert "media.resolve_status === 'pending'" in panel
+    assert "void resolveVideo(message, { silent: true })" in panel
 
 
 def test_mark_conversation_read_clears_unread_count(monkeypatch, tmp_path):

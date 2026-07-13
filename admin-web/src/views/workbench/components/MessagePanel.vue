@@ -101,6 +101,8 @@ import { formatChinaTime } from '../time'
 interface MediaMetadata {
   type?: string
   url?: string
+  resolve_status?: 'pending' | 'processing' | 'succeeded' | 'failed'
+  resolve_error?: string
   thumb_base64?: string
   file_name?: string
   filename?: string
@@ -115,7 +117,6 @@ const detail = ref<ConversationDetail>()
 const timelineRef = ref<HTMLElement>()
 const resolvingMediaIds = ref(new Set<number>())
 const failedMediaIds = ref(new Set<number>())
-const attemptedMediaIds = new Set<number>()
 let reloadPending = false
 let requesting = false
 
@@ -160,6 +161,7 @@ const load = async (options: { silent?: boolean } = {}) => {
     if (wasNearBottom && timelineRef.value) {
       timelineRef.value.scrollTop = timelineRef.value.scrollHeight
     }
+    autoResolvePendingVideos(detail.value.messages)
   } finally {
     requesting = false
     if (!options.silent) {
@@ -210,11 +212,22 @@ const markVideoFailed = (message: ConversationMessage) => {
   failedMediaIds.value = new Set(failedMediaIds.value).add(message.id)
 }
 
-const resolveVideo = async (message: ConversationMessage) => {
-  if (attemptedMediaIds.has(message.id) || resolvingMediaIds.value.has(message.id)) {
+const autoResolvePendingVideos = (messages: ConversationMessage[]) => {
+  for (const message of messages) {
+    const media = messageMedia(message)
+    if (media?.type === 'video' && media.resolve_status === 'pending') {
+      void resolveVideo(message, { silent: true })
+    }
+  }
+}
+
+const resolveVideo = async (
+  message: ConversationMessage,
+  options: { silent?: boolean } = {}
+) => {
+  if (resolvingMediaIds.value.has(message.id)) {
     return
   }
-  attemptedMediaIds.add(message.id)
   resolvingMediaIds.value = new Set(resolvingMediaIds.value).add(message.id)
   try {
     const resolved = await resolveConversationMessageMedia(message.id)
@@ -224,7 +237,14 @@ const resolveVideo = async (message: ConversationMessage) => {
     failedMediaIds.value = failed
     await nextTick()
   } catch {
-    ElMessage.warning('视频解析失败，已保留原链接')
+    const media = messageMedia(message)
+    if (media) {
+      media.resolve_status = 'failed'
+      media.resolve_error = 'provider_download_failed'
+    }
+    if (!options.silent) {
+      ElMessage.warning('视频解析失败，已保留原链接')
+    }
   } finally {
     const pending = new Set(resolvingMediaIds.value)
     pending.delete(message.id)

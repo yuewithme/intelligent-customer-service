@@ -498,6 +498,16 @@ async def resolve_message_media(message_id: int) -> dict:
                 status_code=400,
             )
 
+        media = metadata.get("media")
+        if not isinstance(media, dict):
+            media = {"type": "video"}
+        media.update({"type": "video", "resolve_status": "processing"})
+        media.pop("resolve_error", None)
+        metadata["media"] = media
+        message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        conversation_id = message.conversation_id
+        session.commit()
+
         from app.services.eyun_callback_service import download_eyun_video
 
         try:
@@ -512,19 +522,32 @@ async def resolve_message_media(message_id: int) -> dict:
                 content=str(metadata.get("raw_content") or ""),
             )
         except Exception as exc:  # noqa: BLE001
+            media.update(
+                {
+                    "resolve_status": "failed",
+                    "resolve_error": "provider_download_failed",
+                }
+            )
+            message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+            session.commit()
+            _publish_change(conversation_id, "media")
             raise AppError(
                 ErrorCode.WECHAT_REPLY_FAILED,
                 message="视频解析失败，请稍后重试或打开原链接",
                 status_code=502,
             ) from exc
 
-        media = metadata.get("media")
-        if not isinstance(media, dict):
-            media = {"type": "video"}
-        media.update({"type": "video", "url": url, "fallback": False})
+        media.update(
+            {
+                "type": "video",
+                "url": url,
+                "fallback": False,
+                "resolve_status": "succeeded",
+            }
+        )
+        media.pop("resolve_error", None)
         metadata["media"] = media
         message.metadata_json = json.dumps(metadata, ensure_ascii=False)
-        conversation_id = message.conversation_id
         session.commit()
         result = _message_to_dict(message)
     _publish_change(conversation_id, "media")
@@ -685,6 +708,11 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
     ):
         media["original_url"] = media.pop("url")
         media["fallback"] = True
+    if isinstance(media, dict) and media.get("type") == "video":
+        media.setdefault(
+            "resolve_status",
+            "succeeded" if media.get("url") else "pending",
+        )
     return {
         "id": row.id,
         "conversation_id": row.conversation_id,
