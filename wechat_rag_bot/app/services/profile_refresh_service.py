@@ -110,9 +110,10 @@ async def process_due_profile_refresh_jobs(limit: int = 5) -> int:
             continue
         with _get_session() as session:
             row = session.get(ProfileRefreshJobModel, profile_user_id)
-            row.status = "complete"
-            row.last_error = None
-            row.updated_at = _now()
+            if row.status == "processing":
+                row.status = "complete"
+                row.last_error = None
+                row.updated_at = _now()
             session.commit()
         processed += 1
     return processed

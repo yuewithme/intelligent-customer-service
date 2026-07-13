@@ -141,6 +141,33 @@ async def test_due_refresh_job_runs_profile_enrichment_once(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_message_arriving_during_refresh_keeps_job_pending(monkeypatch):
+    from app.services import profile_refresh_service
+    from app.services.user_profile_service import ensure_user_profile
+
+    await ensure_user_profile("user_1", tenant_id="tenant_default", channel="wechat")
+    calls = []
+
+    async def refresh_and_receive_another_message(profile_user_id):
+        calls.append(profile_user_id)
+        await profile_refresh_service.schedule_profile_refresh(
+            profile_user_id, delay_seconds=0
+        )
+
+    monkeypatch.setattr(
+        profile_refresh_service,
+        "refresh_profile_from_memory",
+        refresh_and_receive_another_message,
+    )
+    await profile_refresh_service.schedule_profile_refresh("user_1", delay_seconds=0)
+
+    await profile_refresh_service.process_due_profile_refresh_jobs(limit=5)
+
+    assert calls == ["user_1"]
+    assert profile_refresh_service.list_profile_refresh_jobs()[0]["status"] == "pending"
+
+
+@pytest.mark.asyncio
 async def test_profile_bundle_exposes_only_current_facts_and_unresolved_episodes():
     from app.services.sales_memory_service import (
         record_sales_episode,
