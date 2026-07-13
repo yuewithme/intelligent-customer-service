@@ -138,3 +138,35 @@ async def test_due_refresh_job_runs_profile_enrichment_once(monkeypatch):
     assert processed == 1
     assert calls == ["user_1"]
     assert profile_refresh_service.list_profile_refresh_jobs()[0]["status"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_profile_bundle_exposes_only_current_facts_and_unresolved_episodes():
+    from app.services.sales_memory_service import (
+        record_sales_episode,
+        upsert_memory_fact,
+    )
+    from app.services.user_profile_service import ensure_user_profile, get_profile_bundle
+
+    await ensure_user_profile("user_1", tenant_id="tenant_default", channel="wechat")
+    await upsert_memory_fact(
+        profile_user_id="user_1",
+        tenant_id="tenant_default",
+        fact_key="customer.region",
+        value="广西省",
+        source_kind="customer_message",
+        source_trace_id="trace_1",
+        confidence=1.0,
+    )
+    await record_sales_episode(
+        profile_user_id="user_1",
+        tenant_id="tenant_default",
+        episode_type="complaint",
+        summary="客户反馈花盆破损，等待处理",
+        source_trace_id="trace_2",
+    )
+
+    bundle = await get_profile_bundle("user_1")
+
+    assert bundle["facts"][0]["value"] == "广西省"
+    assert bundle["unresolved_episodes"][0]["episode_type"] == "complaint"

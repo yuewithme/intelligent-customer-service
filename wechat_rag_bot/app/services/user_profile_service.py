@@ -73,11 +73,19 @@ async def get_profile_bundle(user_id: str) -> dict:
     with _get_session() as session:
         profile = _get_or_create_profile(session, user_id)
         session.commit()
-        return {
+        bundle = {
             "profile": _profile_to_dict(profile),
             "recent_memories": _list_memories(session, user_id, 10),
             "events": _list_events(session, user_id, 20),
         }
+    from app.services.sales_memory_service import (
+        list_memory_facts,
+        list_unresolved_sales_episodes,
+    )
+
+    bundle["facts"] = await list_memory_facts(user_id, current_only=True)
+    bundle["unresolved_episodes"] = await list_unresolved_sales_episodes(user_id)
+    return bundle
 
 
 async def patch_user_profile(user_id: str, updates: dict) -> dict:

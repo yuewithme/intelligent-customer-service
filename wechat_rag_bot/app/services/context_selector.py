@@ -16,12 +16,24 @@ async def select_context(request: ContextSelectionInput) -> ContextPackage:
     }
     recent_turns = request.memories[-recent_turns_count:] if recent_turns_count > 0 else []
     long_memory_summary = _long_memory_summary(request.profile) if include_long_summary else ""
+    memory_facts = [
+        {"fact_key": item.get("fact_key"), "value": item.get("value")}
+        for item in request.sales_memory.get("facts", [])
+        if isinstance(item, dict) and item.get("fact_key") and item.get("value") is not None
+    ]
+    unresolved_sales_events = [
+        {"episode_type": item.get("episode_type"), "summary": item.get("summary")}
+        for item in request.sales_memory.get("unresolved_episodes", [])
+        if isinstance(item, dict) and item.get("episode_type") and item.get("summary")
+    ]
 
     return ContextPackage(
         profile_summary=profile_summary,
         session_state=session_state,
         recent_turns=recent_turns,
         long_memory_summary=long_memory_summary,
+        memory_facts=memory_facts,
+        unresolved_sales_events=unresolved_sales_events,
     )
 
 

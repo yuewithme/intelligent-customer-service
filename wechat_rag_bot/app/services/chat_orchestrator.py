@@ -331,6 +331,10 @@ async def _hydrate_user_state_from_profile(user_id: str, user_state) -> None:
         **user_state.metadata,
         "profile": profile,
         "recent_turns": bundle.get("recent_memories", []),
+        "sales_memory": {
+            "facts": bundle.get("facts", []),
+            "unresolved_episodes": bundle.get("unresolved_episodes", []),
+        },
     }
 
 

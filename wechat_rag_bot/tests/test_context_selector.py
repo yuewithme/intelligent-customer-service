@@ -36,3 +36,39 @@ async def test_select_context_keeps_recent_turns_and_profile_summary():
     assert result.session_state["sales_stage"] == "care_support"
     assert [turn["content"] for turn in result.recent_turns] == ["second turn", "second reply"]
     assert "worried about failing to keep orchids alive" in result.long_memory_summary
+
+
+@pytest.mark.asyncio
+async def test_select_context_carries_current_facts_and_unresolved_events():
+    request = ContextSelectionInput(
+        profile={},
+        state={"sales_stage": "after_sale"},
+        memories=[],
+        sales_memory={
+            "facts": [
+                {
+                    "id": 1,
+                    "fact_key": "customer.region",
+                    "value": "广西省",
+                    "source_trace_id": "internal_trace",
+                }
+            ],
+            "unresolved_episodes": [
+                {
+                    "id": 2,
+                    "episode_type": "complaint",
+                    "summary": "客户反馈收到的花盆破损，等待处理",
+                    "source_trace_id": "internal_trace",
+                }
+            ],
+        },
+    )
+
+    result = await select_context(request)
+
+    assert result.memory_facts == [
+        {"fact_key": "customer.region", "value": "广西省"}
+    ]
+    assert result.unresolved_sales_events == [
+        {"episode_type": "complaint", "summary": "客户反馈收到的花盆破损，等待处理"}
+    ]

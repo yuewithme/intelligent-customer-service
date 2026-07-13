@@ -50,3 +50,29 @@ async def test_base_prompt_tells_model_not_to_reask_known_profile_facts():
     )
 
     assert "Do not ask again for profile facts already provided" in prompt
+
+
+@pytest.mark.asyncio
+async def test_prompt_includes_sales_memory_without_internal_identifiers():
+    prompt = await build_prompt(
+        PromptBuildInput(
+            prompt_block_ids=["base.customer_service"],
+            context=ContextPackage(
+                memory_facts=[
+                    {"fact_key": "customer.region", "value": "广西省"}
+                ],
+                unresolved_sales_events=[
+                    {
+                        "episode_type": "complaint",
+                        "summary": "客户反馈收到的花盆破损，等待处理",
+                    }
+                ],
+            ),
+            user_message="怎么样了",
+        )
+    )
+
+    assert "customer.region: 广西省" in prompt
+    assert "complaint: 客户反馈收到的花盆破损，等待处理" in prompt
+    assert "source_trace_id" not in prompt
+    assert "internal_trace" not in prompt
