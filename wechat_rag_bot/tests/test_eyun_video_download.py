@@ -3,7 +3,14 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.services import eyun_callback_service
 from app.services.eyun_callback_service import persist_eyun_video
+
+
+def test_video_storage_uses_compose_persistent_data_directory():
+    expected = Path(eyun_callback_service.__file__).parents[2] / "data" / "media"
+
+    assert eyun_callback_service.video_storage_dir() == expected
 
 
 @pytest.mark.asyncio
@@ -19,7 +26,7 @@ async def test_persist_eyun_video_downloads_authenticated_file(monkeypatch, tmp_
         )
 
     monkeypatch.setattr(
-        "app.services.eyun_callback_service._video_storage_dir",
+        "app.services.eyun_callback_service.video_storage_dir",
         lambda: tmp_path,
     )
     url = await persist_eyun_video(
@@ -45,7 +52,7 @@ async def test_persist_eyun_video_rejects_permission_page(monkeypatch, tmp_path)
         )
 
     monkeypatch.setattr(
-        "app.services.eyun_callback_service._video_storage_dir",
+        "app.services.eyun_callback_service.video_storage_dir",
         lambda: tmp_path,
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:

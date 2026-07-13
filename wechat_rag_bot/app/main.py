@@ -25,6 +25,7 @@ from app.routers import (
 )
 from app.schemas.common import AppError, ErrorCode
 from app.services.message_risk_control_service import eyun_risk_control_worker
+from app.services.eyun_callback_service import video_storage_dir
 from app.utils.logger import configure_logging
 
 
@@ -49,6 +50,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=get_settings().app_name, lifespan=lifespan)
+video_storage_dir().mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/static/media",
+    StaticFiles(directory=video_storage_dir()),
+    name="video-media",
+)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(admin_conversations.router)
 app.include_router(admin_gate.router)

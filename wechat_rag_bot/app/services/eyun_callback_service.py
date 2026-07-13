@@ -374,8 +374,8 @@ async def download_eyun_video(*, w_id: str, msg_id: str, content: str) -> str:
     raise RuntimeError("Eyun video download did not complete")
 
 
-def _video_storage_dir() -> Path:
-    return Path(__file__).parents[1] / "static" / "media"
+def video_storage_dir() -> Path:
+    return Path(__file__).parents[2] / "data" / "media"
 
 
 async def persist_eyun_video(
@@ -386,7 +386,7 @@ async def persist_eyun_video(
     msg_id: str,
 ) -> str:
     file_key = hashlib.sha256(f"{msg_id}:{source_url}".encode()).hexdigest()[:24]
-    storage_dir = _video_storage_dir()
+    storage_dir = video_storage_dir()
     storage_dir.mkdir(parents=True, exist_ok=True)
     target = storage_dir / f"{file_key}.mp4"
     temporary = target.with_suffix(".tmp")
