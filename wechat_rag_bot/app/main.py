@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
 from app.routers import (
+    admin_activities,
     admin_conversations,
     admin_gate,
     admin_logs,
@@ -57,6 +58,7 @@ app.mount(
     name="video-media",
 )
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+app.include_router(admin_activities.router)
 app.include_router(admin_conversations.router)
 app.include_router(admin_gate.router)
 app.include_router(chat.router)

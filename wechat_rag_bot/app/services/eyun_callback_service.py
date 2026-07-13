@@ -454,6 +454,35 @@ async def send_eyun_image(*, w_id: str, wc_id: str, content: str) -> None:
         raise RuntimeError(f"Eyun sendImage2 failed: {result}")
 
 
+async def send_eyun_received_media(
+    *, w_id: str, wc_id: str, content: str, message_type: str
+) -> None:
+    endpoint = {
+        "received_image": "/sendRecvImage",
+        "received_video": "/sendRecvVideo",
+    }.get(message_type)
+    if endpoint is None:
+        raise ValueError(f"unsupported received media type: {message_type}")
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id:
+        raise RuntimeError("Eyun configuration is incomplete")
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{base_url}{endpoint}",
+            headers={
+                "Authorization": authorization,
+                "Content-Type": "application/json",
+            },
+            json={"wId": w_id, "wcId": wc_id, "content": content},
+        )
+    response.raise_for_status()
+    result = response.json()
+    if str(result.get("code")) != "1000":
+        raise RuntimeError(f"Eyun received media send failed: {result}")
+
+
 async def send_eyun_mini_program(
     *,
     w_id: str,

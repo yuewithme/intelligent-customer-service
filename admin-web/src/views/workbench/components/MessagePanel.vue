@@ -16,15 +16,35 @@
     </div>
 
     <div ref="timelineRef" v-loading="loading" class="timeline">
+      <div v-if="selectionMode" class="selection-toolbar">
+        <span>已选 {{ selectedMessageIds.size }} 条</span>
+        <div>
+          <ElButton size="small" @click="clearSelection">取消</ElButton>
+          <ElButton
+            size="small"
+            type="primary"
+            :disabled="!selectedMessageIds.size"
+            @click="saveDialogVisible = true"
+          >
+            存为活动
+          </ElButton>
+        </div>
+      </div>
       <ElEmpty v-if="!conversationIds.length" description="请选择左侧会话" />
       <ElEmpty v-else-if="!detail?.messages.length && !loading" description="暂无消息" />
       <div
         v-for="message in detail?.messages || []"
         :key="message.id"
         class="message-row"
-        :class="message.sender_type"
+        :class="[
+          message.sender_type,
+          { selectable: canSelectMessage(message), selected: selectedMessageIds.has(message.id) }
+        ]"
+        @click="toggleSelectedMessage(message)"
+        @contextmenu.prevent="startSelection(message)"
       >
         <div class="bubble">
+          <span v-if="selectedMessageIds.has(message.id)" class="selected-mark">✓</span>
           <div class="sender">{{ senderText(message.sender_type) }}</div>
           <div class="content">
             <ElImage
@@ -42,13 +62,13 @@
               :src="mediaSource(message)"
               controls
               @error="markVideoFailed(message)"
-            />
+            ></video>
             <audio
               v-else-if="mediaType(message) === 'audio' && mediaSource(message)"
               class="message-audio"
               :src="mediaSource(message)"
               controls
-            />
+            ></audio>
             <a
               v-else-if="mediaSource(message)"
               class="message-link"
@@ -82,11 +102,17 @@
         </div>
       </div>
     </div>
+    <SaveActivityDialog
+      v-model="saveDialogVisible"
+      :conversation-id="conversationId"
+      :message-ids="selectedIds"
+      @saved="clearSelection"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
@@ -97,6 +123,7 @@ import {
   type ConversationMessage
 } from '@/api/admin/conversations'
 import { formatChinaTime } from '../time'
+import SaveActivityDialog from './SaveActivityDialog.vue'
 
 interface MediaMetadata {
   type?: string
@@ -117,6 +144,9 @@ const detail = ref<ConversationDetail>()
 const timelineRef = ref<HTMLElement>()
 const resolvingMediaIds = ref(new Set<number>())
 const failedMediaIds = ref(new Set<number>())
+const selectedMessageIds = ref(new Set<number>())
+const selectionMode = ref(false)
+const saveDialogVisible = ref(false)
 let reloadPending = false
 let requesting = false
 
@@ -212,6 +242,48 @@ const markVideoFailed = (message: ConversationMessage) => {
   failedMediaIds.value = new Set(failedMediaIds.value).add(message.id)
 }
 
+const canSelectMessage = (message: ConversationMessage) => {
+  if (message.conversation_id !== props.conversationId || message.sender_type !== 'customer') {
+    return false
+  }
+  const type = mediaType(message)
+  if (!type) return Boolean(message.content.trim())
+  return ['image', 'video'].includes(type) && Boolean(message.metadata.raw_content)
+}
+
+const startSelection = (message: ConversationMessage) => {
+  if (!canSelectMessage(message)) {
+    ElMessage.warning('该消息不支持保存为活动素材')
+    return
+  }
+  selectionMode.value = true
+  selectedMessageIds.value = new Set(selectedMessageIds.value).add(message.id)
+}
+
+const toggleSelectedMessage = (message: ConversationMessage) => {
+  if (!selectionMode.value || !canSelectMessage(message)) return
+  const selected = new Set(selectedMessageIds.value)
+  if (selected.has(message.id)) {
+    selected.delete(message.id)
+  } else {
+    selected.add(message.id)
+  }
+  selectedMessageIds.value = selected
+  if (!selected.size) selectionMode.value = false
+}
+
+const selectedIds = computed(() =>
+  (detail.value?.messages || [])
+    .filter((message) => selectedMessageIds.value.has(message.id))
+    .map((message) => message.id)
+)
+
+const clearSelection = () => {
+  selectedMessageIds.value = new Set()
+  selectionMode.value = false
+  saveDialogVisible.value = false
+}
+
 const autoResolvePendingVideos = (messages: ConversationMessage[]) => {
   for (const message of messages) {
     const media = messageMedia(message)
@@ -267,7 +339,10 @@ const formatTime = formatChinaTime
 
 watch(
   () => [props.conversationId, props.conversationIds.join('|')],
-  () => load()
+  () => {
+    clearSelection()
+    void load()
+  }
 )
 onMounted(load)
 
@@ -323,6 +398,21 @@ p {
   background: #f9fafb;
 }
 
+.selection-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  margin: -8px -8px 14px;
+  background: #fff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(15 23 42 / 8%);
+}
+
 .message-row {
   display: flex;
   margin-bottom: 14px;
@@ -333,13 +423,37 @@ p {
   justify-content: flex-end;
 }
 
+.message-row.selectable {
+  cursor: pointer;
+}
+
+.message-row.selected .bubble {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgb(37 99 235 / 16%);
+}
+
 .bubble {
+  position: relative;
   max-width: min(70%, 680px);
   padding: 10px 12px;
   white-space: pre-wrap;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
+}
+
+.selected-mark {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  color: #fff;
+  font-size: 12px;
+  background: #2563eb;
+  border-radius: 50%;
+  place-items: center;
 }
 
 .ai .bubble {

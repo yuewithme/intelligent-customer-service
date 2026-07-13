@@ -26,6 +26,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { markConversationRead, type ConversationItem } from '@/api/admin/conversations'
 import { getUserProfileBundle, type UserProfile } from '@/api/user-profile'
 import type { ConversationGroupItem } from './conversationGrouping'
@@ -38,6 +39,7 @@ defineOptions({ name: 'Workbench' })
 const FALLBACK_SYNC_INTERVAL_MS = 30_000
 
 const selectedId = ref('')
+const route = useRoute()
 const selectedIds = ref<string[]>([])
 const selectedGroupKey = ref('')
 const selectedUnreadCount = ref(0)
@@ -145,6 +147,15 @@ const connectEvents = () => {
   }
 }
 
+const restoreRouteConversation = async () => {
+  const conversationId =
+    typeof route.query.conversation_id === 'string' ? route.query.conversation_id : ''
+  if (!conversationId) return
+  await conversationListRef.value?.load({ silent: true })
+  const item = conversationListRef.value?.getItemByConversationId(conversationId)
+  if (item) selectConversation(item)
+}
+
 const handleVisibilityChange = () => {
   if (document.visibilityState === 'visible') {
     void syncWorkbench()
@@ -155,6 +166,7 @@ const handleVisibilityChange = () => {
 }
 
 onMounted(() => {
+  void restoreRouteConversation()
   connectEvents()
   fallbackTimer = window.setInterval(() => {
     if (document.visibilityState === 'visible') {

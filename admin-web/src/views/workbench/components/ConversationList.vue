@@ -64,17 +64,17 @@ const loading = ref(false)
 const status = ref('')
 const keyword = ref('')
 const items = ref<ConversationGroupItem[]>([])
-let requesting = false
+let pendingLoad: Promise<void> | undefined
 
 const load = async (options: { silent?: boolean } = {}) => {
-  if (requesting) {
+  if (pendingLoad) {
+    await pendingLoad
     return
   }
-  requesting = true
   if (!options.silent) {
     loading.value = true
   }
-  try {
+  pendingLoad = (async () => {
     const data = await getConversations({
       page: 1,
       page_size: 50,
@@ -82,8 +82,11 @@ const load = async (options: { silent?: boolean } = {}) => {
       keyword: keyword.value || undefined
     })
     items.value = groupConversationsByCustomer(data.items)
+  })()
+  try {
+    await pendingLoad
   } finally {
-    requesting = false
+    pendingLoad = undefined
     if (!options.silent) {
       loading.value = false
     }
@@ -115,10 +118,12 @@ const avatarText = (item: ConversationItem) => displayName(item).slice(0, 1).toU
 const formatTime = formatChinaTime
 
 const getItemByKey = (groupKey: string) => items.value.find((item) => item.group_key === groupKey)
+const getItemByConversationId = (conversationId: string) =>
+  items.value.find((item) => item.conversation_ids.includes(conversationId))
 
 onMounted(load)
 
-defineExpose({ load, getItemByKey })
+defineExpose({ load, getItemByKey, getItemByConversationId })
 </script>
 
 <style scoped>

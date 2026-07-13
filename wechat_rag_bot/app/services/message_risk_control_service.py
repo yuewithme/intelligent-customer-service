@@ -153,6 +153,7 @@ async def enqueue_eyun_outbound(
     content: str,
     source_batch_key: str | None,
     message_type: str = "text",
+    due_at: datetime | None = None,
 ) -> dict[str, Any]:
     now = utcnow()
     row = EyunOutboundMessageModel(
@@ -161,7 +162,7 @@ async def enqueue_eyun_outbound(
         content=_encode_outbound_content(message_type, content),
         source_batch_key=source_batch_key,
         status="queued",
-        due_at=now + timedelta(seconds=random_reply_delay_seconds()),
+        due_at=due_at or now + timedelta(seconds=random_reply_delay_seconds()),
         attempts=0,
         created_at=now,
         updated_at=now,
@@ -202,6 +203,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 from app.services.eyun_callback_service import (
                     send_eyun_image,
                     send_eyun_mini_program,
+                    send_eyun_received_media,
                     send_eyun_text,
                 )
 
@@ -213,6 +215,13 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         w_id=row.w_id,
                         wc_id=row.wc_id,
                         card=json.loads(content),
+                    )
+                elif message_type in {"received_image", "received_video"}:
+                    await send_eyun_received_media(
+                        w_id=row.w_id,
+                        wc_id=row.wc_id,
+                        content=content,
+                        message_type=message_type,
                     )
                 else:
                     await send_eyun_text(w_id=row.w_id, wc_id=row.wc_id, content=content)
@@ -354,7 +363,12 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _encode_outbound_content(message_type: str, content: str) -> str:
-    if message_type in {"image", "mini_program"}:
+    if message_type in {
+        "image",
+        "mini_program",
+        "received_image",
+        "received_video",
+    }:
         return json.dumps({"type": message_type, "content": content}, ensure_ascii=False)
     return content
 
@@ -366,7 +380,8 @@ def _decode_outbound_content(content: str) -> tuple[str, str]:
         return "text", content
     if (
         isinstance(payload, dict)
-        and payload.get("type") in {"image", "mini_program"}
+        and payload.get("type")
+        in {"image", "mini_program", "received_image", "received_video"}
         and payload.get("content")
     ):
         return str(payload["type"]), str(payload["content"])

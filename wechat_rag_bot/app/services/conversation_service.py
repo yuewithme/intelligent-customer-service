@@ -463,6 +463,27 @@ async def reply_conversation(
         return _conversation_to_dict(conversation)
 
 
+def get_human_activity_send_target(
+    conversation_id: str, operator_id: str
+) -> dict[str, str]:
+    with _get_session() as session:
+        conversation = _get_conversation_or_error(session, conversation_id)
+        if conversation.status != HUMAN_ACTIVE or conversation.owner_id != operator_id:
+            raise AppError(
+                ErrorCode.REQUEST_INVALID,
+                message="当前会话未由该操作员接管，不能发送活动",
+                status_code=409,
+            )
+        target = _latest_eyun_reply_target(session, conversation)
+        if target is None:
+            raise AppError(
+                ErrorCode.WECHAT_REPLY_FAILED,
+                message="当前会话缺少 Eyun 发送目标",
+                status_code=409,
+            )
+        return {**target, "user_id": conversation.user_id}
+
+
 async def mark_conversation_read(conversation_id: str) -> dict:
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)

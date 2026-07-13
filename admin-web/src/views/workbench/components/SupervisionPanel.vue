@@ -54,6 +54,14 @@
           强制转人工
         </ElButton>
         <ElButton v-if="conversation.status === 'human_active'" @click="release">交回 AI</ElButton>
+        <ElButton
+          v-if="conversation.status === 'human_active'"
+          type="primary"
+          plain
+          @click="openCurrentActivities"
+        >
+          目前活动
+        </ElButton>
         <ElButton v-if="conversation.status !== 'resolved'" type="danger" plain @click="resolve">
           结束会话
         </ElButton>
@@ -89,6 +97,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   claimConversation,
@@ -113,6 +122,7 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: [] }>()
 
 const userStore = useUserStore()
+const router = useRouter()
 const operatorId = computed(() => userStore.user.nickname || 'admin')
 const tags = computed(() => props.profile?.customer_tags?.filter(Boolean) || [])
 const profileMemory = computed(() => props.profile?.ai_summary?.trim() || '')
@@ -144,6 +154,13 @@ const reply = async (content: string) => {
   await replyConversation(props.conversationId, operatorId.value, content)
   ElMessage.success('已发送人工回复')
   emit('changed')
+}
+
+const openCurrentActivities = () => {
+  void router.push({
+    name: 'CurrentActivities',
+    query: { conversation_id: props.conversationId }
+  })
 }
 
 const force = async () => {
