@@ -47,6 +47,9 @@ async def render_business_reply(
         snapshot=str(metadata.get("business_snapshot") or "").strip(),
         tool_state=dict(tool_state) if isinstance(tool_state, dict) else {},
     )
+    commerce_reply = _render_commerce_reply(facts)
+    if commerce_reply is not None:
+        return commerce_reply
     result = await generate_answer(
         build_business_prompt(question=message.message, facts=facts),
         purpose="business",
@@ -62,5 +65,65 @@ async def render_business_reply(
         reply_type="template",
         route="template_reply",
         usage=dict(result.get("usage") or {}),
+        metadata={"business_facts_used": True},
+    )
+
+
+def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
+    state = facts.tool_state
+    commerce_type = state.get("commerce_type")
+    if commerce_type not in {"product", "order"}:
+        return None
+
+    status = state.get("status")
+    if status == "unavailable":
+        return _commerce_final_reply("当前有赞系统暂时无法查询，请稍后再试。", state)
+    if status == "missing_product":
+        return _commerce_final_reply("可以的，您想看哪一个品种或规格？", state)
+    if commerce_type == "product":
+        products = state.get("products") if isinstance(state.get("products"), list) else []
+        if status != "found" or not products:
+            answer = "暂时没有查到合适的商品，您可以再告诉我品种、颜色或规格。"
+        else:
+            first = products[0]
+            price = first.get("price_cent") if isinstance(first, dict) else None
+            price_text = f"，当前售价{price / 100:g}元" if isinstance(price, int) else ""
+            answer = f"给您找到这款“{first.get('title') or '商品'}”{price_text}，点击商品卡片就可以查看和下单。"
+        return _commerce_final_reply(answer, state)
+
+    if status == "missing_mobile":
+        return _commerce_final_reply("可以的，请把下单手机号发给我，我帮您查询一下。", state)
+    orders = state.get("orders") if isinstance(state.get("orders"), list) else []
+    if status != "found" or not orders:
+        answer = "暂时没有查到近期订单，请核对下单手机号，或点击订单卡片自行查看。"
+        return _commerce_final_reply(answer, state)
+
+    lines = ["查到您近期的订单："]
+    for index, order in enumerate(orders, start=1):
+        if not isinstance(order, dict):
+            continue
+        detail = f"{index}. {order.get('item_summary') or '商品'}，{order.get('status_text') or '状态待确认'}"
+        if order.get("express_company"):
+            detail += f"，{order['express_company']}"
+        lines.append(detail)
+    lines.append("详细信息可以点击订单卡片查看。")
+    return _commerce_final_reply("\n".join(lines), state)
+
+
+def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
+    outbound_messages = [{"type": "text", "content": answer}]
+    card = state.get("mini_program")
+    if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
+        outbound_messages.append(
+            {
+                "type": "mini_program",
+                "content": json.dumps(card, ensure_ascii=False),
+            }
+        )
+    return FinalReply(
+        answer=answer,
+        outbound_messages=outbound_messages,
+        reply_type="template",
+        route="template_reply",
         metadata={"business_facts_used": True},
     )

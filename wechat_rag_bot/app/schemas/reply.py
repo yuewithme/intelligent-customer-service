@@ -1,9 +1,17 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class OutboundMessage(BaseModel):
+    type: Literal["text", "image", "mini_program"]
+    content: str
 
 
 class FinalReply(BaseModel):
     answer: str
     answer_segments: list[str] = Field(default_factory=list)
+    outbound_messages: list[OutboundMessage] = Field(default_factory=list)
     reply_type: str
     route: str
     template_id: str | None = None

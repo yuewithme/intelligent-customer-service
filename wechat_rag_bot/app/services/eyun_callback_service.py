@@ -430,3 +430,61 @@ async def send_eyun_text(*, w_id: str, wc_id: str, content: str) -> None:
     if str(result.get("code")) != "1000":
         logger.warning("Eyun sendText returned non-success response: %s", result)
         raise RuntimeError(f"Eyun sendText failed: {result}")
+
+
+async def send_eyun_image(*, w_id: str, wc_id: str, content: str) -> None:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id:
+        logger.warning("Skip Eyun sendImage2 because Eyun configuration is incomplete")
+        return
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{base_url}/sendImage2",
+            headers={"Authorization": authorization, "Content-Type": "application/json"},
+            json={"wId": w_id, "wcId": wc_id, "content": content},
+        )
+    response.raise_for_status()
+    result = response.json()
+    if str(result.get("code")) != "1000":
+        logger.warning("Eyun sendImage2 returned non-success response: %s", result)
+        raise RuntimeError(f"Eyun sendImage2 failed: {result}")
+
+
+async def send_eyun_mini_program(
+    *,
+    w_id: str,
+    wc_id: str,
+    card: dict[str, str],
+) -> None:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id:
+        logger.warning("Skip Eyun sendApplets because Eyun configuration is incomplete")
+        return
+
+    payload = {
+        "wId": w_id,
+        "wcId": wc_id,
+        "displayName": card.get("display_name", ""),
+        "iconUrl": card.get("icon_url", ""),
+        "appId": card.get("app_id", ""),
+        "pagePath": card.get("page_path", ""),
+        "thumbUrl": card.get("thumb_url", ""),
+        "title": card.get("title", ""),
+        "userName": card.get("user_name", ""),
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{base_url}/sendApplets",
+            headers={"Authorization": authorization, "Content-Type": "application/json"},
+            json=payload,
+        )
+    response.raise_for_status()
+    result = response.json()
+    if str(result.get("code")) != "1000":
+        logger.warning("Eyun sendApplets returned non-success response: %s", result)
+        raise RuntimeError(f"Eyun sendApplets failed: {result}")

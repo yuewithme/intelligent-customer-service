@@ -146,6 +146,7 @@ async def test_orchestrator_executes_the_single_planned_reply(monkeypatch):
     assert set(result) == {
         "answer",
         "answer_segments",
+        "outbound_messages",
         "session_id",
         "sources",
         "usage",

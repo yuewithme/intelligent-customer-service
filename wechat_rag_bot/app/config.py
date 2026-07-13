@@ -36,6 +36,26 @@ class Settings(BaseSettings):
     eyun_worker_poll_seconds: float = Field(default=1.0, alias="EYUN_WORKER_POLL_SECONDS")
     evaluation_mode: bool = Field(default=False, alias="EVALUATION_MODE")
 
+    youzan_enabled: bool = False
+    youzan_base_url: str = "https://open.youzanyun.com"
+    youzan_access_token: str = ""
+    youzan_kdt_id: str = ""
+    youzan_product_search_method: str = "youzan.items.onsale.get"
+    youzan_product_search_version: str = "3.0.0"
+    youzan_order_search_method: str = "youzan.trades.sold.get"
+    youzan_order_search_version: str = "4.0.0"
+    youzan_customer_get_method: str = "youzan.scrm.customer.get"
+    youzan_customer_get_version: str = "3.0.0"
+    youzan_product_page_path_template: str = ""
+    youzan_product_h5_url_template: str = ""
+    youzan_mini_program_app_id: str = ""
+    youzan_mini_program_user_name: str = ""
+    youzan_mini_program_display_name: str = ""
+    youzan_mini_program_icon_url: str = ""
+    youzan_order_page_path: str = ""
+    youzan_order_card_title: str = "查看我的订单"
+    youzan_order_card_thumb_url: str = ""
+
     qdrant_url: str = ""
     qdrant_api_key: str = ""
     qdrant_collection: str = "knowledge_chunks"

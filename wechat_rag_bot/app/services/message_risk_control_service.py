@@ -147,13 +147,18 @@ def random_reply_delay_seconds() -> int:
 
 
 async def enqueue_eyun_outbound(
-    *, w_id: str, wc_id: str, content: str, source_batch_key: str | None
+    *,
+    w_id: str,
+    wc_id: str,
+    content: str,
+    source_batch_key: str | None,
+    message_type: str = "text",
 ) -> dict[str, Any]:
     now = utcnow()
     row = EyunOutboundMessageModel(
         w_id=w_id,
         wc_id=wc_id,
-        content=content,
+        content=_encode_outbound_content(message_type, content),
         source_batch_key=source_batch_key,
         status="queued",
         due_at=now + timedelta(seconds=random_reply_delay_seconds()),
@@ -194,9 +199,23 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             session.commit()
             attempted += 1
             try:
-                from app.services.eyun_callback_service import send_eyun_text
+                from app.services.eyun_callback_service import (
+                    send_eyun_image,
+                    send_eyun_mini_program,
+                    send_eyun_text,
+                )
 
-                await send_eyun_text(w_id=row.w_id, wc_id=row.wc_id, content=row.content)
+                message_type, content = _decode_outbound_content(row.content)
+                if message_type == "image":
+                    await send_eyun_image(w_id=row.w_id, wc_id=row.wc_id, content=content)
+                elif message_type == "mini_program":
+                    await send_eyun_mini_program(
+                        w_id=row.w_id,
+                        wc_id=row.wc_id,
+                        card=json.loads(content),
+                    )
+                else:
+                    await send_eyun_text(w_id=row.w_id, wc_id=row.wc_id, content=content)
             except Exception as exc:  # noqa: BLE001
                 row.status = "queued"
                 row.attempts = (row.attempts or 0) + 1
@@ -280,13 +299,16 @@ async def _process_inbound_batch(batch_id: int) -> None:
             )
         )
         if batch_data["w_id"] and batch_data["target_wc_id"]:
-            for answer in _answer_segments(chat_result):
-                await enqueue_eyun_outbound(
-                    w_id=batch_data["w_id"],
-                    wc_id=batch_data["target_wc_id"],
-                    content=answer,
-                    source_batch_key=batch_data["batch_key"],
-                )
+            for message in _outbound_messages(chat_result):
+                kwargs = {
+                    "w_id": batch_data["w_id"],
+                    "wc_id": batch_data["target_wc_id"],
+                    "content": message["content"],
+                    "source_batch_key": batch_data["batch_key"],
+                }
+                if message["type"] != "text":
+                    kwargs["message_type"] = message["type"]
+                await enqueue_eyun_outbound(**kwargs)
         _mark_batch(batch_id, "processed")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
@@ -314,6 +336,42 @@ def _answer_segments(chat_result: dict[str, Any]) -> list[str]:
         return [str(segment).strip() for segment in segments if str(segment).strip()]
     answer = str(chat_result.get("answer") or "").strip()
     return [answer] if answer else []
+
+
+def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, str]]:
+    messages = chat_result.get("outbound_messages")
+    if isinstance(messages, list):
+        valid = [
+            {"type": str(message["type"]), "content": str(message["content"]).strip()}
+            for message in messages
+            if isinstance(message, dict)
+            and message.get("type") in {"text", "image", "mini_program"}
+            and str(message.get("content") or "").strip()
+        ]
+        if valid:
+            return valid
+    return [{"type": "text", "content": answer} for answer in _answer_segments(chat_result)]
+
+
+def _encode_outbound_content(message_type: str, content: str) -> str:
+    if message_type in {"image", "mini_program"}:
+        return json.dumps({"type": message_type, "content": content}, ensure_ascii=False)
+    return content
+
+
+def _decode_outbound_content(content: str) -> tuple[str, str]:
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        return "text", content
+    if (
+        isinstance(payload, dict)
+        and payload.get("type") in {"image", "mini_program"}
+        and payload.get("content")
+    ):
+        return str(payload["type"]), str(payload["content"])
+    return "text", content
+
 
 def _mark_batch(batch_id: int, status: str) -> None:
     with _get_session() as session:

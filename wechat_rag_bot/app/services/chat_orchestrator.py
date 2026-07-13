@@ -10,6 +10,7 @@ from app.schemas.reply import FinalReply
 from app.services.channel_service import normalize_chat_request
 from app.services.chat_log_service import record_chat_log
 from app.services.business_context_service import build_business_context
+from app.services.commerce_query_service import build_commerce_context
 from app.services.conversation_service import record_ai_turn
 from app.services.intent_example_service import retrieve_intent_examples
 from app.services.intent_service import classify_intent
@@ -93,7 +94,9 @@ async def handle_chat(request: ChatRequest) -> dict:
         )
         tag_result = tag_result.model_copy(update={"stage": sales_stage_decision.stage})
         rich_decision = await decide_policy(tag_result)
-        facts = await build_business_context(message)
+        facts = await build_commerce_context(message, user_state, intent)
+        if not facts.available:
+            facts = await build_business_context(message)
         plan = resolve_reply_plan(
             base=decision,
             tagged=rich_decision,
@@ -245,6 +248,7 @@ def _to_chat_data(
         "sources": reply.sources,
         "usage": reply.usage,
         "answer_segments": _answer_segments(reply.answer, reply.answer_segments),
+        "outbound_messages": [message.model_dump() for message in reply.outbound_messages],
         "reply_type": reply.reply_type,
         "route": reply.route,
         "intent": intent.model_dump(),

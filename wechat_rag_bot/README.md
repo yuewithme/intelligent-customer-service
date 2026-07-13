@@ -425,6 +425,29 @@ GET /wechat/callback?signature=...&timestamp=...&nonce=...&echostr=...
 
 微信文本消息通过带有 `signature`、`timestamp`、`nonce` 查询参数的 `POST /wechat/callback` 进入系统，POST 同样会先校验签名。路由只负责 XML 解析、消息去重、构造 `ChatRequest`、调用 `handle_chat` 和构造 XML 回复；非文本消息回复“当前仅支持文本问题。”。首版去重缓存在单进程内存中，多实例部署应替换为 Redis。
 
+## 有赞商品、订单与小程序卡片
+
+该接入只开放只读查询：商品查询返回有赞商品小程序卡片；订单查询会在缺少手机号时追问，随后先通过手机号取得有赞客户 `yz_uid`，再查询该客户近期订单，并附“我的订单”小程序卡片。不包含退款、取消订单、改地址或其他写操作。
+
+启用前需要在有赞云应用中取得只读能力和 `access_token`，并从有赞店铺后台复制真实的小程序参数：
+
+```dotenv
+YOUZAN_ENABLED=true
+YOUZAN_ACCESS_TOKEN=replace_me
+YOUZAN_KDT_ID=replace_me
+YOUZAN_PRODUCT_PAGE_PATH_TEMPLATE=从商品推广入口复制并替换商品标识为{alias}
+YOUZAN_MINI_PROGRAM_APP_ID=wx...
+YOUZAN_MINI_PROGRAM_USER_NAME=gh_...@app
+YOUZAN_MINI_PROGRAM_DISPLAY_NAME=萧岚苑
+YOUZAN_MINI_PROGRAM_ICON_URL=https://稳定公网地址/icon.jpg
+YOUZAN_ORDER_PAGE_PATH=从正式小程序“我的订单”卡片或后台复制
+YOUZAN_ORDER_CARD_THUMB_URL=https://稳定公网地址/order.jpg
+```
+
+`YOUZAN_PRODUCT_PAGE_PATH_TEMPLATE` 支持 `{alias}`、`{item_id}`、`{kdt_id}`。不同有赞店铺类型的小程序路径可能不同，不要根据示例猜路径。Eyun 通过 `/sendApplets` 发送卡片；`icon` 和缩略图应使用稳定的公网 PNG/JPG。
+
+当前使用配置中的 `YOUZAN_ACCESS_TOKEN`。正式启用前应在有赞控制台完成测试店铺授权，并由部署环境或有赞 Token 托管能力负责更新令牌。
+
 ## 云服务配置
 
 ### Qdrant Cloud

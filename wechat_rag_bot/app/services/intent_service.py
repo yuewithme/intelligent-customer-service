@@ -1,3 +1,5 @@
+import re
+
 from pydantic import ValidationError
 
 from app.config import get_settings
@@ -57,6 +59,25 @@ KNOWLEDGE_PATTERNS = (
 CARE_WORDS = ("养护", "养不活", "不会养", "新手", "浇水", "施肥", "护理", "怕养死", "怕养不好")
 GREETING_WORDS = ("你好", "您好", "在吗", "hello", "hi", "谢谢", "感谢")
 UNSUPPORTED_WORDS = ("写代码", "彩票", "股票推荐", "医疗诊断", "法律意见", "无关业务")
+ORDER_QUERY_WORDS = (
+    "查订单",
+    "查询订单",
+    "我的订单",
+    "订单状态",
+    "订单发货",
+    "发货了吗",
+    "快递到哪",
+    "物流到哪",
+)
+PRODUCT_QUERY_WORDS = (
+    "商品链接",
+    "购买链接",
+    "下单链接",
+    "发我链接",
+    "发一下链接",
+    "有没有",
+)
+MOBILE_ONLY_PATTERN = re.compile(r"^1[3-9]\d{9}$")
 
 
 def normalize_intent_text(text: str) -> str:
@@ -139,6 +160,28 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
     has_price = price_intent is not None
     has_care = hit_any(text, CARE_WORDS)
     has_knowledge = hit_any(text, KNOWLEDGE_PATTERNS) or "知识" in text or "资料" in text
+    if hit_any(text, ORDER_QUERY_WORDS):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "order_query",
+                "sales_stage": "after_sale",
+                "confidence": 0.9,
+                "need_template": True,
+                "reason": "soft_rule_order_query",
+            }
+        )
+    if hit_any(text, PRODUCT_QUERY_WORDS):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "product_query",
+                "sales_stage": "order_intent",
+                "confidence": 0.86,
+                "need_template": True,
+                "reason": "soft_rule_product_query",
+            }
+        )
     if hit_any(text, PURCHASE_REJECTION_WORDS):
         return _validated_intent(
             {
@@ -295,6 +338,22 @@ async def classify_intent(
     hard_intent = classify_by_hard_rules(message.message)
     if hard_intent is not None:
         return _with_decision_blocker(hard_intent, message.message)
+
+    normalized = normalize_intent_text(message.message)
+    if (
+        user_state.metadata.get("commerce_pending") == "order_mobile"
+        and MOBILE_ONLY_PATTERN.fullmatch(normalized)
+    ):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "order_query",
+                "sales_stage": "after_sale",
+                "confidence": 0.99,
+                "need_template": True,
+                "reason": "pending_order_mobile",
+            }
+        )
 
     settings = get_settings()
     llm_enabled = bool(getattr(settings, "intent_llm_enabled", False))
