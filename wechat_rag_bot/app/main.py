@@ -1,7 +1,9 @@
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -47,6 +49,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=get_settings().app_name, lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(admin_conversations.router)
 app.include_router(admin_gate.router)
 app.include_router(chat.router)

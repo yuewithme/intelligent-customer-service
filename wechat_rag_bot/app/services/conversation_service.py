@@ -675,6 +675,16 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         )
         if media:
             metadata["media"] = media
+    media = metadata.get("media")
+    if (
+        metadata.get("provider") == "eyun"
+        and isinstance(media, dict)
+        and media.get("type") == "video"
+        and isinstance(media.get("url"), str)
+        and not media["url"].startswith("/static/media/")
+    ):
+        media["original_url"] = media.pop("url")
+        media["fallback"] = True
     return {
         "id": row.id,
         "conversation_id": row.conversation_id,

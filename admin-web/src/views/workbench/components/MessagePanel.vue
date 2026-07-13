@@ -41,7 +41,7 @@
               class="message-video"
               :src="mediaSource(message)"
               controls
-              @error="resolveVideo(message)"
+              @error="markVideoFailed(message)"
             />
             <audio
               v-else-if="mediaType(message) === 'audio' && mediaSource(message)"
@@ -114,6 +114,7 @@ const loading = ref(false)
 const detail = ref<ConversationDetail>()
 const timelineRef = ref<HTMLElement>()
 const resolvingMediaIds = ref(new Set<number>())
+const failedMediaIds = ref(new Set<number>())
 const attemptedMediaIds = new Set<number>()
 let reloadPending = false
 let requesting = false
@@ -185,7 +186,7 @@ const isImageMessage = (message: ConversationMessage) => mediaType(message) === 
 
 const mediaSource = (message: ConversationMessage) => {
   const media = messageMedia(message)
-  if (!media) {
+  if (!media || failedMediaIds.value.has(message.id)) {
     return ''
   }
   if (media.url) {
@@ -205,6 +206,10 @@ const mediaFileName = (message: ConversationMessage) => {
 const showOriginalLink = (message: ConversationMessage) =>
   ['video', 'audio'].includes(mediaType(message)) && Boolean(mediaSource(message))
 
+const markVideoFailed = (message: ConversationMessage) => {
+  failedMediaIds.value = new Set(failedMediaIds.value).add(message.id)
+}
+
 const resolveVideo = async (message: ConversationMessage) => {
   if (attemptedMediaIds.has(message.id) || resolvingMediaIds.value.has(message.id)) {
     return
@@ -214,6 +219,9 @@ const resolveVideo = async (message: ConversationMessage) => {
   try {
     const resolved = await resolveConversationMessageMedia(message.id)
     message.metadata = resolved.metadata
+    const failed = new Set(failedMediaIds.value)
+    failed.delete(message.id)
+    failedMediaIds.value = failed
     await nextTick()
   } catch {
     ElMessage.warning('视频解析失败，已保留原链接')

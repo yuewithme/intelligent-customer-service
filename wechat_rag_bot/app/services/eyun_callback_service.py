@@ -1,5 +1,7 @@
 import asyncio
+import hashlib
 import logging
+from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 from xml.etree import ElementTree
@@ -239,6 +241,9 @@ def extract_eyun_media_metadata(
     if direct_url:
         media["url"] = direct_url
 
+    if kind == "video" and media.get("url"):
+        media["original_url"] = media.pop("url")
+
     if message_type.endswith("002"):
         media["thumb_base64"] = str(data.get("img") or "")
 
@@ -357,11 +362,50 @@ async def download_eyun_video(*, w_id: str, msg_id: str, content: str) -> str:
             status = int(poll_data.get("type") or 0)
             url = str(poll_data.get("url") or "").strip()
             if str(poll_result.get("code")) == "1000" and status == 1 and url:
-                return url
+                return await persist_eyun_video(
+                    client=client,
+                    source_url=url,
+                    authorization=authorization,
+                    msg_id=msg_id,
+                )
             if status == 2:
                 break
 
     raise RuntimeError("Eyun video download did not complete")
+
+
+def _video_storage_dir() -> Path:
+    return Path(__file__).parents[1] / "static" / "media"
+
+
+async def persist_eyun_video(
+    *,
+    client: httpx.AsyncClient,
+    source_url: str,
+    authorization: str,
+    msg_id: str,
+) -> str:
+    file_key = hashlib.sha256(f"{msg_id}:{source_url}".encode()).hexdigest()[:24]
+    storage_dir = _video_storage_dir()
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    target = storage_dir / f"{file_key}.mp4"
+    temporary = target.with_suffix(".tmp")
+
+    async with client.stream(
+        "GET",
+        source_url,
+        headers={"Authorization": authorization},
+        follow_redirects=True,
+    ) as response:
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "").lower()
+        if content_type.startswith(("text/", "application/json")):
+            raise RuntimeError("Eyun video download result is not a video")
+        with temporary.open("wb") as output:
+            async for chunk in response.aiter_bytes():
+                output.write(chunk)
+    temporary.replace(target)
+    return f"/static/media/{target.name}"
 
 
 async def send_eyun_text(*, w_id: str, wc_id: str, content: str) -> None:

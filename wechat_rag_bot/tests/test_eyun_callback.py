@@ -420,4 +420,9 @@ def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
         ).json()["data"]
         media = detail["messages"][0]["metadata"]["media"]
         assert media["type"] == expected_type
-        assert media["url"] == expected_url
+        if expected_type == "video":
+            assert media["original_url"] == expected_url
+            assert "url" not in media
+            assert media["fallback"] is True
+        else:
+            assert media["url"] == expected_url

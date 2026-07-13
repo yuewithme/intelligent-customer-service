@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -140,6 +142,11 @@ def test_existing_eyun_messages_recover_media_from_raw_content(monkeypatch, tmp_
                     '<msg><videomsg cdnvideourl="https://cdn.example.com/old.mp4" />'
                     "</msg>"
                 ),
+                "media": {
+                    "type": "video",
+                    "url": "https://cdn.example.com/old.mp4",
+                    "fallback": False,
+                },
             },
         )
     )
@@ -151,8 +158,8 @@ def test_existing_eyun_messages_recover_media_from_raw_content(monkeypatch, tmp_
 
     assert detail["messages"][0]["metadata"]["media"] == {
         "type": "video",
-        "url": "https://cdn.example.com/old.mp4",
-        "fallback": False,
+        "original_url": "https://cdn.example.com/old.mp4",
+        "fallback": True,
     }
 
 
@@ -284,7 +291,7 @@ def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
 
     async def fake_download_eyun_video(**kwargs):
         assert kwargs["msg_id"] == "789"
-        return "https://cdn.example.com/playable.mp4"
+        return "/static/media/playable.mp4"
 
     monkeypatch.setattr(
         eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
@@ -321,8 +328,23 @@ def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.json()["data"]["metadata"]["media"]["url"] == (
-        "https://cdn.example.com/playable.mp4"
+        "/static/media/playable.mp4"
     )
+
+
+def test_message_panel_does_not_resolve_video_on_playback_error():
+    panel = (
+        Path(__file__).parents[2]
+        / "admin-web"
+        / "src"
+        / "views"
+        / "workbench"
+        / "components"
+        / "MessagePanel.vue"
+    ).read_text(encoding="utf-8")
+
+    assert '@error="resolveVideo(message)"' not in panel
+    assert '@error="markVideoFailed(message)"' in panel
 
 
 def test_mark_conversation_read_clears_unread_count(monkeypatch, tmp_path):
