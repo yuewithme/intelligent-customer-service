@@ -118,6 +118,34 @@ async def get_recent_memories(user_id: str, limit: int = 10) -> dict:
         return {"items": _list_memories(session, user_id, limit), "limit": limit}
 
 
+async def ensure_user_profile(
+    user_id: str, *, tenant_id: str = "tenant_default", channel: str = "api"
+) -> dict:
+    with _get_session() as session:
+        profile = _get_or_create_profile(
+            session, user_id, tenant_id=tenant_id, channel=channel
+        )
+        session.commit()
+        return _profile_to_dict(profile)
+
+
+async def refresh_profile_from_memory(user_id: str) -> None:
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        records = _list_profile_context_records(
+            session, user_id, current_message="", limit=18
+        )
+        tenant_id = profile.tenant_id
+    if not records:
+        return
+    analysis = await _build_profile_analysis(records)
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id, tenant_id=tenant_id)
+        _apply_profile_analysis(profile, analysis)
+        profile.updated_at = _now()
+        session.commit()
+
+
 async def get_profile_events(user_id: str, limit: int = 20) -> dict:
     limit = _clamp_limit(limit, default=20, maximum=100)
     with _get_session() as session:
@@ -160,6 +188,7 @@ async def append_conversation_memory(
 
 
 async def update_profile_after_chat(message, intent, reply) -> None:
+    await apply_deterministic_profile_update(message, intent, reply)
     with _get_session() as session:
         user_records = _list_profile_context_records(
             session,
@@ -168,6 +197,19 @@ async def update_profile_after_chat(message, intent, reply) -> None:
             limit=18,
         )
     profile_analysis = await _build_profile_analysis(user_records)
+    with _get_session() as session:
+        profile = _get_or_create_profile(
+            session,
+            message.user_id,
+            tenant_id=message.tenant_id,
+            channel=message.channel,
+        )
+        _apply_profile_analysis(profile, profile_analysis)
+        profile.updated_at = _now()
+        session.commit()
+
+
+async def apply_deterministic_profile_update(message, intent, reply) -> None:
     with _get_session() as session:
         profile = _get_or_create_profile(
             session,
@@ -184,7 +226,6 @@ async def update_profile_after_chat(message, intent, reply) -> None:
         profile.last_active_at = _now()
         _apply_tag_result(profile, reply.metadata.get("tag_result"))
         _apply_sales_action(profile, intent, reply.metadata.get("sales_action"))
-        _apply_profile_analysis(profile, profile_analysis)
         profile.updated_at = _now()
         if reply.route == "human" or reply.need_human:
             handoff = reply.metadata.get("handoff", {})

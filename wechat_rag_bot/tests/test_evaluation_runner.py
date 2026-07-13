@@ -417,10 +417,43 @@ async def test_lifespan_skips_eyun_worker_in_evaluation_mode(monkeypatch):
         lambda: SimpleNamespace(evaluation_mode=True),
     )
     monkeypatch.setattr(main_module, "eyun_risk_control_worker", fail_worker)
+    monkeypatch.setattr(
+        main_module, "profile_refresh_worker", fail_worker, raising=False
+    )
     app = SimpleNamespace(state=SimpleNamespace())
 
     async with main_module.lifespan(app):
         assert not hasattr(app.state, "eyun_risk_control_task")
+        assert not hasattr(app.state, "profile_refresh_task")
+
+
+@pytest.mark.asyncio
+async def test_lifespan_starts_and_stops_profile_refresh_worker(monkeypatch):
+    import app.main as main_module
+
+    started = []
+
+    async def fake_eyun_worker(stop_event):
+        started.append("eyun")
+        await stop_event.wait()
+
+    async def fake_profile_worker(stop_event):
+        started.append("profile")
+        await stop_event.wait()
+
+    monkeypatch.setattr(
+        main_module, "get_settings", lambda: SimpleNamespace(evaluation_mode=False)
+    )
+    monkeypatch.setattr(main_module, "eyun_risk_control_worker", fake_eyun_worker)
+    monkeypatch.setattr(
+        main_module, "profile_refresh_worker", fake_profile_worker, raising=False
+    )
+    app = SimpleNamespace(state=SimpleNamespace())
+
+    async with main_module.lifespan(app):
+        await asyncio.sleep(0)
+        assert set(started) == {"eyun", "profile"}
+        assert hasattr(app.state, "profile_refresh_task")
 
 
 def test_evaluation_request_is_detected_from_runner_metadata():

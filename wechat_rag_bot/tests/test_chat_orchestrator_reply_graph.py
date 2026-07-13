@@ -1,4 +1,3 @@
-import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -101,18 +100,27 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
     monkeypatch.setattr(chat_orchestrator, "execute_reply_plan", execute_reply_plan)
     monkeypatch.setattr(chat_orchestrator, "update_user_state", noop)
     monkeypatch.setattr(chat_orchestrator, "append_conversation_memory", noop)
-    monkeypatch.setattr(chat_orchestrator, "update_profile_after_chat", noop)
+    monkeypatch.setattr(
+        chat_orchestrator, "apply_deterministic_profile_update", noop
+    )
+    monkeypatch.setattr(
+        chat_orchestrator, "apply_deterministic_sales_memory", noop, raising=False
+    )
+    monkeypatch.setattr(
+        chat_orchestrator, "schedule_profile_refresh", noop, raising=False
+    )
     monkeypatch.setattr(chat_orchestrator, "record_chat_log", noop)
     monkeypatch.setattr(chat_orchestrator, "record_ai_turn", noop)
 
 
 @pytest.mark.asyncio
-async def test_chat_returns_before_profile_analysis_finishes(monkeypatch):
+async def test_chat_writes_deterministic_memory_and_schedules_durable_refresh(
+    monkeypatch,
+):
     from app.services import chat_orchestrator
 
     _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator)
-    started = asyncio.Event()
-    release = asyncio.Event()
+    calls = []
 
     monkeypatch.setattr(
         chat_orchestrator,
@@ -124,32 +132,34 @@ async def test_chat_returns_before_profile_analysis_finishes(monkeypatch):
         del kwargs
         return _reply("fast reply")
 
-    async def slow_profile(*args, **kwargs):
-        del args, kwargs
-        started.set()
-        await release.wait()
+    async def apply_memory(message, intent, reply):
+        calls.append(("deterministic", message.user_id, intent.primary_intent, reply.route))
+
+    async def schedule_refresh(profile_user_id, *, delay_seconds):
+        calls.append(("refresh", profile_user_id, delay_seconds))
 
     monkeypatch.setattr(chat_orchestrator, "execute_reply_plan", execute_reply_plan)
-    monkeypatch.setattr(chat_orchestrator, "update_profile_after_chat", slow_profile)
+    monkeypatch.setattr(
+        chat_orchestrator, "apply_deterministic_sales_memory", apply_memory, raising=False
+    )
+    monkeypatch.setattr(
+        chat_orchestrator, "schedule_profile_refresh", schedule_refresh, raising=False
+    )
 
-    chat_task = asyncio.create_task(
-        chat_orchestrator.handle_chat(
-            ChatRequest(
-                channel="api",
-                user_id="user_001",
-                message="hello",
-                kb_id="kb_default",
-            )
+    result = await chat_orchestrator.handle_chat(
+        ChatRequest(
+            channel="api",
+            user_id="user_001",
+            message="hello",
+            kb_id="kb_default",
         )
     )
-    await asyncio.wait_for(started.wait(), timeout=1)
-    try:
-        result = await asyncio.wait_for(asyncio.shield(chat_task), timeout=0.1)
-    finally:
-        release.set()
-        await chat_task
 
     assert result["answer"] == "fast reply"
+    assert calls == [
+        ("deterministic", "user_001", "care_question", "rag_answer"),
+        ("refresh", "user_001", 30),
+    ]
 
 
 @pytest.mark.asyncio
@@ -256,7 +266,7 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
             "sales_stage": intent.sales_stage,
         }
 
-    async def update_profile_after_chat(message, intent, reply):
+    async def apply_deterministic_profile_update(message, intent, reply):
         del message
         captured["profile_stage"] = intent.sales_stage
         captured["profile_sales_action"] = reply.metadata.get("sales_action")
@@ -268,8 +278,8 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
     monkeypatch.setattr(chat_orchestrator, "update_user_state", update_user_state)
     monkeypatch.setattr(
         chat_orchestrator,
-        "update_profile_after_chat",
-        update_profile_after_chat,
+        "apply_deterministic_profile_update",
+        apply_deterministic_profile_update,
     )
 
     result = await chat_orchestrator.handle_chat(
@@ -280,8 +290,6 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
             kb_id="kb_default",
         )
     )
-    await asyncio.sleep(0)
-
     assert result["intent"]["sales_stage"] == "need_discovery"
     assert captured["state_update"]["sales_stage"] == "need_discovery"
     assert captured["profile_stage"] == "need_discovery"
