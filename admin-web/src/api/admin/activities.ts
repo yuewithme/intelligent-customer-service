@@ -1,6 +1,6 @@
 import request from '@/config/axios'
 
-export type ActivityStatus = 'draft' | 'published' | 'archived'
+export type ActivityStatus = 'published' | 'archived'
 export type ActivityEffectiveStatus = ActivityStatus | 'active' | 'disabled' | 'scheduled' | 'expired'
 export type ActivityMessageType = 'text' | 'received_image' | 'received_video'
 

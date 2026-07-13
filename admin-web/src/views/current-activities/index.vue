@@ -23,8 +23,7 @@
         @keyup.enter="load"
       />
       <ElSelect v-if="!sendMode" v-model="status" clearable placeholder="全部状态" @change="load">
-        <ElOption label="草稿" value="draft" />
-        <ElOption label="已发布" value="published" />
+        <ElOption label="已启用" value="published" />
         <ElOption label="已归档" value="archived" />
       </ElSelect>
       <ElAlert
@@ -79,8 +78,22 @@
         </dl>
 
         <div v-if="!sendMode" class="switches" @click.stop>
-          <label>总开关 <ElSwitch v-model="activity.enabled" @change="toggleEnabled(activity)" /></label>
-          <label>允许 AI <ElSwitch v-model="activity.ai_enabled" @change="toggleAi(activity)" /></label>
+          <label>
+            总开关
+            <ElSwitch
+              v-model="activity.enabled"
+              :disabled="activity.status === 'archived'"
+              @change="toggleEnabled(activity)"
+            />
+          </label>
+          <label>
+            允许 AI
+            <ElSwitch
+              v-model="activity.ai_enabled"
+              :disabled="activity.status === 'archived'"
+              @change="toggleAi(activity)"
+            />
+          </label>
         </div>
 
         <div class="card-actions" @click.stop>
@@ -88,18 +101,18 @@
           <template v-if="!sendMode">
             <ElButton
               size="small"
-              :disabled="activity.status === 'archived' || (activity.status !== 'draft' && activity.enabled)"
+              :disabled="activity.status === 'archived' || activity.enabled"
               @click="openEdit(activity)"
             >
               编辑
             </ElButton>
             <ElButton
-              v-if="activity.status === 'draft'"
+              v-if="activity.status === 'archived'"
               size="small"
               type="primary"
-              @click="publish(activity)"
+              @click="restart(activity)"
             >
-              发布
+              重新启动
             </ElButton>
             <ElButton size="small" @click="openLogs(activity)">发送记录</ElButton>
             <ElButton
@@ -282,9 +295,9 @@ const toggleAi = async (activity: ActivityItem) => {
   }
 }
 
-const publish = async (activity: ActivityItem) => {
+const restart = async (activity: ActivityItem) => {
   await publishActivity(activity.id, operatorId.value)
-  ElMessage.success('活动已发布')
+  ElMessage.success('活动已重新启动')
   await load()
 }
 
@@ -358,8 +371,7 @@ const validityText = (activity: ActivityItem) => {
 
 const statusText = (value: ActivityEffectiveStatus) =>
   ({
-    draft: '草稿',
-    published: '已发布',
+    published: '已启用',
     archived: '已归档',
     active: '进行中',
     disabled: '已关闭',
@@ -369,7 +381,6 @@ const statusText = (value: ActivityEffectiveStatus) =>
 
 const statusType = (value: ActivityEffectiveStatus) =>
   ({
-    draft: 'info',
     published: 'success',
     archived: 'info',
     active: 'success',

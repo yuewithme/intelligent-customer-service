@@ -163,7 +163,7 @@ class ActivityModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     title: Mapped[str] = mapped_column(String(256), index=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(32), index=True, default="draft")
+    status: Mapped[str] = mapped_column(String(32), index=True, default="published")
     enabled: Mapped[bool] = mapped_column(Boolean, index=True, default=True)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
     ai_rules_json: Mapped[str] = mapped_column(Text, default="{}")

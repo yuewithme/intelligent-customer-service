@@ -1,8 +1,12 @@
 import asyncio
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.db.models import ActivityModel, Base
 from app.main import app
 from app.services.conversation_service import record_customer_message
 
@@ -69,7 +73,8 @@ def test_create_activity_from_messages_keeps_order_and_hides_media_xml(
 
     assert response.status_code == 200
     activity = response.json()["data"]
-    assert activity["status"] == "draft"
+    assert activity["status"] == "published"
+    assert activity["effective_status"] == "active"
     assert activity["enabled"] is True
     assert activity["ai_enabled"] is False
     assert activity["valid_until"] is None
@@ -87,7 +92,7 @@ def test_create_activity_from_messages_keeps_order_and_hides_media_xml(
     assert "aeskey" not in response.text
 
 
-def test_activity_publish_switch_and_archive_lifecycle(monkeypatch, tmp_path):
+def test_activity_switch_archive_and_restart_lifecycle(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     _record_source_messages()
     client = TestClient(app)
@@ -104,10 +109,6 @@ def test_activity_publish_switch_and_archive_lifecycle(monkeypatch, tmp_path):
         },
     ).json()["data"]
 
-    published = client.post(
-        f"/api/v1/admin/activities/{created['id']}/publish",
-        json={"operator_id": "admin"},
-    )
     disabled = client.patch(
         f"/api/v1/admin/activities/{created['id']}/switches",
         json={"operator_id": "admin", "enabled": False},
@@ -116,14 +117,53 @@ def test_activity_publish_switch_and_archive_lifecycle(monkeypatch, tmp_path):
         f"/api/v1/admin/activities/{created['id']}/archive",
         json={"operator_id": "admin"},
     )
+    restarted = client.post(
+        f"/api/v1/admin/activities/{created['id']}/publish",
+        json={"operator_id": "admin"},
+    )
 
-    assert published.status_code == 200
-    assert published.json()["data"]["status"] == "published"
-    assert published.json()["data"]["valid_from"] is not None
+    assert created["status"] == "published"
+    assert created["enabled"] is True
+    assert created["published_at"] is not None
     assert disabled.status_code == 200
     assert disabled.json()["data"]["enabled"] is False
     assert archived.status_code == 200
     assert archived.json()["data"]["status"] == "archived"
+    assert restarted.status_code == 200
+    assert restarted.json()["data"]["status"] == "published"
+    assert restarted.json()["data"]["enabled"] is True
+    assert restarted.json()["data"]["effective_status"] == "active"
+
+
+def test_legacy_draft_activity_is_activated_when_activity_store_opens(
+    monkeypatch, tmp_path
+):
+    _reset_settings(monkeypatch, tmp_path)
+    engine = create_engine(get_settings().chat_log_db_url)
+    Base.metadata.create_all(engine, tables=[ActivityModel.__table__])
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        session.add(
+            ActivityModel(
+                title="历史草稿活动",
+                status="draft",
+                enabled=False,
+                ai_enabled=False,
+                ai_rules_json="{}",
+                items_json='[{"position": 1, "type": "text", "content": "活动"}]',
+                created_by="admin",
+                updated_by="admin",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    activity = TestClient(app).get("/api/v1/admin/activities").json()["data"]["items"][0]
+
+    assert activity["status"] == "published"
+    assert activity["enabled"] is True
+    assert activity["published_at"] is not None
 
 
 def test_activity_apis_require_authorization(monkeypatch, tmp_path):

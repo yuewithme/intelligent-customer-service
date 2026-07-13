@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -49,7 +49,7 @@ def create_activity_from_messages(request: ActivityFromMessagesRequest) -> dict:
         row = ActivityModel(
             title=request.title.strip(),
             summary=_optional_text(request.summary),
-            status="draft",
+            status="published",
             enabled=True,
             ai_enabled=False,
             ai_rules_json="{}",
@@ -60,6 +60,7 @@ def create_activity_from_messages(request: ActivityFromMessagesRequest) -> dict:
             updated_by=request.operator_id,
             created_at=now,
             updated_at=now,
+            published_at=now,
         )
         session.add(row)
         session.commit()
@@ -120,7 +121,7 @@ def get_activity(activity_id: int) -> dict:
 def update_activity(activity_id: int, request: ActivityUpdateRequest) -> dict:
     with _get_session() as session:
         row = _get_activity_or_error(session, activity_id)
-        if row.status != "draft" and row.enabled:
+        if row.enabled:
             raise AppError(
                 ErrorCode.REQUEST_INVALID,
                 message="请先关闭活动再编辑",
@@ -146,10 +147,10 @@ def update_activity(activity_id: int, request: ActivityUpdateRequest) -> dict:
 def publish_activity(activity_id: int, operator_id: str) -> dict:
     with _get_session() as session:
         row = _get_activity_or_error(session, activity_id)
-        if row.status == "archived":
+        if row.status not in {"published", "archived"}:
             raise AppError(
                 ErrorCode.REQUEST_INVALID,
-                message="已归档活动不能发布",
+                message="当前活动状态不支持启动",
                 status_code=409,
             )
         if not row.title.strip() or not _decode_items(row.items_json):
@@ -166,6 +167,7 @@ def publish_activity(activity_id: int, operator_id: str) -> dict:
                 status_code=409,
             )
         row.status = "published"
+        row.enabled = True
         row.valid_from = row.valid_from or now
         row.published_at = now
         row.updated_by = operator_id
@@ -464,6 +466,19 @@ def _get_session() -> Session:
                 EyunOutboundMessageModel.__table__,
             ],
         )
+        with engine.begin() as connection:
+            connection.execute(
+                update(ActivityModel)
+                .where(ActivityModel.status == "draft")
+                .values(
+                    status="published",
+                    enabled=True,
+                    published_at=func.coalesce(
+                        ActivityModel.published_at,
+                        ActivityModel.updated_at,
+                    ),
+                )
+            )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[settings.chat_log_db_url] = factory
     return factory()
