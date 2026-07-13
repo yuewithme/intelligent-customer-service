@@ -4,6 +4,8 @@ import pytest
 
 from app.config import get_settings
 from app.db.models import (
+    ConversationMessageModel,
+    ConversationModel,
     EyunInboundBatchModel,
     EyunInboundMessageModel,
     EyunOutboundMessageModel,
@@ -186,13 +188,16 @@ async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
         calls.append(request)
         return {"answer": "merged reply"}
 
-    async def fake_enqueue_outbound(*, w_id, wc_id, content, source_batch_key):
+    async def fake_enqueue_outbound(
+        *, w_id, wc_id, content, source_batch_key, due_at=None
+    ):
         outbound.append(
             {
                 "w_id": w_id,
                 "wc_id": wc_id,
                 "content": content,
                 "source_batch_key": source_batch_key,
+                "due_at": due_at,
             }
         )
 
@@ -366,6 +371,169 @@ async def test_enqueue_outbound_adds_random_due_at(monkeypatch):
 
     assert row["due_at"] == now + timedelta(seconds=7)
     assert row["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_process_batch_staggers_split_replies(monkeypatch):
+    from app.services.message_risk_control_service import (
+        _get_session,
+        _process_inbound_batch,
+    )
+
+    now = datetime(2026, 7, 13, 7, 0, tzinfo=timezone.utc)
+    queued = []
+
+    async def fake_handle_chat(request):
+        del request
+        return {
+            "answer": "first\nsecond\nthird",
+            "answer_segments": ["first", "second", "third"],
+        }
+
+    async def fake_enqueue_outbound(**kwargs):
+        queued.append(kwargs)
+        return kwargs
+
+    async def fake_contact_snapshot(**kwargs):
+        del kwargs
+        return {}
+
+    monkeypatch.setattr("app.services.message_risk_control_service.utcnow", lambda: now)
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.random_reply_delay_seconds",
+        lambda: 7,
+    )
+    spacings = iter((2, 5))
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.random_outbound_spacing_seconds",
+        lambda: next(spacings),
+    )
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.handle_chat", fake_handle_chat
+    )
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.get_eyun_contact_snapshot",
+        fake_contact_snapshot,
+    )
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.is_first_eyun_inbound_message",
+        lambda session, batch_key: False,
+    )
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.enqueue_eyun_outbound",
+        fake_enqueue_outbound,
+    )
+
+    with _get_session() as session:
+        batch = EyunInboundBatchModel(
+            batch_key="wid:user",
+            w_id="wid",
+            wc_id="bot",
+            target_wc_id="user",
+            from_user="user",
+            from_group=None,
+            account="acct",
+            message_type="60001",
+            content="question",
+            message_count=1,
+            status="processing",
+            due_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(batch)
+        session.commit()
+        batch_id = batch.id
+
+    await _process_inbound_batch(batch_id)
+
+    assert [row["due_at"] for row in queued] == [
+        now + timedelta(seconds=7),
+        now + timedelta(seconds=9),
+        now + timedelta(seconds=14),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_worker_records_eyun_create_time(monkeypatch):
+    from app.services.message_risk_control_service import (
+        _get_session,
+        process_due_eyun_outbound_messages,
+    )
+
+    now = datetime(2026, 7, 13, 7, 0, 10, tzinfo=timezone.utc)
+    provider_sent_at = datetime(2026, 7, 13, 7, 0, 8, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.services.message_risk_control_service.utcnow", lambda: now)
+
+    async def fake_send_eyun_text(**kwargs):
+        del kwargs
+        return {"code": "1000", "data": {"createTime": int(provider_sent_at.timestamp())}}
+
+    monkeypatch.setattr(
+        "app.services.eyun_callback_service.send_eyun_text", fake_send_eyun_text
+    )
+
+    with _get_session() as session:
+        session.add(
+            EyunInboundBatchModel(
+                batch_key="wid:user",
+                w_id="wid",
+                wc_id="bot",
+                target_wc_id="user",
+                from_user="user",
+                from_group=None,
+                account="acct",
+                message_type="60001",
+                content="question",
+                message_count=1,
+                status="processed",
+                due_at=now,
+                created_at=now - timedelta(seconds=20),
+                updated_at=now,
+            )
+        )
+        session.add(
+            ConversationModel(
+                conversation_id="wechat:user:default",
+                channel="wechat",
+                user_id="user",
+                tenant_id="tenant_default",
+                status="ai_waiting",
+                unread_count=0,
+                created_at=now - timedelta(seconds=20),
+                updated_at=now,
+            )
+        )
+        session.add(
+            ConversationMessageModel(
+                conversation_id="wechat:user:default",
+                sender_type="ai",
+                sender_id="ai",
+                content="reply",
+                metadata_json="{}",
+                created_at=now - timedelta(seconds=5),
+            )
+        )
+        session.add(
+            EyunOutboundMessageModel(
+                w_id="wid",
+                wc_id="user",
+                content="reply",
+                source_batch_key="wid:user",
+                status="queued",
+                due_at=now,
+                attempts=0,
+                created_at=now - timedelta(seconds=5),
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    assert await process_due_eyun_outbound_messages(limit=5) == 1
+
+    with _get_session() as session:
+        message = session.query(ConversationMessageModel).one()
+        assert message.created_at.replace(tzinfo=timezone.utc) == provider_sent_at
 
 
 @pytest.mark.asyncio

@@ -409,7 +409,9 @@ async def persist_eyun_video(
     return f"/static/media/{target.name}"
 
 
-async def send_eyun_text(*, w_id: str, wc_id: str, content: str) -> None:
+async def send_eyun_text(
+    *, w_id: str, wc_id: str, content: str
+) -> dict[str, Any] | None:
     settings = get_settings()
     base_url = settings.eyun_base_url.rstrip("/")
     authorization = settings.eyun_authorization.strip()
@@ -431,6 +433,7 @@ async def send_eyun_text(*, w_id: str, wc_id: str, content: str) -> None:
     if str(result.get("code")) != "1000":
         logger.warning("Eyun sendText returned non-success response: %s", result)
         raise RuntimeError(f"Eyun sendText failed: {result}")
+    return result
 
 
 async def send_eyun_image(*, w_id: str, wc_id: str, content: str) -> None:

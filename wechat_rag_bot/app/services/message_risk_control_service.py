@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import get_settings
 from app.db.models import (
     Base,
+    ConversationMessageModel,
     ConversationModel,
     EyunInboundBatchModel,
     EyunInboundMessageModel,
@@ -147,6 +148,10 @@ def random_reply_delay_seconds() -> int:
     )
 
 
+def random_outbound_spacing_seconds() -> float:
+    return random.uniform(2, 5)
+
+
 async def enqueue_eyun_outbound(
     *,
     w_id: str,
@@ -200,6 +205,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             row.updated_at = now
             session.commit()
             attempted += 1
+            send_result = None
             try:
                 from app.services.eyun_callback_service import (
                     send_eyun_image,
@@ -225,7 +231,9 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         message_type=message_type,
                     )
                 else:
-                    await send_eyun_text(w_id=row.w_id, wc_id=row.wc_id, content=content)
+                    send_result = await send_eyun_text(
+                        w_id=row.w_id, wc_id=row.wc_id, content=content
+                    )
             except Exception as exc:  # noqa: BLE001
                 row.status = "queued"
                 row.attempts = (row.attempts or 0) + 1
@@ -236,9 +244,15 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 logger.warning("Eyun outbound send failed: %s", exc)
                 continue
 
-            sent_at = utcnow()
+            sent_at = _eyun_sent_at(send_result) or utcnow()
             row.status = "sent"
             row.updated_at = sent_at
+            _mark_conversation_ai_message_sent(
+                session,
+                source_batch_key=row.source_batch_key,
+                content=content,
+                sent_at=sent_at,
+            )
             if rate is None:
                 rate = EyunSendRateModel(
                     w_id=row.w_id, last_sent_at=sent_at, updated_at=sent_at
@@ -319,16 +333,21 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 )
             )
         if batch_data["w_id"] and batch_data["target_wc_id"]:
-            for message in _outbound_messages(chat_result):
+            outbound_messages = _outbound_messages(chat_result)
+            due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
+            for index, message in enumerate(outbound_messages):
                 kwargs = {
                     "w_id": batch_data["w_id"],
                     "wc_id": batch_data["target_wc_id"],
                     "content": message["content"],
                     "source_batch_key": batch_data["batch_key"],
+                    "due_at": due_at,
                 }
                 if message["type"] != "text":
                     kwargs["message_type"] = message["type"]
                 await enqueue_eyun_outbound(**kwargs)
+                if index < len(outbound_messages) - 1:
+                    due_at += timedelta(seconds=random_outbound_spacing_seconds())
         _mark_batch(batch_id, "processed")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
@@ -436,6 +455,56 @@ def _next_allowed_send_at(last_sent_at: datetime | None) -> datetime:
     )
 
 
+def _eyun_sent_at(result: Any) -> datetime | None:
+    if not isinstance(result, dict):
+        return None
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return None
+    try:
+        timestamp = int(data.get("createTime"))
+    except (TypeError, ValueError):
+        return None
+    if timestamp <= 0:
+        return None
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+
+
+def _mark_conversation_ai_message_sent(
+    session: Session,
+    *,
+    source_batch_key: str | None,
+    content: str,
+    sent_at: datetime,
+) -> None:
+    if not source_batch_key:
+        return
+    batch = _get_batch(session, source_batch_key)
+    if batch is None:
+        return
+    conversation_id = make_conversation_id(
+        "wechat",
+        batch.from_user or batch.target_wc_id,
+        batch.from_group,
+    )
+    message = session.scalar(
+        select(ConversationMessageModel)
+        .where(
+            ConversationMessageModel.conversation_id == conversation_id,
+            ConversationMessageModel.sender_type == "ai",
+            ConversationMessageModel.content == content,
+            ConversationMessageModel.created_at >= batch.created_at,
+        )
+        .order_by(
+            ConversationMessageModel.created_at.asc(),
+            ConversationMessageModel.id.asc(),
+        )
+        .limit(1)
+    )
+    if message is not None:
+        message.created_at = sent_at
+
+
 def _provider_message_id(
     payload: dict[str, Any], batch_key: str, now: datetime
 ) -> str:
@@ -517,6 +586,7 @@ def _get_session() -> Session:
             engine,
             tables=[
                 ConversationModel.__table__,
+                ConversationMessageModel.__table__,
                 EyunInboundBatchModel.__table__,
                 EyunInboundMessageModel.__table__,
                 EyunOutboundMessageModel.__table__,
