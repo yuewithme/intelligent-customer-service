@@ -693,7 +693,7 @@ def test_to_chat_data_splits_paragraphs_into_answer_segments():
         ),
     )
 
-    assert data["answer"] == "第一段。\n\n第二段。\n第三段。"
+    assert data["answer"] == "第一段。\n第二段。\n第三段。"
     assert data["answer_segments"] == ["第一段。", "第二段。", "第三段。"]
 
 
@@ -721,20 +721,50 @@ def test_to_chat_data_prefers_structured_answer_segments():
     assert data["answer_segments"] == ["完整回答。", "您有多少盆？"]
 
 
-def test_answer_segments_groups_long_content_into_at_most_three_messages():
+def test_answer_segments_keeps_every_short_sentence_as_a_message():
     from app.services.chat_orchestrator import _answer_segments
 
-    sentences = [
-        f"第{index}段" + "养护建议" * 12 + "。"
-        for index in range(1, 5)
-    ]
+    sentences = [f"第{index}句。" for index in range(1, 6)]
     answer = "".join(sentences)
 
     segments = _answer_segments(answer)
 
-    assert len(segments) == 3
+    assert segments == sentences
     assert "".join(segments) == answer
-    assert all(segment.endswith("。") for segment in segments)
+
+
+def test_answer_segments_removes_markdown_and_splits_long_sentences():
+    from app.services.chat_orchestrator import _answer_segments
+
+    answer = (
+        "1. **脱盆修根**：剪掉烂根，用多菌灵等杀菌剂消毒，"
+        "然后放在通风处晾干。"
+    )
+
+    segments = _answer_segments(answer)
+
+    assert "**" not in "".join(segments)
+    assert not segments[0].startswith("1.")
+    assert len(segments) > 1
+    assert all(len(segment) <= 36 for segment in segments)
+
+
+def test_plain_customer_text_removes_markdown_tables_and_keeps_fenced_content():
+    from app.services.customer_reply_formatter import plain_customer_text
+
+    text = """# 处理建议
+- **修根**
+---
+~~别急~~
+| 步骤 | 处理 |
+| --- | --- |
+| 一 | 晾根 |
+```
+保持通风
+```
+"""
+
+    assert plain_customer_text(text) == "处理建议\n修根\n别急\n步骤 处理\n一 晾根\n保持通风"
 
 
 def test_ordinary_logistics_question_is_not_a_critical_handoff():

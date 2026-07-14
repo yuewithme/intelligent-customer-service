@@ -32,7 +32,8 @@ def test_risk_control_defaults():
 
     assert settings.eyun_inbound_debounce_seconds == 60
     assert settings.eyun_send_max_per_minute == 40
-    assert settings.eyun_send_min_interval_seconds == 1.6
+    assert settings.eyun_send_min_interval_seconds == 11.0
+    assert settings.eyun_send_max_interval_seconds == 18.0
     assert settings.eyun_reply_jitter_min_seconds == 2
     assert settings.eyun_reply_jitter_max_seconds == 12
 
@@ -403,7 +404,7 @@ async def test_process_batch_staggers_split_replies(monkeypatch):
         "app.services.message_risk_control_service.random_reply_delay_seconds",
         lambda: 7,
     )
-    spacings = iter((2, 5))
+    spacings = iter((11, 15))
     monkeypatch.setattr(
         "app.services.message_risk_control_service.random_outbound_spacing_seconds",
         lambda: next(spacings),
@@ -449,8 +450,48 @@ async def test_process_batch_staggers_split_replies(monkeypatch):
 
     assert [row["due_at"] for row in queued] == [
         now + timedelta(seconds=7),
-        now + timedelta(seconds=9),
-        now + timedelta(seconds=14),
+        now + timedelta(seconds=18),
+        now + timedelta(seconds=33),
+    ]
+
+
+def test_random_outbound_spacing_is_variable_and_always_over_ten_seconds(monkeypatch):
+    from app.services.message_risk_control_service import random_outbound_spacing_seconds
+
+    captured = {}
+
+    def fake_uniform(minimum, maximum):
+        captured["bounds"] = (minimum, maximum)
+        return 13.5
+
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.random.uniform", fake_uniform
+    )
+
+    assert random_outbound_spacing_seconds() == 13.5
+    assert captured["bounds"][0] > 10
+    assert captured["bounds"][1] > captured["bounds"][0]
+
+
+def test_outbound_text_messages_are_plain_short_messages():
+    from app.services.message_risk_control_service import _outbound_messages
+
+    messages = _outbound_messages(
+        {
+            "outbound_messages": [
+                {
+                    "type": "text",
+                    "content": "1. **第一步**：剪掉烂根。然后放通风处晾干。",
+                },
+                {"type": "image", "content": "https://example.com/a.jpg"},
+            ]
+        }
+    )
+
+    assert messages == [
+        {"type": "text", "content": "第一步：剪掉烂根。"},
+        {"type": "text", "content": "然后放通风处晾干。"},
+        {"type": "image", "content": "https://example.com/a.jpg"},
     ]
 
 

@@ -21,6 +21,7 @@ from app.db.models import (
 from app.schemas.chat import ChatRequest
 from app.services.chat_orchestrator import handle_chat
 from app.services.conversation_service import HUMAN_ACTIVE, RESOLVED, make_conversation_id
+from app.services.customer_reply_formatter import split_customer_messages
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
 from app.services.user_profile_service import append_conversation_memory
 
@@ -150,7 +151,10 @@ def random_reply_delay_seconds() -> int:
 
 
 def random_outbound_spacing_seconds() -> float:
-    return random.uniform(2, 5)
+    settings = get_settings()
+    minimum = max(10.01, settings.eyun_send_min_interval_seconds)
+    maximum = max(minimum + 0.01, settings.eyun_send_max_interval_seconds)
+    return random.uniform(minimum, maximum)
 
 
 async def enqueue_eyun_outbound(
@@ -416,7 +420,16 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, str]]:
             and str(message.get("content") or "").strip()
         ]
         if valid:
-            return valid
+            formatted: list[dict[str, str]] = []
+            for message in valid:
+                if message["type"] != "text":
+                    formatted.append(message)
+                    continue
+                formatted.extend(
+                    {"type": "text", "content": content}
+                    for content in split_customer_messages(message["content"])
+                )
+            return formatted
     return [{"type": "text", "content": answer} for answer in _answer_segments(chat_result)]
 
 

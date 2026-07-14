@@ -1,4 +1,3 @@
-import re
 import time
 
 from app.config import get_settings
@@ -12,6 +11,10 @@ from app.services.chat_log_service import record_chat_log
 from app.services.business_context_service import build_business_context
 from app.services.commerce_query_service import build_commerce_context
 from app.services.conversation_service import record_ai_turn
+from app.services.customer_reply_formatter import (
+    plain_customer_text,
+    split_customer_messages,
+)
 from app.services.intent_example_service import retrieve_intent_examples
 from app.services.intent_service import classify_intent
 from app.services.policy_service import decide_route
@@ -243,7 +246,7 @@ def _to_chat_data(
         template = {"template_id": reply.template_id}
     public_metadata = _public_reply_metadata(reply.metadata)
     return {
-        "answer": reply.answer,
+        "answer": plain_customer_text(reply.answer),
         "session_id": session_id,
         "sources": reply.sources,
         "usage": reply.usage,
@@ -348,33 +351,12 @@ def _answer_segments(
 ) -> list[str]:
     structured = [part.strip() for part in preferred or [] if part.strip()]
     if structured:
-        return _limit_segments(structured)
-
-    paragraphs = [part.strip() for part in answer.splitlines() if part.strip()]
-    if len(paragraphs) > 1:
-        return _limit_segments(paragraphs)
-
-    text = answer.strip()
-    if not text or len(text) <= 80:
-        return [text] if text else []
-    sentences = [
-        part.strip()
-        for part in re.split(r"(?<=[。！？!?])", text)
-        if part.strip()
-    ]
-    segments: list[str] = []
-    for sentence in sentences:
-        if segments and len(segments[-1]) + len(sentence) <= 80:
-            segments[-1] += sentence
-        else:
-            segments.append(sentence)
-    return _limit_segments(segments)
-
-
-def _limit_segments(segments: list[str]) -> list[str]:
-    if len(segments) <= 3:
-        return segments
-    return [segments[0], segments[1], "".join(segments[2:])]
+        return [
+            message
+            for part in structured
+            for message in split_customer_messages(part)
+        ]
+    return split_customer_messages(answer)
 
 
 def _success_log_payload(message, intent, decision, reply: FinalReply) -> dict:
