@@ -26,6 +26,30 @@ SALES_SECTION_PREFIXES = (
     "CHUNK FLOW-",
     "CHUNK SOP-",
 )
+CARE_MARKERS = (
+    "养护",
+    "栽培",
+    "浇水",
+    "施肥",
+    "烂根",
+    "空根",
+    "黑根",
+    "病虫",
+    "植料",
+    "通风",
+    "光照",
+    "换盆",
+    "修根",
+    "服盆",
+    "黄叶",
+    "催花",
+    "care",
+)
+PRODUCT_SOURCE_TABLES = {
+    "orchid_varieties",
+    "orchid_products",
+    "orchid_sales_copy",
+}
 
 
 PROMPT_TEMPLATE = """
@@ -118,15 +142,50 @@ def _default_search_kb_ids(kb_id: str) -> list[str]:
 def select_care_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     selected = []
     for doc in docs:
-        section = str(doc.get("section") or "").strip()
-        if section.upper().startswith(SALES_SECTION_PREFIXES):
+        if _is_sales_doc(doc):
             continue
-        if doc.get("source_table") == "orchid_sales_copy":
+        source_table = str(doc.get("source_table") or "").strip()
+        if source_table in PRODUCT_SOURCE_TABLES:
             continue
-        if doc.get("entity_type") == "sales_copy" or section.endswith("话术"):
+        searchable = " ".join(
+            str(doc.get(key) or "")
+            for key in ("section", "chunk_type", "entity_type", "text")
+        )
+        if not any(marker in searchable for marker in CARE_MARKERS):
             continue
         selected.append(doc)
     return selected
+
+
+def _select_non_sales_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [doc for doc in docs if not _is_sales_doc(doc)]
+
+
+def _is_sales_doc(doc: dict[str, Any]) -> bool:
+    section = str(doc.get("section") or "").strip()
+    return bool(
+        section.upper().startswith(SALES_SECTION_PREFIXES)
+        or doc.get("source_table") == "orchid_sales_copy"
+        or doc.get("entity_type") == "sales_copy"
+        or section.endswith("话术")
+    )
+
+
+def _requires_care_only_docs(
+    message: str, policy: PolicyDecision | None
+) -> bool:
+    lowered = message.lower()
+    if any(marker.lower() in lowered for marker in CARE_MARKERS):
+        return True
+    if policy is None:
+        return False
+    if any(
+        block_id in {"scenario.orchid_care", "intent.orchid_problem"}
+        for block_id in policy.prompt_block_ids
+    ):
+        return True
+    focus = policy.retrieval_policy.get("focus", [])
+    return any(item in {"symptoms", "safe_checks", "care_constraints"} for item in focus)
 
 
 def _context(docs: list[dict[str, Any]]) -> str:
@@ -244,8 +303,13 @@ async def rag_chat(
             (time.perf_counter() - stage_started) * 1000
         )
         stage_started = time.perf_counter()
+        filtered_candidates = (
+            select_care_docs(candidates)
+            if _requires_care_only_docs(message, policy)
+            else _select_non_sales_docs(candidates)
+        )
         docs = await rerank_service.rerank(
-            message.strip(), select_care_docs(candidates), settings.rag_top_n
+            message.strip(), filtered_candidates, settings.rag_top_n
         )
         stage_latencies["rerank_ms"] = round(
             (time.perf_counter() - stage_started) * 1000

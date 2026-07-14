@@ -90,7 +90,15 @@ def build_opening_reply() -> FinalReply:
 
 
 def build_chitchat_reply(intent: IntentResult) -> FinalReply:
-    del intent
+    if intent.primary_intent == "profile_answer":
+        return FinalReply(
+            answer=(
+                "收到，已经记下您的养兰规模和主要品种。"
+                "您现在最想解决哪一类养护问题？"
+            ),
+            reply_type="chitchat",
+            route="chitchat",
+        )
     return FinalReply(
         answer="你好，我在的。你可以直接问产品、价格、养护、发货或售后问题。",
         reply_type="chitchat",

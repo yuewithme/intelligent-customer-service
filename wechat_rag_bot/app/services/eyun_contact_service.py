@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from typing import Any
@@ -5,12 +6,15 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.services.conversation_service import update_customer_identity
+from app.services.user_profile_service import ensure_user_profile
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_contact")
 
 _CACHE_TTL_SECONDS = 300
 _contact_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+_contact_refresh_tasks: dict[tuple[str, str], asyncio.Task[None]] = {}
 
 
 def _text(data: dict[str, Any], *keys: str) -> str | None:
@@ -105,3 +109,106 @@ async def get_eyun_contact_snapshot(*, w_id: str, wc_id: str) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun getContact failed for wcId=%s: %s", wc_id, exc)
         return {}
+
+
+async def initialize_eyun_contacts(*, w_id: str) -> bool:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id:
+        return False
+
+    try:
+        async with httpx.AsyncClient(timeout=190) as client:
+            response = await client.post(
+                f"{base_url}/initAddressList",
+                headers={
+                    "Authorization": authorization,
+                    "Content-Type": "application/json",
+                },
+                json={"wId": w_id},
+            )
+        response.raise_for_status()
+        body = response.json()
+        if str(body.get("code")) == "1000":
+            return True
+        logger.warning(
+            "Eyun initAddressList returned non-success: code=%s message=%s",
+            body.get("code"),
+            body.get("message"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Eyun initAddressList failed for wId=%s: %s", w_id, exc)
+    return False
+
+
+async def refresh_eyun_contact(
+    *,
+    w_id: str,
+    wc_id: str,
+    user_id: str,
+    tenant_id: str = "tenant_default",
+    channel: str = "wechat",
+    session_id: str | None = "default",
+    delay_seconds: float | None = None,
+) -> None:
+    if not await initialize_eyun_contacts(w_id=w_id):
+        return
+    delay = (
+        get_settings().eyun_contact_refresh_delay_seconds
+        if delay_seconds is None
+        else delay_seconds
+    )
+    await asyncio.sleep(delay)
+    _contact_cache.pop((w_id, wc_id), None)
+    snapshot = await get_eyun_contact_snapshot(w_id=w_id, wc_id=wc_id)
+    if not snapshot:
+        logger.warning("Eyun contact refresh still empty for wcId=%s", wc_id)
+        return
+    await ensure_user_profile(
+        user_id,
+        tenant_id=tenant_id,
+        channel=channel,
+        basic_info=snapshot,
+    )
+    await update_customer_identity(
+        channel=channel,
+        user_id=user_id,
+        session_id=session_id,
+        metadata=snapshot,
+    )
+
+
+def schedule_eyun_contact_refresh(
+    *,
+    w_id: str,
+    wc_id: str,
+    user_id: str,
+    tenant_id: str = "tenant_default",
+    channel: str = "wechat",
+    session_id: str | None = "default",
+) -> asyncio.Task[None] | None:
+    if not w_id or not wc_id or not user_id:
+        return None
+    key = (w_id, wc_id)
+    existing = _contact_refresh_tasks.get(key)
+    if existing is not None and not existing.done():
+        return existing
+    task = asyncio.create_task(
+        refresh_eyun_contact(
+            w_id=w_id,
+            wc_id=wc_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            channel=channel,
+            session_id=session_id,
+        )
+    )
+    _contact_refresh_tasks[key] = task
+
+    def remove_completed(completed: asyncio.Task[None]) -> None:
+        if _contact_refresh_tasks.get(key) is completed:
+            _contact_refresh_tasks.pop(key, None)
+
+    task.add_done_callback(remove_completed)
+    return task

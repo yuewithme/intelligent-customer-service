@@ -78,6 +78,8 @@ PRODUCT_QUERY_WORDS = (
     "有没有",
 )
 MOBILE_ONLY_PATTERN = re.compile(r"^1[3-9]\d{9}$")
+PLANT_COUNT_PATTERN = re.compile(r"(?:养了|養了|养|養|有)?[^\d]{0,6}\d{1,5}\s*(?:盆|棵|株)")
+ORCHID_VARIETY_WORDS = ("建兰", "春兰", "蕙兰", "墨兰", "寒兰", "春剑", "莲瓣兰")
 
 
 def normalize_intent_text(text: str) -> str:
@@ -171,7 +173,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
                 "reason": "soft_rule_order_query",
             }
         )
-    if hit_any(text, PRODUCT_QUERY_WORDS):
+    if hit_any(text, PRODUCT_QUERY_WORDS) and not has_care:
         return _validated_intent(
             {
                 "route": "template_reply",
@@ -323,10 +325,15 @@ async def classify_by_llm(
     user_state: UserState,
     candidates: list[dict] | None = None,
 ) -> IntentResult:
-    del user_state, candidates
+    del candidates
     from app.services import llm_service
 
-    raw = await llm_service.classify_intent(_build_prompt(message.message))
+    raw = await llm_service.classify_intent(
+        _build_prompt(
+            message.message,
+            recent_turns=user_state.metadata.get("recent_turns", []),
+        )
+    )
     return _validated_intent(raw)
 
 
@@ -354,6 +361,13 @@ async def classify_intent(
                 "reason": "pending_order_mobile",
             }
         )
+
+    opening_followup = classify_opening_followup(
+        message.message,
+        user_state.metadata.get("recent_turns", []),
+    )
+    if opening_followup is not None:
+        return opening_followup
 
     settings = get_settings()
     llm_enabled = bool(getattr(settings, "intent_llm_enabled", False))
@@ -431,7 +445,48 @@ def _validated_intent(raw: dict) -> IntentResult:
         raise AppError(ErrorCode.INTENT_SCHEMA_INVALID) from exc
 
 
-def _build_prompt(message: str) -> str:
+def classify_opening_followup(
+    text: str, recent_turns: list[dict] | None
+) -> IntentResult | None:
+    recent_turns = recent_turns if isinstance(recent_turns, list) else []
+    asked_for_profile = any(
+        isinstance(turn, dict)
+        and turn.get("role") == "assistant"
+        and "多少盆" in str(turn.get("content") or "")
+        and "品种" in str(turn.get("content") or "")
+        for turn in recent_turns[-6:]
+    )
+    if not asked_for_profile:
+        return None
+    normalized = normalize_intent_text(text)
+    if not (
+        PLANT_COUNT_PATTERN.search(normalized)
+        or hit_any(normalized, ORCHID_VARIETY_WORDS)
+    ):
+        return None
+    return IntentResult(
+        route="chitchat",
+        primary_intent="profile_answer",
+        sales_stage="need_discovery",
+        confidence=0.98,
+        reason="opening_profile_answer",
+    )
+
+
+def _build_prompt(message: str, recent_turns: list[dict] | None = None) -> str:
+    recent_lines = []
+    for turn in (recent_turns or [])[-6:]:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role") or "").strip()
+        content = str(turn.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            recent_lines.append(f"{role}: {content[:500]}")
+    recent_context = (
+        "\n## 最近对话\n\n" + "\n".join(recent_lines) + "\n"
+        if recent_lines
+        else ""
+    )
     return f"""# 角色
 
 你只负责做兰花私域客服消息的意图识别。
@@ -449,12 +504,13 @@ def _build_prompt(message: str) -> str:
 ## 用户消息
 
 {message}
+{recent_context}
 
 # 必须输出的 JSON 字段
 
 {{
   "route": "template_reply | rag_answer | template_then_rag | clarify | human | chitchat | unsupported",
-  "primary_intent": "greeting | ask_price | price_objection | discount_request | ask_logistics | ask_after_sale | order_intent | payment_intent | knowledge_question | care_question | process_question | usage_question | refund_request | complaint | human_request | unsupported | unknown",
+  "primary_intent": "greeting | profile_answer | ask_price | price_objection | discount_request | ask_logistics | ask_after_sale | order_intent | payment_intent | knowledge_question | care_question | process_question | usage_question | refund_request | complaint | human_request | unsupported | unknown",
   "secondary_intents": [],
   "slots": {{}},
   "sales_stage": "unknown | greeting | need_discovery | pain_confirmed | solution_recommended | price_discussed | objection_handling | order_intent | after_sale | human_pending",

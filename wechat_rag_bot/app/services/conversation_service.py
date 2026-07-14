@@ -379,6 +379,60 @@ async def record_customer_message(
     return result
 
 
+async def update_customer_identity(
+    *,
+    channel: str,
+    user_id: str,
+    session_id: str | None,
+    metadata: dict[str, Any],
+) -> bool:
+    conversation_id = make_conversation_id(channel, user_id, session_id)
+    display_name = _metadata_text(
+        metadata,
+        (
+            "remark_name",
+            "remark",
+            "display_name",
+            "nickname",
+            "nick_name",
+            "user_nickname",
+            "from_user_name",
+            "fromUserName",
+            "sender_name",
+            "alias",
+        ),
+    )
+    avatar_url = _metadata_text(
+        metadata,
+        ("avatar_url", "avatar", "headimgurl", "head_img_url", "head_url"),
+    )
+    if not display_name and not avatar_url:
+        return False
+
+    changed = False
+    with _get_session() as session:
+        conversation = session.scalar(
+            select(ConversationModel).where(
+                ConversationModel.conversation_id == conversation_id
+            )
+        )
+        if conversation is None:
+            return False
+        if display_name and conversation.user_display_name != display_name:
+            conversation.user_display_name = display_name
+            changed = True
+        if avatar_url and conversation.user_avatar_url != avatar_url:
+            conversation.user_avatar_url = avatar_url
+            changed = True
+        if changed:
+            conversation.updated_at = _now()
+            session.commit()
+
+    if changed:
+        _publish_change(conversation_id, "identity")
+    return changed
+
+
 async def claim_conversation(conversation_id: str, operator_id: str) -> dict:
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)

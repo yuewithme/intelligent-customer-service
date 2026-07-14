@@ -1,7 +1,19 @@
 from fastapi.testclient import TestClient
+import pytest
 
 from app.config import get_settings
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def disable_background_contact_refresh(monkeypatch):
+    from app.services import eyun_callback_service
+
+    monkeypatch.setattr(
+        eyun_callback_service,
+        "schedule_eyun_contact_refresh",
+        lambda **kwargs: None,
+    )
 
 
 def _reset_settings(monkeypatch, tmp_path):

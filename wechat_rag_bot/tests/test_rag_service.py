@@ -23,6 +23,16 @@ def test_care_retrieval_excludes_sales_sections():
             "text": "typed sales copy",
         },
         {"section": "烂根处理", "text": "structured orchid knowledge"},
+        {
+            "section": "小国魂 - 产品基础信息",
+            "entity_type": "orchid_product",
+            "text": "建兰经典色花，价格十几元起。",
+        },
+        {
+            "section": "国魂 - 交易认知",
+            "source_table": "orchid_products",
+            "text": "主流成交价 80-200 元每苗。",
+        },
     ]
 
     assert rag_service.select_care_docs(docs) == [docs[0], docs[6]]

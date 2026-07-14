@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     eyun_reply_jitter_min_seconds: int = Field(default=2, alias="EYUN_REPLY_JITTER_MIN_SECONDS")
     eyun_reply_jitter_max_seconds: int = Field(default=12, alias="EYUN_REPLY_JITTER_MAX_SECONDS")
     eyun_worker_poll_seconds: float = Field(default=1.0, alias="EYUN_WORKER_POLL_SECONDS")
+    eyun_contact_refresh_delay_seconds: float = Field(
+        default=15.0, ge=0, alias="EYUN_CONTACT_REFRESH_DELAY_SECONDS"
+    )
     evaluation_mode: bool = Field(default=False, alias="EVALUATION_MODE")
 
     youzan_enabled: bool = False

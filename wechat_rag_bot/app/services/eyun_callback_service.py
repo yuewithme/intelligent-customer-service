@@ -10,7 +10,10 @@ import httpx
 
 from app.config import get_settings
 from app.services.conversation_service import AI_WAITING, HANDOFF_PENDING, record_customer_message
-from app.services.eyun_contact_service import get_eyun_contact_snapshot
+from app.services.eyun_contact_service import (
+    get_eyun_contact_snapshot,
+    schedule_eyun_contact_refresh,
+)
 from app.services.message_risk_control_service import enqueue_eyun_inbound
 from app.services.user_profile_service import ensure_user_profile
 
@@ -100,6 +103,19 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         metadata=metadata,
     )
 
+    if (
+        not str(data.get("fromGroup") or "").strip()
+        and not _has_contact_display(metadata)
+    ):
+        schedule_eyun_contact_refresh(
+            w_id=str(data.get("wId") or payload.get("wId") or get_settings().eyun_wid or ""),
+            wc_id=user_id,
+            user_id=user_id,
+            tenant_id=str(payload.get("tenant_id") or "tenant_default"),
+            channel="wechat",
+            session_id="default",
+        )
+
     if not is_eyun_private_text_message(payload):
         return eyun_success()
 
@@ -109,6 +125,13 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
 
     await enqueue_eyun_inbound(payload)
     return eyun_success()
+
+
+def _has_contact_display(metadata: dict[str, Any]) -> bool:
+    return any(
+        metadata.get(key)
+        for key in ("remark_name", "display_name", "nickname", "avatar_url")
+    )
 
 
 def _eyun_non_text_label(message_type: str) -> str:

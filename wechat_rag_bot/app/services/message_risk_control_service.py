@@ -22,6 +22,7 @@ from app.schemas.chat import ChatRequest
 from app.services.chat_orchestrator import handle_chat
 from app.services.conversation_service import HUMAN_ACTIVE, RESOLVED, make_conversation_id
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
+from app.services.user_profile_service import append_conversation_memory
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
@@ -235,10 +236,11 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         w_id=row.w_id, wc_id=row.wc_id, content=content
                     )
             except Exception as exc:  # noqa: BLE001
-                row.status = "queued"
                 row.attempts = (row.attempts or 0) + 1
+                row.status = "failed" if row.attempts >= 2 else "queued"
                 row.last_error = str(exc)
-                row.due_at = utcnow() + timedelta(seconds=30)
+                if row.status == "queued":
+                    row.due_at = utcnow() + timedelta(seconds=30)
                 row.updated_at = utcnow()
                 session.commit()
                 logger.warning("Eyun outbound send failed: %s", exc)
@@ -310,6 +312,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
 
         if is_first_inbound:
             chat_result = _opening_chat_result()
+            await _record_opening_memories(batch_data, chat_result.get("answer", ""))
         else:
             chat_result = await handle_chat(
                 ChatRequest(
@@ -352,6 +355,31 @@ async def _process_inbound_batch(batch_id: int) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
         _mark_batch(batch_id, "failed")
+
+
+async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
+    user_id = batch["from_user"] or batch["target_wc_id"]
+    session_id = batch["from_group"] or "default"
+    if batch.get("content"):
+        await append_conversation_memory(
+            user_id=user_id,
+            tenant_id="tenant_default",
+            session_id=session_id,
+            role="user",
+            content=batch["content"],
+            intent="opening_trigger",
+            route="chitchat",
+        )
+    if answer:
+        await append_conversation_memory(
+            user_id=user_id,
+            tenant_id="tenant_default",
+            session_id=session_id,
+            role="assistant",
+            content=answer,
+            intent="opening",
+            route="chitchat",
+        )
 
 
 def _conversation_blocks_ai(batch: dict[str, Any]) -> bool:
