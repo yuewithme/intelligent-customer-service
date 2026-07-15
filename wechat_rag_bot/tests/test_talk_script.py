@@ -673,7 +673,7 @@ async def test_chat_orchestrator_hydrates_profile_before_policy_and_reply(
     assert captured["recent_turns"][0]["content"] == "那我要买，给我链接"
 
 
-def test_to_chat_data_splits_paragraphs_into_answer_segments():
+def test_to_chat_data_keeps_short_paragraph_reply_as_one_message():
     from app.schemas.intent import IntentResult
     from app.schemas.reply import FinalReply
     from app.services.chat_orchestrator import _to_chat_data
@@ -694,10 +694,10 @@ def test_to_chat_data_splits_paragraphs_into_answer_segments():
     )
 
     assert data["answer"] == "第一段。\n第二段。\n第三段。"
-    assert data["answer_segments"] == ["第一段。", "第二段。", "第三段。"]
+    assert data["answer_segments"] == ["第一段。 第二段。 第三段。"]
 
 
-def test_to_chat_data_prefers_structured_answer_segments():
+def test_to_chat_data_merges_short_structured_answer_segments():
     from app.schemas.intent import IntentResult
     from app.schemas.reply import FinalReply
     from app.services.chat_orchestrator import _to_chat_data
@@ -718,10 +718,10 @@ def test_to_chat_data_prefers_structured_answer_segments():
         ),
     )
 
-    assert data["answer_segments"] == ["完整回答。", "您有多少盆？"]
+    assert data["answer_segments"] == ["完整回答。 您有多少盆？"]
 
 
-def test_answer_segments_keeps_every_short_sentence_as_a_message():
+def test_answer_segments_keeps_short_reply_as_one_message():
     from app.services.chat_orchestrator import _answer_segments
 
     sentences = [f"第{index}句。" for index in range(1, 6)]
@@ -729,11 +729,10 @@ def test_answer_segments_keeps_every_short_sentence_as_a_message():
 
     segments = _answer_segments(answer)
 
-    assert segments == sentences
-    assert "".join(segments) == answer
+    assert segments == [answer]
 
 
-def test_answer_segments_removes_markdown_and_splits_long_sentences():
+def test_answer_segments_removes_markdown_without_forcing_short_split():
     from app.services.chat_orchestrator import _answer_segments
 
     answer = (
@@ -745,8 +744,7 @@ def test_answer_segments_removes_markdown_and_splits_long_sentences():
 
     assert "**" not in "".join(segments)
     assert not segments[0].startswith("1.")
-    assert len(segments) > 1
-    assert all(len(segment) <= 36 for segment in segments)
+    assert len(segments) == 1
 
 
 def test_plain_customer_text_removes_markdown_tables_and_keeps_fenced_content():

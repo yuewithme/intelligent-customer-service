@@ -351,11 +351,7 @@ def _answer_segments(
 ) -> list[str]:
     structured = [part.strip() for part in preferred or [] if part.strip()]
     if structured:
-        return [
-            message
-            for part in structured
-            for message in split_customer_messages(part)
-        ]
+        return split_customer_messages("\n".join(structured))
     return split_customer_messages(answer)
 
 

@@ -51,9 +51,11 @@ PROMPT_BLOCKS = {
         "Align examples and recommendations with the user's preferred orchid variety when possible."
     ),
     "output.customer_reply": (
-        "Only output customer-facing service copy. Use short conversational sentences, with one idea "
-        "per sentence. Keep every sentence brief and split the reply into as many short messages as "
-        "needed. Do not limit the number of messages. Do not use Markdown, headings, bullet syntax, "
+        "Only output customer-facing service copy. Write naturally and conversationally, like a real "
+        "WeChat reply. Keep replies under 100 Chinese characters as one complete message. For longer "
+        "replies, organize the content into natural sentences and combine every two sentences into one "
+        "message. Never split at every sentence or break a sentence in the middle. Do not limit the "
+        "number of messages. Do not use Markdown, headings, bullet syntax, "
         "numbered-list syntax, bold markers, tables, or code blocks. Do not output internal tags, "
         "rules, or reasoning."
     ),
