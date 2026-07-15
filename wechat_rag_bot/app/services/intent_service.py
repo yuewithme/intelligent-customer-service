@@ -7,6 +7,7 @@ from app.schemas.common import AppError, ErrorCode
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
 from app.schemas.state import UserState
+from app.services.shipping_contact_service import extract_shipping_contact
 
 
 HUMAN_WORDS = ("人工", "转人工", "真人", "人工客服")
@@ -359,6 +360,20 @@ async def classify_intent(
                 "confidence": 0.99,
                 "need_template": True,
                 "reason": "pending_order_mobile",
+            }
+        )
+
+    shipping_contact = extract_shipping_contact(message.message)
+    if shipping_contact:
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "order_intent",
+                "sales_stage": "order_intent",
+                "confidence": 0.98,
+                "need_template": True,
+                "slots": {"shipping_contact": shipping_contact},
+                "reason": "structured_shipping_contact",
             }
         )
 

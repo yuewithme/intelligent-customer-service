@@ -25,12 +25,14 @@ from app.services.reply_workflow_graph import execute_reply_plan
 from app.services.rule_guard_service import check_rules
 from app.services.sales_action_service import apply_sales_action, decide_sales_action
 from app.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
+from app.services.shipping_contact_service import extract_shipping_contact
 from app.services.state_service import get_user_state, update_user_state
 from app.services.tagger_service import build_tag_result
 from app.services.user_profile_service import (
     apply_deterministic_profile_update,
     append_conversation_memory,
     get_profile_bundle,
+    save_shipping_contact,
 )
 from app.utils.logger import log_event
 
@@ -61,6 +63,20 @@ async def handle_chat(request: ChatRequest) -> dict:
             _apply_evaluation_context(message, user_state)
         else:
             await _hydrate_user_state_from_profile(message.user_id, user_state)
+            shipping_contact = extract_shipping_contact(
+                message.message,
+                allow_mobile_only=(
+                    user_state.metadata.get("commerce_pending") == "order_mobile"
+                ),
+            )
+            if shipping_contact:
+                saved_contact = await save_shipping_contact(
+                    message.user_id,
+                    shipping_contact,
+                    tenant_id=message.tenant_id,
+                    channel=message.channel,
+                )
+                _merge_shipping_contact_into_state(user_state, saved_contact)
         stage_latencies["state_ms"] = _elapsed_ms(stage_started)
 
         stage_started = time.perf_counter()
@@ -335,6 +351,21 @@ async def _hydrate_user_state_from_profile(user_id: str, user_state) -> None:
         **user_state.metadata,
         "profile": profile,
         "recent_turns": bundle.get("recent_memories", []),
+    }
+
+
+def _merge_shipping_contact_into_state(user_state, contact: dict[str, str]) -> None:
+    if not contact:
+        return
+    profile = user_state.metadata.get("profile")
+    if not isinstance(profile, dict):
+        profile = {}
+    basic_info = profile.get("basic_info")
+    if not isinstance(basic_info, dict):
+        basic_info = {}
+    user_state.metadata["profile"] = {
+        **profile,
+        "basic_info": {**basic_info, **contact},
     }
 
 

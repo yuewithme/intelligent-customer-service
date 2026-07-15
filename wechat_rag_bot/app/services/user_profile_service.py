@@ -30,6 +30,10 @@ _basic_info_fields = {
     "alias_name",
     "avatar_url",
     "label_ids",
+    "recipient_name",
+    "mobile",
+    "shipping_address",
+    "shipping_city",
 }
 _allowed_patch_fields = {
     "current_stage",
@@ -153,6 +157,37 @@ async def ensure_user_profile(
             profile.updated_at = _now()
         session.commit()
         return _profile_to_dict(profile)
+
+
+async def save_shipping_contact(
+    user_id: str,
+    contact: dict[str, str],
+    *,
+    tenant_id: str = "tenant_default",
+    channel: str = "api",
+) -> dict:
+    allowed = {
+        key: value.strip()
+        for key, value in contact.items()
+        if key in {"recipient_name", "mobile", "shipping_address", "shipping_city"}
+        and isinstance(value, str)
+        and value.strip()
+    }
+    if not allowed:
+        return {}
+    with _get_session() as session:
+        profile = _get_or_create_profile(
+            session,
+            user_id,
+            tenant_id=tenant_id,
+            channel=channel,
+        )
+        basic_info = _json_loads(profile.basic_info_json, {})
+        basic_info.update(allowed)
+        profile.basic_info_json = _json_dumps(basic_info)
+        profile.updated_at = _now()
+        session.commit()
+        return allowed
 
 
 async def refresh_profile_from_memory(user_id: str) -> None:

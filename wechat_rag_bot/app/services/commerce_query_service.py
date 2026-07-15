@@ -90,6 +90,7 @@ async def build_commerce_context(
     mobile = (
         _mobile_from(message.message)
         or str(user_state.metadata.get("commerce_mobile") or "")
+        or _mobile_from_profile(user_state.metadata.get("profile"))
         or _mobile_from_recent_turns(user_state.metadata.get("recent_turns"))
     )
     if not mobile:
@@ -147,6 +148,15 @@ def _mobile_from_recent_turns(value) -> str:
         if mobile:
             return mobile
     return ""
+
+
+def _mobile_from_profile(value) -> str:
+    if not isinstance(value, dict):
+        return ""
+    basic_info = value.get("basic_info")
+    if not isinstance(basic_info, dict):
+        return ""
+    return _mobile_from(str(basic_info.get("mobile") or ""))
 
 
 def _product_keyword(text: str, slots: dict, recent_turns=None) -> str:

@@ -107,6 +107,14 @@ def _render_context(context) -> str:
                 "Ask at most one follow-up question, and only ask for question_slot. "
                 "Do not repeat known facts or fabricate product facts."
             )
+        known_contact_fields = context.session_state.get("known_contact_fields")
+        if known_contact_fields:
+            parts.append(
+                "Known shipping-contact fields already provided by the customer:\n"
+                f"{known_contact_fields}\n"
+                "Do not ask for these fields again. Do not claim an order was created, "
+                "paid, or updated unless tool state confirms it."
+            )
     if context.recent_turns:
         turns = "\n".join(f"{turn.get('role')}: {turn.get('content')}" for turn in context.recent_turns)
         parts.append(f"Recent conversation:\n{turns}")

@@ -3,6 +3,7 @@ from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
 from app.schemas.state import UserState
 from app.schemas.template import TemplateItem, TemplateReply
+from app.services.shipping_contact_service import extract_shipping_contact, mask_mobile
 
 
 _templates: dict[str, TemplateItem] = {
@@ -133,12 +134,44 @@ async def render_template(
     message: NormalizedMessage,
     user_state: UserState,
 ) -> TemplateReply:
-    del message, user_state
+    content = template.content
+    basic_info = _profile_basic_info(user_state)
+    if template.template_id == "tpl_order_information_received":
+        contact = {**basic_info, **extract_shipping_contact(message.message)}
+        content = _shipping_contact_confirmation(contact)
+    elif template.template_id == "tpl_logistics_default" and basic_info.get(
+        "shipping_city"
+    ):
+        content = (
+            "正常会尽快安排发货，具体时效还需要结合库存和实际物流确认，"
+            "我这边会继续为您跟进。"
+        )
     return TemplateReply(
-        answer=template.content,
+        answer=content,
         template_id=template.template_id,
         next_action=template.next_action,
     )
+
+
+def _profile_basic_info(user_state: UserState) -> dict:
+    profile = user_state.metadata.get("profile")
+    if not isinstance(profile, dict):
+        return {}
+    basic_info = profile.get("basic_info")
+    return basic_info if isinstance(basic_info, dict) else {}
+
+
+def _shipping_contact_confirmation(contact: dict) -> str:
+    details: list[str] = []
+    if contact.get("shipping_address"):
+        details.append(str(contact["shipping_address"]))
+    if contact.get("recipient_name"):
+        details.append(f"收件人{contact['recipient_name']}")
+    if contact.get("mobile"):
+        details.append(f"电话{mask_mobile(str(contact['mobile']))}")
+    if not details:
+        return "好的，已收到您的收货信息，我这边按订单流程继续为您处理。"
+    return f"好的，已记录收货信息：{'，'.join(details)}。我这边按订单流程继续为您处理。"
 
 
 def _text_score(text: str, template: TemplateItem) -> float:

@@ -13,6 +13,7 @@ async def select_context(request: ContextSelectionInput) -> ContextPackage:
         "last_intent": request.state.get("last_intent"),
         "last_route": request.state.get("last_route"),
         "sales_action": request.state.get("metadata", {}).get("sales_action"),
+        "known_contact_fields": _known_contact_fields(request.profile),
     }
     recent_turns = request.memories[-recent_turns_count:] if recent_turns_count > 0 else []
     long_memory_summary = _long_memory_summary(request.profile) if include_long_summary else ""
@@ -41,6 +42,17 @@ def _profile_summary(profile: dict) -> dict:
         "active_opportunity": profile.get("active_opportunity", {}),
     }
     return {key: value for key, value in values.items() if value not in (None, "", [], {})}
+
+
+def _known_contact_fields(profile: dict) -> list[str]:
+    basic_info = profile.get("basic_info") if isinstance(profile, dict) else None
+    if not isinstance(basic_info, dict):
+        return []
+    return [
+        key
+        for key in ("recipient_name", "mobile", "shipping_address", "shipping_city")
+        if basic_info.get(key) not in (None, "", [])
+    ]
 
 
 def _long_memory_summary(profile: dict) -> str:
