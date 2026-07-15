@@ -4,6 +4,7 @@ import re
 SHORT_REPLY_CHARS = 100
 SENTENCES_PER_MESSAGE = 2
 EMERGENCY_SENTENCE_CHARS = 200
+_WEAK_MESSAGE_ENDINGS = "，,、；;：:"
 _MARKDOWN_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _MARKDOWN_PREFIX_RE = re.compile(
     r"^\s*(?:#{1,6}\s+|>\s*|[-+*]\s+|\d+[.)、]\s*)"
@@ -41,7 +42,7 @@ def split_customer_messages(text: str) -> list[str]:
     """Keep ordinary replies intact; split long replies every two sentences."""
     semantic_messages = _semantic_messages(text)
     if len(semantic_messages) > 1:
-        return semantic_messages
+        return coalesce_customer_messages(semantic_messages)
 
     plain = plain_customer_text(text)
     normalized = " ".join(plain.splitlines()).strip()
@@ -59,7 +60,31 @@ def split_customer_messages(text: str) -> list[str]:
             continue
         for sentence in group:
             messages.extend(_split_exceptionally_long_sentence(sentence))
-    return messages
+    return coalesce_customer_messages(messages)
+
+
+def coalesce_customer_messages(messages: list[str]) -> list[str]:
+    """Merge short replies and fragments that end at a weak punctuation mark."""
+    cleaned = [str(message).strip() for message in messages if str(message).strip()]
+    if not cleaned:
+        return []
+
+    combined = "".join(cleaned)
+    if len(combined) <= SHORT_REPLY_CHARS:
+        return [combined]
+
+    merged: list[str] = []
+    pending = ""
+    for message in cleaned:
+        current = f"{pending}{message}"
+        pending = ""
+        if len(current) <= SHORT_REPLY_CHARS and current.endswith(tuple(_WEAK_MESSAGE_ENDINGS)):
+            pending = current
+        else:
+            merged.append(current)
+    if pending:
+        merged.append(pending)
+    return merged
 
 
 def _semantic_messages(text: str) -> list[str]:

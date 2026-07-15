@@ -14,11 +14,24 @@ def test_long_reply_groups_every_two_sentences():
 def test_blank_lines_preserve_semantic_message_boundaries():
     text = "已为您登记收货信息。\n\n请确认订单后，我会尽快安排发出。\n\n我这边持续跟进。"
 
-    assert split_customer_messages(text) == [
-        "已为您登记收货信息。",
-        "请确认订单后，我会尽快安排发出。",
-        "我这边持续跟进。",
-    ]
+    assert split_customer_messages(text) == ["已为您登记收货信息。请确认订单后，我会尽快安排发出。我这边持续跟进。"]
+
+
+def test_short_fragment_with_comma_is_merged_into_one_reply():
+    text = "你好，\n\n我在的。\n\n你可以直接问产品、价格、养护、发货或售后问题。"
+
+    assert split_customer_messages(text) == ["你好，我在的。你可以直接问产品、价格、养护、发货或售后问题。"]
+
+
+def test_long_semantic_reply_merges_fragment_ending_with_comma():
+    from app.services.customer_reply_formatter import coalesce_customer_messages
+
+    messages = coalesce_customer_messages(
+        ["您好，", "第一段说明内容较长，用于模拟真实的客服服务说明。" * 3, "第二段继续说明内容。" * 4]
+    )
+
+    assert messages[0].startswith("您好，第一段")
+    assert not any(message.endswith("，") for message in messages)
 
 
 def test_exceptionally_long_sentence_splits_at_clause_boundary():

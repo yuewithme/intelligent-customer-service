@@ -12,6 +12,7 @@ from app.services.business_context_service import build_business_context
 from app.services.commerce_query_service import build_commerce_context
 from app.services.conversation_service import record_ai_turn
 from app.services.customer_reply_formatter import (
+    coalesce_customer_messages,
     plain_customer_text,
     split_customer_messages,
 )
@@ -356,7 +357,7 @@ def _answer_segments(
             message = plain_customer_text(part).replace("\n", " ").strip()
             if message:
                 messages.append(message)
-        return messages
+        return coalesce_customer_messages(messages)
     return split_customer_messages(answer)
 
 
