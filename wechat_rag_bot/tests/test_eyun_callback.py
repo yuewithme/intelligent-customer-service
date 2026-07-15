@@ -215,6 +215,7 @@ def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_
             "wc_id": "wxid_customer",
             "content": "亲能否具体描述一下图片内容",
             "source_batch_key": None,
+            "conversation_message_id": 1,
         }
     ]
 
@@ -443,8 +444,12 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
 
     detail = client.get(f"/api/v1/admin/conversations/{item['conversation_id']}")
     messages = detail.json()["data"]["messages"]
-    assert [message["content"] for message in messages] == ["hello", "[图片]"]
-    assert all(message["sender_type"] == "customer" for message in messages)
+    assert [message["content"] for message in messages] == [
+        "hello",
+        "[图片]",
+        "亲能否具体描述一下图片内容",
+    ]
+    assert [message["sender_type"] for message in messages] == ["customer", "customer", "ai"]
     assert messages[1]["metadata"]["message_type"] == "60002"
     assert messages[1]["metadata"]["image_thumb_base64"]
     assert messages[1]["metadata"]["media"] == {

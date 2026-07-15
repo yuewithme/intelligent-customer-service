@@ -102,6 +102,9 @@ class EyunOutboundMessageModel(Base):
     wc_id: Mapped[str] = mapped_column(String(256), index=True)
     content: Mapped[str] = mapped_column(Text)
     source_batch_key: Mapped[str | None] = mapped_column(String(512), index=True, nullable=True)
+    conversation_message_id: Mapped[int | None] = mapped_column(
+        Integer, index=True, nullable=True
+    )
     status: Mapped[str] = mapped_column(String(32), index=True, default="queued")
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -157,6 +160,9 @@ class ConversationMessageModel(Base):
     conversation_id: Mapped[str] = mapped_column(String(256), index=True)
     trace_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    delivery_status: Mapped[str | None] = mapped_column(
+        String(32), index=True, nullable=True
+    )
     sender_type: Mapped[str] = mapped_column(String(32), index=True)
     sender_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     content: Mapped[str] = mapped_column(Text)

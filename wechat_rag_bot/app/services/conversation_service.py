@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -379,6 +379,141 @@ async def record_customer_message(
     return result
 
 
+async def ensure_outbound_conversation_message(
+    *,
+    channel: str,
+    user_id: str,
+    session_id: str | None,
+    content: str,
+    message_type: str = "text",
+    sender_type: str = "ai",
+    sender_id: str | None = "ai",
+    tenant_id: str = "tenant_default",
+    provider_message_id: str | None = None,
+    delivery_status: str = "queued",
+    route: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    created_after: datetime | None = None,
+) -> dict:
+    """Create or reconcile one outbound message shown in the workbench."""
+    conversation_id = make_conversation_id(channel, user_id, session_id)
+    now = _now()
+    display_content = _outbound_display_content(message_type, content)
+    message_metadata = _outbound_metadata(message_type, content, metadata)
+
+    with _get_session() as session:
+        conversation = session.scalar(
+            select(ConversationModel).where(
+                ConversationModel.conversation_id == conversation_id
+            )
+        )
+        if conversation is None:
+            conversation = ConversationModel(
+                conversation_id=conversation_id,
+                channel=channel,
+                user_id=user_id,
+                session_id=session_id,
+                tenant_id=tenant_id,
+                status=AI_WAITING,
+                unread_count=0,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(conversation)
+            session.flush()
+
+        message = None
+        if provider_message_id:
+            message = session.scalar(
+                select(ConversationMessageModel).where(
+                    ConversationMessageModel.conversation_id == conversation_id,
+                    ConversationMessageModel.message_id == provider_message_id,
+                )
+            )
+        if message is None:
+            pending_query = select(ConversationMessageModel).where(
+                ConversationMessageModel.conversation_id == conversation_id,
+                ConversationMessageModel.content == display_content,
+                ConversationMessageModel.sender_type.in_(("ai", "human")),
+                ConversationMessageModel.message_id.is_(None),
+                or_(
+                    ConversationMessageModel.delivery_status.is_(None),
+                    ConversationMessageModel.delivery_status == "queued",
+                ),
+            )
+            if created_after is not None:
+                pending_query = pending_query.where(
+                    ConversationMessageModel.created_at >= created_after
+                )
+            message = session.scalar(
+                pending_query.order_by(
+                    ConversationMessageModel.created_at.asc(),
+                    ConversationMessageModel.id.asc(),
+                ).limit(1)
+            )
+
+        if message is None:
+            message = ConversationMessageModel(
+                conversation_id=conversation_id,
+                message_id=provider_message_id,
+                delivery_status=delivery_status,
+                sender_type=sender_type,
+                sender_id=sender_id,
+                content=display_content,
+                route=route,
+                metadata_json=json.dumps(message_metadata, ensure_ascii=False),
+                created_at=now,
+            )
+            session.add(message)
+            session.flush()
+        else:
+            if provider_message_id:
+                message.message_id = provider_message_id
+            message.delivery_status = delivery_status
+            existing_metadata = _load_metadata(message.metadata_json)
+            existing_metadata.update(message_metadata)
+            message.metadata_json = json.dumps(existing_metadata, ensure_ascii=False)
+
+        if sender_type == "human":
+            conversation.last_message = display_content
+        conversation.updated_at = now
+        session.commit()
+        result = _message_to_dict(message)
+
+    _publish_change(conversation_id, "message")
+    return result
+
+
+def update_outbound_message_delivery(
+    conversation_message_id: int,
+    *,
+    status: str,
+    provider_message_id: str | None = None,
+    sent_at: datetime | None = None,
+) -> None:
+    with _get_session() as session:
+        message = session.get(ConversationMessageModel, conversation_message_id)
+        if message is None:
+            return
+        if provider_message_id:
+            duplicate = session.scalar(
+                select(ConversationMessageModel).where(
+                    ConversationMessageModel.conversation_id == message.conversation_id,
+                    ConversationMessageModel.message_id == provider_message_id,
+                    ConversationMessageModel.id != message.id,
+                )
+            )
+            if duplicate is not None:
+                session.delete(duplicate)
+            message.message_id = provider_message_id
+        message.delivery_status = status
+        if sent_at is not None:
+            message.created_at = sent_at
+        session.commit()
+        conversation_id = message.conversation_id
+    _publish_change(conversation_id, "message")
+
+
 async def update_customer_identity(
     *,
     channel: str,
@@ -461,6 +596,7 @@ async def reply_conversation(
             message="回复内容不能为空",
             status_code=400,
         )
+    send_result: dict[str, Any] | None = None
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)
         if conversation.status != HUMAN_ACTIVE or conversation.owner_id != operator_id:
@@ -474,7 +610,7 @@ async def reply_conversation(
             try:
                 from app.services.eyun_callback_service import send_eyun_text
 
-                await send_eyun_text(
+                send_result = await send_eyun_text(
                     w_id=eyun_target["w_id"],
                     wc_id=eyun_target["wc_id"],
                     content=content,
@@ -486,16 +622,38 @@ async def reply_conversation(
                     status_code=502,
                 ) from exc
         now = _now()
-        session.add(
-            ConversationMessageModel(
-                conversation_id=conversation_id,
-                sender_type="human",
-                sender_id=operator_id,
-                content=content,
-                metadata_json="{}",
-                created_at=now,
+        provider_message_id = _eyun_result_message_id(send_result)
+        message = None
+        if provider_message_id:
+            message = session.scalar(
+                select(ConversationMessageModel).where(
+                    ConversationMessageModel.conversation_id == conversation_id,
+                    ConversationMessageModel.message_id == provider_message_id,
+                )
             )
-        )
+        if message is None:
+            session.add(
+                ConversationMessageModel(
+                    conversation_id=conversation_id,
+                    message_id=provider_message_id,
+                    delivery_status="sent" if eyun_target else None,
+                    sender_type="human",
+                    sender_id=operator_id,
+                    content=content,
+                    metadata_json=json.dumps(
+                        {
+                            "provider": "eyun",
+                            "direction": "outbound",
+                            "message_type": "text",
+                            "origin": "admin_workbench",
+                        }
+                        if eyun_target
+                        else {},
+                        ensure_ascii=False,
+                    ),
+                    created_at=_eyun_result_sent_at(send_result) or now,
+                )
+            )
         conversation.last_message = content
         conversation.updated_at = now
         memory_context = {
@@ -757,10 +915,7 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
 
 
 def _message_to_dict(row: ConversationMessageModel) -> dict:
-    try:
-        metadata = json.loads(row.metadata_json or "{}")
-    except json.JSONDecodeError:
-        metadata = {}
+    metadata = _load_metadata(row.metadata_json)
     if metadata.get("provider") == "eyun" and not metadata.get("media"):
         from app.services.eyun_callback_service import extract_eyun_media_metadata
 
@@ -793,6 +948,7 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         "conversation_id": row.conversation_id,
         "trace_id": row.trace_id,
         "message_id": row.message_id,
+        "delivery_status": row.delivery_status,
         "sender_type": row.sender_type,
         "sender_id": row.sender_id,
         "content": row.content,
@@ -801,6 +957,72 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         "metadata": metadata,
         "created_at": _utc_isoformat(row.created_at),
     }
+
+
+def _load_metadata(value: str | None) -> dict[str, Any]:
+    try:
+        metadata = json.loads(value or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _eyun_result_message_id(result: Any) -> str | None:
+    if not isinstance(result, dict) or not isinstance(result.get("data"), dict):
+        return None
+    data = result["data"]
+    return str(data.get("newMsgId") or data.get("msgId") or "") or None
+
+
+def _eyun_result_sent_at(result: Any) -> datetime | None:
+    if not isinstance(result, dict) or not isinstance(result.get("data"), dict):
+        return None
+    try:
+        timestamp = int(result["data"].get("createTime"))
+    except (TypeError, ValueError):
+        return None
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp > 0 else None
+
+
+def _outbound_display_content(message_type: str, content: str) -> str:
+    if message_type == "text":
+        return content
+    if message_type == "mini_program":
+        try:
+            card = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            card = {}
+        title = str(card.get("title") or "").strip() if isinstance(card, dict) else ""
+        return f"[小程序] {title}".strip()
+    return {
+        "image": "[图片]",
+        "received_image": "[图片]",
+        "received_video": "[视频]",
+        "video": "[视频]",
+    }.get(message_type, "[非文本消息]")
+
+
+def _outbound_metadata(
+    message_type: str, content: str, metadata: dict[str, Any] | None
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "provider": "eyun",
+        "direction": "outbound",
+        "message_type": message_type,
+        "outbound_content": content,
+    }
+    if message_type in {"image", "received_image"}:
+        result["media"] = {"type": "image", "url": content, "fallback": False}
+    elif message_type in {"video", "received_video"}:
+        result["media"] = {"type": "video", "url": content, "fallback": False}
+    elif message_type == "mini_program":
+        try:
+            result["mini_program"] = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            result["mini_program"] = {"content": content}
+    if metadata:
+        result.update(metadata)
+    return result
 
 
 def _utc_isoformat(value: datetime) -> str:
@@ -865,4 +1087,15 @@ def _ensure_conversation_columns(factory: sessionmaker) -> None:
             session.execute(text("ALTER TABLE conversations ADD COLUMN user_display_name VARCHAR(256)"))
         if "user_avatar_url" not in columns:
             session.execute(text("ALTER TABLE conversations ADD COLUMN user_avatar_url TEXT"))
+        message_columns = {
+            column["name"]
+            for column in inspect(bind).get_columns("conversation_messages")
+        }
+        if "delivery_status" not in message_columns:
+            session.execute(
+                text(
+                    "ALTER TABLE conversation_messages "
+                    "ADD COLUMN delivery_status VARCHAR(32)"
+                )
+            )
         session.commit()

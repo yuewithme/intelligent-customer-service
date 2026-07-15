@@ -28,6 +28,7 @@ export interface ConversationMessage {
   conversation_id: string
   trace_id?: string | null
   message_id?: string | null
+  delivery_status?: 'queued' | 'sent' | 'failed' | null
   sender_type: 'customer' | 'ai' | 'human' | 'system'
   sender_id?: string | null
   content: string

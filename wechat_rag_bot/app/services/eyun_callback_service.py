@@ -9,7 +9,12 @@ from xml.etree import ElementTree
 import httpx
 
 from app.config import get_settings
-from app.services.conversation_service import AI_WAITING, HANDOFF_PENDING, record_customer_message
+from app.services.conversation_service import (
+    AI_WAITING,
+    HANDOFF_PENDING,
+    ensure_outbound_conversation_message,
+    record_customer_message,
+)
 from app.services.eyun_contact_service import (
     get_eyun_contact_snapshot,
     schedule_eyun_contact_refresh,
@@ -47,7 +52,6 @@ def should_process_eyun_payload(payload: dict[str, Any]) -> bool:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     return (
         str(payload.get("messageType", "")) != EYUN_TEST_CALLBACK
-        and not _is_self_message(data)
         and is_eyun_workbench_message(payload)
         and bool(str(data.get("fromGroup") or data.get("fromUser") or "").strip())
     )
@@ -72,9 +76,29 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         return eyun_success()
     if not is_eyun_workbench_message(payload):
         return eyun_success()
-    if _is_self_message(data):
-        return eyun_success()
     if not str(data.get("fromGroup") or data.get("fromUser") or "").strip():
+        return eyun_success()
+
+    if _is_self_message(data):
+        user_id = str(data.get("fromGroup") or data.get("toUser") or "").strip()
+        if not user_id:
+            return eyun_success()
+        metadata = await _eyun_workbench_metadata(payload, data, user_id=user_id)
+        await ensure_outbound_conversation_message(
+            channel="wechat",
+            user_id=user_id,
+            session_id=str(data.get("fromGroup") or "default"),
+            content=str(data.get("content") or ""),
+            message_type=(
+                "text" if is_eyun_text_message(payload) else _eyun_message_kind(message_type)
+            ),
+            sender_type="human",
+            sender_id="wechat_client",
+            provider_message_id=_eyun_message_id(data),
+            delivery_status="sent",
+            route="self_outbound",
+            metadata={**metadata, "origin": "wechat_client"},
+        )
         return eyun_success()
 
     metadata = await _eyun_workbench_metadata(payload, data)
@@ -141,11 +165,22 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     if is_private_image:
         w_id = str(metadata.get("w_id") or get_settings().eyun_wid or "")
         if await reserve_eyun_image_description_prompt(w_id=w_id, wc_id=user_id):
+            prompt_message = await ensure_outbound_conversation_message(
+                channel="wechat",
+                user_id=user_id,
+                session_id="default",
+                content=IMAGE_DESCRIPTION_PROMPT,
+                message_type="text",
+                sender_type="ai",
+                sender_id="ai",
+                route="image_description_prompt",
+            )
             await enqueue_eyun_outbound(
                 w_id=w_id,
                 wc_id=user_id,
                 content=IMAGE_DESCRIPTION_PROMPT,
                 source_batch_key=None,
+                conversation_message_id=prompt_message["id"],
             )
         return eyun_success()
 
@@ -231,10 +266,15 @@ def _eyun_message_kind(message_type: str) -> str:
     }.get(message_type[-3:], "non_text")
 
 
-async def _eyun_workbench_metadata(payload: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+async def _eyun_workbench_metadata(
+    payload: dict[str, Any],
+    data: dict[str, Any],
+    *,
+    user_id: str | None = None,
+) -> dict[str, Any]:
     message_type = str(payload.get("messageType") or "")
     w_id = str(data.get("wId") or payload.get("wId") or "")
-    user_id = _eyun_conversation_user_id(data)
+    user_id = user_id or _eyun_conversation_user_id(data)
     metadata = {
         "provider": "eyun",
         "account": str(payload.get("account") or ""),
@@ -492,7 +532,9 @@ async def send_eyun_text(
     return result
 
 
-async def send_eyun_image(*, w_id: str, wc_id: str, content: str) -> None:
+async def send_eyun_image(
+    *, w_id: str, wc_id: str, content: str
+) -> dict[str, Any] | None:
     settings = get_settings()
     base_url = settings.eyun_base_url.rstrip("/")
     authorization = settings.eyun_authorization.strip()
@@ -511,11 +553,12 @@ async def send_eyun_image(*, w_id: str, wc_id: str, content: str) -> None:
     if str(result.get("code")) != "1000":
         logger.warning("Eyun sendImage2 returned non-success response: %s", result)
         raise RuntimeError(f"Eyun sendImage2 failed: {result}")
+    return result
 
 
 async def send_eyun_received_media(
     *, w_id: str, wc_id: str, content: str, message_type: str
-) -> None:
+) -> dict[str, Any] | None:
     endpoint = {
         "received_image": "/sendRecvImage",
         "received_video": "/sendRecvVideo",
@@ -540,6 +583,7 @@ async def send_eyun_received_media(
     result = response.json()
     if str(result.get("code")) != "1000":
         raise RuntimeError(f"Eyun received media send failed: {result}")
+    return result
 
 
 async def send_eyun_mini_program(
@@ -547,7 +591,7 @@ async def send_eyun_mini_program(
     w_id: str,
     wc_id: str,
     card: dict[str, str],
-) -> None:
+) -> dict[str, Any] | None:
     settings = get_settings()
     base_url = settings.eyun_base_url.rstrip("/")
     authorization = settings.eyun_authorization.strip()
@@ -577,3 +621,4 @@ async def send_eyun_mini_program(
     if str(result.get("code")) != "1000":
         logger.warning("Eyun sendApplets returned non-success response: %s", result)
         raise RuntimeError(f"Eyun sendApplets failed: {result}")
+    return result

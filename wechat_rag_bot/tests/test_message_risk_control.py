@@ -217,7 +217,13 @@ async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
         return {"answer": "merged reply"}
 
     async def fake_enqueue_outbound(
-        *, w_id, wc_id, content, source_batch_key, due_at=None
+        *,
+        w_id,
+        wc_id,
+        content,
+        source_batch_key,
+        conversation_message_id=None,
+        due_at=None,
     ):
         outbound.append(
             {
@@ -225,6 +231,7 @@ async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
                 "wc_id": wc_id,
                 "content": content,
                 "source_batch_key": source_batch_key,
+                "conversation_message_id": conversation_message_id,
                 "due_at": due_at,
             }
         )
@@ -516,8 +523,7 @@ def test_outbound_text_messages_are_plain_short_messages():
     )
 
     assert messages == [
-        {"type": "text", "content": "第一步：剪掉烂根。"},
-        {"type": "text", "content": "然后放通风处晾干。"},
+        {"type": "text", "content": "第一步：剪掉烂根。然后放通风处晾干。"},
         {"type": "image", "content": "https://example.com/a.jpg"},
     ]
 

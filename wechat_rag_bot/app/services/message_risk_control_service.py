@@ -5,7 +5,7 @@ import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,7 +22,13 @@ from app.db.models import (
 )
 from app.schemas.chat import ChatRequest
 from app.services.chat_orchestrator import handle_chat
-from app.services.conversation_service import HUMAN_ACTIVE, RESOLVED, make_conversation_id
+from app.services.conversation_service import (
+    HUMAN_ACTIVE,
+    RESOLVED,
+    ensure_outbound_conversation_message,
+    make_conversation_id,
+    update_outbound_message_delivery,
+)
 from app.services.customer_reply_formatter import split_customer_messages
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
 from app.services.user_profile_service import append_conversation_memory
@@ -31,6 +37,7 @@ from app.services.user_profile_service import append_conversation_memory
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
 
 _sessionmakers: dict[str, sessionmaker] = {}
+_initialized_urls: set[str] = set()
 
 
 def utcnow() -> datetime:
@@ -166,6 +173,7 @@ async def enqueue_eyun_outbound(
     content: str,
     source_batch_key: str | None,
     message_type: str = "text",
+    conversation_message_id: int | None = None,
     due_at: datetime | None = None,
 ) -> dict[str, Any]:
     now = utcnow()
@@ -174,6 +182,7 @@ async def enqueue_eyun_outbound(
         wc_id=wc_id,
         content=_encode_outbound_content(message_type, content),
         source_batch_key=source_batch_key,
+        conversation_message_id=conversation_message_id,
         status="queued",
         due_at=due_at or now + timedelta(seconds=random_reply_delay_seconds()),
         attempts=0,
@@ -257,15 +266,17 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
 
                 message_type, content = _decode_outbound_content(row.content)
                 if message_type == "image":
-                    await send_eyun_image(w_id=row.w_id, wc_id=row.wc_id, content=content)
+                    send_result = await send_eyun_image(
+                        w_id=row.w_id, wc_id=row.wc_id, content=content
+                    )
                 elif message_type == "mini_program":
-                    await send_eyun_mini_program(
+                    send_result = await send_eyun_mini_program(
                         w_id=row.w_id,
                         wc_id=row.wc_id,
                         card=json.loads(content),
                     )
                 elif message_type in {"received_image", "received_video"}:
-                    await send_eyun_received_media(
+                    send_result = await send_eyun_received_media(
                         w_id=row.w_id,
                         wc_id=row.wc_id,
                         content=content,
@@ -283,18 +294,24 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     row.due_at = utcnow() + timedelta(seconds=30)
                 row.updated_at = utcnow()
                 session.commit()
+                if row.conversation_message_id:
+                    update_outbound_message_delivery(
+                        row.conversation_message_id,
+                        status=row.status,
+                    )
                 logger.warning("Eyun outbound send failed: %s", exc)
                 continue
 
             sent_at = _eyun_sent_at(send_result) or utcnow()
             row.status = "sent"
             row.updated_at = sent_at
-            _mark_conversation_ai_message_sent(
-                session,
-                source_batch_key=row.source_batch_key,
-                content=content,
-                sent_at=sent_at,
-            )
+            if not row.conversation_message_id:
+                _mark_conversation_ai_message_sent(
+                    session,
+                    source_batch_key=row.source_batch_key,
+                    content=content,
+                    sent_at=sent_at,
+                )
             if rate is None:
                 rate = EyunSendRateModel(
                     w_id=row.w_id, last_sent_at=sent_at, updated_at=sent_at
@@ -304,6 +321,13 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 rate.last_sent_at = sent_at
                 rate.updated_at = sent_at
             session.commit()
+            if row.conversation_message_id:
+                update_outbound_message_delivery(
+                    row.conversation_message_id,
+                    status="sent",
+                    provider_message_id=_eyun_provider_message_id_from_result(send_result),
+                    sent_at=sent_at,
+                )
             break
     return attempted
 
@@ -379,11 +403,26 @@ async def _process_inbound_batch(batch_id: int) -> None:
             outbound_messages = _outbound_messages(chat_result)
             due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
             for index, message in enumerate(outbound_messages):
+                conversation_message = await ensure_outbound_conversation_message(
+                    channel="wechat",
+                    user_id=batch_data["from_user"] or batch_data["target_wc_id"],
+                    session_id=batch_data["from_group"],
+                    content=message["content"],
+                    message_type=message["type"],
+                    sender_type="ai",
+                    sender_id="ai",
+                    route=str(
+                        chat_result.get("route")
+                        or ("opening" if is_first_inbound else "")
+                    ),
+                    created_after=batch_data["created_at"],
+                )
                 kwargs = {
                     "w_id": batch_data["w_id"],
                     "wc_id": batch_data["target_wc_id"],
                     "content": message["content"],
                     "source_batch_key": batch_data["batch_key"],
+                    "conversation_message_id": conversation_message["id"],
                     "due_at": due_at,
                 }
                 if message["type"] != "text":
@@ -547,6 +586,13 @@ def _eyun_sent_at(result: Any) -> datetime | None:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc)
 
 
+def _eyun_provider_message_id_from_result(result: Any) -> str | None:
+    if not isinstance(result, dict) or not isinstance(result.get("data"), dict):
+        return None
+    data = result["data"]
+    return str(data.get("newMsgId") or data.get("msgId") or "") or None
+
+
 def _mark_conversation_ai_message_sent(
     session: Session,
     *,
@@ -673,7 +719,38 @@ def _get_session() -> Session:
         )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[settings.chat_log_db_url] = factory
+    if settings.chat_log_db_url not in _initialized_urls:
+        _ensure_risk_control_columns(factory)
+        _initialized_urls.add(settings.chat_log_db_url)
     return factory()
+
+
+def _ensure_risk_control_columns(factory: sessionmaker) -> None:
+    with factory() as session:
+        bind = session.get_bind()
+        outbound_columns = {
+            column["name"]
+            for column in inspect(bind).get_columns("eyun_outbound_messages")
+        }
+        if "conversation_message_id" not in outbound_columns:
+            session.execute(
+                text(
+                    "ALTER TABLE eyun_outbound_messages "
+                    "ADD COLUMN conversation_message_id INTEGER"
+                )
+            )
+        message_columns = {
+            column["name"]
+            for column in inspect(bind).get_columns("conversation_messages")
+        }
+        if "delivery_status" not in message_columns:
+            session.execute(
+                text(
+                    "ALTER TABLE conversation_messages "
+                    "ADD COLUMN delivery_status VARCHAR(32)"
+                )
+            )
+        session.commit()
 
 
 def _get_batch(session: Session, batch_key: str) -> EyunInboundBatchModel | None:
@@ -713,6 +790,7 @@ def _outbound_to_dict(row: EyunOutboundMessageModel) -> dict[str, Any]:
         "wc_id": row.wc_id,
         "content": row.content,
         "source_batch_key": row.source_batch_key,
+        "conversation_message_id": row.conversation_message_id,
         "status": row.status,
         "due_at": _ensure_aware(row.due_at),
         "attempts": row.attempts,
