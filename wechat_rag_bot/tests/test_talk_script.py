@@ -673,7 +673,7 @@ async def test_chat_orchestrator_hydrates_profile_before_policy_and_reply(
     assert captured["recent_turns"][0]["content"] == "那我要买，给我链接"
 
 
-def test_to_chat_data_keeps_short_paragraph_reply_as_one_message():
+def test_to_chat_data_preserves_blank_line_paragraphs():
     from app.schemas.intent import IntentResult
     from app.schemas.reply import FinalReply
     from app.services.chat_orchestrator import _to_chat_data
@@ -694,10 +694,10 @@ def test_to_chat_data_keeps_short_paragraph_reply_as_one_message():
     )
 
     assert data["answer"] == "第一段。\n第二段。\n第三段。"
-    assert data["answer_segments"] == ["第一段。 第二段。 第三段。"]
+    assert data["answer_segments"] == ["第一段。", "第二段。 第三段。"]
 
 
-def test_to_chat_data_merges_short_structured_answer_segments():
+def test_to_chat_data_preserves_structured_answer_segments():
     from app.schemas.intent import IntentResult
     from app.schemas.reply import FinalReply
     from app.services.chat_orchestrator import _to_chat_data
@@ -718,7 +718,7 @@ def test_to_chat_data_merges_short_structured_answer_segments():
         ),
     )
 
-    assert data["answer_segments"] == ["完整回答。 您有多少盆？"]
+    assert data["answer_segments"] == ["完整回答。", "您有多少盆？"]
 
 
 def test_answer_segments_keeps_short_reply_as_one_message():

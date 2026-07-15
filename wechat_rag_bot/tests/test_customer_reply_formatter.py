@@ -11,6 +11,16 @@ def test_long_reply_groups_every_two_sentences():
     ]
 
 
+def test_blank_lines_preserve_semantic_message_boundaries():
+    text = "已为您登记收货信息。\n\n请确认订单后，我会尽快安排发出。\n\n我这边持续跟进。"
+
+    assert split_customer_messages(text) == [
+        "已为您登记收货信息。",
+        "请确认订单后，我会尽快安排发出。",
+        "我这边持续跟进。",
+    ]
+
+
 def test_exceptionally_long_sentence_splits_at_clause_boundary():
     clauses = ["这一小段内容用于测试超长句的自然切分，" for _ in range(12)]
     sentence = "".join(clauses) + "最后结束。"

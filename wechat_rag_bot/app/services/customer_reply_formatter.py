@@ -39,6 +39,10 @@ def plain_customer_text(text: str) -> str:
 
 def split_customer_messages(text: str) -> list[str]:
     """Keep ordinary replies intact; split long replies every two sentences."""
+    semantic_messages = _semantic_messages(text)
+    if len(semantic_messages) > 1:
+        return semantic_messages
+
     plain = plain_customer_text(text)
     normalized = " ".join(plain.splitlines()).strip()
     if not normalized:
@@ -55,6 +59,16 @@ def split_customer_messages(text: str) -> list[str]:
             continue
         for sentence in group:
             messages.extend(_split_exceptionally_long_sentence(sentence))
+    return messages
+
+
+def _semantic_messages(text: str) -> list[str]:
+    paragraphs = re.split(r"\r?\n\s*\r?\n+", str(text or ""))
+    messages: list[str] = []
+    for paragraph in paragraphs:
+        message = plain_customer_text(paragraph).replace("\n", " ").strip()
+        if message:
+            messages.append(message)
     return messages
 
 
