@@ -27,10 +27,7 @@ EYUN_TEST_CALLBACK = "00000"
 EYUN_PRIVATE_TEXT = "60001"
 EYUN_PRIVATE_IMAGE = "60002"
 EYUN_GROUP_TEXT = "80001"
-IMAGE_DESCRIPTION_PROMPT = (
-    "暂时无法识别图片，请您用文字描述一下图片中的内容或问题，"
-    "我会马上为您解答。"
-)
+IMAGE_DESCRIPTION_PROMPT = "亲能否具体描述一下图片内容"
 
 
 def is_eyun_text_message(payload: dict[str, Any]) -> bool:

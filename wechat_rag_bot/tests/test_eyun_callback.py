@@ -204,7 +204,7 @@ def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_
         {
             "w_id": "wid",
             "wc_id": "wxid_customer",
-            "content": "暂时无法识别图片，请您用文字描述一下图片中的内容或问题，我会马上为您解答。",
+            "content": "亲能否具体描述一下图片内容",
             "source_batch_key": None,
         }
     ]
