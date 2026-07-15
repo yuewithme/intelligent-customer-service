@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -15,6 +16,7 @@ from app.db.models import (
     ConversationModel,
     EyunInboundBatchModel,
     EyunInboundMessageModel,
+    EyunImagePromptRateModel,
     EyunOutboundMessageModel,
     EyunSendRateModel,
 )
@@ -183,6 +185,40 @@ async def enqueue_eyun_outbound(
         session.commit()
         session.refresh(row)
         return _outbound_to_dict(row)
+
+
+async def reserve_eyun_image_description_prompt(*, w_id: str, wc_id: str) -> bool:
+    if not w_id or not wc_id:
+        return False
+
+    now = utcnow()
+    cooldown_seconds = get_settings().eyun_image_description_prompt_cooldown_seconds
+    next_allowed_at = now + timedelta(seconds=cooldown_seconds)
+    with _get_session() as session:
+        rate = session.get(
+            EyunImagePromptRateModel,
+            {"w_id": w_id, "wc_id": wc_id},
+        )
+        if rate is not None and _ensure_aware(rate.next_allowed_at) > now:
+            return False
+        if rate is None:
+            session.add(
+                EyunImagePromptRateModel(
+                    w_id=w_id,
+                    wc_id=wc_id,
+                    next_allowed_at=next_allowed_at,
+                    updated_at=now,
+                )
+            )
+        else:
+            rate.next_allowed_at = next_allowed_at
+            rate.updated_at = now
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            return False
+    return True
 
 
 async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
@@ -630,6 +666,7 @@ def _get_session() -> Session:
                 ConversationMessageModel.__table__,
                 EyunInboundBatchModel.__table__,
                 EyunInboundMessageModel.__table__,
+                EyunImagePromptRateModel.__table__,
                 EyunOutboundMessageModel.__table__,
                 EyunSendRateModel.__table__,
             ],

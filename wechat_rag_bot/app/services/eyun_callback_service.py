@@ -17,6 +17,7 @@ from app.services.eyun_contact_service import (
 from app.services.message_risk_control_service import (
     enqueue_eyun_inbound,
     enqueue_eyun_outbound,
+    reserve_eyun_image_description_prompt,
 )
 from app.services.user_profile_service import ensure_user_profile
 
@@ -138,12 +139,14 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     if is_private_image:
-        await enqueue_eyun_outbound(
-            w_id=str(metadata.get("w_id") or get_settings().eyun_wid or ""),
-            wc_id=user_id,
-            content=IMAGE_DESCRIPTION_PROMPT,
-            source_batch_key=None,
-        )
+        w_id = str(metadata.get("w_id") or get_settings().eyun_wid or "")
+        if await reserve_eyun_image_description_prompt(w_id=w_id, wc_id=user_id):
+            await enqueue_eyun_outbound(
+                w_id=w_id,
+                wc_id=user_id,
+                content=IMAGE_DESCRIPTION_PROMPT,
+                source_batch_key=None,
+            )
         return eyun_success()
 
     if not is_eyun_private_text_message(payload):

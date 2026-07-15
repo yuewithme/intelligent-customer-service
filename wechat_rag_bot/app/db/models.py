@@ -118,6 +118,15 @@ class EyunSendRateModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class EyunImagePromptRateModel(Base):
+    __tablename__ = "eyun_image_prompt_rates"
+
+    w_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    wc_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    next_allowed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class ConversationModel(Base):
     __tablename__ = "conversations"
 

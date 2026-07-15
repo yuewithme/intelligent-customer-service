@@ -165,6 +165,9 @@ def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_
         outbound.append(kwargs)
         return {"id": 1, "status": "queued"}
 
+    async def allow_image_prompt(**kwargs):
+        return True
+
     async def fail_enqueue_inbound(payload):
         raise AssertionError("image messages should not enter the text AI queue")
 
@@ -176,6 +179,12 @@ def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_
     monkeypatch.setattr(eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url)
     monkeypatch.setattr(
         eyun_callback_service, "enqueue_eyun_outbound", fake_enqueue_outbound, raising=False
+    )
+    monkeypatch.setattr(
+        eyun_callback_service,
+        "reserve_eyun_image_description_prompt",
+        allow_image_prompt,
+        raising=False,
     )
     monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_enqueue_inbound)
 
@@ -208,6 +217,76 @@ def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_
             "source_batch_key": None,
         }
     ]
+
+
+def test_private_image_callback_queues_only_one_prompt_within_cooldown(
+    monkeypatch, tmp_path
+):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    outbound = []
+    reservation_calls = []
+
+    async def fake_ensure(user_id, **kwargs):
+        return {"user_id": user_id}
+
+    async def fake_record(**kwargs):
+        return None
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_fetch_image_url(**kwargs):
+        return "https://cdn.example.com/image.jpg"
+
+    async def fake_reserve(**kwargs):
+        reservation_calls.append(kwargs)
+        return len(reservation_calls) == 1
+
+    async def fake_enqueue_outbound(**kwargs):
+        outbound.append(kwargs)
+        return {"id": 1, "status": "queued"}
+
+    monkeypatch.setattr(
+        eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
+    )
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
+    monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url)
+    monkeypatch.setattr(
+        eyun_callback_service,
+        "reserve_eyun_image_description_prompt",
+        fake_reserve,
+        raising=False,
+    )
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_outbound", fake_enqueue_outbound)
+
+    client = TestClient(app)
+    for message_id in (102, 103):
+        response = client.post(
+            "/wechat/callback",
+            json={
+                "account": "sales_a",
+                "messageType": "60002",
+                "wcId": "wxid_bot",
+                "data": {
+                    "wId": "wid",
+                    "fromUser": "wxid_customer",
+                    "toUser": "wxid_bot",
+                    "content": "<msg><img /></msg>",
+                    "newMsgId": message_id,
+                    "self": False,
+                },
+            },
+        )
+        assert response.status_code == 200
+
+    assert reservation_calls == [
+        {"w_id": "wid", "wc_id": "wxid_customer"},
+        {"w_id": "wid", "wc_id": "wxid_customer"},
+    ]
+    assert len(outbound) == 1
 
 
 def test_eyun_callback_accepts_json_payload(monkeypatch, tmp_path):
