@@ -14,7 +14,10 @@ from app.services.eyun_contact_service import (
     get_eyun_contact_snapshot,
     schedule_eyun_contact_refresh,
 )
-from app.services.message_risk_control_service import enqueue_eyun_inbound
+from app.services.message_risk_control_service import (
+    enqueue_eyun_inbound,
+    enqueue_eyun_outbound,
+)
 from app.services.user_profile_service import ensure_user_profile
 
 
@@ -24,6 +27,10 @@ EYUN_TEST_CALLBACK = "00000"
 EYUN_PRIVATE_TEXT = "60001"
 EYUN_PRIVATE_IMAGE = "60002"
 EYUN_GROUP_TEXT = "80001"
+IMAGE_DESCRIPTION_PROMPT = (
+    "暂时无法识别图片，请您用文字描述一下图片中的内容或问题，"
+    "我会马上为您解答。"
+)
 
 
 def is_eyun_text_message(payload: dict[str, Any]) -> bool:
@@ -54,6 +61,10 @@ def is_eyun_non_text_message(payload: dict[str, Any]) -> bool:
 
 def is_eyun_private_text_message(payload: dict[str, Any]) -> bool:
     return str(payload.get("messageType", "")) == EYUN_PRIVATE_TEXT
+
+
+def is_eyun_private_image_message(payload: dict[str, Any]) -> bool:
+    return str(payload.get("messageType", "")) == EYUN_PRIVATE_IMAGE
 
 
 async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
@@ -90,16 +101,29 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
                 },
             },
         )
+    is_private_image = is_eyun_private_image_message(payload)
     await record_customer_message(
         channel="wechat",
         user_id=user_id,
         session_id="default",
         content=_eyun_display_content(payload),
         message_id=_eyun_message_id(data),
-        status=AI_WAITING if is_eyun_private_text_message(payload) else HANDOFF_PENDING,
-        route="inbound_text" if is_eyun_text_message(payload) else "non_text",
+        status=(
+            AI_WAITING
+            if is_eyun_private_text_message(payload) or is_private_image
+            else HANDOFF_PENDING
+        ),
+        route=(
+            "inbound_text"
+            if is_eyun_text_message(payload)
+            else "inbound_image_prompt" if is_private_image else "non_text"
+        ),
         primary_intent="message" if is_eyun_text_message(payload) else _eyun_message_kind(message_type),
-        handoff_reason=None if is_eyun_private_text_message(payload) else "unsupported_message_type",
+        handoff_reason=(
+            None
+            if is_eyun_private_text_message(payload) or is_private_image
+            else "unsupported_message_type"
+        ),
         metadata=metadata,
     )
 
@@ -115,6 +139,15 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             channel="wechat",
             session_id="default",
         )
+
+    if is_private_image:
+        await enqueue_eyun_outbound(
+            w_id=str(metadata.get("w_id") or get_settings().eyun_wid or ""),
+            wc_id=user_id,
+            content=IMAGE_DESCRIPTION_PROMPT,
+            source_batch_key=None,
+        )
+        return eyun_success()
 
     if not is_eyun_private_text_message(payload):
         return eyun_success()

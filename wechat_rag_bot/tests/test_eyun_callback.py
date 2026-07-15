@@ -142,6 +142,74 @@ def test_private_non_text_callback_uses_external_user_id(monkeypatch, tmp_path):
     assert recorded[0]["user_id"] == "wxid_customer"
 
 
+def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    recorded = []
+    outbound = []
+
+    async def fake_ensure(user_id, **kwargs):
+        return {"user_id": user_id}
+
+    async def fake_record(**kwargs):
+        recorded.append(kwargs)
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_fetch_image_url(**kwargs):
+        return "https://cdn.example.com/image.jpg"
+
+    async def fake_enqueue_outbound(**kwargs):
+        outbound.append(kwargs)
+        return {"id": 1, "status": "queued"}
+
+    async def fail_enqueue_inbound(payload):
+        raise AssertionError("image messages should not enter the text AI queue")
+
+    monkeypatch.setattr(
+        eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
+    )
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
+    monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url)
+    monkeypatch.setattr(
+        eyun_callback_service, "enqueue_eyun_outbound", fake_enqueue_outbound, raising=False
+    )
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_enqueue_inbound)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "account": "sales_a",
+            "messageType": "60002",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": "<msg><img /></msg>",
+                "newMsgId": 102,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert recorded[0]["status"] == "ai_waiting"
+    assert recorded[0]["route"] == "inbound_image_prompt"
+    assert recorded[0]["handoff_reason"] is None
+    assert outbound == [
+        {
+            "w_id": "wid",
+            "wc_id": "wxid_customer",
+            "content": "暂时无法识别图片，请您用文字描述一下图片中的内容或问题，我会马上为您解答。",
+            "source_batch_key": None,
+        }
+    ]
+
+
 def test_eyun_callback_accepts_json_payload(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 
@@ -291,7 +359,7 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     assert conversations["total"] == 1
     item = conversations["items"][0]
     assert item["conversation_id"] == "wechat:wxid_customer:default"
-    assert item["status"] == "handoff_pending"
+    assert item["status"] == "ai_waiting"
     assert item["last_message"] == "[图片]"
 
     detail = client.get(f"/api/v1/admin/conversations/{item['conversation_id']}")
