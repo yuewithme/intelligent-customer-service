@@ -9,6 +9,12 @@ from app.schemas.tag import TagResult
 def test_current_business_tags_are_available_in_catalog():
     assert TAG_CATEGORIES["customer_level"].values[0].name == "L1 青铜期"
     assert "建兰" in [value.name for value in TAG_CATEGORIES["favorite_orchid_type"].values]
+    assert [value.name for value in TAG_CATEGORIES["purchase_status"].values] == [
+        "抖音已购",
+        "微信已购",
+    ]
+    assert TAG_CATEGORIES["purchase_status"].ai_assignable is False
+    assert TAG_CATEGORIES["purchase_status"].exclusive is False
     assert "product_demand" not in TAG_CATEGORIES
     assert "sop_group" not in TAG_CATEGORIES
 

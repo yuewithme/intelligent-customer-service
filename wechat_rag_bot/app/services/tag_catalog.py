@@ -15,6 +15,8 @@ class TagCategory:
     name: str
     prompt_rule: str
     values: tuple[TagValue, ...]
+    ai_assignable: bool = True
+    exclusive: bool = True
 
 
 TAG_CATEGORIES: dict[str, TagCategory] = {
@@ -93,6 +95,17 @@ TAG_CATEGORIES: dict[str, TagCategory] = {
             TagValue(name, "preference.orchid_variety")
             for name in ["春兰", "建兰", "墨兰", "寒兰", "蕙兰", "莲瓣兰", "春剑", "大花蕙兰等花大色漂亮的"]
         ),
+    ),
+    "purchase_status": TagCategory(
+        id="purchase_status",
+        name="购买状态",
+        prompt_rule="Purchase status is assigned only from verified commerce data, never inferred from chat content.",
+        values=(
+            TagValue("抖音已购"),
+            TagValue("微信已购"),
+        ),
+        ai_assignable=False,
+        exclusive=False,
     ),
 }
 

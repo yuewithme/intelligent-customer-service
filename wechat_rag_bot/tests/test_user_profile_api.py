@@ -713,6 +713,73 @@ async def test_profile_update_filters_customer_tags_to_catalog_values(monkeypatc
     assert profile["customer_tags"] == ["浙江省", "L3 黄金期", "建兰"]
 
 
+@pytest.mark.asyncio
+async def test_profile_ai_cannot_assign_verified_purchase_tags(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
+        assert "抖音已购" not in prompt
+        assert "微信已购" not in prompt
+        return {
+            "current_stage": "need_discovery",
+            "risk_level": "normal",
+            "customer_tags": ["抖音已购", "微信已购"],
+            "product_interests": [],
+            "pain_points": [],
+            "ai_summary": "客户表示自己买过。",
+        }
+
+    monkeypatch.setattr(
+        "app.services.user_profile_service.generate_json",
+        fake_generate_json,
+    )
+    message = NormalizedMessage(
+        trace_id="trace_purchase_tags",
+        channel="wechat",
+        user_id="user_purchase_tags",
+        session_id="default",
+        message="我以前买过",
+        kb_id="kb_default",
+        tenant_id="tenant_default",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        sales_stage="after_sale",
+        confidence=0.9,
+        need_rag=True,
+        slots={},
+        reason="customer claim",
+    )
+    reply = FinalReply(
+        answer="好的。",
+        reply_type="rag",
+        route="rag_answer",
+        metadata={},
+    )
+
+    await update_profile_after_chat(message, intent, reply)
+
+    profile = (await get_profile_bundle("user_purchase_tags"))["profile"]
+    assert profile["customer_tags"] == []
+
+
+def test_verified_purchase_tags_can_be_saved_together(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/users/user_verified_purchase/profile",
+        json={"customer_tags": ["抖音已购", "微信已购"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["profile"]["customer_tags"] == [
+        "抖音已购",
+        "微信已购",
+    ]
+
+
 def test_new_profile_apis_require_bearer_authentication(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path, auth=True)
     client = TestClient(app)

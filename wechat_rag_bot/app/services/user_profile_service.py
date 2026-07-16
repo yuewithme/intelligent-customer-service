@@ -335,7 +335,10 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
         else:
             incoming_customer_tags.append(label)
     profile.customer_tags_json = _json_dumps(
-        _merge_customer_tags(customer_tags, incoming_customer_tags)
+        _merge_customer_tags(
+            customer_tags,
+            _ai_assignable_customer_tags(incoming_customer_tags),
+        )
     )
     profile.product_interests_json = _json_dumps(product_interests)
     profile.pain_points_json = _json_dumps(pain_points)
@@ -425,7 +428,9 @@ def _apply_profile_analysis(
     profile.customer_tags_json = _json_dumps(
         _merge_customer_tags(
             _json_loads(profile.customer_tags_json, []),
-            _string_list(analysis.get("customer_tags")),
+            _ai_assignable_customer_tags(
+                _string_list(analysis.get("customer_tags"))
+            ),
         )
     )
     profile.product_interests_json = _json_dumps(
@@ -656,7 +661,20 @@ def _normalize_customer_tag(tag: str) -> str:
 
 
 def _tag_replace_key(tag: str) -> str:
-    return _catalog_category_for_tag(tag) or tag
+    category_id = _catalog_category_for_tag(tag)
+    if category_id and TAG_CATEGORIES[category_id].exclusive:
+        return category_id
+    return tag
+
+
+def _ai_assignable_customer_tags(tags: list[str]) -> list[str]:
+    result: list[str] = []
+    for tag in tags:
+        normalized = _normalize_customer_tag(tag)
+        category_id = _catalog_category_for_tag(normalized)
+        if category_id and TAG_CATEGORIES[category_id].ai_assignable:
+            result.append(normalized)
+    return result
 
 
 def _tag_order(tag: str) -> int:
@@ -673,6 +691,7 @@ def _profile_tag_catalog_prompt() -> dict[str, list[str]]:
     return {
         category.name: [value.name for value in category.values]
         for category in TAG_CATEGORIES.values()
+        if category.ai_assignable
     }
 
 
