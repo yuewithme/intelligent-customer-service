@@ -16,6 +16,8 @@ from app.routers import (
     admin_logs,
     chat,
     debug,
+    demo,
+    demo_admin,
     eyun,
     intent_examples,
     knowledge,
@@ -28,6 +30,7 @@ from app.schemas.common import AppError, ErrorCode
 from app.services.message_risk_control_service import eyun_risk_control_worker
 from app.services.eyun_callback_service import video_storage_dir
 from app.utils.logger import configure_logging
+from app.mcp_server import mcp_asgi_app, sales_mcp
 
 
 configure_logging()
@@ -43,11 +46,12 @@ async def lifespan(app: FastAPI):
     app.state.eyun_risk_control_task = asyncio.create_task(
         eyun_risk_control_worker(stop_event)
     )
-    try:
-        yield
-    finally:
-        stop_event.set()
-        await app.state.eyun_risk_control_task
+    async with sales_mcp.session_manager.run():
+        try:
+            yield
+        finally:
+            stop_event.set()
+            await app.state.eyun_risk_control_task
 
 
 app = FastAPI(title=get_settings().app_name, lifespan=lifespan)
@@ -68,6 +72,8 @@ app.include_router(intent_examples.router)
 app.include_router(user_profile.router)
 app.include_router(state.router)
 app.include_router(debug.router)
+app.include_router(demo.router)
+app.include_router(demo_admin.router)
 app.include_router(admin_logs.router)
 app.include_router(wechat.router)
 app.include_router(eyun.router)
@@ -130,3 +136,6 @@ async def handle_unexpected_error(
 @app.get("/health")
 async def health() -> dict:
     return {"code": 0, "message": "success", "data": {"status": "ok"}}
+
+
+app.mount("/", mcp_asgi_app)

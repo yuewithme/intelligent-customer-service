@@ -2,6 +2,18 @@ import { Layout } from '@/utils/routerHelper'
 
 const remainingRouter: AppRouteRecordRaw[] = [
   {
+    path: '/demo-chat',
+    component: () => import('@/views/demo-chat/index.vue'),
+    name: 'DemoChat',
+    meta: { hidden: true, title: '销售 Agent 在线测试', noTagsView: true }
+  },
+  {
+    path: '/demo-admin',
+    component: () => import('@/views/demo-admin/index.vue'),
+    name: 'DemoAdmin',
+    meta: { hidden: true, title: '销售 Agent 测试后台', noTagsView: true }
+  },
+  {
     path: '/redirect',
     component: Layout,
     name: 'RedirectRoot',

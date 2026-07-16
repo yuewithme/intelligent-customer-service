@@ -132,7 +132,10 @@ const loadProfile = async (userId?: string | null) => {
 
 const connectEvents = () => {
   eventSource?.close()
-  eventSource = new EventSource('/api/v1/admin/conversations/events', {
+  const eventPath = window.location.pathname.startsWith('/demo-admin')
+    ? '/api/v1/demo-admin/conversations/events'
+    : '/api/v1/admin/conversations/events'
+  eventSource = new EventSource(eventPath, {
     withCredentials: true
   })
   eventSource.onmessage = (message) => {

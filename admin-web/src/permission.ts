@@ -16,7 +16,8 @@ const { loadStart, loadDone } = usePageLoading()
 const whiteList = [
   '/gate',
   '/login',
-  '/auth-redirect'
+  '/auth-redirect',
+  '/demo-chat'
 ]
 
 const gateEnabled = import.meta.env.VITE_GATE_ENABLED !== 'false'
@@ -40,7 +41,7 @@ const isGateUnlocked = async () => {
 router.beforeEach(async (to, from, next) => {
   start()
   loadStart()
-  if (to.path !== '/gate' && !(await isGateUnlocked())) {
+  if (!whiteList.includes(to.path) && !(await isGateUnlocked())) {
     next(`/gate?redirect=${encodeURIComponent(to.fullPath)}`)
     return
   }

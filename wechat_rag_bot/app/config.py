@@ -17,6 +17,17 @@ class Settings(BaseSettings):
     app_name: str = "wechat_rag_bot"
     api_auth_enabled: bool = True
     api_key: str = "change_me"
+    mcp_api_key: str = ""
+    mcp_allowed_hosts: list[str] = [
+        "127.0.0.1",
+        "127.0.0.1:*",
+        "localhost",
+        "localhost:*",
+        "testserver",
+        "124.160.45.66",
+        "124.160.45.66:*",
+    ]
+    mcp_allowed_origins: list[str] = []
     admin_gate_enabled: bool = True
     admin_gate_password: str = ""
     admin_gate_secret: str = ""

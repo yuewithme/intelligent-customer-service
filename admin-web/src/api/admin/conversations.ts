@@ -51,6 +51,10 @@ export interface ConversationDetail {
 }
 
 const conversationPath = (conversationId: string) => encodeURIComponent(conversationId)
+const conversationBase = () =>
+  window.location.pathname.startsWith('/demo-admin')
+    ? '/api/v1/demo-admin/conversations'
+    : '/api/v1/admin/conversations'
 
 export const getConversations = (params: {
   page: number
@@ -58,28 +62,28 @@ export const getConversations = (params: {
   status?: string
   owner_id?: string
   keyword?: string
-}) => request.get<ConversationListResponse>({ url: '/api/v1/admin/conversations', params })
+}) => request.get<ConversationListResponse>({ url: conversationBase(), params })
 
 export const getConversationDetail = (conversationId: string) =>
   request.get<ConversationDetail>({
-    url: `/api/v1/admin/conversations/${conversationPath(conversationId)}`
+    url: `${conversationBase()}/${conversationPath(conversationId)}`
   })
 
 export const claimConversation = (conversationId: string, operator_id: string) =>
   request.post<ConversationItem>({
-    url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/claim`,
+    url: `${conversationBase()}/${conversationPath(conversationId)}/claim`,
     data: { operator_id }
   })
 
 export const replyConversation = (conversationId: string, operator_id: string, content: string) =>
   request.post<ConversationItem>({
-    url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/reply`,
+    url: `${conversationBase()}/${conversationPath(conversationId)}/reply`,
     data: { operator_id, content }
   })
 
 export const markConversationRead = (conversationId: string) =>
   request.post<ConversationItem>({
-    url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/read`
+    url: `${conversationBase()}/${conversationPath(conversationId)}/read`
   })
 
 export const resolveConversationMessageMedia = (messageId: number) =>
@@ -89,18 +93,18 @@ export const resolveConversationMessageMedia = (messageId: number) =>
 
 export const forceHandoff = (conversationId: string, operator_id: string, reason: string) =>
   request.post<ConversationItem>({
-    url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/force-handoff`,
+    url: `${conversationBase()}/${conversationPath(conversationId)}/force-handoff`,
     data: { operator_id, reason }
   })
 
 export const releaseToAi = (conversationId: string, operator_id: string) =>
   request.post<ConversationItem>({
-    url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/release-to-ai`,
+    url: `${conversationBase()}/${conversationPath(conversationId)}/release-to-ai`,
     data: { operator_id }
   })
 
 export const resolveConversation = (conversationId: string, operator_id: string, reason?: string) =>
   request.post<ConversationItem>({
-    url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/resolve`,
+    url: `${conversationBase()}/${conversationPath(conversationId)}/resolve`,
     data: { operator_id, reason }
   })

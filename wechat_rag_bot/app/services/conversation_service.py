@@ -37,6 +37,7 @@ async def list_conversations(
     status: str | None = None,
     owner_id: str | None = None,
     keyword: str | None = None,
+    channels: tuple[str, ...] | None = None,
 ) -> dict:
     page = max(page, 1)
     page_size = max(min(page_size, 200), 1)
@@ -48,6 +49,8 @@ async def list_conversations(
             filters.append(ConversationModel.owner_id == owner_id)
         if keyword:
             filters.append(ConversationModel.last_message.like(f"%{keyword}%"))
+        if channels:
+            filters.append(ConversationModel.channel.in_(channels))
         total = session.scalar(
             select(func.count()).select_from(ConversationModel).where(*filters)
         )
