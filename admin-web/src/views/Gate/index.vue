@@ -52,7 +52,10 @@ const unlock = async () => {
       ElMessage.error('访问密码不正确')
       return
     }
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/workbench'
+    const redirect =
+      typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
+        ? route.query.redirect
+        : '/workbench'
     window.location.replace(redirect)
   } finally {
     loading.value = false

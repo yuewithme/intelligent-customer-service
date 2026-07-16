@@ -46,7 +46,11 @@ router.beforeEach(async (to, from, next) => {
     return
   }
   if (to.path === '/gate' && (await isGateUnlocked())) {
-    next({ path: '/workbench' })
+    const redirect =
+      typeof to.query.redirect === 'string' && to.query.redirect.startsWith('/')
+        ? to.query.redirect
+        : '/workbench'
+    next(parseRouteLocation(redirect))
     return
   }
   if (!getAccessToken()) {
