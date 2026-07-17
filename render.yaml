@@ -17,6 +17,14 @@ services:
         value: "true"
       - key: API_KEY
         sync: false
+      - key: ADMIN_GATE_ENABLED
+        value: "true"
+      - key: ADMIN_GATE_PASSWORD
+        sync: false
+      - key: ADMIN_GATE_TEST_PASSWORD
+        sync: false
+      - key: ADMIN_GATE_SECRET
+        sync: false
       - key: DATABASE_URL
         value: sqlite:////var/data/rag.db
       - key: CHAT_LOG_ENABLED

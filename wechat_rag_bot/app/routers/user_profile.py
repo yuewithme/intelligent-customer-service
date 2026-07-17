@@ -7,13 +7,13 @@ from app.services.user_profile_service import (
     get_recent_memories,
     patch_user_profile,
 )
-from app.utils.auth import require_api_key
+from app.utils.auth import require_admin_access
 
 
 router = APIRouter(
     prefix="/api/v1/users",
     tags=["user-profile"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_admin_access)],
 )
 
 

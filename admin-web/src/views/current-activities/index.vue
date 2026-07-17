@@ -28,7 +28,7 @@
       </ElSelect>
       <ElAlert
         v-if="!sendMode"
-        title="新活动请先在销售工作台中右键选择消息，再点击“存为活动”"
+        :title="readOnly ? '测试身份为只读模式' : '新活动请先在销售工作台中右键选择消息，再点击“存为活动”'"
         type="info"
         :closable="false"
       />
@@ -77,7 +77,7 @@
           <dd>{{ formatTime(activity.updated_at) }}</dd>
         </dl>
 
-        <div v-if="!sendMode" class="switches" @click.stop>
+        <div v-if="!sendMode && !readOnly" class="switches" @click.stop>
           <label>
             总开关
             <ElSwitch
@@ -100,6 +100,7 @@
           <ElButton size="small" @click="openPreview(activity)">预览</ElButton>
           <template v-if="!sendMode">
             <ElButton
+              v-if="!readOnly"
               size="small"
               :disabled="activity.status === 'archived' || activity.enabled"
               @click="openEdit(activity)"
@@ -107,7 +108,7 @@
               编辑
             </ElButton>
             <ElButton
-              v-if="activity.status === 'archived'"
+              v-if="!readOnly && activity.status === 'archived'"
               size="small"
               type="primary"
               @click="restart(activity)"
@@ -116,7 +117,7 @@
             </ElButton>
             <ElButton size="small" @click="openLogs(activity)">发送记录</ElButton>
             <ElButton
-              v-if="activity.status !== 'archived'"
+              v-if="!readOnly && activity.status !== 'archived'"
               size="small"
               type="danger"
               plain
@@ -129,7 +130,7 @@
             v-else
             size="small"
             type="primary"
-            :disabled="selectedActivityId !== activity.id"
+            :disabled="readOnly || selectedActivityId !== activity.id"
             @click="confirmSend(activity)"
           >
             预览并发送
@@ -220,12 +221,14 @@ import {
 import { getConversationDetail } from '@/api/admin/conversations'
 import { useUserStore } from '@/store/modules/user'
 import { formatChinaTime } from '../workbench/time'
+import { isTestGate } from '@/utils/gate'
 
 defineOptions({ name: 'CurrentActivities' })
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const readOnly = isTestGate()
 const conversationId = computed(() =>
   typeof route.query.conversation_id === 'string' ? route.query.conversation_id : ''
 )

@@ -1,4 +1,5 @@
 import request from '@/config/axios'
+import { isTestGate } from '@/utils/gate'
 
 export type ConversationStatus =
   'ai_active' | 'ai_waiting' | 'handoff_pending' | 'human_active' | 'resolved'
@@ -52,7 +53,7 @@ export interface ConversationDetail {
 
 const conversationPath = (conversationId: string) => encodeURIComponent(conversationId)
 const conversationBase = () =>
-  window.location.pathname.startsWith('/demo-admin')
+  isTestGate()
     ? '/api/v1/demo-admin/conversations'
     : '/api/v1/admin/conversations'
 

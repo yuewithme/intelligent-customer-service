@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.schemas.chat import APIResponse
@@ -21,16 +21,19 @@ from app.services.conversation_service import (
 )
 from app.services.demo_sales_agent_service import DEMO_CHANNELS
 from app.services.user_profile_service import get_profile_bundle
+from app.utils.auth import require_gate_access
 
 
 router = APIRouter(
     prefix="/api/v1/demo-admin/conversations",
     tags=["demo-admin"],
+    dependencies=[Depends(require_gate_access)],
 )
 
 profile_router = APIRouter(
     prefix="/api/v1/demo-admin/users",
     tags=["demo-admin"],
+    dependencies=[Depends(require_gate_access)],
 )
 
 

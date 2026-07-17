@@ -14,6 +14,7 @@
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { setGateRole, type GateRole } from '@/utils/gate'
 
 const route = useRoute()
 const password = ref('')
@@ -29,6 +30,10 @@ const unlock = async () => {
       body: JSON.stringify({ password: password.value })
     })
     if (!response.ok) return ElMessage.error('访问密码不正确')
+    const result = await response.json()
+    const role = result?.data?.role as GateRole
+    if (role !== 'admin' && role !== 'test') return ElMessage.error('门禁身份无效')
+    setGateRole(role)
     const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
       ? route.query.redirect : '/workbench'
     window.location.replace(redirect)

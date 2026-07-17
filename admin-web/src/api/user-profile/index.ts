@@ -1,4 +1,5 @@
 import request from '@/config/axios'
+import { isTestGate } from '@/utils/gate'
 
 export interface UserProfile {
   user_id: string
@@ -57,7 +58,7 @@ export interface UserProfileBundle {
 
 const userPath = (userId: string) => encodeURIComponent(userId)
 const userProfileBase = () =>
-  window.location.pathname.startsWith('/demo-admin')
+  isTestGate()
     ? '/api/v1/demo-admin/users'
     : '/api/v1/users'
 

@@ -18,13 +18,13 @@ from app.services.conversation_service import (
     resolve_message_media,
     resolve_conversation,
 )
-from app.utils.auth import require_api_key
+from app.utils.auth import require_admin_access
 
 
 router = APIRouter(
     prefix="/api/v1/admin/conversations",
     tags=["admin-conversations"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_admin_access)],
 )
 
 

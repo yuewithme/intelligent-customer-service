@@ -16,7 +16,7 @@
     </div>
 
     <div ref="timelineRef" v-loading="loading" class="timeline">
-      <div v-if="selectionMode" class="selection-toolbar">
+      <div v-if="selectionMode && !readOnly" class="selection-toolbar">
         <span>已选 {{ selectedMessageIds.size }} 条</span>
         <div>
           <ElButton size="small" @click="clearSelection">取消</ElButton>
@@ -41,7 +41,7 @@
           { selectable: canSelectMessage(message), selected: selectedMessageIds.has(message.id) }
         ]"
         @click="toggleSelectedMessage(message)"
-        @contextmenu.prevent="startSelection(message)"
+        @contextmenu.prevent="!readOnly && startSelection(message)"
       >
         <div class="bubble">
           <span v-if="selectedMessageIds.has(message.id)" class="selected-mark">✓</span>
@@ -124,6 +124,7 @@ import {
 } from '@/api/admin/conversations'
 import { formatChinaTime } from '../time'
 import SaveActivityDialog from './SaveActivityDialog.vue'
+import { isTestGate } from '@/utils/gate'
 
 interface MediaMetadata {
   type?: string
@@ -137,6 +138,7 @@ interface MediaMetadata {
 }
 
 const props = defineProps<{ conversationId: string; conversationIds: string[] }>()
+const readOnly = isTestGate()
 const emit = defineEmits<{ loaded: [conversation: ConversationItem | undefined] }>()
 
 const loading = ref(false)

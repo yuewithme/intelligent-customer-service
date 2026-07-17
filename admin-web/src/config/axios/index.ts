@@ -1,6 +1,7 @@
 import axios, { type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken } from '@/utils/auth'
+import { clearGateRole } from '@/utils/gate'
 
 const client = axios.create({
   baseURL: import.meta.env.VITE_BASE_URL || '',
@@ -23,7 +24,8 @@ client.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       clearAccessToken()
-      if (!window.location.pathname.startsWith('/demo-')) window.location.assign('/login')
+      clearGateRole()
+      if (window.location.pathname !== '/demo-chat') window.location.assign('/gate')
     }
     ElMessage.error(error.response?.data?.message || error.message || '网络请求失败')
     return Promise.reject(error)

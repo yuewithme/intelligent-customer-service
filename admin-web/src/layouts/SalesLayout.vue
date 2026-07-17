@@ -21,6 +21,7 @@
           <span>销售 Agent 实时运营与策略管理</span>
         </div>
         <div class="operator">
+          <span v-if="testMode" class="test-badge">测试模式</span>
           <span>{{ userStore.user.nickname }}</span>
           <button type="button" @click="logout">退出</button>
         </div>
@@ -35,11 +36,13 @@ import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/modules/user'
 import { clearAccessToken } from '@/utils/auth'
+import { clearGateRole, isTestGate } from '@/utils/gate'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const currentTitle = computed(() => String(route.meta.title || '销售工作台'))
+const testMode = isTestGate()
 
 const navigation = [
   { title: '销售执行', items: [{ label: '销售工作台', to: '/workbench' }] },
@@ -57,10 +60,12 @@ const navigation = [
   { title: '系统', items: [{ label: '模型配置', to: '/settings/model-config' }] }
 ]
 
-const logout = () => {
+const logout = async () => {
+  await fetch('/api/gate', { method: 'DELETE', credentials: 'same-origin' })
+  clearGateRole()
   clearAccessToken()
   userStore.reset()
-  void router.replace('/login')
+  void router.replace('/gate')
 }
 </script>
 
@@ -81,6 +86,7 @@ header strong, header span { display: block; }
 header span { margin-top: 3px; color: #84918c; font-size: 12px; }
 .operator { display: flex; align-items: center; gap: 12px; }
 .operator span { color: #33443e; font-size: 14px; }
+.operator .test-badge { padding: 4px 9px; color: #9a4f00; font-weight: 700; background: #fff2d8; border-radius: 999px; }
 .operator button { padding: 6px 10px; color: #50645d; cursor: pointer; background: transparent; border: 1px solid #cfdad6; border-radius: 7px; }
 main { min-width: 0; }
 @media (max-width: 820px) { .sales-layout { grid-template-columns: 1fr; } .sidebar { position: static; width: 100%; height: auto; } nav { display: none; } }

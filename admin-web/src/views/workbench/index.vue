@@ -33,6 +33,7 @@ import type { ConversationGroupItem } from './conversationGrouping'
 import ConversationList from './components/ConversationList.vue'
 import MessagePanel from './components/MessagePanel.vue'
 import SupervisionPanel from './components/SupervisionPanel.vue'
+import { isTestGate } from '@/utils/gate'
 
 defineOptions({ name: 'Workbench' })
 
@@ -132,7 +133,7 @@ const loadProfile = async (userId?: string | null) => {
 
 const connectEvents = () => {
   eventSource?.close()
-  const eventPath = window.location.pathname.startsWith('/demo-admin')
+  const eventPath = isTestGate()
     ? '/api/v1/demo-admin/conversations/events'
     : '/api/v1/admin/conversations/events'
   eventSource = new EventSource(eventPath, {

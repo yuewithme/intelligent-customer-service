@@ -1,14 +1,13 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import SalesLayout from '@/layouts/SalesLayout.vue'
-import { getAccessToken, setDefaultAccessToken } from '@/utils/auth'
+import { clearGateRole, setGateRole, type GateRole } from '@/utils/gate'
 
 const PlaceholderPage = () => import('@/views/PlaceholderPage.vue')
 
 const routes: RouteRecordRaw[] = [
   { path: '/demo-chat', component: () => import('@/views/demo-chat/index.vue'), meta: { public: true } },
-  { path: '/demo-admin', component: () => import('@/views/demo-admin/index.vue'), meta: { public: true } },
   { path: '/gate', component: () => import('@/views/Gate/index.vue'), meta: { public: true } },
-  { path: '/login', component: () => import('@/views/Login.vue'), meta: { public: true } },
+  { path: '/login', redirect: '/gate' },
   {
     path: '/',
     component: SalesLayout,
@@ -30,13 +29,21 @@ const routes: RouteRecordRaw[] = [
 
 const router = createRouter({ history: createWebHistory(import.meta.env.BASE_URL), routes })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   if (to.meta.public) return true
-  if (!getAccessToken()) {
-    if (import.meta.env.VITE_DEFAULT_API_KEY) setDefaultAccessToken()
-    else return { path: '/login', query: { redirect: to.fullPath } }
+  try {
+    const response = await fetch('/api/gate', { credentials: 'same-origin' })
+    const result = await response.json()
+    const role = result?.data?.role as GateRole | null
+    if (result?.data?.unlocked && (role === 'admin' || role === 'test')) {
+      setGateRole(role)
+      return true
+    }
+  } catch {
+    // Fall through to the gate page.
   }
-  return true
+  clearGateRole()
+  return { path: '/gate', query: { redirect: to.fullPath } }
 })
 
 router.afterEach((to) => { document.title = `${String(to.meta.title || '销售 Agent')} - 销售 Agent` })
