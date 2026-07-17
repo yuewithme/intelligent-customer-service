@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     eyun_base_url: str = ""
     eyun_authorization: str = ""
     eyun_wid: str = ""
+    eyun_account_id: str = Field(default="default", alias="EYUN_ACCOUNT_ID")
     eyun_opening_text: str = (
         "我是萧岚苑的养兰师傅🌹咱们资料包含：图文，视频课程，一对一群版本等\n"
         "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n\n"
@@ -64,6 +65,12 @@ class Settings(BaseSettings):
     eyun_worker_poll_seconds: float = Field(default=1.0, alias="EYUN_WORKER_POLL_SECONDS")
     eyun_contact_refresh_delay_seconds: float = Field(
         default=15.0, ge=0, alias="EYUN_CONTACT_REFRESH_DELAY_SECONDS"
+    )
+    eyun_contact_poll_seconds: int = Field(
+        default=7200, ge=300, alias="EYUN_CONTACT_POLL_SECONDS"
+    )
+    eyun_contact_missing_threshold: int = Field(
+        default=3, ge=1, alias="EYUN_CONTACT_MISSING_THRESHOLD"
     )
     evaluation_mode: bool = Field(default=False, alias="EVALUATION_MODE")
 
@@ -147,6 +154,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./rag.db"
     redis_url: str = "redis://localhost:6379/0"
     upload_dir: str = "data/uploads"
+    public_base_url: str = Field(default="", alias="PUBLIC_BASE_URL")
+    sop_image_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    sop_video_max_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
 
     chat_log_enabled: bool = True
     chat_log_provider: str = "sqlite"

@@ -20,6 +20,7 @@ export interface UserProfile {
   last_route?: string | null
   last_template_id?: string | null
   last_active_at?: string | null
+  friend_added_at?: string | null
   created_at?: string | null
   updated_at?: string | null
 }

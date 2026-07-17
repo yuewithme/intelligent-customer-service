@@ -913,6 +913,7 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "last_route": profile.last_route,
         "last_template_id": profile.last_template_id,
         "last_active_at": _datetime_to_iso(profile.last_active_at),
+        "friend_added_at": _datetime_to_iso(profile.friend_added_at),
         "created_at": _datetime_to_iso(profile.created_at),
         "updated_at": _datetime_to_iso(profile.updated_at),
     }
@@ -934,6 +935,14 @@ def _ensure_profile_columns(engine) -> None:
                 text(
                     "ALTER TABLE user_profiles "
                     "ADD COLUMN basic_info_json TEXT DEFAULT '{}'"
+                )
+            )
+    if "friend_added_at" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE user_profiles "
+                    "ADD COLUMN friend_added_at DATETIME"
                 )
             )
 

@@ -123,7 +123,12 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
         )
         session.commit()
         session.refresh(batch)
-        return _inbound_batch_to_dict(batch)
+        result = _inbound_batch_to_dict(batch)
+    if from_user and not from_group:
+        from app.services.unpurchased_sop_service import pause_unpurchased_sop_for_customer
+
+        pause_unpurchased_sop_for_customer(from_user)
+    return result
 
 
 async def process_due_eyun_inbound_batches(limit: int = 10) -> int:
@@ -244,6 +249,12 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             .limit(limit)
         ).all()
         for row in rows:
+            if not _validate_sop_outbound(row.source_batch_key):
+                row.status = "cancelled"
+                row.last_error = "SOP发送前条件已不满足"
+                row.updated_at = now
+                session.commit()
+                continue
             rate = session.get(EyunSendRateModel, row.w_id)
             allowed_at = _next_allowed_send_at(rate.last_sent_at if rate else None)
             if allowed_at > now:
@@ -262,6 +273,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     send_eyun_mini_program,
                     send_eyun_received_media,
                     send_eyun_text,
+                    send_eyun_video,
                 )
 
                 message_type, content = _decode_outbound_content(row.content)
@@ -282,6 +294,14 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         content=content,
                         message_type=message_type,
                     )
+                elif message_type == "video":
+                    video = json.loads(content)
+                    send_result = await send_eyun_video(
+                        w_id=row.w_id,
+                        wc_id=row.wc_id,
+                        path=str(video.get("path") or ""),
+                        thumb_path=str(video.get("thumb_path") or ""),
+                    )
                 else:
                     send_result = await send_eyun_text(
                         w_id=row.w_id, wc_id=row.wc_id, content=content
@@ -300,6 +320,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         status=row.status,
                     )
                 logger.warning("Eyun outbound send failed: %s", exc)
+                _sync_sop_outbound(row.source_batch_key, row.status, row.last_error)
                 continue
 
             sent_at = _eyun_sent_at(send_result) or utcnow()
@@ -321,6 +342,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 rate.last_sent_at = sent_at
                 rate.updated_at = sent_at
             session.commit()
+            _sync_sop_outbound(row.source_batch_key, "sent")
             if row.conversation_message_id:
                 update_outbound_message_delivery(
                     row.conversation_message_id,
@@ -530,6 +552,7 @@ def _opening_chat_result() -> dict[str, Any]:
 def _encode_outbound_content(message_type: str, content: str) -> str:
     if message_type in {
         "image",
+        "video",
         "mini_program",
         "received_image",
         "received_video",
@@ -546,7 +569,7 @@ def _decode_outbound_content(content: str) -> tuple[str, str]:
     if (
         isinstance(payload, dict)
         and payload.get("type")
-        in {"image", "mini_program", "received_image", "received_video"}
+        in {"image", "video", "mini_program", "received_image", "received_video"}
         and payload.get("content")
     ):
         return str(payload["type"]), str(payload["content"])
@@ -566,8 +589,12 @@ def _mark_batch(batch_id: int, status: str) -> None:
 def _next_allowed_send_at(last_sent_at: datetime | None) -> datetime:
     if last_sent_at is None:
         return datetime.min.replace(tzinfo=timezone.utc)
+    settings = get_settings()
+    if settings.eyun_send_min_interval_seconds <= 0:
+        return _ensure_aware(last_sent_at)
+    rate_interval = 60 / max(1, settings.eyun_send_max_per_minute)
     return _ensure_aware(last_sent_at) + timedelta(
-        seconds=get_settings().eyun_send_min_interval_seconds
+        seconds=max(settings.eyun_send_min_interval_seconds, rate_interval)
     )
 
 
@@ -802,3 +829,21 @@ def _ensure_aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+def _validate_sop_outbound(source_batch_key: str | None) -> bool:
+    if not source_batch_key or not source_batch_key.startswith("unpurchased_sop:"):
+        return True
+    from app.services.unpurchased_sop_service import validate_sop_delivery_before_send
+
+    return validate_sop_delivery_before_send(source_batch_key)
+
+
+def _sync_sop_outbound(
+    source_batch_key: str | None, status: str, error: str | None = None
+) -> None:
+    if not source_batch_key or not source_batch_key.startswith("unpurchased_sop:"):
+        return
+    from app.services.unpurchased_sop_service import sync_sop_delivery_from_outbound
+
+    sync_sop_delivery_from_outbound(source_batch_key, status, error)

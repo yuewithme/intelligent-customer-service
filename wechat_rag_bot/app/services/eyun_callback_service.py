@@ -556,6 +556,37 @@ async def send_eyun_image(
     return result
 
 
+async def send_eyun_video(
+    *, w_id: str, wc_id: str, path: str, thumb_path: str
+) -> dict[str, Any] | None:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id:
+        raise RuntimeError("Eyun configuration is incomplete")
+    if not path or not thumb_path:
+        raise ValueError("video path and thumb_path are required")
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post(
+            f"{base_url}/sendVideo",
+            headers={
+                "Authorization": authorization,
+                "Content-Type": "application/json",
+            },
+            json={
+                "wId": w_id,
+                "wcId": wc_id,
+                "path": path,
+                "thumbPath": thumb_path,
+            },
+        )
+    response.raise_for_status()
+    result = response.json()
+    if str(result.get("code")) != "1000":
+        raise RuntimeError(f"Eyun sendVideo failed: {result}")
+    return result
+
+
 async def send_eyun_received_media(
     *, w_id: str, wc_id: str, content: str, message_type: str
 ) -> dict[str, Any] | None:

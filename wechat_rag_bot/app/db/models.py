@@ -1,12 +1,14 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped, mapped_column
@@ -234,6 +236,101 @@ class UserProfileModel(Base):
     last_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_template_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    friend_added_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class EyunContactModel(Base):
+    __tablename__ = "eyun_contacts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "owner_account_id", "wc_id", name="uq_eyun_contact"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    owner_account_id: Mapped[str] = mapped_column(String(256), index=True)
+    wc_id: Mapped[str] = mapped_column(String(256), index=True)
+    current_w_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    friend_added_on: Mapped[date | None] = mapped_column(Date, index=True, nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
+    missing_count: Mapped[int] = mapped_column(Integer, default=0)
+    discovery_source: Mapped[str] = mapped_column(String(32), index=True, default="polling")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class UnpurchasedSopModel(Base):
+    __tablename__ = "unpurchased_sops"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), default="未购SOP")
+    enabled: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=True)
+    send_window_start: Mapped[str] = mapped_column(String(5), default="09:00")
+    send_window_end: Mapped[str] = mapped_column(String(5), default="20:00")
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Shanghai")
+    baseline_initialized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_contact_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class UnpurchasedSopStepModel(Base):
+    __tablename__ = "unpurchased_sop_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sop_id: Mapped[int] = mapped_column(Integer, index=True)
+    day_offset: Mapped[int] = mapped_column(Integer, index=True)
+    send_time: Mapped[str] = mapped_column(String(5))
+    message_type: Mapped[str] = mapped_column(String(32), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    preview_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, index=True, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class UnpurchasedSopEnrollmentModel(Base):
+    __tablename__ = "unpurchased_sop_enrollments"
+    __table_args__ = (
+        UniqueConstraint("sop_id", "contact_id", "friend_added_on", name="uq_unpurchased_enrollment"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sop_id: Mapped[int] = mapped_column(Integer, index=True)
+    contact_id: Mapped[int] = mapped_column(Integer, index=True)
+    friend_added_on: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
+    paused_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exit_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class UnpurchasedSopDeliveryModel(Base):
+    __tablename__ = "unpurchased_sop_deliveries"
+    __table_args__ = (
+        UniqueConstraint("enrollment_id", "step_id", name="uq_unpurchased_delivery"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    enrollment_id: Mapped[int] = mapped_column(Integer, index=True)
+    step_id: Mapped[int] = mapped_column(Integer, index=True)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="scheduled")
+    message_type: Mapped[str] = mapped_column(String(32))
+    content_snapshot: Mapped[str] = mapped_column(Text)
+    preview_url_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    outbound_message_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 

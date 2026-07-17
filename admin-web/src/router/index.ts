@@ -21,6 +21,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'knowledge-ops/knowledge', component: PlaceholderPage, props: { title: '销售知识库' }, meta: { title: '销售知识库' } },
       { path: 'knowledge-ops/templates', component: PlaceholderPage, props: { title: '销售话术' }, meta: { title: '销售话术' } },
       { path: 'knowledge-ops/intent-examples', component: PlaceholderPage, props: { title: '销售意图样本' }, meta: { title: '销售意图样本' } },
+      { path: 'sop/unpurchased', component: () => import('@/views/unpurchased-sop/index.vue'), meta: { title: '未购 SOP' } },
       { path: 'settings/model-config', component: PlaceholderPage, props: { title: '模型配置' }, meta: { title: '模型配置' } }
     ]
   },

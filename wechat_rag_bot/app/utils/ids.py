@@ -11,6 +11,7 @@ PREFIXES = {
     "message": "msg",
     "request": "req",
     "handoff": "handoff",
+    "sop_media": "sopmedia",
 }
 
 

@@ -14,6 +14,7 @@ from app.routers import (
     admin_conversations,
     admin_gate,
     admin_logs,
+    admin_unpurchased_sop,
     chat,
     debug,
     demo,
@@ -28,7 +29,9 @@ from app.routers import (
 )
 from app.schemas.common import AppError, ErrorCode
 from app.services.message_risk_control_service import eyun_risk_control_worker
+from app.services.unpurchased_sop_service import unpurchased_sop_worker
 from app.services.eyun_callback_service import video_storage_dir
+from app.routers.admin_unpurchased_sop import sop_media_storage_dir
 from app.utils.logger import configure_logging
 from app.mcp_server import mcp_asgi_app, sales_mcp
 
@@ -46,12 +49,16 @@ async def lifespan(app: FastAPI):
     app.state.eyun_risk_control_task = asyncio.create_task(
         eyun_risk_control_worker(stop_event)
     )
+    app.state.unpurchased_sop_task = asyncio.create_task(
+        unpurchased_sop_worker(stop_event)
+    )
     async with sales_mcp.session_manager.run():
         try:
             yield
         finally:
             stop_event.set()
             await app.state.eyun_risk_control_task
+            await app.state.unpurchased_sop_task
 
 
 app = FastAPI(title=get_settings().app_name, lifespan=lifespan)
@@ -60,6 +67,11 @@ app.mount(
     "/static/media",
     StaticFiles(directory=video_storage_dir()),
     name="video-media",
+)
+app.mount(
+    "/static/sop-media",
+    StaticFiles(directory=sop_media_storage_dir()),
+    name="sop-media",
 )
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(admin_activities.router)
@@ -76,6 +88,7 @@ app.include_router(demo.router)
 app.include_router(demo_admin.router)
 app.include_router(demo_admin.profile_router)
 app.include_router(admin_logs.router)
+app.include_router(admin_unpurchased_sop.router)
 app.include_router(wechat.router)
 app.include_router(eyun.router)
 
