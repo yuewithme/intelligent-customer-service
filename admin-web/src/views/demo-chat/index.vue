@@ -35,6 +35,9 @@
             <p>{{ item.content }}</p>
           </div>
         </div>
+        <div v-if="loading" class="message-row agent">
+          <div class="bubble thinking">销售 Agent 正在思考…</div>
+        </div>
       </div>
 
       <aside v-if="latestResult" class="agent-state">
@@ -247,6 +250,10 @@ const sendMessage = async () => {
   font-size: 12px;
   font-weight: 700;
   opacity: 0.72;
+}
+
+.thinking {
+  color: #60786e;
 }
 
 .agent-state {
