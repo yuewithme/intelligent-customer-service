@@ -130,6 +130,7 @@ async def test_expired_material_pauses_and_recapture_resumes_queue(monkeypatch):
     material = materials.capture_eyun_material(media_type="video", raw_xml=xml)
     now = datetime(2026, 7, 17, 9, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(risk, "utcnow", lambda: now)
+    monkeypatch.setattr(materials, "utcnow", lambda: now)
 
     async def expired_send(**_kwargs):
         raise RuntimeError("CDN material expired")

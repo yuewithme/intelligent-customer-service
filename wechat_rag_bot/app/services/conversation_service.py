@@ -38,6 +38,7 @@ async def list_conversations(
     owner_id: str | None = None,
     keyword: str | None = None,
     channels: tuple[str, ...] | None = None,
+    wechat_group_allowlist: tuple[str, ...] | None = None,
 ) -> dict:
     page = max(page, 1)
     page_size = max(min(page_size, 200), 1)
@@ -51,6 +52,14 @@ async def list_conversations(
             filters.append(ConversationModel.last_message.like(f"%{keyword}%"))
         if channels:
             filters.append(ConversationModel.channel.in_(channels))
+        if wechat_group_allowlist is not None:
+            filters.append(
+                or_(
+                    ConversationModel.channel != "wechat",
+                    ConversationModel.user_id.not_like("%@chatroom"),
+                    ConversationModel.user_id.in_(wechat_group_allowlist),
+                )
+            )
         total = session.scalar(
             select(func.count()).select_from(ConversationModel).where(*filters)
         )

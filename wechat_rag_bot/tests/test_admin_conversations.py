@@ -34,6 +34,28 @@ def test_conversation_list_starts_empty(monkeypatch, tmp_path):
     assert response.json()["data"] == {"items": [], "total": 0, "page": 1, "page_size": 50}
 
 
+def test_admin_only_displays_configured_wechat_material_group(monkeypatch, tmp_path):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("EYUN_MATERIAL_GROUP_WC_ID", "material@chatroom")
+    get_settings.cache_clear()
+    for group_id in ("material@chatroom", "other@chatroom"):
+        asyncio.run(
+            record_customer_message(
+                channel="wechat",
+                user_id=group_id,
+                session_id="default",
+                content="[图片]",
+            )
+        )
+
+    data = TestClient(app).get("/api/v1/admin/conversations").json()["data"]
+
+    assert data["total"] == 1
+    assert data["items"][0]["user_id"] == "material@chatroom"
+
+
 def test_chat_creates_ai_owned_conversation(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)

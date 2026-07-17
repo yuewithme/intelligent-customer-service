@@ -4,6 +4,7 @@ import json
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
+from app.config import get_settings
 from app.schemas.chat import APIResponse
 from app.schemas.conversation import ClaimRequest, ReplyRequest, StatusActionRequest
 from app.services.conversation_event_service import conversation_event_broker
@@ -66,12 +67,14 @@ async def conversations(
     owner_id: str | None = None,
     keyword: str | None = None,
 ) -> APIResponse:
+    material_group_wc_id = get_settings().eyun_material_group_wc_id.strip()
     data = await list_conversations(
         page=page,
         page_size=page_size,
         status=status,
         owner_id=owner_id,
         keyword=keyword,
+        wechat_group_allowlist=(material_group_wc_id,) if material_group_wc_id else (),
     )
     return APIResponse(code=0, message="success", data=data)
 
