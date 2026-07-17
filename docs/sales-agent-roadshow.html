@@ -464,36 +464,60 @@
     .window-bar a { color: var(--accent); font-size: 11px; text-decoration: none; }
     .demo-product {
       display: grid;
-      grid-template-columns: minmax(0, 1.28fr) minmax(230px, .72fr);
+      grid-template-columns: 104px 150px minmax(250px, 1fr) 205px;
       height: 562px;
-      background: #eef4f1;
+      padding: 10px;
+      gap: 8px;
+      background: #f5f7fb;
       color: #13251d;
     }
+    .admin-mini-nav { padding: 14px 10px; color: #d7e7e1; background: #123f33; border-radius: 7px; }
+    .mini-brand { display: flex; align-items: center; gap: 7px; padding-bottom: 16px; color: #fff; border-bottom: 1px solid rgb(255 255 255 / 12%); }
+    .mini-brand b { display: grid; width: 25px; height: 25px; place-items: center; color: #092016; background: var(--accent); border-radius: 7px; font-size: 8px; }
+    .mini-brand span { font-size: 9px; font-weight: 750; }
+    .mini-nav-group { margin-top: 17px; }
+    .mini-nav-group small { display: block; margin-bottom: 6px; color: #80ab9b; font-size: 7px; letter-spacing: .08em; }
+    .mini-nav-item { display: block; padding: 7px 8px; margin: 3px 0; color: #cce0d8; border-radius: 6px; font-size: 8px; }
+    .mini-nav-item.active { color: #fff; background: #23634f; }
 
-    .demo-chat-pane { display: grid; grid-template-rows: 54px 1fr 58px; min-width: 0; border-right: 1px solid #cfddd6; }
-    .demo-chat-head { display: flex; align-items: center; justify-content: space-between; padding: 0 18px; background: #f8fbf9; border-bottom: 1px solid #d9e4df; }
-    .demo-chat-head strong { font-size: 13px; }
-    .demo-chat-head span { color: #3b775a; font-size: 10px; }
-    .demo-chat-body { display: grid; align-content: start; gap: 14px; padding: 22px 20px; overflow: hidden; }
-    .chat-message { max-width: 82%; padding: 12px 14px; font-size: 12px; line-height: 1.65; border-radius: 12px; }
-    .chat-message.customer { justify-self: end; background: #d5f0e2; border-bottom-right-radius: 4px; }
-    .chat-message.agent { background: #fff; border: 1px solid #d8e4de; border-bottom-left-radius: 4px; box-shadow: 0 8px 24px rgb(24 60 43 / 7%); }
-    .message-source { display: block; margin-top: 7px; color: #4b7f66; font-size: 9px; letter-spacing: .04em; }
-    .demo-input { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #f8fbf9; border-top: 1px solid #d9e4df; }
-    .demo-input span { flex: 1; color: #81938a; font-size: 11px; }
-    .demo-send { width: 34px; height: 34px; color: #092016; background: var(--accent); border: 0; border-radius: 9px; font-weight: 800; }
+    .workbench-panel { min-width: 0; overflow: hidden; background: #fff; border: 1px solid #e1e7e4; border-radius: 7px; }
+    .panel-title { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 0 11px; border-bottom: 1px solid #e6ece9; }
+    .panel-title strong { font-size: 9px; }
+    .panel-title span { color: #678078; font-size: 7px; }
+    .conversation-tools { display: grid; gap: 6px; padding: 9px; border-bottom: 1px solid #edf1ef; }
+    .tool-field { padding: 7px 8px; color: #82938d; background: #f8faf9; border: 1px solid #dce5e1; border-radius: 5px; font-size: 7px; }
+    .conversation-item { padding: 10px 9px; border-bottom: 1px solid #edf1ef; }
+    .conversation-item.active { background: #edf8f3; border-left: 3px solid #35a37a; }
+    .conversation-item strong, .conversation-item span, .conversation-item small { display: block; }
+    .conversation-item strong { margin-bottom: 5px; font-size: 9px; }
+    .conversation-item span { overflow: hidden; color: #61736c; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+    .conversation-item small { margin-top: 7px; color: #3e8061; font-size: 7px; }
 
-    .demo-insight { padding: 18px; overflow: hidden; background: #e5eeea; }
-    .insight-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .insight-title strong { font-size: 12px; }
-    .insight-title span { color: #287b52; font-size: 9px; font-weight: 800; letter-spacing: .08em; }
-    .insight-block { padding: 13px 0; border-top: 1px solid #c8d8d0; }
-    .insight-block:first-of-type { border-top: 0; }
-    .insight-block small { display: block; margin-bottom: 7px; color: #63786e; font-size: 9px; letter-spacing: .08em; }
-    .insight-block strong { display: block; margin-bottom: 8px; font-size: 13px; }
-    .insight-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-    .insight-tags span { padding: 5px 7px; color: #25533d; background: #f6faf8; border: 1px solid #c7d9d0; border-radius: 7px; font-size: 9px; }
-    .next-action { padding: 10px; color: #e8fff2; background: #174f35; border-radius: 9px; font-size: 10px; line-height: 1.55; }
+    .real-chat-pane { display: grid; grid-template-rows: 48px 1fr 52px; min-width: 0; }
+    .real-chat-head { display: flex; align-items: center; justify-content: space-between; padding: 0 13px; border-bottom: 1px solid #e6ece9; }
+    .real-chat-head strong { font-size: 10px; }
+    .real-chat-head span { color: #73857e; font-size: 7px; }
+    .real-chat-body { display: grid; align-content: start; gap: 11px; padding: 16px 13px; overflow: hidden; background: #fafcfb; }
+    .chat-message { max-width: 86%; padding: 10px 11px; font-size: 9px; line-height: 1.55; border-radius: 9px; }
+    .chat-message.customer { justify-self: end; background: #d9f2e5; border-bottom-right-radius: 3px; }
+    .chat-message.agent { background: #fff; border: 1px solid #dfe7e3; border-bottom-left-radius: 3px; }
+    .message-source { display: block; margin-top: 5px; color: #4b7f66; font-size: 7px; }
+    .demo-input { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-top: 1px solid #e6ece9; }
+    .demo-input span { flex: 1; color: #92a19b; font-size: 8px; }
+    .demo-send { width: 29px; height: 29px; color: #fff; background: #35a37a; border: 0; border-radius: 7px; font-weight: 800; }
+
+    .supervision-panel { padding: 0 11px 12px; overflow: hidden; }
+    .supervision-panel .panel-title { margin: 0 -11px 4px; }
+    .status-tag { padding: 3px 5px; color: #246849 !important; background: #e1f4ea; border-radius: 5px; font-weight: 700; }
+    .supervision-section { padding: 10px 0; border-bottom: 1px solid #e5ebe8; }
+    .supervision-section h4 { margin: 0 0 8px; font-size: 9px; }
+    .supervision-row { display: grid; grid-template-columns: 52px 1fr; gap: 5px; margin: 5px 0; font-size: 7px; line-height: 1.4; }
+    .supervision-row span:first-child { color: #7b8d86; }
+    .profile-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+    .profile-tags span { padding: 4px 5px; color: #315c48; background: #f4f9f6; border: 1px solid #d5e3dc; border-radius: 5px; font-size: 7px; }
+    .supervision-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding-top: 10px; }
+    .supervision-actions span { padding: 6px; text-align: center; border: 1px solid #d5e0db; border-radius: 5px; font-size: 7px; }
+    .supervision-actions span:first-child { color: #9b5c00; background: #fff7e7; border-color: #efd9af; }
 
     .architecture-slide .slide-inner { width: min(100%, 1560px); }
     .architecture-slide .section-heading { margin-bottom: 16px; }
@@ -575,7 +599,7 @@
 
     .data-foundation {
       display: grid;
-      grid-template-columns: 1.1fr 1.18fr 1.15fr 1fr .95fr 1fr;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 9px;
       padding: 13px;
       background: var(--surface-2);
@@ -584,17 +608,17 @@
     }
 
     .data-store {
-      min-height: 126px;
-      padding: 14px;
+      min-height: 98px;
+      padding: 12px;
       background: #121c17;
       border: 1px solid var(--line-soft);
       border-radius: 11px;
     }
 
     .data-store:nth-child(2), .data-store:nth-child(4) { background: #19261f; }
-    .data-store h3 { color: #dff8ea; font-size: 13px; }
-    .data-store p { margin: 0; color: var(--quiet); font-size: 10px; line-height: 1.58; }
-    .data-store small { display: block; margin-top: 11px; color: var(--accent); font: 9px Consolas, monospace; }
+    .data-store h3 { color: #dff8ea; font-size: 12px; }
+    .data-store p { margin: 0; color: var(--quiet); font-size: 9px; line-height: 1.48; }
+    .data-store small { display: block; margin-top: 7px; color: var(--accent); font: 8px Consolas, monospace; }
 
     .arch-caption {
       display: grid;
@@ -641,6 +665,10 @@
     .delivery-list span { padding: 9px 10px; color: var(--muted); font-size: 11px; background: rgb(16 23 19 / 56%); border: 1px solid var(--line-soft); border-radius: 9px; }
     .delivery-arrow { display: grid; place-items: center; color: var(--accent); font-size: 24px; }
 
+    .roadmap-column { position: relative; }
+    .roadmap-title { position: absolute; bottom: calc(100% + 17px); left: 0; }
+    .roadmap-title span { display: block; margin-bottom: 3px; color: var(--accent); font: 9px Consolas, monospace; letter-spacing: .12em; }
+    .roadmap-title h3 { margin: 0; font-size: 19px; }
     .roadmap {
       display: grid;
       gap: 10px;
@@ -704,9 +732,10 @@
       .customer-source { grid-template-columns: auto 1fr; }
       .flow-row { grid-template-columns: repeat(3, 1fr); }
       .flow-node:not(:last-child)::after, .flow-node:not(:last-child)::before { display: none; }
-      .data-foundation { grid-template-columns: repeat(3, 1fr); }
+      .data-foundation { grid-template-columns: repeat(4, 1fr); }
       .arch-caption { grid-template-columns: 1fr; }
       .delivery-chain { grid-template-columns: 1fr 38px 1.2fr 38px 1fr; }
+      .roadmap-column { margin-top: 58px; }
     }
 
     @media (max-width: 760px) {
@@ -731,8 +760,8 @@
       .comparison .arrow { transform: rotate(90deg); text-align: center; }
       .demo-window { min-height: 520px; }
       .demo-product { height: auto; min-height: 600px; grid-template-columns: 1fr; }
-      .demo-chat-pane { min-height: 520px; border-right: 0; }
-      .demo-insight { display: none; }
+      .admin-mini-nav, .conversation-list-panel, .supervision-panel { display: none; }
+      .real-chat-pane { min-height: 560px; }
       .flow-row, .data-foundation { grid-template-columns: 1fr; }
       .flow-node { min-height: auto; }
       .architecture-shell { min-height: auto; }
@@ -864,29 +893,51 @@
               <div class="demo-step"><strong>执行销售策略</strong><small>追问环境、推荐产品、处理价格顾虑</small></div>
             </div>
             <div class="button-row">
-              <a class="button" href="https://intelligent-customer-service-r63g.onrender.com/demo-chat" target="_blank" rel="noreferrer">打开完整体验</a>
+              <a class="button" href="https://intelligent-customer-service-r63g.onrender.com/workbench" target="_blank" rel="noreferrer">打开销售工作台</a>
             </div>
           </div>
 
           <div class="demo-window reveal delay-2">
-            <div class="window-bar"><strong>销售 Agent 演示视图</strong><a href="https://intelligent-customer-service-r63g.onrender.com/demo-chat" target="_blank" rel="noreferrer">打开在线体验</a></div>
-            <div class="demo-product" aria-label="销售 Agent 对话与决策演示">
-              <div class="demo-chat-pane">
-                <div class="demo-chat-head"><strong>兰花销售 Agent</strong><span>● 正在服务</span></div>
-                <div class="demo-chat-body">
+            <div class="window-bar"><strong>真实销售工作台结构</strong><a href="https://intelligent-customer-service-r63g.onrender.com/workbench" target="_blank" rel="noreferrer">打开真实后台</a></div>
+            <div class="demo-product" aria-label="销售 Agent 真实工作台结构演示">
+              <aside class="admin-mini-nav">
+                <div class="mini-brand"><b>SA</b><span>销售 Agent</span></div>
+                <div class="mini-nav-group"><small>销售执行</small><span class="mini-nav-item active">销售工作台</span></div>
+                <div class="mini-nav-group"><small>销售运营</small><span class="mini-nav-item">对话日志</span><span class="mini-nav-item">人工接管</span><span class="mini-nav-item">客户画像</span></div>
+                <div class="mini-nav-group"><small>策略与知识</small><span class="mini-nav-item">知识库</span><span class="mini-nav-item">销售话术</span></div>
+                <div class="mini-nav-group"><small>SOP 流程</small><span class="mini-nav-item">未购 SOP</span></div>
+              </aside>
+
+              <aside class="workbench-panel conversation-list-panel">
+                <div class="panel-title"><strong>客户会话</strong><span>↻</span></div>
+                <div class="conversation-tools"><div class="tool-field">全部状态</div><div class="tool-field">搜索最近消息</div></div>
+                <div class="conversation-item active"><strong>林女士</strong><span>放在客厅窗边，下午能...</span><small>AI 自动回复 · 14:32</small></div>
+                <div class="conversation-item"><strong>陈先生</strong><span>这款开花期大概多久？</span><small>AI 等待中 · 14:18</small></div>
+                <div class="conversation-item"><strong>王女士</strong><span>第一次养，需要怎么浇水</span><small>AI 自动回复 · 13:55</small></div>
+              </aside>
+
+              <section class="workbench-panel real-chat-pane">
+                <div class="real-chat-head"><strong>林女士</strong><span>微信 / 当前会话</span></div>
+                <div class="real-chat-body">
                   <div class="chat-message customer">我是养兰新手，预算大概 300 元，想买一盆比较好养的兰花。</div>
-                  <div class="chat-message agent">可以的。新手更适合耐养、环境适应性好的品种。您准备放在阳台还是室内？每天大概有几个小时散射光？<span class="message-source">已结合客户画像与养护知识生成</span></div>
+                  <div class="chat-message agent">可以的。新手更适合耐养、环境适应性好的品种。您准备放在阳台还是室内？<span class="message-source">AI · 14:31</span></div>
                   <div class="chat-message customer">放在客厅窗边，下午能晒到一点太阳。</div>
-                  <div class="chat-message agent">这个环境可以优先考虑建兰或墨兰。我先按 300 元以内、带盆、容易复花给您筛选 2 款，再告诉您各自的养护差异，您看可以吗？<span class="message-source">下一步：商品推荐与购买顾虑处理</span></div>
+                  <div class="chat-message agent">这个环境可以优先考虑建兰或墨兰。我先按 300 元以内给您筛选两款，再说明养护差异。<span class="message-source">AI · 14:32</span></div>
                 </div>
-                <div class="demo-input"><span>输入客户的新问题...</span><button class="demo-send" type="button" aria-label="发送演示消息">↑</button></div>
-              </div>
-              <aside class="demo-insight">
-                <div class="insight-title"><strong>实时决策面板</strong><span>AGENT LIVE</span></div>
-                <div class="insight-block"><small>销售阶段</small><strong>需求确认</strong><div class="insight-tags"><span>购买意向明确</span><span>待确认环境</span></div></div>
-                <div class="insight-block"><small>客户画像</small><div class="insight-tags"><span>养兰新手</span><span>预算 300 元</span><span>偏好易养</span><span>客厅窗边</span></div></div>
-                <div class="insight-block"><small>知识检索</small><strong>命中 6 条产品与养护知识</strong><div class="insight-tags"><span>建兰</span><span>墨兰</span><span>散射光</span></div></div>
-                <div class="insight-block"><small>建议动作</small><div class="next-action">确认光照条件后推荐 2 款商品，解释养护差异，并询问是否需要带盆发货。</div></div>
+                <div class="demo-input"><span>回复客户...</span><button class="demo-send" type="button" aria-label="发送演示消息">↑</button></div>
+              </section>
+
+              <aside class="workbench-panel supervision-panel">
+                <div class="panel-title"><strong>监督面板</strong><span class="status-tag">AI 自动回复</span></div>
+                <div class="supervision-section">
+                  <div class="supervision-row"><span>客户</span><b>林女士</b></div>
+                  <div class="supervision-row"><span>渠道</span><b>微信私域</b></div>
+                  <div class="supervision-row"><span>路由</span><b>销售 Agent</b></div>
+                  <div class="supervision-row"><span>意图</span><b>商品推荐</b></div>
+                  <div class="supervision-row"><span>接管人</span><b>-</b></div>
+                </div>
+                <div class="supervision-section"><h4>用户画像 · 实时</h4><div class="supervision-row"><span>当前阶段</span><b>需求确认</b></div><div class="supervision-row"><span>产品兴趣</span><b>建兰、墨兰</b></div><div class="supervision-row"><span>AI 摘要</span><b>新手，预算 300 元，偏好易养</b></div><div class="profile-tags"><span>养兰新手</span><span>购买意向明确</span><span>客厅窗边</span></div></div>
+                <div class="supervision-actions"><span>强制转人工</span><span>结束会话</span></div>
               </aside>
             </div>
           </div>
@@ -920,7 +971,9 @@
             <div class="data-foundation" aria-label="销售 Agent 数据与知识底座">
               <article class="data-store"><h3>用户信息库</h3><p>客户身份、联系方式、渠道来源、基础属性和关联账号。</p><small>IDENTITY STORE</small></article>
               <article class="data-store"><h3>用户画像与记忆库</h3><p>需求、预算、偏好、意向、历史顾虑、销售阶段和待跟进事项。</p><small>PROFILE + MEMORY</small></article>
+              <article class="data-store"><h3>订单系统</h3><p>订单状态、已购商品、支付金额、退款售后和复购周期等交易事实。</p><small>ORDER SYSTEM</small></article>
               <article class="data-store"><h3>产品信息知识库</h3><p>商品特点、适用人群、价格套餐、使用方法、产品边界和常见问题。</p><small>QDRANT + RAG</small></article>
+              <article class="data-store"><h3>SOP 库</h3><p>首单、复购、服务、日常触达等流程节点、触发条件和执行动作。</p><small>SOP WORKFLOW</small></article>
               <article class="data-store"><h3>销售话术库</h3><p>首次沟通、需求追问、商品推荐、异议处理和成交引导话术。</p><small>TALK SCRIPT STORE</small></article>
               <article class="data-store"><h3>活动与素材库</h3><p>销售活动、优惠信息、商品素材、适用客户标签和有效时间。</p><small>ACTIVITY STORE</small></article>
               <article class="data-store"><h3>会话与评估库</h3><p>客户原始消息、Agent 回复、人工接管、决策路径和销售结果。</p><small>SQL + AUDIT LOG</small></article>
@@ -960,11 +1013,14 @@
             </article>
           </div>
 
-          <div class="roadmap reveal delay-2">
-            <article class="roadmap-item"><strong>SOP 模块</strong><div><h3>让 Agent 沿工作流自主推进</h3><p>覆盖首单销售、复购、服务、日常触达、沉默唤醒和流失挽回。</p></div></article>
-            <article class="roadmap-item"><strong>经营分析</strong><div><h3>完善画像与销售看板</h3><p>增加销售漏斗、未成交原因、客户异议、商品关注度和转化分析。</p></div></article>
-            <article class="roadmap-item"><strong>MVP 上线</strong><div><h3>进入真实生产环境验证</h3><p>完成内部测试，接入具体商家，跑通接待、成交、服务和复购闭环。</p></div></article>
-            <article class="roadmap-item"><strong>规模复制</strong><div><h3>复制基座并提供定制服务</h3><p>支持多商家、多品牌、行业模板、业务系统接入和私有化部署。</p></div></article>
+          <div class="roadmap-column reveal delay-2">
+            <div class="roadmap-title"><span>ROADMAP</span><h3>未来开发规划</h3></div>
+            <div class="roadmap">
+              <article class="roadmap-item"><strong>SOP 模块</strong><div><h3>让 Agent 沿工作流自主推进</h3><p>覆盖首单销售、复购、服务、日常触达、沉默唤醒和流失挽回。</p></div></article>
+              <article class="roadmap-item"><strong>经营分析</strong><div><h3>完善画像与销售看板</h3><p>增加销售漏斗、未成交原因、客户异议、商品关注度和转化分析。</p></div></article>
+              <article class="roadmap-item"><strong>MVP 上线</strong><div><h3>进入真实生产环境验证</h3><p>完成内部测试，接入具体商家，跑通接待、成交、服务和复购闭环。</p></div></article>
+              <article class="roadmap-item"><strong>规模复制</strong><div><h3>复制基座并提供定制服务</h3><p>支持多商家、多品牌、行业模板、业务系统接入和私有化部署。</p></div></article>
+            </div>
           </div>
         </div>
 
