@@ -178,7 +178,10 @@ def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_
     monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
     monkeypatch.setattr(eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url)
     monkeypatch.setattr(
-        eyun_callback_service, "enqueue_eyun_outbound", fake_enqueue_outbound, raising=False
+        eyun_callback_service,
+        "enqueue_wechat_outbound",
+        fake_enqueue_outbound,
+        raising=False,
     )
     monkeypatch.setattr(
         eyun_callback_service,
@@ -261,7 +264,9 @@ def test_private_image_callback_queues_only_one_prompt_within_cooldown(
         fake_reserve,
         raising=False,
     )
-    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_outbound", fake_enqueue_outbound)
+    monkeypatch.setattr(
+        eyun_callback_service, "enqueue_wechat_outbound", fake_enqueue_outbound
+    )
 
     client = TestClient(app)
     for message_id in (102, 103):

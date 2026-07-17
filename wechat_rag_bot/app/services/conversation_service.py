@@ -614,7 +614,8 @@ async def reply_conversation(
             message="回复内容不能为空",
             status_code=400,
         )
-    send_result: dict[str, Any] | None = None
+    eyun_target: dict[str, str] | None = None
+    conversation_message_id: int | None = None
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)
         if conversation.status != HUMAN_ACTIVE or conversation.owner_id != operator_id:
@@ -624,54 +625,30 @@ async def reply_conversation(
                 status_code=409,
             )
         eyun_target = _latest_eyun_reply_target(session, conversation)
-        if eyun_target:
-            try:
-                from app.services.eyun_callback_service import send_eyun_text
-
-                send_result = await send_eyun_text(
-                    w_id=eyun_target["w_id"],
-                    wc_id=eyun_target["wc_id"],
-                    content=content,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise AppError(
-                    ErrorCode.WECHAT_REPLY_FAILED,
-                    message="Eyun 消息发送失败，人工回复未写入本地会话",
-                    status_code=502,
-                ) from exc
         now = _now()
-        provider_message_id = _eyun_result_message_id(send_result)
-        message = None
-        if provider_message_id:
-            message = session.scalar(
-                select(ConversationMessageModel).where(
-                    ConversationMessageModel.conversation_id == conversation_id,
-                    ConversationMessageModel.message_id == provider_message_id,
-                )
-            )
-        if message is None:
-            session.add(
-                ConversationMessageModel(
-                    conversation_id=conversation_id,
-                    message_id=provider_message_id,
-                    delivery_status="sent" if eyun_target else None,
-                    sender_type="human",
-                    sender_id=operator_id,
-                    content=content,
-                    metadata_json=json.dumps(
-                        {
-                            "provider": "eyun",
-                            "direction": "outbound",
-                            "message_type": "text",
-                            "origin": "admin_workbench",
-                        }
-                        if eyun_target
-                        else {},
-                        ensure_ascii=False,
-                    ),
-                    created_at=_eyun_result_sent_at(send_result) or now,
-                )
-            )
+        message = ConversationMessageModel(
+            conversation_id=conversation_id,
+            message_id=None,
+            delivery_status="queued" if eyun_target else None,
+            sender_type="human",
+            sender_id=operator_id,
+            content=content,
+            metadata_json=json.dumps(
+                {
+                    "provider": "eyun",
+                    "direction": "outbound",
+                    "message_type": "text",
+                    "origin": "admin_workbench",
+                }
+                if eyun_target
+                else {},
+                ensure_ascii=False,
+            ),
+            created_at=now,
+        )
+        session.add(message)
+        session.flush()
+        conversation_message_id = message.id
         conversation.last_message = content
         conversation.updated_at = now
         memory_context = {
@@ -680,17 +657,38 @@ async def reply_conversation(
             "session_id": conversation.session_id,
         }
         session.commit()
-        from app.services.user_profile_service import append_conversation_memory
+        result = _conversation_to_dict(conversation)
 
-        await append_conversation_memory(
-            user_id=memory_context["user_id"],
-            tenant_id=memory_context["tenant_id"],
-            session_id=memory_context["session_id"],
-            role="human",
-            content=content,
-        )
-        _publish_change(conversation_id, "reply")
-        return _conversation_to_dict(conversation)
+    if eyun_target and conversation_message_id is not None:
+        try:
+            from app.services.message_risk_control_service import enqueue_wechat_outbound
+
+            await enqueue_wechat_outbound(
+                w_id=eyun_target["w_id"],
+                wc_id=eyun_target["wc_id"],
+                content=content,
+                source_batch_key=f"workbench:{conversation_message_id}",
+                conversation_message_id=conversation_message_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            update_outbound_message_delivery(conversation_message_id, status="failed")
+            raise AppError(
+                ErrorCode.WECHAT_REPLY_FAILED,
+                message="Eyun 消息加入风控队列失败",
+                status_code=502,
+            ) from exc
+
+    from app.services.user_profile_service import append_conversation_memory
+
+    await append_conversation_memory(
+        user_id=memory_context["user_id"],
+        tenant_id=memory_context["tenant_id"],
+        session_id=memory_context["session_id"],
+        role="human",
+        content=content,
+    )
+    _publish_change(conversation_id, "reply")
+    return result
 
 
 def get_human_activity_send_target(

@@ -228,7 +228,7 @@ def test_claimed_handoff_conversation_accepts_human_reply(monkeypatch, tmp_path)
 
 
 def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.services import eyun_callback_service, message_risk_control_service
 
     _reset_settings(monkeypatch, tmp_path)
     sent = []
@@ -236,11 +236,16 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
     async def fail_enqueue(payload):
         raise AssertionError("non-text callbacks should not enter the AI queue")
 
-    async def fake_send_eyun_text(**kwargs):
+    async def fake_enqueue_wechat_outbound(**kwargs):
         sent.append(kwargs)
+        return {"id": 1, "status": "queued"}
 
     monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_enqueue)
-    monkeypatch.setattr(eyun_callback_service, "send_eyun_text", fake_send_eyun_text)
+    monkeypatch.setattr(
+        message_risk_control_service,
+        "enqueue_wechat_outbound",
+        fake_enqueue_wechat_outbound,
+    )
     client = TestClient(app)
 
     callback = client.post(
@@ -272,14 +277,18 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
     assert callback.status_code == 200
     assert claim.status_code == 200
     assert reply.status_code == 200
-    assert sent == [
-        {"w_id": "wid_test", "wc_id": "wxid_sender", "content": "human reply"}
-    ]
+    assert len(sent) == 1
+    assert sent[0]["w_id"] == "wid_test"
+    assert sent[0]["wc_id"] == "wxid_sender"
+    assert sent[0]["content"] == "human reply"
+    assert sent[0]["source_batch_key"].startswith("workbench:")
+    assert sent[0]["conversation_message_id"] > 0
 
     detail = client.get("/api/v1/admin/conversations/wechat:wxid_sender:default")
     messages = detail.json()["data"]["messages"]
     assert messages[-1]["sender_type"] == "human"
     assert messages[-1]["content"] == "human reply"
+    assert messages[-1]["delivery_status"] == "queued"
 
 
 def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):

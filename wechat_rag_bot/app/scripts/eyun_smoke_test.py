@@ -119,16 +119,22 @@ async def confirm(args: argparse.Namespace) -> None:
 
 
 async def send_text(args: argparse.Namespace) -> None:
-    wid = args.wid or _default_wid()
-    data = await _post(
-        "/sendText",
-        {
-            "wId": wid,
-            "wcId": args.to,
-            "content": args.content,
-        },
+    from app.services.message_risk_control_service import (
+        enqueue_wechat_outbound,
+        process_due_eyun_outbound_messages,
+        utcnow,
     )
-    _print_response(data)
+
+    wid = args.wid or _default_wid()
+    queued = await enqueue_wechat_outbound(
+        w_id=wid,
+        wc_id=args.to,
+        content=args.content,
+        source_batch_key="smoke-test",
+        due_at=utcnow(),
+    )
+    await process_due_eyun_outbound_messages(limit=1)
+    _print_response(queued)
 
 
 async def init_contacts(args: argparse.Namespace) -> None:

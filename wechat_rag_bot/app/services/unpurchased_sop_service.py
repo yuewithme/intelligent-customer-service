@@ -26,7 +26,7 @@ from app.schemas.unpurchased_sop import (
     UnpurchasedSopStepRequest,
     UnpurchasedSopUpdateRequest,
 )
-from app.services.message_risk_control_service import enqueue_eyun_outbound
+from app.services.message_risk_control_service import enqueue_wechat_outbound
 
 
 logger = logging.getLogger("wechat_rag_bot.unpurchased_sop")
@@ -543,7 +543,7 @@ async def _enqueue_sop_message_sequence(
     dependency_id: int | None = None
     total = len(messages)
     for index, message in enumerate(messages):
-        outbound = await enqueue_eyun_outbound(
+        outbound = await enqueue_wechat_outbound(
             w_id=w_id,
             wc_id=wc_id,
             content=_message_outbound_content(message),

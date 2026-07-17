@@ -214,7 +214,8 @@ async def send_activity(
 ) -> dict:
     from app.services.conversation_service import get_human_activity_send_target
     from app.services.message_risk_control_service import (
-        enqueue_eyun_outbound,
+        enqueue_wechat_outbound,
+        random_outbound_spacing_seconds,
         random_reply_delay_seconds,
     )
 
@@ -231,18 +232,23 @@ async def send_activity(
             _decode_items(activity.items_json), key=lambda item: int(item["position"])
         )
     base_due_at = _now() + timedelta(seconds=random_reply_delay_seconds())
-    interval = max(0, get_settings().eyun_send_min_interval_seconds)
     outbound_ids = []
+    dependency_id: int | None = None
+    due_at = base_due_at
     for index, item in enumerate(items):
-        outbound = await enqueue_eyun_outbound(
+        outbound = await enqueue_wechat_outbound(
             w_id=target["w_id"],
             wc_id=target["wc_id"],
             content=str(item["content"]),
             source_batch_key=f"activity:{activity_id}",
             message_type=str(item["type"]),
-            due_at=base_due_at + timedelta(seconds=index * interval),
+            depends_on_outbound_id=dependency_id,
+            due_at=due_at,
         )
-        outbound_ids.append(int(outbound["id"]))
+        dependency_id = int(outbound["id"])
+        outbound_ids.append(dependency_id)
+        if index < len(items) - 1:
+            due_at += timedelta(seconds=random_outbound_spacing_seconds())
     with _get_session() as session:
         log = ActivitySendLogModel(
             activity_id=activity_id,

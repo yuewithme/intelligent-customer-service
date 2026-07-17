@@ -53,12 +53,14 @@ class Settings(BaseSettings):
     )
     eyun_opening_image_url: str = ""
     eyun_inbound_debounce_seconds: int = Field(default=60, alias="EYUN_INBOUND_DEBOUNCE_SECONDS")
-    eyun_send_max_per_minute: int = Field(default=40, alias="EYUN_SEND_MAX_PER_MINUTE")
+    eyun_send_max_per_minute: int = Field(
+        default=30, ge=1, alias="EYUN_SEND_MAX_PER_MINUTE"
+    )
     eyun_send_min_interval_seconds: float = Field(
-        default=11.0, alias="EYUN_SEND_MIN_INTERVAL_SECONDS"
+        default=2.1, ge=0, alias="EYUN_SEND_MIN_INTERVAL_SECONDS"
     )
     eyun_send_max_interval_seconds: float = Field(
-        default=18.0, alias="EYUN_SEND_MAX_INTERVAL_SECONDS"
+        default=3.0, ge=0, alias="EYUN_SEND_MAX_INTERVAL_SECONDS"
     )
     eyun_reply_jitter_min_seconds: int = Field(default=2, alias="EYUN_REPLY_JITTER_MIN_SECONDS")
     eyun_reply_jitter_max_seconds: int = Field(default=12, alias="EYUN_REPLY_JITTER_MAX_SECONDS")

@@ -105,7 +105,9 @@ def test_activity_send_requires_matching_human_owner(monkeypatch, tmp_path):
 
 
 def test_activity_send_queues_and_dispatches_text_image_video(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from datetime import datetime, timedelta, timezone
+
+    from app.services import eyun_callback_service, message_risk_control_service
 
     _reset_settings(monkeypatch, tmp_path)
     _seed_activity_and_target()
@@ -130,6 +132,14 @@ def test_activity_send_queues_and_dispatches_text_image_video(monkeypatch, tmp_p
         fake_received,
         raising=False,
     )
+    current_time = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
+
+    def advancing_now():
+        nonlocal current_time
+        current_time += timedelta(seconds=3)
+        return current_time
+
+    monkeypatch.setattr(message_risk_control_service, "utcnow", advancing_now)
 
     response = client.post(
         f"/api/v1/admin/activities/{activity_id}/send",

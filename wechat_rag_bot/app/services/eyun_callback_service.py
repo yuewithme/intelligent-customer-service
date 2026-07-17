@@ -21,7 +21,7 @@ from app.services.eyun_contact_service import (
 )
 from app.services.message_risk_control_service import (
     enqueue_eyun_inbound,
-    enqueue_eyun_outbound,
+    enqueue_wechat_outbound,
     reserve_eyun_image_description_prompt,
 )
 from app.services.user_profile_service import ensure_user_profile
@@ -175,7 +175,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
                 sender_id="ai",
                 route="image_description_prompt",
             )
-            await enqueue_eyun_outbound(
+            await enqueue_wechat_outbound(
                 w_id=w_id,
                 wc_id=user_id,
                 content=IMAGE_DESCRIPTION_PROMPT,

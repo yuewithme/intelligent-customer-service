@@ -49,7 +49,7 @@ async def test_first_inbound_persists_user_and_opening_memories(monkeypatch):
         service, "append_conversation_memory", capture_memory, raising=False
     )
     monkeypatch.setattr(service, "get_eyun_contact_snapshot", empty_contact)
-    monkeypatch.setattr(service, "enqueue_eyun_outbound", capture_outbound)
+    monkeypatch.setattr(service, "enqueue_wechat_outbound", capture_outbound)
 
     with service._get_session() as session:
         batch = EyunInboundBatchModel(
@@ -171,7 +171,7 @@ async def test_fixed_opening_then_orchid_profile_answer_uses_persisted_context(
 
     monkeypatch.setattr(risk_control, "utcnow", lambda: now)
     monkeypatch.setattr(risk_control, "get_eyun_contact_snapshot", empty_contact)
-    monkeypatch.setattr(risk_control, "enqueue_eyun_outbound", ignore_outbound)
+    monkeypatch.setattr(risk_control, "enqueue_wechat_outbound", ignore_outbound)
 
     with risk_control._get_session() as session:
         batch = EyunInboundBatchModel(

@@ -162,7 +162,7 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_admin_reply_records_eyun_message_id(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.services import eyun_callback_service, message_risk_control_service
     from app.services.conversation_service import (
         HANDOFF_PENDING,
         claim_conversation,
@@ -208,6 +208,21 @@ async def test_admin_reply_records_eyun_message_id(monkeypatch, tmp_path):
     detail = await get_conversation_detail(conversation_id)
     reply = detail["messages"][-1]
     assert reply["sender_type"] == "human"
+    assert reply["delivery_status"] == "queued"
+    assert reply["message_id"] is None
+
+    monkeypatch.setattr(
+        message_risk_control_service,
+        "utcnow",
+        lambda: datetime(2026, 7, 18, tzinfo=timezone.utc),
+    )
+    assert await message_risk_control_service.process_due_eyun_outbound_messages() == 1
+
+    detail = await get_conversation_detail(conversation_id)
+    reply = next(
+        message for message in detail["messages"] if message["sender_type"] == "human"
+    )
     assert reply["message_id"] == "2001"
+    assert reply["delivery_status"] == "sent"
     assert reply["delivery_status"] == "sent"
     assert reply["metadata"]["origin"] == "admin_workbench"

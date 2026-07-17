@@ -325,7 +325,7 @@ async def test_due_video_uses_existing_outbound_queue_without_conversation(monke
         captured.update(kwargs)
         return {"id": 99, "status": "queued"}
 
-    monkeypatch.setattr(unpurchased_sop_service, "enqueue_eyun_outbound", fake_enqueue)
+    monkeypatch.setattr(unpurchased_sop_service, "enqueue_wechat_outbound", fake_enqueue)
 
     queued = await process_due_unpurchased_sop_deliveries()
 
@@ -380,7 +380,7 @@ async def test_combination_node_queues_messages_in_risk_control_order(monkeypatc
         captured.append(kwargs)
         return {"id": 100 + len(captured) - 1, "status": "queued"}
 
-    monkeypatch.setattr(unpurchased_sop_service, "enqueue_eyun_outbound", fake_enqueue)
+    monkeypatch.setattr(unpurchased_sop_service, "enqueue_wechat_outbound", fake_enqueue)
 
     assert await process_due_unpurchased_sop_deliveries() == 1
     assert [item["message_type"] for item in captured] == ["text", "image", "video"]
@@ -424,7 +424,7 @@ async def test_direct_send_queues_selected_contacts(monkeypatch, tmp_path):
         captured.append(kwargs)
         return {"id": 200 + len(captured), "status": "queued"}
 
-    monkeypatch.setattr(unpurchased_sop_service, "enqueue_eyun_outbound", fake_enqueue)
+    monkeypatch.setattr(unpurchased_sop_service, "enqueue_wechat_outbound", fake_enqueue)
 
     result = await send_unpurchased_sop_step(
         step["id"], contact_ids=[contact["id"] for contact in contacts]
@@ -440,19 +440,19 @@ async def test_risk_queue_cancels_dependent_message_after_previous_failure(monke
     from app.db.models import EyunOutboundMessageModel
     from app.services.message_risk_control_service import (
         _get_session as get_risk_session,
-        enqueue_eyun_outbound,
+        enqueue_wechat_outbound,
         process_due_eyun_outbound_messages,
     )
 
     now = datetime.now(timezone.utc)
-    first = await enqueue_eyun_outbound(
+    first = await enqueue_wechat_outbound(
         w_id="wid-1",
         wc_id="customer-1",
         content="first",
         source_batch_key="sequence:test:0",
         due_at=now,
     )
-    second = await enqueue_eyun_outbound(
+    second = await enqueue_wechat_outbound(
         w_id="wid-1",
         wc_id="customer-1",
         content="second",

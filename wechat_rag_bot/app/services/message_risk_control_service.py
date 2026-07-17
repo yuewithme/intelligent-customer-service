@@ -166,12 +166,12 @@ def random_reply_delay_seconds() -> int:
 
 def random_outbound_spacing_seconds() -> float:
     settings = get_settings()
-    minimum = max(10.01, settings.eyun_send_min_interval_seconds)
+    minimum = _minimum_outbound_interval_seconds()
     maximum = max(minimum + 0.01, settings.eyun_send_max_interval_seconds)
     return random.uniform(minimum, maximum)
 
 
-async def enqueue_eyun_outbound(
+async def enqueue_wechat_outbound(
     *,
     w_id: str,
     wc_id: str,
@@ -201,6 +201,30 @@ async def enqueue_eyun_outbound(
         session.commit()
         session.refresh(row)
         return _outbound_to_dict(row)
+
+
+async def enqueue_eyun_outbound(
+    *,
+    w_id: str,
+    wc_id: str,
+    content: str,
+    source_batch_key: str | None,
+    message_type: str = "text",
+    conversation_message_id: int | None = None,
+    depends_on_outbound_id: int | None = None,
+    due_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Backward-compatible alias; all Eyun sends still enter the shared queue."""
+    return await enqueue_wechat_outbound(
+        w_id=w_id,
+        wc_id=wc_id,
+        content=content,
+        source_batch_key=source_batch_key,
+        message_type=message_type,
+        conversation_message_id=conversation_message_id,
+        depends_on_outbound_id=depends_on_outbound_id,
+        due_at=due_at,
+    )
 
 
 async def reserve_eyun_image_description_prompt(*, w_id: str, wc_id: str) -> bool:
@@ -281,8 +305,11 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             rate = session.get(EyunSendRateModel, row.w_id)
             allowed_at = _next_allowed_send_at(rate.last_sent_at if rate else None)
             if allowed_at > now:
-                row.due_at = allowed_at + timedelta(milliseconds=random.randint(0, 1000))
+                row.due_at = allowed_at + timedelta(
+                    seconds=_outbound_rate_jitter_seconds()
+                )
                 row.updated_at = now
+                session.commit()
                 continue
 
             row.status = "sending"
@@ -612,13 +639,23 @@ def _mark_batch(batch_id: int, status: str) -> None:
 def _next_allowed_send_at(last_sent_at: datetime | None) -> datetime:
     if last_sent_at is None:
         return datetime.min.replace(tzinfo=timezone.utc)
-    settings = get_settings()
-    if settings.eyun_send_min_interval_seconds <= 0:
-        return _ensure_aware(last_sent_at)
-    rate_interval = 60 / max(1, settings.eyun_send_max_per_minute)
     return _ensure_aware(last_sent_at) + timedelta(
-        seconds=max(settings.eyun_send_min_interval_seconds, rate_interval)
+        seconds=_minimum_outbound_interval_seconds()
     )
+
+
+def _minimum_outbound_interval_seconds() -> float:
+    settings = get_settings()
+    # A small safety margin keeps a rolling 60-second window below the configured cap.
+    rate_interval = 60 / max(1, settings.eyun_send_max_per_minute)
+    return max(settings.eyun_send_min_interval_seconds, rate_interval + 0.05)
+
+
+def _outbound_rate_jitter_seconds() -> float:
+    settings = get_settings()
+    minimum = _minimum_outbound_interval_seconds()
+    maximum = max(minimum, settings.eyun_send_max_interval_seconds)
+    return random.uniform(0, maximum - minimum)
 
 
 def _eyun_sent_at(result: Any) -> datetime | None:

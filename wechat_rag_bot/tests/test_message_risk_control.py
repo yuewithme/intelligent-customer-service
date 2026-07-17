@@ -31,9 +31,9 @@ def test_risk_control_defaults():
     settings = get_settings()
 
     assert settings.eyun_inbound_debounce_seconds == 60
-    assert settings.eyun_send_max_per_minute == 40
-    assert settings.eyun_send_min_interval_seconds == 11.0
-    assert settings.eyun_send_max_interval_seconds == 18.0
+    assert settings.eyun_send_max_per_minute == 30
+    assert settings.eyun_send_min_interval_seconds == 2.1
+    assert settings.eyun_send_max_interval_seconds == 3.0
     assert settings.eyun_reply_jitter_min_seconds == 2
     assert settings.eyun_reply_jitter_max_seconds == 12
     assert settings.eyun_image_description_prompt_cooldown_seconds == 180
@@ -314,7 +314,7 @@ async def test_process_due_batch_ignores_obsolete_profile_id_and_uses_sender(mon
         return {}
 
     monkeypatch.setattr(service, "handle_chat", fake_handle_chat)
-    monkeypatch.setattr(service, "enqueue_eyun_outbound", fake_enqueue_outbound)
+    monkeypatch.setattr(service, "enqueue_wechat_outbound", fake_enqueue_outbound)
     monkeypatch.setattr(
         service,
         "is_first_eyun_inbound_message",
@@ -389,7 +389,7 @@ async def test_process_due_batch_skips_group_messages(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_enqueue_outbound_adds_random_due_at(monkeypatch):
-    from app.services.message_risk_control_service import enqueue_eyun_outbound
+    from app.services.message_risk_control_service import enqueue_wechat_outbound
 
     now = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
     monkeypatch.setattr("app.services.message_risk_control_service.utcnow", lambda: now)
@@ -397,7 +397,7 @@ async def test_enqueue_outbound_adds_random_due_at(monkeypatch):
         "app.services.message_risk_control_service.random_reply_delay_seconds", lambda: 7
     )
 
-    row = await enqueue_eyun_outbound(
+    row = await enqueue_wechat_outbound(
         w_id="wid",
         wc_id="user",
         content="reply",
@@ -489,21 +489,21 @@ async def test_process_batch_staggers_split_replies(monkeypatch):
     ]
 
 
-def test_random_outbound_spacing_is_variable_and_always_over_ten_seconds(monkeypatch):
+def test_random_outbound_spacing_uses_safe_thirty_per_minute_bounds(monkeypatch):
     from app.services.message_risk_control_service import random_outbound_spacing_seconds
 
     captured = {}
 
     def fake_uniform(minimum, maximum):
         captured["bounds"] = (minimum, maximum)
-        return 13.5
+        return 2.5
 
     monkeypatch.setattr(
         "app.services.message_risk_control_service.random.uniform", fake_uniform
     )
 
-    assert random_outbound_spacing_seconds() == 13.5
-    assert captured["bounds"][0] > 10
+    assert random_outbound_spacing_seconds() == 2.5
+    assert captured["bounds"][0] > 2
     assert captured["bounds"][1] > captured["bounds"][0]
 
 
