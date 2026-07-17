@@ -186,6 +186,15 @@ async def enqueue_wechat_outbound(
     bulk_job_id: int | None = None,
     due_at: datetime | None = None,
 ) -> dict[str, Any]:
+    if material_id is None and message_type in {"image", "video"}:
+        from app.services.eyun_material_service import materialize_eyun_outbound_media
+
+        material = await materialize_eyun_outbound_media(
+            w_id=w_id, message_type=message_type, content=content
+        )
+        material_id = int(material["id"])
+        message_type = f"received_{material['media_type']}"
+        content = ""
     if material_id is not None:
         from app.services.eyun_material_service import get_ready_material
 
@@ -404,6 +413,37 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 row.updated_at = now
                 session.commit()
                 continue
+            if row.material_id is None:
+                legacy_type, legacy_content = _decode_outbound_content(row.content)
+                if legacy_type in {"image", "video"}:
+                    from app.services.eyun_material_service import (
+                        materialize_eyun_outbound_media,
+                    )
+
+                    try:
+                        material = await materialize_eyun_outbound_media(
+                            w_id=row.w_id,
+                            message_type=legacy_type,
+                            content=legacy_content,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        row.attempts = (row.attempts or 0) + 1
+                        row.status = "failed" if row.attempts >= 2 else "queued"
+                        row.last_error = str(exc)
+                        if row.status == "queued":
+                            row.due_at = utcnow() + timedelta(seconds=30)
+                        row.updated_at = utcnow()
+                        session.commit()
+                        _sync_sop_outbound(
+                            row.source_batch_key, row.status, row.last_error
+                        )
+                        continue
+                    row.material_id = int(material["id"])
+                    row.content = _encode_outbound_content(
+                        f"received_{material['media_type']}", ""
+                    )
+                    row.updated_at = utcnow()
+                    session.commit()
             rate = session.get(EyunSendRateModel, row.w_id)
             allowed_at = _next_allowed_send_at(rate.last_sent_at if rate else None)
             if allowed_at > now:
