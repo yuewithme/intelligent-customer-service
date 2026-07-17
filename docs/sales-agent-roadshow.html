@@ -464,7 +464,7 @@
     .window-bar a { color: var(--accent); font-size: 11px; text-decoration: none; }
     .demo-product {
       display: grid;
-      grid-template-columns: 104px 150px minmax(250px, 1fr) 205px;
+      grid-template-columns: minmax(0, 1fr) 260px;
       height: 562px;
       padding: 10px;
       gap: 8px;
@@ -482,8 +482,8 @@
 
     .workbench-panel { min-width: 0; overflow: hidden; background: #fff; border: 1px solid #e1e7e4; border-radius: 7px; }
     .panel-title { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 0 11px; border-bottom: 1px solid #e6ece9; }
-    .panel-title strong { font-size: 9px; }
-    .panel-title span { color: #678078; font-size: 7px; }
+    .panel-title strong { font-size: 10px; }
+    .panel-title span { color: #678078; font-size: 8px; }
     .conversation-tools { display: grid; gap: 6px; padding: 9px; border-bottom: 1px solid #edf1ef; }
     .tool-field { padding: 7px 8px; color: #82938d; background: #f8faf9; border: 1px solid #dce5e1; border-radius: 5px; font-size: 7px; }
     .conversation-item { padding: 10px 9px; border-bottom: 1px solid #edf1ef; }
@@ -495,28 +495,28 @@
 
     .real-chat-pane { display: grid; grid-template-rows: 48px 1fr 52px; min-width: 0; }
     .real-chat-head { display: flex; align-items: center; justify-content: space-between; padding: 0 13px; border-bottom: 1px solid #e6ece9; }
-    .real-chat-head strong { font-size: 10px; }
-    .real-chat-head span { color: #73857e; font-size: 7px; }
-    .real-chat-body { display: grid; align-content: start; gap: 11px; padding: 16px 13px; overflow: hidden; background: #fafcfb; }
-    .chat-message { max-width: 86%; padding: 10px 11px; font-size: 9px; line-height: 1.55; border-radius: 9px; }
+    .real-chat-head strong { font-size: 12px; }
+    .real-chat-head span { color: #73857e; font-size: 8px; }
+    .real-chat-body { display: grid; align-content: start; gap: 14px; padding: 20px 16px; overflow: hidden; background: #fafcfb; }
+    .chat-message { max-width: 84%; padding: 12px 14px; font-size: 11px; line-height: 1.55; border-radius: 9px; }
     .chat-message.customer { justify-self: end; background: #d9f2e5; border-bottom-right-radius: 3px; }
     .chat-message.agent { background: #fff; border: 1px solid #dfe7e3; border-bottom-left-radius: 3px; }
-    .message-source { display: block; margin-top: 5px; color: #4b7f66; font-size: 7px; }
+    .message-source { display: block; margin-top: 6px; color: #4b7f66; font-size: 8px; }
     .demo-input { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-top: 1px solid #e6ece9; }
-    .demo-input span { flex: 1; color: #92a19b; font-size: 8px; }
+    .demo-input span { flex: 1; color: #92a19b; font-size: 9px; }
     .demo-send { width: 29px; height: 29px; color: #fff; background: #35a37a; border: 0; border-radius: 7px; font-weight: 800; }
 
     .supervision-panel { padding: 0 11px 12px; overflow: hidden; }
     .supervision-panel .panel-title { margin: 0 -11px 4px; }
     .status-tag { padding: 3px 5px; color: #246849 !important; background: #e1f4ea; border-radius: 5px; font-weight: 700; }
     .supervision-section { padding: 10px 0; border-bottom: 1px solid #e5ebe8; }
-    .supervision-section h4 { margin: 0 0 8px; font-size: 9px; }
-    .supervision-row { display: grid; grid-template-columns: 52px 1fr; gap: 5px; margin: 5px 0; font-size: 7px; line-height: 1.4; }
+    .supervision-section h4 { margin: 0 0 8px; font-size: 10px; }
+    .supervision-row { display: grid; grid-template-columns: 58px 1fr; gap: 5px; margin: 6px 0; font-size: 8px; line-height: 1.4; }
     .supervision-row span:first-child { color: #7b8d86; }
     .profile-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
-    .profile-tags span { padding: 4px 5px; color: #315c48; background: #f4f9f6; border: 1px solid #d5e3dc; border-radius: 5px; font-size: 7px; }
+    .profile-tags span { padding: 4px 5px; color: #315c48; background: #f4f9f6; border: 1px solid #d5e3dc; border-radius: 5px; font-size: 8px; }
     .supervision-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding-top: 10px; }
-    .supervision-actions span { padding: 6px; text-align: center; border: 1px solid #d5e0db; border-radius: 5px; font-size: 7px; }
+    .supervision-actions span { padding: 7px 6px; text-align: center; border: 1px solid #d5e0db; border-radius: 5px; font-size: 8px; }
     .supervision-actions span:first-child { color: #9b5c00; background: #fff7e7; border-color: #efd9af; }
 
     .architecture-slide .slide-inner { width: min(100%, 1560px); }
@@ -900,22 +900,6 @@
           <div class="demo-window reveal delay-2">
             <div class="window-bar"><strong>真实销售工作台结构</strong><a href="https://intelligent-customer-service-r63g.onrender.com/workbench" target="_blank" rel="noreferrer">打开真实后台</a></div>
             <div class="demo-product" aria-label="销售 Agent 真实工作台结构演示">
-              <aside class="admin-mini-nav">
-                <div class="mini-brand"><b>SA</b><span>销售 Agent</span></div>
-                <div class="mini-nav-group"><small>销售执行</small><span class="mini-nav-item active">销售工作台</span></div>
-                <div class="mini-nav-group"><small>销售运营</small><span class="mini-nav-item">对话日志</span><span class="mini-nav-item">人工接管</span><span class="mini-nav-item">客户画像</span></div>
-                <div class="mini-nav-group"><small>策略与知识</small><span class="mini-nav-item">知识库</span><span class="mini-nav-item">销售话术</span></div>
-                <div class="mini-nav-group"><small>SOP 流程</small><span class="mini-nav-item">未购 SOP</span></div>
-              </aside>
-
-              <aside class="workbench-panel conversation-list-panel">
-                <div class="panel-title"><strong>客户会话</strong><span>↻</span></div>
-                <div class="conversation-tools"><div class="tool-field">全部状态</div><div class="tool-field">搜索最近消息</div></div>
-                <div class="conversation-item active"><strong>林女士</strong><span>放在客厅窗边，下午能...</span><small>AI 自动回复 · 14:32</small></div>
-                <div class="conversation-item"><strong>陈先生</strong><span>这款开花期大概多久？</span><small>AI 等待中 · 14:18</small></div>
-                <div class="conversation-item"><strong>王女士</strong><span>第一次养，需要怎么浇水</span><small>AI 自动回复 · 13:55</small></div>
-              </aside>
-
               <section class="workbench-panel real-chat-pane">
                 <div class="real-chat-head"><strong>林女士</strong><span>微信 / 当前会话</span></div>
                 <div class="real-chat-body">
