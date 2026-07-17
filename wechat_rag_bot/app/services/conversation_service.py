@@ -69,6 +69,21 @@ async def list_conversations(
     }
 
 
+async def user_has_conversation_in_channels(
+    user_id: str, channels: tuple[str, ...]
+) -> bool:
+    with _get_session() as session:
+        count = session.scalar(
+            select(func.count())
+            .select_from(ConversationModel)
+            .where(
+                ConversationModel.user_id == user_id,
+                ConversationModel.channel.in_(channels),
+            )
+        )
+    return bool(count)
+
+
 async def get_conversation_detail(conversation_id: str) -> dict:
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)

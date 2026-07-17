@@ -95,11 +95,19 @@ def test_demo_admin_only_lists_demo_conversations(monkeypatch, tmp_path):
     forbidden = client.get(
         "/api/v1/demo-admin/conversations/api:real-user:session-1"
     )
+    demo_user = result.json()["data"]["items"][0]["user_id"]
+    profile = client.get(f"/api/v1/demo-admin/users/{demo_user}/profile")
+    forbidden_profile = client.get(
+        "/api/v1/demo-admin/users/real-user/profile"
+    )
 
     assert result.status_code == 200
     items = result.json()["data"]["items"]
     assert [item["channel"] for item in items] == ["web_demo"]
     assert forbidden.status_code == 403
+    assert profile.status_code == 200
+    assert profile.json()["data"]["profile"]["user_id"] == demo_user
+    assert forbidden_profile.status_code == 403
 
 
 def test_mcp_streamable_http_lists_sales_agent_tool(monkeypatch, tmp_path):

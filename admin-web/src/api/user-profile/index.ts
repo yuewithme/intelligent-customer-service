@@ -56,8 +56,12 @@ export interface UserProfileBundle {
 }
 
 const userPath = (userId: string) => encodeURIComponent(userId)
+const userProfileBase = () =>
+  window.location.pathname.startsWith('/demo-admin')
+    ? '/api/v1/demo-admin/users'
+    : '/api/v1/users'
 
 export const getUserProfileBundle = (userId: string) =>
   request.get<UserProfileBundle>({
-    url: `/api/v1/users/${userPath(userId)}/profile`
+    url: `${userProfileBase()}/${userPath(userId)}/profile`
   })

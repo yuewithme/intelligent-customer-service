@@ -17,10 +17,19 @@ from app.services.conversation_service import (
     release_to_ai,
     reply_conversation,
     resolve_conversation,
+    user_has_conversation_in_channels,
 )
 from app.services.demo_sales_agent_service import DEMO_CHANNELS
+from app.services.user_profile_service import get_profile_bundle
+
+
 router = APIRouter(
     prefix="/api/v1/demo-admin/conversations",
+    tags=["demo-admin"],
+)
+
+profile_router = APIRouter(
+    prefix="/api/v1/demo-admin/users",
     tags=["demo-admin"],
 )
 
@@ -33,6 +42,21 @@ async def _ensure_demo_conversation(conversation_id: str) -> None:
             "测试后台无权访问该会话",
             status_code=403,
         )
+
+
+@profile_router.get("/{user_id}/profile", response_model=APIResponse)
+async def demo_user_profile(user_id: str) -> APIResponse:
+    if not await user_has_conversation_in_channels(user_id, DEMO_CHANNELS):
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            "测试后台无权访问该客户画像",
+            status_code=403,
+        )
+    return APIResponse(
+        code=0,
+        message="success",
+        data=await get_profile_bundle(user_id),
+    )
 
 
 @router.get("", response_model=APIResponse)
