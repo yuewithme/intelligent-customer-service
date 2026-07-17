@@ -101,16 +101,6 @@ if admin_web_dir is not None:
     async def demo_chat_page() -> FileResponse:
         return FileResponse(admin_web_dir / "index.html")
 
-    @app.get("/", include_in_schema=False)
-    @app.get("/gate", include_in_schema=False)
-    @app.get("/workbench", include_in_schema=False)
-    @app.get("/operations/{path:path}", include_in_schema=False)
-    @app.get("/knowledge-ops/{path:path}", include_in_schema=False)
-    @app.get("/settings/{path:path}", include_in_schema=False)
-    async def admin_web_page(path: str = "") -> FileResponse:
-        del path
-        return FileResponse(admin_web_dir / "index.html")
-
 @app.exception_handler(AppError)
 async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
     del request

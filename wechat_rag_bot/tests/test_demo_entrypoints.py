@@ -74,6 +74,43 @@ def test_demo_chat_forces_web_demo_channel(monkeypatch, tmp_path):
     assert response.json()["data"]["conversation_id"] == "session-1"
 
 
+def test_demo_chat_uses_opening_then_normal_sales_flow(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("EYUN_OPENING_TEXT", "shared-opening")
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    opening = client.post(
+        "/api/v1/demo/chat",
+        json={"customer_id": "opening-customer", "message": "hello"},
+    )
+    assert opening.status_code == 200
+    opening_data = opening.json()["data"]
+    assert opening_data["reply"] == "shared-opening"
+    assert opening_data["route"] == "opening"
+
+    follow_up = client.post(
+        "/api/v1/demo/chat",
+        json={
+            "customer_id": "opening-customer",
+            "conversation_id": opening_data["conversation_id"],
+            "message": "second question",
+        },
+    )
+    assert follow_up.status_code == 200
+    assert follow_up.json()["data"]["reply"] != "shared-opening"
+
+    detail = client.get(
+        f"/api/v1/demo-admin/conversations/web_demo:"
+        f"{demo_user_id('opening-customer')}:{opening_data['conversation_id']}"
+    )
+    assert detail.status_code == 200
+    assert [item["content"] for item in detail.json()["data"]["messages"][:2]] == [
+        "hello",
+        "shared-opening",
+    ]
+
+
 def test_demo_admin_only_lists_demo_conversations(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
@@ -143,3 +180,12 @@ def test_mcp_streamable_http_lists_sales_agent_tool(monkeypatch, tmp_path):
     assert [tool["name"] for tool in tools.json()["result"]["tools"]] == [
         "chat_with_sales_agent"
     ]
+
+
+def test_render_app_only_serves_demo_frontend(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    assert client.get("/demo-chat").status_code == 200
+    assert client.get("/workbench").status_code == 404
+    assert client.get("/gate").status_code == 404
