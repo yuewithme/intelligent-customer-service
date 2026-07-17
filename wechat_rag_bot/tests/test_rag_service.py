@@ -340,6 +340,9 @@ def test_rag_prompt_uses_minimal_natural_followup_rule():
         question="那您推荐一款吧"
     )
 
+    assert not fallback_prompt.startswith("我先按通用养护原则")
+    assert "不要复述角色、任务、要求或任何预设开场白" in fallback_prompt
+
     for value in (prompt, fallback_prompt):
         assert "信息不足时" in value
         assert "自然追问 1-2 个关键问题" in value
