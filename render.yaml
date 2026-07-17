@@ -4,8 +4,8 @@ services:
     runtime: docker
     plan: starter
     region: singapore
-    dockerfilePath: ./wechat_rag_bot/Dockerfile
-    dockerContext: ./wechat_rag_bot
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:

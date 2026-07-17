@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
@@ -77,6 +77,33 @@ app.include_router(demo_admin.router)
 app.include_router(admin_logs.router)
 app.include_router(wechat.router)
 app.include_router(eyun.router)
+
+
+def _admin_web_dir() -> Path | None:
+    candidates = (
+        Path("/app/admin-web"),
+        Path(__file__).resolve().parents[2] / "admin-web" / "dist-prod",
+    )
+    return next((path for path in candidates if (path / "index.html").is_file()), None)
+
+
+admin_web_dir = _admin_web_dir()
+if admin_web_dir is not None:
+    app.mount(
+        "/assets",
+        StaticFiles(directory=admin_web_dir / "assets"),
+        name="admin-web-assets",
+    )
+
+    @app.get("/demo-chat", include_in_schema=False)
+    @app.get("/demo-chat/", include_in_schema=False)
+    async def demo_chat_page() -> FileResponse:
+        return FileResponse(admin_web_dir / "index.html")
+
+    @app.get("/demo-admin", include_in_schema=False)
+    @app.get("/demo-admin/", include_in_schema=False)
+    async def demo_admin_page() -> FileResponse:
+        return FileResponse(admin_web_dir / "index.html")
 
 
 @app.exception_handler(AppError)

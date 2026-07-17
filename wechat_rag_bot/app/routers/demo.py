@@ -1,15 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
 from app.schemas.chat import APIResponse
 from app.schemas.demo import DemoChatRequest
 from app.services.demo_sales_agent_service import chat_with_demo_sales_agent
-from app.utils.auth import require_api_key
-
-
 router = APIRouter(
     prefix="/api/v1/demo",
     tags=["demo"],
-    dependencies=[Depends(require_api_key)],
 )
 
 

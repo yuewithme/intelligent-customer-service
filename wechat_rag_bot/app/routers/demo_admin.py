@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.schemas.chat import APIResponse
@@ -19,13 +19,9 @@ from app.services.conversation_service import (
     resolve_conversation,
 )
 from app.services.demo_sales_agent_service import DEMO_CHANNELS
-from app.utils.auth import require_api_key
-
-
 router = APIRouter(
     prefix="/api/v1/demo-admin/conversations",
     tags=["demo-admin"],
-    dependencies=[Depends(require_api_key)],
 )
 
 
