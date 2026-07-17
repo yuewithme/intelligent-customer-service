@@ -10,6 +10,7 @@ export interface ActivityMessageItem {
   content?: string
   preview_url?: string | null
   source_message_id: number
+  material_id?: number | null
 }
 
 export interface ActivityItem {

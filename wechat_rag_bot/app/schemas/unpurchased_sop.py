@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-MessageType = Literal["text", "image", "video"]
+MessageType = Literal["text", "image", "video", "material"]
 
 
 def _validate_hhmm(value: str) -> str:
@@ -44,6 +44,7 @@ class UnpurchasedSopMessageRequest(BaseModel):
     message_type: MessageType
     content: str = Field(min_length=1, max_length=20000)
     preview_url: str | None = Field(default=None, max_length=4000)
+    material_id: int | None = Field(default=None, gt=0)
 
     @field_validator("content")
     @classmethod
@@ -65,6 +66,8 @@ class UnpurchasedSopMessageRequest(BaseModel):
             ("http://", "https://")
         ):
             raise ValueError("视频封面必须使用公网 HTTP(S) 地址")
+        if self.message_type == "material" and self.material_id is None:
+            raise ValueError("批量媒体消息必须选择微信素材")
         return self
 
 

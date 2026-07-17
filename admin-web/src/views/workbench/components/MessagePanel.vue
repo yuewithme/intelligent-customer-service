@@ -28,6 +28,14 @@
           >
             存为活动
           </ElButton>
+          <ElButton
+            size="small"
+            type="success"
+            :disabled="!selectedMaterialMessage"
+            @click="saveAsWechatMaterial"
+          >
+            存为微信素材
+          </ElButton>
         </div>
       </div>
       <ElEmpty v-if="!conversationIds.length" description="请选择左侧会话" />
@@ -125,6 +133,7 @@ import {
 import { formatChinaTime } from '../time'
 import SaveActivityDialog from './SaveActivityDialog.vue'
 import { isTestGate } from '@/utils/gate'
+import { createWechatMaterialFromMessage } from '@/api/admin/wechatMaterials'
 
 interface MediaMetadata {
   type?: string
@@ -279,6 +288,22 @@ const selectedIds = computed(() =>
     .filter((message) => selectedMessageIds.value.has(message.id))
     .map((message) => message.id)
 )
+
+const selectedMaterialMessage = computed(() => {
+  if (selectedMessageIds.value.size !== 1) return undefined
+  const message = (detail.value?.messages || []).find((item) =>
+    selectedMessageIds.value.has(item.id)
+  )
+  return message && ['image', 'video'].includes(mediaType(message)) ? message : undefined
+})
+
+const saveAsWechatMaterial = async () => {
+  const message = selectedMaterialMessage.value
+  if (!message) return
+  await createWechatMaterialFromMessage(message.id)
+  ElMessage.success('已存入微信素材库，批量发送时将复用 XML')
+  clearSelection()
+}
 
 const clearSelection = () => {
   selectedMessageIds.value = new Set()

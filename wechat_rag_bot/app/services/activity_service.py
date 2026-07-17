@@ -242,6 +242,7 @@ async def send_activity(
             content=str(item["content"]),
             source_batch_key=f"activity:{activity_id}",
             message_type=str(item["type"]),
+            material_id=int(item["material_id"]) if item.get("material_id") else None,
             depends_on_outbound_id=dependency_id,
             due_at=due_at,
         )
@@ -317,12 +318,23 @@ def _snapshot_message(row: ConversationMessageModel, position: int) -> dict:
         preview_url = str(media.get("url") or "").strip() or None
         if preview_url is None and media_type == "image" and media.get("thumb_base64"):
             preview_url = f"data:image/jpeg;base64,{media['thumb_base64']}"
+        from app.services.eyun_material_service import capture_eyun_material
+
+        material = capture_eyun_material(
+            media_type=media_type,
+            raw_xml=raw_content,
+            preview_url=preview_url,
+            source_w_id=str(metadata.get("w_id") or "") or None,
+            source_wc_id=str(metadata.get("from_group") or metadata.get("from_user") or "") or None,
+            source_message_id=str(metadata.get("provider_msg_id") or metadata.get("message_id") or "") or None,
+        )
         return {
             "position": position,
             "type": f"received_{media_type}",
-            "content": raw_content,
+            "content": material["name"],
             "preview_url": preview_url,
             "source_message_id": row.id,
+            "material_id": material["id"],
         }
     if media_type:
         raise AppError(

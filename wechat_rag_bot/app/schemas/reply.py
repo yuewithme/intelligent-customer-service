@@ -4,8 +4,9 @@ from pydantic import BaseModel, Field
 
 
 class OutboundMessage(BaseModel):
-    type: Literal["text", "image", "mini_program"]
+    type: Literal["text", "image", "mini_program", "material"]
     content: str
+    material_id: int | None = None
 
 
 class FinalReply(BaseModel):

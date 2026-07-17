@@ -542,6 +542,7 @@ async def _enqueue_sop_message_sequence(
             content=_message_outbound_content(message),
             source_batch_key=f"{source_key}:{index}:{total}",
             message_type=message["message_type"],
+            material_id=message.get("material_id"),
             depends_on_outbound_id=dependency_id,
             due_at=_utcnow(),
         )
@@ -1212,14 +1213,22 @@ def _delivery_to_dict(
 
 
 def _request_messages(request: UnpurchasedSopStepRequest) -> list[dict[str, Any]]:
-    return [
-        {
+    from app.services.eyun_material_service import get_ready_material
+
+    messages = []
+    for message in request.messages:
+        item = {
             "message_type": message.message_type,
             "content": message.content,
             "preview_url": (message.preview_url or "").strip() or None,
+            "material_id": message.material_id,
         }
-        for message in request.messages
-    ]
+        if message.message_type == "material" and message.material_id is not None:
+            material = get_ready_material(message.material_id)
+            item["content"] = material["name"]
+            item["preview_url"] = material.get("preview_url")
+        messages.append(item)
+    return messages
 
 
 def _step_messages(row: UnpurchasedSopStepModel) -> list[dict[str, Any]]:
@@ -1257,12 +1266,13 @@ def _stored_messages(
                 continue
             message_type = str(value.get("message_type") or "")
             content = str(value.get("content") or "").strip()
-            if message_type in {"text", "image", "video"} and content:
+            if message_type in {"text", "image", "video", "material"} and content:
                 messages.append(
                     {
                         "message_type": message_type,
                         "content": content,
                         "preview_url": str(value.get("preview_url") or "") or None,
+                        "material_id": int(value["material_id"]) if value.get("material_id") else None,
                     }
                 )
     if messages:

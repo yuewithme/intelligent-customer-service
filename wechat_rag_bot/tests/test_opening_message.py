@@ -19,10 +19,11 @@ def test_opening_reply_contains_configured_text_and_image(monkeypatch):
         "2. 具体养了哪些品种？"
     )
     assert [message.model_dump() for message in reply.outbound_messages] == [
-        {"type": "text", "content": reply.answer},
+        {"type": "text", "content": reply.answer, "material_id": None},
         {
             "type": "image",
             "content": "https://bot.example.com/static/xiaolanyuan-opening.jpg",
+            "material_id": None,
         },
     ]
     get_settings.cache_clear()

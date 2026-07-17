@@ -88,7 +88,9 @@
                     <span class="sequence-number">{{ index + 1 }}</span>
                     <span v-if="message.message_type === 'text'" class="message-text">{{ message.content }}</span>
                     <ElImage v-else-if="message.message_type === 'image'" class="media-thumb" :src="message.content" fit="cover" :preview-src-list="[message.content]" />
-                    <div v-else class="video-cell"><video :src="message.content" :poster="message.preview_url || undefined" controls preload="metadata"></video></div>
+                    <ElImage v-else-if="message.message_type === 'material' && message.preview_url" class="media-thumb" :src="message.preview_url" fit="cover" />
+                    <div v-else-if="message.message_type === 'video'" class="video-cell"><video :src="message.content" :poster="message.preview_url || undefined" controls preload="metadata"></video></div>
+                    <span v-else>{{ message.content }}</span>
                   </div>
                 </div>
               </template>
@@ -175,12 +177,20 @@
             </div>
             <ElFormItem label="消息类型">
               <ElRadioGroup v-model="message.message_type" @change="changeMessageType(message)">
-                <ElRadioButton value="text">文本</ElRadioButton><ElRadioButton value="image">图片</ElRadioButton><ElRadioButton value="video">视频</ElRadioButton>
+                <ElRadioButton value="text">文本</ElRadioButton><ElRadioButton value="image">图片</ElRadioButton><ElRadioButton value="video">视频</ElRadioButton><ElRadioButton value="material">微信素材</ElRadioButton>
               </ElRadioGroup>
             </ElFormItem>
             <ElFormItem v-if="message.message_type === 'text'" label="消息内容">
               <ElInput v-model="message.content" type="textarea" :rows="4" maxlength="20000" show-word-limit />
             </ElFormItem>
+            <template v-else-if="message.message_type === 'material'">
+              <ElFormItem label="选择微信素材">
+                <ElSelect :model-value="message.material_id" filterable placeholder="选择已就绪的图片或视频素材" style="width:100%" @change="selectMaterial(message, $event)">
+                  <ElOption v-for="material in materials" :key="material.id" :label="`${material.name} · ${material.media_type === 'image' ? '图片' : '视频'}`" :value="material.id" />
+                </ElSelect>
+                <ElImage v-if="message.preview_url" class="large-preview" :src="message.preview_url" fit="contain" />
+              </ElFormItem>
+            </template>
             <template v-else>
               <ElFormItem :label="message.message_type === 'image' ? '上传图片' : '上传视频'">
                 <small class="media-limit">{{ mediaLimitText(message.message_type) }}</small>
@@ -202,6 +212,7 @@
           <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('text')">+ 文本</ElButton>
           <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('image')">+ 图片</ElButton>
           <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('video')">+ 视频</ElButton>
+          <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('material')">+ 微信素材</ElButton>
         </div>
         <ElFormItem label="节点状态"><ElSwitch v-model="stepForm.enabled" active-text="启用" inactive-text="停用" /></ElFormItem>
       </ElForm>
@@ -232,6 +243,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getWechatMaterials, type WechatMaterial } from '@/api/admin/wechatMaterials'
 import {
   createUnpurchasedSopStep,
   deleteUnpurchasedSopStep,
@@ -255,6 +267,7 @@ import {
 const activeTab = ref('flow')
 const config = reactive<UnpurchasedSopConfig>({ id: 1, name: '未购SOP', enabled: false, dry_run: true, send_window_start: '09:00', send_window_end: '20:00', contact_poll_interval_minutes: 120, contact_missing_threshold: 3, timezone: 'Asia/Shanghai', updated_at: '' })
 const steps = ref<UnpurchasedSopStep[]>([])
+const materials = ref<WechatMaterial[]>([])
 const stats = reactive<Record<string, number>>({})
 const savingConfig = ref(false)
 const syncing = ref(false)
@@ -265,7 +278,7 @@ const uploadingMessageIndex = ref<number>()
 const dragMessageIndex = ref<number>()
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 const VIDEO_MAX_BYTES = 100 * 1024 * 1024
-const emptyMessage = (message_type: SopMessageType = 'text'): SopMessageItem => ({ message_type, content: '', preview_url: '' })
+const emptyMessage = (message_type: SopMessageType = 'text'): SopMessageItem => ({ message_type, content: '', preview_url: '', material_id: undefined })
 const stepForm = reactive<SopStepPayload>({ day_offset: 0, send_time_start: '09:00', send_time_end: '10:00', messages: [emptyMessage()], position: 0, enabled: true })
 const contacts = ref<UnpurchasedSopContact[]>([])
 const contactsTotal = ref(0)
@@ -330,7 +343,14 @@ const dropMessage = (target: number) => {
   const [message] = stepForm.messages.splice(source, 1)
   stepForm.messages.splice(target, 0, message)
 }
-const changeMessageType = (message: SopMessageItem) => { message.content = ''; message.preview_url = '' }
+const changeMessageType = (message: SopMessageItem) => { message.content = ''; message.preview_url = ''; message.material_id = undefined }
+const selectMaterial = (message: SopMessageItem, materialId: number) => {
+  const material = materials.value.find((item) => item.id === materialId)
+  if (!material) return
+  message.material_id = material.id
+  message.content = material.name
+  message.preview_url = material.preview_url || ''
+}
 
 const saveStep = async () => {
   if (stepForm.send_time_end < stepForm.send_time_start) return ElMessage.warning('发送结束时间不能早于开始时间')
@@ -446,13 +466,16 @@ const confirmDirectSend = async () => {
   } finally { directSending.value = false }
 }
 
-const typeText = (type: SopMessageType) => ({ text: '文本', image: '图片', video: '视频' }[type])
+const typeText = (type: SopMessageType) => ({ text: '文本', image: '图片', video: '视频', material: '微信素材' }[type])
 const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未执行'
 const enrollmentText = (status?: string | null, reason?: string | null) => !status ? '未加入' : status === 'active' ? '执行中' : reason === 'purchase_tag_added' ? '已购退出' : reason === 'contact_removed' ? '好友移除' : '已退出'
 const deliveryText = (status: string) => ({ dry_run: '试运行', creating: '创建中', queued: '待发送', sending: '发送中', sent: '已发送', failed: '失败', cancelled: '已取消', skipped_reply: '客户回复跳过' }[status] || status)
 const deliveryTagType = (status: string): 'success' | 'danger' | 'info' | 'warning' | undefined => status === 'sent' ? 'success' : status === 'failed' ? 'danger' : ['cancelled', 'skipped_reply'].includes(status) ? 'info' : status === 'dry_run' ? 'warning' : undefined
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  materials.value = (await getWechatMaterials(1, 200, '', 'ready')).items
+})
 </script>
 
 <style scoped>

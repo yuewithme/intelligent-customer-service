@@ -110,6 +110,8 @@ class EyunOutboundMessageModel(Base):
     depends_on_outbound_id: Mapped[int | None] = mapped_column(
         Integer, index=True, nullable=True
     )
+    material_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    bulk_job_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     status: Mapped[str] = mapped_column(String(32), index=True, default="queued")
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -132,6 +134,41 @@ class EyunImagePromptRateModel(Base):
     w_id: Mapped[str] = mapped_column(String(256), primary_key=True)
     wc_id: Mapped[str] = mapped_column(String(256), primary_key=True)
     next_allowed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class EyunMediaMaterialModel(Base):
+    __tablename__ = "eyun_media_materials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), index=True)
+    media_type: Mapped[str] = mapped_column(String(32), index=True)
+    content_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    raw_xml: Mapped[str] = mapped_column(Text)
+    preview_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_w_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    source_wc_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="ready")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class EyunBulkSendJobModel(Base):
+    __tablename__ = "eyun_bulk_send_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(64), index=True)
+    source_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    w_id: Mapped[str] = mapped_column(String(256), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="queued")
+    total_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 

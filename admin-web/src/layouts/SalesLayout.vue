@@ -53,6 +53,7 @@ const navigation = [
   ] },
   { title: '策略与知识', items: [
     { label: '销售活动', to: '/knowledge-ops/current-activities' },
+    { label: '微信素材库', to: '/knowledge-ops/wechat-materials' },
     { label: '知识库', to: '/knowledge-ops/knowledge' },
     { label: '销售话术', to: '/knowledge-ops/templates' },
     { label: '意图样本', to: '/knowledge-ops/intent-examples' }

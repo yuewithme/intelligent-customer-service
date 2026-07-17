@@ -14,9 +14,11 @@ from app.db.models import (
     Base,
     ConversationMessageModel,
     ConversationModel,
+    EyunBulkSendJobModel,
     EyunInboundBatchModel,
     EyunInboundMessageModel,
     EyunImagePromptRateModel,
+    EyunMediaMaterialModel,
     EyunOutboundMessageModel,
     EyunSendRateModel,
 )
@@ -180,8 +182,14 @@ async def enqueue_wechat_outbound(
     message_type: str = "text",
     conversation_message_id: int | None = None,
     depends_on_outbound_id: int | None = None,
+    material_id: int | None = None,
+    bulk_job_id: int | None = None,
     due_at: datetime | None = None,
 ) -> dict[str, Any]:
+    if material_id is not None:
+        from app.services.eyun_material_service import get_ready_material
+
+        get_ready_material(material_id)
     now = utcnow()
     row = EyunOutboundMessageModel(
         w_id=w_id,
@@ -190,6 +198,8 @@ async def enqueue_wechat_outbound(
         source_batch_key=source_batch_key,
         conversation_message_id=conversation_message_id,
         depends_on_outbound_id=depends_on_outbound_id,
+        material_id=material_id,
+        bulk_job_id=bulk_job_id,
         status="queued",
         due_at=due_at or now + timedelta(seconds=random_reply_delay_seconds()),
         attempts=0,
@@ -212,6 +222,8 @@ async def enqueue_eyun_outbound(
     message_type: str = "text",
     conversation_message_id: int | None = None,
     depends_on_outbound_id: int | None = None,
+    material_id: int | None = None,
+    bulk_job_id: int | None = None,
     due_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Backward-compatible alias; all Eyun sends still enter the shared queue."""
@@ -223,8 +235,98 @@ async def enqueue_eyun_outbound(
         message_type=message_type,
         conversation_message_id=conversation_message_id,
         depends_on_outbound_id=depends_on_outbound_id,
+        material_id=material_id,
+        bulk_job_id=bulk_job_id,
         due_at=due_at,
     )
+
+
+async def enqueue_wechat_bulk_send(
+    *,
+    recipients: list[dict[str, str]],
+    items: list[dict[str, Any]],
+    source_type: str,
+    source_id: str | None = None,
+    created_by: str | None = None,
+) -> dict[str, Any]:
+    if not recipients or not items:
+        raise ValueError("bulk send requires recipients and items")
+    w_ids = {str(recipient.get("w_id") or "").strip() for recipient in recipients}
+    if "" in w_ids or len(w_ids) != 1:
+        raise ValueError("one bulk job must use exactly one w_id")
+    from app.services.eyun_material_service import get_ready_material
+
+    normalized_items: list[dict[str, Any]] = []
+    for item in items:
+        item_type = str(item.get("type") or "")
+        if item_type == "material":
+            material_id = int(item.get("material_id") or 0)
+            material = get_ready_material(material_id)
+            normalized_items.append(
+                {
+                    "message_type": f"received_{material['media_type']}",
+                    "content": "",
+                    "material_id": material_id,
+                }
+            )
+        elif item_type == "text" and str(item.get("content") or "").strip():
+            normalized_items.append(
+                {"message_type": "text", "content": str(item["content"]).strip()}
+            )
+        else:
+            raise ValueError("bulk media must reference a ready material_id")
+    now = utcnow()
+    outbound_ids: list[int] = []
+    with _get_session() as session:
+        job = EyunBulkSendJobModel(
+            source_type=source_type,
+            source_id=source_id,
+            w_id=next(iter(w_ids)),
+            status="queued",
+            total_count=len(recipients) * len(normalized_items),
+            created_by=created_by,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+        for recipient_index, recipient in enumerate(recipients):
+            wc_id = str(recipient.get("wc_id") or "").strip()
+            if not wc_id:
+                raise ValueError("bulk recipient wc_id is required")
+            dependency_id: int | None = None
+            due_at = now + timedelta(seconds=random_reply_delay_seconds())
+            for item_index, item in enumerate(normalized_items):
+                row = EyunOutboundMessageModel(
+                    w_id=str(recipient["w_id"]).strip(),
+                    wc_id=wc_id,
+                    content=_encode_outbound_content(
+                        str(item["message_type"]), str(item.get("content") or "")
+                    ),
+                    source_batch_key=f"bulk:{job_id}:{recipient_index}:{item_index}",
+                    depends_on_outbound_id=dependency_id,
+                    material_id=item.get("material_id"),
+                    bulk_job_id=job_id,
+                    status="queued",
+                    due_at=due_at,
+                    attempts=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(row)
+                session.flush()
+                dependency_id = row.id
+                outbound_ids.append(row.id)
+                due_at += timedelta(seconds=random_outbound_spacing_seconds())
+        session.commit()
+    return {
+        "id": job_id,
+        "status": "queued",
+        "recipient_count": len(recipients),
+        "message_count": len(outbound_ids),
+        "outbound_message_ids": outbound_ids,
+    }
 
 
 async def reserve_eyun_image_description_prompt(*, w_id: str, wc_id: str) -> bool:
@@ -315,8 +417,24 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             row.status = "sending"
             row.updated_at = now
             session.commit()
-            attempted += 1
             send_result = None
+            material_message: tuple[str, str] | None = None
+            if row.material_id is not None:
+                from app.services.eyun_material_service import get_ready_material
+
+                try:
+                    material = get_ready_material(row.material_id)
+                except Exception as exc:  # noqa: BLE001
+                    row.status = "waiting_material"
+                    row.last_error = str(exc)
+                    row.updated_at = utcnow()
+                    session.commit()
+                    continue
+                material_message = (
+                    f"received_{material['media_type']}",
+                    str(material["raw_xml"]),
+                )
+            attempted += 1
             try:
                 from app.services.eyun_callback_service import (
                     send_eyun_image,
@@ -326,7 +444,10 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     send_eyun_video,
                 )
 
-                message_type, content = _decode_outbound_content(row.content)
+                if material_message is not None:
+                    message_type, content = material_message
+                else:
+                    message_type, content = _decode_outbound_content(row.content)
                 if message_type == "image":
                     send_result = await send_eyun_image(
                         w_id=row.w_id, wc_id=row.wc_id, content=content
@@ -357,6 +478,15 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         w_id=row.w_id, wc_id=row.wc_id, content=content
                     )
             except Exception as exc:  # noqa: BLE001
+                if row.material_id is not None and _is_material_expiry_error(exc):
+                    from app.services.eyun_material_service import mark_material_expired
+
+                    mark_material_expired(row.material_id, str(exc))
+                    row.status = "waiting_material"
+                    row.last_error = str(exc)
+                    row.updated_at = utcnow()
+                    session.commit()
+                    continue
                 row.attempts = (row.attempts or 0) + 1
                 row.status = "failed" if row.attempts >= 2 else "queued"
                 row.last_error = str(exc)
@@ -497,7 +627,9 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     "conversation_message_id": conversation_message["id"],
                     "due_at": due_at,
                 }
-                if message["type"] != "text":
+                if message.get("material_id"):
+                    kwargs["material_id"] = int(message["material_id"])
+                if message["type"] not in {"text", "material"}:
                     kwargs["message_type"] = message["type"]
                 await enqueue_eyun_outbound(**kwargs)
                 if index < len(outbound_messages) - 1:
@@ -556,14 +688,22 @@ def _answer_segments(chat_result: dict[str, Any]) -> list[str]:
     return [answer] if answer else []
 
 
-def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, str]]:
+def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
     messages = chat_result.get("outbound_messages")
     if isinstance(messages, list):
         valid = [
-            {"type": str(message["type"]), "content": str(message["content"]).strip()}
+            {
+                "type": str(message["type"]),
+                "content": str(message["content"]).strip(),
+                **(
+                    {"material_id": int(message["material_id"])}
+                    if message.get("material_id")
+                    else {}
+                ),
+            }
             for message in messages
             if isinstance(message, dict)
-            and message.get("type") in {"text", "image", "mini_program"}
+            and message.get("type") in {"text", "image", "mini_program", "material"}
             and str(message.get("content") or "").strip()
         ]
         if valid:
@@ -624,6 +764,14 @@ def _decode_outbound_content(content: str) -> tuple[str, str]:
     ):
         return str(payload["type"]), str(payload["content"])
     return "text", content
+
+
+def _is_material_expiry_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in ("cdn", "xml", "material", "expired", "素材", "过期", "失效")
+    )
 
 
 def _mark_batch(batch_id: int, status: str) -> None:
@@ -800,6 +948,8 @@ def _get_session() -> Session:
                 EyunInboundBatchModel.__table__,
                 EyunInboundMessageModel.__table__,
                 EyunImagePromptRateModel.__table__,
+                EyunMediaMaterialModel.__table__,
+                EyunBulkSendJobModel.__table__,
                 EyunOutboundMessageModel.__table__,
                 EyunSendRateModel.__table__,
             ],
@@ -832,6 +982,14 @@ def _ensure_risk_control_columns(factory: sessionmaker) -> None:
                     "ALTER TABLE eyun_outbound_messages "
                     "ADD COLUMN depends_on_outbound_id INTEGER"
                 )
+            )
+        if "material_id" not in outbound_columns:
+            session.execute(
+                text("ALTER TABLE eyun_outbound_messages ADD COLUMN material_id INTEGER")
+            )
+        if "bulk_job_id" not in outbound_columns:
+            session.execute(
+                text("ALTER TABLE eyun_outbound_messages ADD COLUMN bulk_job_id INTEGER")
             )
         message_columns = {
             column["name"]
@@ -886,6 +1044,8 @@ def _outbound_to_dict(row: EyunOutboundMessageModel) -> dict[str, Any]:
         "source_batch_key": row.source_batch_key,
         "conversation_message_id": row.conversation_message_id,
         "depends_on_outbound_id": row.depends_on_outbound_id,
+        "material_id": row.material_id,
+        "bulk_job_id": row.bulk_job_id,
         "status": row.status,
         "due_at": _ensure_aware(row.due_at),
         "attempts": row.attempts,

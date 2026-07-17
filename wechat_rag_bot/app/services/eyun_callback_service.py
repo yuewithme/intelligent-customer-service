@@ -84,6 +84,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         if not user_id:
             return eyun_success()
         metadata = await _eyun_workbench_metadata(payload, data, user_id=user_id)
+        _capture_material_group_message(payload, metadata)
         await ensure_outbound_conversation_message(
             channel="wechat",
             user_id=user_id,
@@ -102,6 +103,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         return eyun_success()
 
     metadata = await _eyun_workbench_metadata(payload, data)
+    _capture_material_group_message(payload, metadata)
     user_id = _eyun_conversation_user_id(data)
     if not str(data.get("fromGroup") or "").strip():
         await ensure_user_profile(
@@ -193,6 +195,17 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
 
     await enqueue_eyun_inbound(payload)
     return eyun_success()
+
+
+def _capture_material_group_message(
+    payload: dict[str, Any], metadata: dict[str, Any]
+) -> None:
+    try:
+        from app.services.eyun_material_service import capture_material_group_message
+
+        capture_material_group_message(payload, metadata)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Eyun material-group capture failed: %s", exc)
 
 
 def _has_contact_display(metadata: dict[str, Any]) -> bool:

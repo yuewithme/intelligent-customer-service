@@ -1,11 +1,12 @@
 import request from '@/config/axios'
 
-export type SopMessageType = 'text' | 'image' | 'video'
+export type SopMessageType = 'text' | 'image' | 'video' | 'material'
 
 export interface SopMessageItem {
   message_type: SopMessageType
   content: string
   preview_url?: string | null
+  material_id?: number | null
 }
 
 export interface UnpurchasedSopConfig {
