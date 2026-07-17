@@ -1,0 +1,1031 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#101713" />
+  <meta name="description" content="AI 销售 Agent 五屏路演演示页面" />
+  <title>AI 销售 Agent | 路演材料</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101713;
+      --surface: #151f1a;
+      --surface-2: #1a2720;
+      --surface-3: #203129;
+      --line: #31483c;
+      --line-soft: #24362d;
+      --text: #f0f5f2;
+      --muted: #a7b7ae;
+      --quiet: #73877c;
+      --accent: #56c98f;
+      --accent-deep: #153f2c;
+      --accent-ink: #092116;
+      --danger: #e5aa78;
+      --radius: 14px;
+      --nav-h: 68px;
+      --max: 1460px;
+      --ease: cubic-bezier(.16, 1, .3, 1);
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-snap-type: y proximity;
+      background: var(--bg);
+    }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 84% 8%, rgb(86 201 143 / 8%), transparent 25rem),
+        var(--bg);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+
+    button, a { font: inherit; }
+    a { color: inherit; }
+
+    .topbar {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 20;
+      height: var(--nav-h);
+      border-bottom: 1px solid rgb(49 72 60 / 74%);
+      background: rgb(16 23 19 / 91%);
+      backdrop-filter: blur(16px);
+    }
+
+    .topbar-inner {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      width: min(calc(100% - 48px), var(--max));
+      height: 100%;
+      margin: 0 auto;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      color: var(--accent-ink);
+      font-size: 12px;
+      font-weight: 900;
+      background: var(--accent);
+      border-radius: 10px;
+    }
+
+    .brand-copy strong,
+    .brand-copy small { display: block; }
+    .brand-copy strong { font-size: 14px; letter-spacing: .02em; }
+    .brand-copy small { margin-top: 2px; color: var(--quiet); font-size: 10px; }
+
+    .nav-links {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .nav-links a {
+      padding: 8px 11px;
+      color: var(--quiet);
+      font-size: 12px;
+      text-decoration: none;
+      border-radius: 9px;
+      transition: color .25s var(--ease), background .25s var(--ease);
+    }
+
+    .nav-links a:hover,
+    .nav-links a[aria-current="true"] {
+      color: var(--text);
+      background: var(--surface-2);
+    }
+
+    .slide-counter {
+      min-width: 46px;
+      color: var(--muted);
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 12px;
+      text-align: right;
+    }
+
+    .deck { overflow: clip; }
+    .capture-mode .slide { display: none; }
+    .capture-mode .slide.capture-target { display: flex; }
+    .capture-mode .capture-target .reveal { opacity: 1; transform: none; }
+
+    .slide {
+      position: relative;
+      display: flex;
+      min-height: 100dvh;
+      padding: calc(var(--nav-h) + 34px) 24px 38px;
+      scroll-snap-align: start;
+      isolation: isolate;
+    }
+
+    .slide::after {
+      position: absolute;
+      inset: auto 5% 0;
+      height: 1px;
+      content: "";
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+    }
+
+    .slide-inner {
+      width: min(100%, var(--max));
+      margin: auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 18px;
+      color: var(--accent);
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      max-width: 780px;
+      margin-bottom: 22px;
+      font-size: clamp(44px, 4.8vw, 68px);
+      line-height: 1.02;
+      letter-spacing: -.055em;
+    }
+
+    h2 {
+      max-width: 930px;
+      margin-bottom: 14px;
+      font-size: clamp(34px, 4vw, 62px);
+      line-height: 1.06;
+      letter-spacing: -.045em;
+    }
+
+    h3 { margin-bottom: 9px; font-size: 17px; line-height: 1.35; }
+    p { color: var(--muted); line-height: 1.72; }
+
+    .lead {
+      max-width: 62ch;
+      margin-bottom: 0;
+      font-size: clamp(16px, 1.5vw, 21px);
+    }
+
+    .accent { color: var(--accent); }
+    .hero-line { display: block; white-space: nowrap; }
+
+    .button-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+
+    .button {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      padding: 0 17px;
+      color: var(--accent-ink);
+      font-size: 13px;
+      font-weight: 800;
+      text-decoration: none;
+      white-space: nowrap;
+      background: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 11px;
+      transition: transform .25s var(--ease), background .25s var(--ease);
+    }
+
+    .button:hover { background: #6bd49f; transform: translateY(-2px); }
+    .button:active { transform: translateY(1px) scale(.98); }
+    .button.secondary { color: var(--text); background: transparent; border-color: var(--line); }
+    .button.secondary:hover { background: var(--surface-2); }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, .92fr) minmax(500px, 1.08fr);
+      gap: clamp(46px, 7vw, 110px);
+      align-items: center;
+    }
+
+    .hero-copy { padding-bottom: 2vh; }
+
+    .hero-proof {
+      position: relative;
+      min-height: 610px;
+      padding: 22px;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, rgb(86 201 143 / 8%), transparent 48%),
+        var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 28px 80px rgb(5 13 9 / 34%);
+    }
+
+    .hero-proof::before {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      background-image:
+        linear-gradient(rgb(86 201 143 / 5%) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(86 201 143 / 5%) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(to bottom, black, transparent 82%);
+    }
+
+    .proof-header {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 17px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .proof-header strong { font-size: 14px; }
+    .proof-header span { color: var(--quiet); font: 11px Consolas, monospace; }
+
+    .customer-message {
+      position: relative;
+      width: 79%;
+      padding: 17px 18px;
+      margin: 24px 0 22px auto;
+      color: #eafff3;
+      font-size: 14px;
+      line-height: 1.65;
+      background: #245841;
+      border: 1px solid #3d7a5d;
+      border-radius: var(--radius);
+    }
+
+    .signal-chain {
+      position: relative;
+      display: grid;
+      gap: 9px;
+    }
+
+    .signal-row {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr) auto;
+      gap: 13px;
+      align-items: center;
+      min-height: 62px;
+      padding: 10px 12px;
+      background: rgb(26 39 32 / 86%);
+      border: 1px solid var(--line-soft);
+      border-radius: 11px;
+    }
+
+    .signal-row b { color: var(--muted); font-size: 12px; font-weight: 600; }
+    .signal-row strong { font-size: 14px; }
+    .signal-row small { color: var(--accent); font: 10px Consolas, monospace; }
+
+    .agent-reply {
+      position: relative;
+      width: 84%;
+      padding: 17px 18px;
+      margin-top: 22px;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.65;
+      background: var(--surface-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .problem-strip {
+      display: grid;
+      grid-template-columns: 1.25fr repeat(4, 1fr);
+      gap: 1px;
+      margin-top: 38px;
+      overflow: hidden;
+      background: var(--line);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .problem-strip > div { min-height: 118px; padding: 20px; background: var(--surface); }
+    .problem-strip strong { display: block; margin-bottom: 7px; font-size: 15px; }
+    .problem-strip p { margin-bottom: 0; color: var(--quiet); font-size: 12px; line-height: 1.55; }
+    .problem-strip .thesis { background: var(--accent-deep); }
+    .problem-strip .thesis strong { color: var(--accent); font-size: 18px; }
+
+    .section-heading { margin-bottom: 30px; }
+
+    .solution-layout {
+      display: grid;
+      grid-template-columns: minmax(360px, .72fr) minmax(0, 1.28fr);
+      gap: 36px;
+      align-items: stretch;
+    }
+
+    .decision-spine {
+      display: grid;
+      align-content: center;
+      gap: 0;
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .spine-item {
+      position: relative;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      gap: 13px;
+      align-items: center;
+      min-height: 65px;
+    }
+
+    .spine-item:not(:last-child)::after {
+      position: absolute;
+      top: 48px;
+      bottom: -17px;
+      left: 18px;
+      width: 1px;
+      content: "";
+      background: var(--line);
+    }
+
+    .spine-code {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      color: var(--accent);
+      font: 10px Consolas, monospace;
+      background: var(--accent-deep);
+      border: 1px solid #2d6d4e;
+      border-radius: 10px;
+    }
+
+    .spine-item strong { font-size: 14px; }
+    .spine-item small { display: block; margin-top: 3px; color: var(--quiet); font-size: 11px; }
+
+    .capability-grid {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      grid-template-rows: repeat(3, minmax(132px, 1fr));
+      gap: 12px;
+    }
+
+    .capability {
+      position: relative;
+      padding: 21px;
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+    }
+
+    .capability:nth-child(2), .capability:nth-child(5) { background: var(--surface-2); }
+    .capability:nth-child(3) { background: linear-gradient(135deg, var(--accent-deep), var(--surface)); }
+    .capability h3 { max-width: 240px; }
+    .capability p { max-width: 38ch; margin-bottom: 0; color: var(--quiet); font-size: 12px; }
+    .capability-code { position: absolute; right: 16px; bottom: 13px; color: #466454; font: 11px Consolas, monospace; }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 20px;
+      align-items: center;
+      margin-top: 24px;
+    }
+
+    .comparison > div { padding: 16px 18px; border-radius: 11px; }
+    .comparison .old { color: var(--quiet); background: var(--surface); border: 1px solid var(--line-soft); }
+    .comparison .new { color: #dff8ea; background: var(--accent-deep); border: 1px solid #2f7654; }
+    .comparison .arrow { padding: 0; color: var(--accent); font-size: 22px; }
+
+    .demo-layout {
+      display: grid;
+      grid-template-columns: minmax(330px, .68fr) minmax(0, 1.32fr);
+      gap: 28px;
+      align-items: stretch;
+    }
+
+    .demo-story {
+      display: grid;
+      align-content: space-between;
+      gap: 25px;
+    }
+
+    .demo-quote {
+      padding: 24px;
+      color: #e8fff2;
+      font-size: clamp(18px, 2vw, 28px);
+      font-weight: 650;
+      line-height: 1.5;
+      background: var(--accent-deep);
+      border: 1px solid #2f7654;
+      border-radius: var(--radius);
+    }
+
+    .demo-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .demo-step { min-height: 86px; padding: 14px; background: var(--surface); border: 1px solid var(--line-soft); border-radius: 11px; }
+    .demo-step strong { display: block; margin-bottom: 5px; font-size: 12px; }
+    .demo-step small { color: var(--quiet); font-size: 10px; line-height: 1.45; }
+
+    .demo-window {
+      min-height: 610px;
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 28px 80px rgb(5 13 9 / 28%);
+    }
+
+    .window-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 48px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .window-bar strong { font-size: 12px; }
+    .window-bar a { color: var(--accent); font-size: 11px; text-decoration: none; }
+    .demo-product {
+      display: grid;
+      grid-template-columns: minmax(0, 1.28fr) minmax(230px, .72fr);
+      height: 562px;
+      background: #eef4f1;
+      color: #13251d;
+    }
+
+    .demo-chat-pane { display: grid; grid-template-rows: 54px 1fr 58px; min-width: 0; border-right: 1px solid #cfddd6; }
+    .demo-chat-head { display: flex; align-items: center; justify-content: space-between; padding: 0 18px; background: #f8fbf9; border-bottom: 1px solid #d9e4df; }
+    .demo-chat-head strong { font-size: 13px; }
+    .demo-chat-head span { color: #3b775a; font-size: 10px; }
+    .demo-chat-body { display: grid; align-content: start; gap: 14px; padding: 22px 20px; overflow: hidden; }
+    .chat-message { max-width: 82%; padding: 12px 14px; font-size: 12px; line-height: 1.65; border-radius: 12px; }
+    .chat-message.customer { justify-self: end; background: #d5f0e2; border-bottom-right-radius: 4px; }
+    .chat-message.agent { background: #fff; border: 1px solid #d8e4de; border-bottom-left-radius: 4px; box-shadow: 0 8px 24px rgb(24 60 43 / 7%); }
+    .message-source { display: block; margin-top: 7px; color: #4b7f66; font-size: 9px; letter-spacing: .04em; }
+    .demo-input { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #f8fbf9; border-top: 1px solid #d9e4df; }
+    .demo-input span { flex: 1; color: #81938a; font-size: 11px; }
+    .demo-send { width: 34px; height: 34px; color: #092016; background: var(--accent); border: 0; border-radius: 9px; font-weight: 800; }
+
+    .demo-insight { padding: 18px; overflow: hidden; background: #e5eeea; }
+    .insight-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .insight-title strong { font-size: 12px; }
+    .insight-title span { color: #287b52; font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+    .insight-block { padding: 13px 0; border-top: 1px solid #c8d8d0; }
+    .insight-block:first-of-type { border-top: 0; }
+    .insight-block small { display: block; margin-bottom: 7px; color: #63786e; font-size: 9px; letter-spacing: .08em; }
+    .insight-block strong { display: block; margin-bottom: 8px; font-size: 13px; }
+    .insight-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .insight-tags span { padding: 5px 7px; color: #25533d; background: #f6faf8; border: 1px solid #c7d9d0; border-radius: 7px; font-size: 9px; }
+    .next-action { padding: 10px; color: #e8fff2; background: #174f35; border-radius: 9px; font-size: 10px; line-height: 1.55; }
+
+    .architecture-slide .slide-inner { width: min(100%, 1560px); }
+    .architecture-slide .section-heading { margin-bottom: 16px; }
+    .architecture-slide h2 { max-width: none; font-size: clamp(32px, 3.35vw, 50px); }
+    .architecture-slide .lead { max-width: none; font-size: 16px; }
+
+    .architecture-shell {
+      display: grid;
+      grid-template-columns: 154px minmax(0, 1fr);
+      gap: 18px;
+      min-height: 520px;
+    }
+
+    .customer-source {
+      display: grid;
+      align-content: center;
+      gap: 13px;
+      padding: 18px;
+      color: #e9fff3;
+      background: var(--accent-deep);
+      border: 1px solid #347d5a;
+      border-radius: var(--radius);
+    }
+
+    .customer-source strong { font-size: 18px; }
+    .customer-source p { margin: 0; color: #a9d7be; font-size: 11px; }
+
+    .arch-main {
+      display: grid;
+      grid-template-rows: auto auto;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(138px, 1fr));
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .flow-node {
+      position: relative;
+      min-height: 166px;
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .flow-node:not(:last-child)::after {
+      position: absolute;
+      top: 50%;
+      left: calc(100% + 1px);
+      width: 20px;
+      height: 1px;
+      content: "";
+      background: var(--accent);
+      opacity: .65;
+    }
+
+    .flow-node:not(:last-child)::before {
+      position: absolute;
+      top: calc(50% - 3px);
+      left: calc(100% + 15px);
+      z-index: 2;
+      width: 7px;
+      height: 7px;
+      content: "";
+      border-top: 1px solid var(--accent);
+      border-right: 1px solid var(--accent);
+      transform: rotate(45deg);
+    }
+
+    .flow-node.featured { background: linear-gradient(145deg, var(--accent-deep), var(--surface)); border-color: #347d5a; }
+    .flow-node b { display: block; margin-bottom: 8px; color: var(--accent); font: 10px Consolas, monospace; }
+    .flow-node h3 { min-height: 44px; font-size: 14px; }
+    .flow-node p { margin: 0; color: var(--quiet); font-size: 10px; line-height: 1.6; }
+
+    .data-foundation {
+      display: grid;
+      grid-template-columns: 1.1fr 1.18fr 1.15fr 1fr .95fr 1fr;
+      gap: 9px;
+      padding: 13px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .data-store {
+      min-height: 126px;
+      padding: 14px;
+      background: #121c17;
+      border: 1px solid var(--line-soft);
+      border-radius: 11px;
+    }
+
+    .data-store:nth-child(2), .data-store:nth-child(4) { background: #19261f; }
+    .data-store h3 { color: #dff8ea; font-size: 13px; }
+    .data-store p { margin: 0; color: var(--quiet); font-size: 10px; line-height: 1.58; }
+    .data-store small { display: block; margin-top: 11px; color: var(--accent); font: 9px Consolas, monospace; }
+
+    .arch-caption {
+      display: grid;
+      grid-template-columns: 154px minmax(0, 1fr);
+      gap: 18px;
+      margin-top: 8px;
+    }
+
+    .arch-caption div:last-child {
+      padding: 10px 16px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.55;
+      background: var(--surface);
+      border: 1px solid var(--line-soft);
+      border-radius: 11px;
+    }
+
+    .business-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr);
+      gap: 30px;
+      align-items: start;
+    }
+
+    .delivery-chain {
+      display: grid;
+      grid-template-columns: 1fr 48px 1.2fr 48px 1fr;
+      align-items: stretch;
+    }
+
+    .delivery-block {
+      min-height: 270px;
+      padding: 22px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .delivery-block.center { background: linear-gradient(145deg, var(--accent-deep), var(--surface)); border-color: #347d5a; }
+    .delivery-block h3 { font-size: 18px; }
+    .delivery-block p { color: var(--quiet); font-size: 12px; }
+    .delivery-list { display: grid; gap: 9px; margin-top: 18px; }
+    .delivery-list span { padding: 9px 10px; color: var(--muted); font-size: 11px; background: rgb(16 23 19 / 56%); border: 1px solid var(--line-soft); border-radius: 9px; }
+    .delivery-arrow { display: grid; place-items: center; color: var(--accent); font-size: 24px; }
+
+    .roadmap {
+      display: grid;
+      gap: 10px;
+    }
+
+    .roadmap-item {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 14px;
+      min-height: 104px;
+      padding: 15px;
+      background: var(--surface);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+    }
+
+    .roadmap-item strong { color: var(--accent); font-size: 13px; }
+    .roadmap-item h3 { margin-bottom: 5px; font-size: 14px; }
+    .roadmap-item p { margin: 0; color: var(--quiet); font-size: 10px; line-height: 1.5; }
+
+    .commercial-footer {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: 20px;
+      align-items: center;
+      margin-top: 24px;
+      padding: 20px 22px;
+      background: var(--accent-deep);
+      border: 1px solid #347d5a;
+      border-radius: var(--radius);
+    }
+
+    .commercial-footer strong { color: var(--accent); font-size: 17px; }
+    .commercial-footer p { margin: 0; color: #b8ddc8; font-size: 12px; }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity .7s var(--ease), transform .7s var(--ease);
+    }
+
+    .reveal.is-visible { opacity: 1; transform: translateY(0); }
+    .slide:target .reveal { opacity: 1; transform: translateY(0); }
+    .reveal.delay-1 { transition-delay: .08s; }
+    .reveal.delay-2 { transition-delay: .16s; }
+
+    .signal-row.is-active,
+    .flow-node.is-active {
+      border-color: #3c8b65;
+      background-color: #193024;
+    }
+
+    @media (max-width: 1180px) {
+      .nav-links { display: none; }
+      .hero-grid, .solution-layout, .demo-layout, .business-layout { grid-template-columns: 1fr; }
+      .hero-grid { gap: 28px; }
+      .hero-proof { min-height: 570px; }
+      .problem-strip { grid-template-columns: 1fr 1fr; }
+      .problem-strip .thesis { grid-column: 1 / -1; }
+      .architecture-shell { grid-template-columns: 1fr; }
+      .customer-source { grid-template-columns: auto 1fr; }
+      .flow-row { grid-template-columns: repeat(3, 1fr); }
+      .flow-node:not(:last-child)::after, .flow-node:not(:last-child)::before { display: none; }
+      .data-foundation { grid-template-columns: repeat(3, 1fr); }
+      .arch-caption { grid-template-columns: 1fr; }
+      .delivery-chain { grid-template-columns: 1fr 38px 1.2fr 38px 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      :root { --nav-h: 60px; }
+      html { scroll-snap-type: none; }
+      .topbar-inner { width: calc(100% - 28px); }
+      .brand-copy small { display: none; }
+      .slide { min-height: 100dvh; padding: calc(var(--nav-h) + 28px) 16px 34px; }
+      h1 { font-size: clamp(34px, 11vw, 48px); }
+      h2 { font-size: clamp(32px, 10vw, 46px); }
+      .hero-line { white-space: normal; }
+      .eyebrow { margin-bottom: 14px; }
+      .hero-proof { min-height: auto; padding: 14px; }
+      .customer-message, .agent-reply { width: 100%; }
+      .signal-row { grid-template-columns: 88px 1fr; }
+      .signal-row small { display: none; }
+      .problem-strip, .capability-grid, .demo-steps, .commercial-footer { grid-template-columns: 1fr; }
+      .problem-strip .thesis { grid-column: auto; }
+      .capability-grid { grid-template-rows: auto; }
+      .capability { min-height: 135px; }
+      .comparison { grid-template-columns: 1fr; }
+      .comparison .arrow { transform: rotate(90deg); text-align: center; }
+      .demo-window { min-height: 520px; }
+      .demo-product { height: auto; min-height: 600px; grid-template-columns: 1fr; }
+      .demo-chat-pane { min-height: 520px; border-right: 0; }
+      .demo-insight { display: none; }
+      .flow-row, .data-foundation { grid-template-columns: 1fr; }
+      .flow-node { min-height: auto; }
+      .architecture-shell { min-height: auto; }
+      .delivery-chain { grid-template-columns: 1fr; gap: 10px; }
+      .delivery-arrow { transform: rotate(90deg); }
+      .delivery-block { min-height: auto; }
+      .roadmap-item { grid-template-columns: 1fr; }
+      .commercial-footer { gap: 8px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
+      .reveal { opacity: 1; transform: none; }
+    }
+
+    @media print {
+      .topbar { display: none; }
+      .slide { min-height: 100vh; padding: 34px; break-after: page; }
+      .slide::after { display: none; }
+      .reveal { opacity: 1; transform: none; }
+      .demo-product { min-height: 560px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#positioning" aria-label="返回路演首页">
+        <span class="brand-mark">SA</span>
+        <span class="brand-copy"><strong>AI 销售 Agent</strong><small>私域销售自动化基座</small></span>
+      </a>
+      <nav class="nav-links" aria-label="路演页面导航">
+        <a href="#positioning">问题</a>
+        <a href="#solution">方案</a>
+        <a href="#demo">Demo</a>
+        <a href="#architecture">架构</a>
+        <a href="#business">商业化</a>
+      </nav>
+      <div class="slide-counter" aria-live="polite"><span id="current-slide">01</span> / 05</div>
+    </div>
+  </header>
+
+  <main class="deck">
+    <section class="slide" id="positioning" data-slide="1">
+      <div class="slide-inner">
+        <div class="hero-grid">
+          <div class="hero-copy reveal">
+            <p class="eyebrow">AI SALES AGENT</p>
+            <h1><span class="hero-line">让每一次私域对话</span><span class="accent hero-line">持续走向成交</span></h1>
+            <p class="lead">它不只回答问题，还能理解客户、制定策略、持续跟进，并与人工销售协同工作。</p>
+            <div class="button-row">
+              <a class="button" href="#demo">查看现场 Demo</a>
+              <a class="button secondary" href="#architecture">理解系统架构</a>
+            </div>
+          </div>
+
+          <div class="hero-proof reveal delay-1" aria-label="销售 Agent 决策过程示意">
+            <div class="proof-header"><strong>一次真实销售决策</strong><span>MESSAGE TO ACTION</span></div>
+            <div class="customer-message">我是养兰新手，预算大概 300 元，想买一盆比较好养的兰花。</div>
+            <div class="signal-chain">
+              <div class="signal-row is-active"><b>客户理解</b><strong>新手 / 预算 300 元</strong><small>CAPTURED</small></div>
+              <div class="signal-row"><b>销售阶段</b><strong>需求确认与商品推荐</strong><small>ROUTED</small></div>
+              <div class="signal-row"><b>策略动作</b><strong>先确认环境，再推荐商品</strong><small>PLANNED</small></div>
+              <div class="signal-row"><b>知识调用</b><strong>产品知识 + 新手养护话术</strong><small>GROUNDED</small></div>
+            </div>
+            <div class="agent-reply">可以，我先根据您的预算和养护经验筛选。您平时放在阳台还是室内？光照和通风情况会影响推荐。</div>
+          </div>
+        </div>
+
+        <div class="problem-strip reveal delay-2">
+          <div class="thesis"><strong>不是自动回复工具</strong><p>而是能够持续执行销售策略的 AI Agent。</p></div>
+          <div><strong>响应不及时</strong><p>销售无法同时稳定承接大量客户。</p></div>
+          <div><strong>信息会丢失</strong><p>预算、需求和顾虑散落在历史聊天中。</p></div>
+          <div><strong>能力难复制</strong><p>优秀销售的方法依赖个人经验。</p></div>
+          <div><strong>跟进易中断</strong><p>客户没有立即成交，线索便逐渐沉默。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="solution" data-slide="2">
+      <div class="slide-inner">
+        <div class="section-heading reveal">
+          <h2>从回答问题，升级为<span class="accent">推动下一步行动</span></h2>
+          <p class="lead">系统先理解客户和销售阶段，再决定应该追问、推荐、处理异议、促进成交，还是转交人工。</p>
+        </div>
+
+        <div class="solution-layout">
+          <div class="decision-spine reveal delay-1">
+            <div class="spine-item"><span class="spine-code">IN</span><div><strong>客户消息进入</strong><small>咨询、需求、预算、顾虑</small></div></div>
+            <div class="spine-item"><span class="spine-code">CTX</span><div><strong>加载客户上下文</strong><small>画像、历史记忆、销售阶段</small></div></div>
+            <div class="spine-item"><span class="spine-code">TAG</span><div><strong>识别客户信号</strong><small>意图、情绪、偏好、风险</small></div></div>
+            <div class="spine-item"><span class="spine-code">PLAN</span><div><strong>制定销售策略</strong><small>选择下一步动作与销售路径</small></div></div>
+            <div class="spine-item"><span class="spine-code">ACT</span><div><strong>回复并更新记忆</strong><small>形成连续的销售推进闭环</small></div></div>
+          </div>
+
+          <div class="capability-grid reveal delay-2">
+            <article class="capability"><h3>客户需求理解</h3><p>识别真正想买什么、预算多少、顾虑是什么。</p><span class="capability-code">01</span></article>
+            <article class="capability"><h3>销售阶段判断</h3><p>判断客户处于了解、比较、异议处理还是成交阶段。</p><span class="capability-code">02</span></article>
+            <article class="capability"><h3>个性化销售策略</h3><p>选择追问、推荐、价值介绍、活动推荐或成交引导。</p><span class="capability-code">03</span></article>
+            <article class="capability"><h3>长期销售记忆</h3><p>持续记录客户偏好、预算、历史需求和待跟进事项。</p><span class="capability-code">04</span></article>
+            <article class="capability"><h3>业务知识调用</h3><p>结合商品、活动、订单和销售话术生成可靠回复。</p><span class="capability-code">05</span></article>
+            <article class="capability"><h3>人工协同与风控</h3><p>投诉、退款、特殊价格和高风险承诺及时转交人工。</p><span class="capability-code">06</span></article>
+          </div>
+        </div>
+
+        <div class="comparison reveal">
+          <div class="old">普通客服机器人关注：如何回答</div>
+          <div class="arrow" aria-hidden="true">→</div>
+          <div class="new">AI 销售 Agent 关注：下一步应该做什么</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="demo" data-slide="3">
+      <div class="slide-inner">
+        <div class="section-heading reveal">
+          <h2>用一段真实对话，证明 Agent <span class="accent">能推进销售</span></h2>
+          <p class="lead">现场输入客户需求，随后查看 Agent 回复、销售阶段、客户画像和下一步动作。</p>
+        </div>
+
+        <div class="demo-layout">
+          <div class="demo-story reveal delay-1">
+            <div class="demo-quote">“我是养兰新手，预算大概 300 元，想买一盆比较好养的兰花。”</div>
+            <div class="demo-steps">
+              <div class="demo-step"><strong>提取客户信息</strong><small>新手、预算 300 元、偏好容易养护</small></div>
+              <div class="demo-step"><strong>判断销售阶段</strong><small>进入需求确认与商品推荐</small></div>
+              <div class="demo-step"><strong>检索产品知识</strong><small>筛选符合预算与养护条件的商品</small></div>
+              <div class="demo-step"><strong>执行销售策略</strong><small>追问环境、推荐产品、处理价格顾虑</small></div>
+            </div>
+            <div class="button-row">
+              <a class="button" href="https://intelligent-customer-service-r63g.onrender.com/demo-chat" target="_blank" rel="noreferrer">打开完整体验</a>
+            </div>
+          </div>
+
+          <div class="demo-window reveal delay-2">
+            <div class="window-bar"><strong>销售 Agent 演示视图</strong><a href="https://intelligent-customer-service-r63g.onrender.com/demo-chat" target="_blank" rel="noreferrer">打开在线体验</a></div>
+            <div class="demo-product" aria-label="销售 Agent 对话与决策演示">
+              <div class="demo-chat-pane">
+                <div class="demo-chat-head"><strong>兰花销售 Agent</strong><span>● 正在服务</span></div>
+                <div class="demo-chat-body">
+                  <div class="chat-message customer">我是养兰新手，预算大概 300 元，想买一盆比较好养的兰花。</div>
+                  <div class="chat-message agent">可以的。新手更适合耐养、环境适应性好的品种。您准备放在阳台还是室内？每天大概有几个小时散射光？<span class="message-source">已结合客户画像与养护知识生成</span></div>
+                  <div class="chat-message customer">放在客厅窗边，下午能晒到一点太阳。</div>
+                  <div class="chat-message agent">这个环境可以优先考虑建兰或墨兰。我先按 300 元以内、带盆、容易复花给您筛选 2 款，再告诉您各自的养护差异，您看可以吗？<span class="message-source">下一步：商品推荐与购买顾虑处理</span></div>
+                </div>
+                <div class="demo-input"><span>输入客户的新问题...</span><button class="demo-send" type="button" aria-label="发送演示消息">↑</button></div>
+              </div>
+              <aside class="demo-insight">
+                <div class="insight-title"><strong>实时决策面板</strong><span>AGENT LIVE</span></div>
+                <div class="insight-block"><small>销售阶段</small><strong>需求确认</strong><div class="insight-tags"><span>购买意向明确</span><span>待确认环境</span></div></div>
+                <div class="insight-block"><small>客户画像</small><div class="insight-tags"><span>养兰新手</span><span>预算 300 元</span><span>偏好易养</span><span>客厅窗边</span></div></div>
+                <div class="insight-block"><small>知识检索</small><strong>命中 6 条产品与养护知识</strong><div class="insight-tags"><span>建兰</span><span>墨兰</span><span>散射光</span></div></div>
+                <div class="insight-block"><small>建议动作</small><div class="next-action">确认光照条件后推荐 2 款商品，解释养护差异，并询问是否需要带盆发货。</div></div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture-slide" id="architecture" data-slide="4">
+      <div class="slide-inner">
+        <div class="section-heading reveal">
+          <h2>客户信息如何流动，系统就如何<span class="accent">持续变聪明</span></h2>
+          <p class="lead">每一轮对话都完成理解、决策、执行和沉淀，并把新信息用于下一轮销售推进。</p>
+        </div>
+
+        <div class="architecture-shell reveal delay-1">
+          <aside class="customer-source">
+            <strong>微信私域客户</strong>
+            <p>咨询、需求、预算、顾虑、订单和售后信息进入系统。</p>
+          </aside>
+
+          <div class="arch-main">
+            <div class="flow-row">
+              <article class="flow-node is-active"><b>INGEST</b><h3>消息接入与身份识别</h3><p>识别客户身份，关联历史会话，解析消息并生成追踪标识。</p></article>
+              <article class="flow-node"><b>CONTEXT</b><h3>客户上下文加载</h3><p>读取客户信息、历史聊天、长期记忆、销售阶段和订单事实。</p></article>
+              <article class="flow-node"><b>UNDERSTAND</b><h3>客户理解与标签识别</h3><p>识别需求、预算、偏好、情绪、购买意向、异议和风险。</p></article>
+              <article class="flow-node featured"><b>PLAN</b><h3>销售决策中心</h3><p>综合客户状态、业务规则和知识检索，决定下一步销售动作。</p></article>
+              <article class="flow-node"><b>GENERATE</b><h3>回复生成与审核</h3><p>组合销售策略、产品知识和话术，生成回复并完成边界检查。</p></article>
+              <article class="flow-node"><b>UPDATE</b><h3>回复客户并更新数据</h3><p>发送回复，更新画像、阶段、记忆、下一步动作和决策日志。</p></article>
+            </div>
+
+            <div class="data-foundation" aria-label="销售 Agent 数据与知识底座">
+              <article class="data-store"><h3>用户信息库</h3><p>客户身份、联系方式、渠道来源、基础属性和关联账号。</p><small>IDENTITY STORE</small></article>
+              <article class="data-store"><h3>用户画像与记忆库</h3><p>需求、预算、偏好、意向、历史顾虑、销售阶段和待跟进事项。</p><small>PROFILE + MEMORY</small></article>
+              <article class="data-store"><h3>产品信息知识库</h3><p>商品特点、适用人群、价格套餐、使用方法、产品边界和常见问题。</p><small>QDRANT + RAG</small></article>
+              <article class="data-store"><h3>销售话术库</h3><p>首次沟通、需求追问、商品推荐、异议处理和成交引导话术。</p><small>TALK SCRIPT STORE</small></article>
+              <article class="data-store"><h3>活动与素材库</h3><p>销售活动、优惠信息、商品素材、适用客户标签和有效时间。</p><small>ACTIVITY STORE</small></article>
+              <article class="data-store"><h3>会话与评估库</h3><p>客户原始消息、Agent 回复、人工接管、决策路径和销售结果。</p><small>SQL + AUDIT LOG</small></article>
+            </div>
+          </div>
+        </div>
+
+        <div class="arch-caption reveal delay-2"><div></div><div>技术底座：LangGraph 编排、DeepSeek Chat、Qdrant、Sentence Transformers、RAG、FastAPI、SQLAlchemy、Vue 3、Docker。规则负责边界，知识负责事实，模型负责理解和表达，销售决策中心负责最终行动。</div></div>
+      </div>
+    </section>
+
+    <section class="slide" id="business" data-slide="5">
+      <div class="slide-inner">
+        <div class="section-heading reveal">
+          <h2>老板提供产品和方法，我们交付<span class="accent">专属销售 Agent</span></h2>
+          <p class="lead">把商家的产品知识、销售流程和优秀经验，转化为一个能够持续工作的自动化销售系统。</p>
+        </div>
+
+        <div class="business-layout">
+          <div class="delivery-chain reveal delay-1">
+            <article class="delivery-block">
+              <h3>商家提供</h3>
+              <p>只需要两类核心资料。</p>
+              <div class="delivery-list"><span>产品资料与业务政策</span><span>销售 SOP 与优秀话术</span></div>
+            </article>
+            <div class="delivery-arrow" aria-hidden="true">→</div>
+            <article class="delivery-block center">
+              <h3>我们完成销售工程化</h3>
+              <p>将非结构化经验转化为可运行的 Agent。</p>
+              <div class="delivery-list"><span>产品知识库与销售话术库</span><span>客户标签与画像体系</span><span>销售策略与工作流配置</span><span>生产接入、测试与持续优化</span></div>
+            </article>
+            <div class="delivery-arrow" aria-hidden="true">→</div>
+            <article class="delivery-block">
+              <h3>交付专属 Agent</h3>
+              <p>形成可复制、可管理的销售能力。</p>
+              <div class="delivery-list"><span>自动接待与需求理解</span><span>自动推荐与异议处理</span><span>自动跟进、成交与复购</span></div>
+            </article>
+          </div>
+
+          <div class="roadmap reveal delay-2">
+            <article class="roadmap-item"><strong>SOP 模块</strong><div><h3>让 Agent 沿工作流自主推进</h3><p>覆盖首单销售、复购、服务、日常触达、沉默唤醒和流失挽回。</p></div></article>
+            <article class="roadmap-item"><strong>经营分析</strong><div><h3>完善画像与销售看板</h3><p>增加销售漏斗、未成交原因、客户异议、商品关注度和转化分析。</p></div></article>
+            <article class="roadmap-item"><strong>MVP 上线</strong><div><h3>进入真实生产环境验证</h3><p>完成内部测试，接入具体商家，跑通接待、成交、服务和复购闭环。</p></div></article>
+            <article class="roadmap-item"><strong>规模复制</strong><div><h3>复制基座并提供定制服务</h3><p>支持多商家、多品牌、行业模板、业务系统接入和私有化部署。</p></div></article>
+          </div>
+        </div>
+
+        <div class="commercial-footer reveal">
+          <strong>商业模式：定制实施费 + 持续软件服务费 + 企业增值服务</strong>
+          <p>目标是逐步替代私域销售中大量重复、标准化和高频的人工工作，让企业以更低成本持续承接客户、推进成交并沉淀自己的销售能力。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const captureId = new URLSearchParams(window.location.search).get('capture')
+    if (captureId) {
+      const captureTarget = document.getElementById(captureId)
+      if (captureTarget) {
+        document.body.classList.add('capture-mode')
+        captureTarget.classList.add('capture-target')
+      }
+    }
+
+    const slides = [...document.querySelectorAll('[data-slide]')]
+    const navLinks = [...document.querySelectorAll('.nav-links a')]
+    const counter = document.getElementById('current-slide')
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    const revealObserver = new IntersectionObserver((entries, observer) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return
+        entry.target.classList.add('is-visible')
+        observer.unobserve(entry.target)
+      })
+    }, { threshold: .16 })
+
+    document.querySelectorAll('.reveal').forEach((item) => revealObserver.observe(item))
+
+    const slideObserver = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
+      if (!visible) return
+      const index = Number(visible.target.dataset.slide)
+      counter.textContent = String(index).padStart(2, '0')
+      navLinks.forEach((link) => link.setAttribute('aria-current', String(link.hash === `#${visible.target.id}`)))
+
+      visible.target.querySelectorAll('.signal-row, .flow-node').forEach((node, nodeIndex) => {
+        if (reducedMotion) return
+        window.setTimeout(() => node.classList.add('is-active'), nodeIndex * 180)
+      })
+    }, { threshold: [.42, .6, .75] })
+
+    slides.forEach((slide) => slideObserver.observe(slide))
+
+    document.addEventListener('keydown', (event) => {
+      if (!['ArrowDown', 'ArrowRight', 'PageDown', 'ArrowUp', 'ArrowLeft', 'PageUp'].includes(event.key)) return
+      event.preventDefault()
+      const current = Math.max(0, slides.findIndex((slide) => slide.getBoundingClientRect().top >= -window.innerHeight * .35))
+      const forward = ['ArrowDown', 'ArrowRight', 'PageDown'].includes(event.key)
+      const target = slides[Math.min(slides.length - 1, Math.max(0, current + (forward ? 1 : -1)))]
+      target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' })
+    })
+  </script>
+</body>
+</html>
