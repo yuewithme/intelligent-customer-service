@@ -28,6 +28,8 @@ export interface UnpurchasedSopStep {
   sop_id: number
   day_offset: number
   send_time: string
+  send_time_start: string
+  send_time_end: string
   message_type: SopMessageType
   content: string
   preview_url?: string | null
@@ -42,6 +44,8 @@ export interface UnpurchasedSopContact {
   id: number
   wc_id: string
   display_name?: string | null
+  remark_name?: string | null
+  wechat_id?: string | null
   avatar_url?: string | null
   friend_added_on?: string | null
   first_seen_at: string
@@ -75,7 +79,8 @@ export interface UnpurchasedSopDelivery {
 
 export interface SopStepPayload {
   day_offset: number
-  send_time: string
+  send_time_start: string
+  send_time_end: string
   messages: SopMessageItem[]
   position: number
   enabled: boolean
@@ -114,10 +119,10 @@ export const syncUnpurchasedSopContacts = () =>
     timeout: 240000
   })
 
-export const getUnpurchasedSopContacts = (page = 1, page_size = 50) =>
+export const getUnpurchasedSopContacts = (page = 1, page_size = 50, keyword = '') =>
   request.get<{ items: UnpurchasedSopContact[]; total: number }>({
     url: '/api/v1/admin/unpurchased-sop/contacts',
-    params: { page, page_size }
+    params: { page, page_size, keyword }
   })
 
 export const getUnpurchasedSopDeliveries = (page = 1, page_size = 50) =>
@@ -126,10 +131,10 @@ export const getUnpurchasedSopDeliveries = (page = 1, page_size = 50) =>
     params: { page, page_size }
   })
 
-export const testSendUnpurchasedSop = (step_id: number, contact_id: number) =>
-  request.post<{ outbound_message_id: number; outbound_message_ids: number[]; status: string }>({
+export const testSendUnpurchasedSop = (step_id: number, contact_ids: number[]) =>
+  request.post<{ contact_count: number; results: Array<{ contact_id: number; outbound_message_ids: number[]; status: string }>; outbound_message_id: number; outbound_message_ids: number[]; status: string }>({
     url: '/api/v1/admin/unpurchased-sop/test-send',
-    data: { step_id, contact_id }
+    data: { step_id, contact_ids }
   })
 
 export const uploadUnpurchasedSopMedia = (file: File) => {

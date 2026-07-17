@@ -75,7 +75,7 @@
             <ElTableColumn label="节点" width="90">
               <template #default="{ row }"><strong>D{{ row.day_offset }}</strong></template>
             </ElTableColumn>
-            <ElTableColumn prop="send_time" label="发送时间" width="110" />
+            <ElTableColumn label="发送时间范围" width="160"><template #default="{ row }">{{ row.send_time_start }} - {{ row.send_time_end }}</template></ElTableColumn>
             <ElTableColumn label="消息序列" width="190">
               <template #default="{ row }">
                 <ElTag v-for="(message, index) in stepMessages(row)" :key="index" class="sequence-tag">{{ index + 1 }}. {{ typeText(message.message_type) }}</ElTag>
@@ -96,8 +96,9 @@
             <ElTableColumn label="状态" width="90">
               <template #default="{ row }"><ElTag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</ElTag></template>
             </ElTableColumn>
-            <ElTableColumn label="操作" width="160" fixed="right">
+            <ElTableColumn label="操作" width="210" fixed="right">
               <template #default="{ row }">
+                <ElButton link type="success" @click="openDirectSend(row)">发送</ElButton>
                 <ElButton link type="primary" @click="openEdit(row)">修改</ElButton>
                 <ElButton link type="danger" @click="removeStep(row)">删除</ElButton>
               </template>
@@ -110,7 +111,7 @@
         <section class="panel">
           <ElTable v-loading="contactsLoading" :data="contacts" row-key="id">
             <ElTableColumn label="客户" min-width="180">
-              <template #default="{ row }"><strong>{{ row.display_name || row.wc_id }}</strong><small>{{ row.wc_id }}</small></template>
+              <template #default="{ row }"><strong>{{ contactRemark(row) }}</strong><small>微信号/ID：{{ row.wechat_id || row.wc_id }}</small></template>
             </ElTableColumn>
             <ElTableColumn prop="friend_added_on" label="加好友日期" width="130">
               <template #default="{ row }">{{ row.friend_added_on || '历史基线' }}</template>
@@ -150,7 +151,10 @@
       <ElForm label-position="top">
         <div class="step-grid">
           <ElFormItem label="加好友后第几天"><ElInputNumber v-model="stepForm.day_offset" :min="0" :max="3650" /></ElFormItem>
-          <ElFormItem label="发送时间"><ElTimeSelect v-model="stepForm.send_time" start="00:00" step="00:30" end="23:30" /></ElFormItem>
+          <ElFormItem label="随机发送时间范围">
+            <div class="time-range"><ElTimeSelect v-model="stepForm.send_time_start" start="00:00" step="00:30" end="23:30" /><span>至</span><ElTimeSelect v-model="stepForm.send_time_end" start="00:00" step="00:30" end="23:30" /></div>
+            <small>每位客户会在该范围内生成一个随机发送时刻</small>
+          </ElFormItem>
         </div>
         <div class="message-editor-head"><strong>消息序列</strong><small>拖动卡片或使用箭头调整顺序，系统将从上到下发送</small></div>
         <div class="message-editor-list">
@@ -179,12 +183,14 @@
             </ElFormItem>
             <template v-else>
               <ElFormItem :label="message.message_type === 'image' ? '上传图片' : '上传视频'">
+                <small class="media-limit">{{ mediaLimitText(message.message_type) }}</small>
                 <input class="file-input" type="file" :accept="message.message_type === 'image' ? 'image/*' : 'video/mp4,video/quicktime'" @change="uploadPrimary($event, index)" />
                 <ElProgress v-if="uploadingMessageIndex === index" :percentage="100" :indeterminate="true" />
                 <ElImage v-if="message.message_type === 'image' && message.content" class="large-preview" :src="message.content" fit="contain" />
                 <video v-if="message.message_type === 'video' && message.content" class="large-video" :src="message.content" :poster="message.preview_url || undefined" controls></video>
               </ElFormItem>
               <ElFormItem v-if="message.message_type === 'video'" label="视频封面（上传视频后自动生成，也可重新上传）">
+                <small class="media-limit">Eyun 官方建议视频封面控制在 50KB 以内；本系统图片上传上限 10MB。</small>
                 <input class="file-input" type="file" accept="image/*" @change="uploadCover($event, index)" />
                 <ElImage v-if="message.preview_url" class="cover-preview" :src="message.preview_url" fit="cover" />
               </ElFormItem>
@@ -202,9 +208,22 @@
       <template #footer><ElButton @click="stepDialog = false">取消</ElButton><ElButton type="primary" :loading="savingStep" @click="saveStep">保存节点</ElButton></template>
     </ElDialog>
 
+    <ElDialog v-model="directSendDialog" title="发送节点内容" width="560px">
+      <p v-if="directSendStep">D{{ directSendStep.day_offset }} · {{ directSendStep.send_time_start }}-{{ directSendStep.send_time_end }} · {{ stepMessages(directSendStep).length }} 条消息</p>
+      <ElForm label-position="top">
+        <ElFormItem label="选择联系人">
+          <ElSelect v-model="directContactIds" multiple :multiple-limit="50" filterable remote reserve-keyword :remote-method="searchDirectContacts" :loading="directContactsLoading" placeholder="搜索备注名、微信号或微信ID" style="width:100%">
+            <ElOption v-for="contact in directContactOptions" :key="contact.id" :label="contactOptionLabel(contact)" :value="contact.id" :disabled="contact.status !== 'active'" />
+          </ElSelect>
+          <small>最多选择 50 位联系人；确认后立即加入现有风控发送队列。</small>
+        </ElFormItem>
+      </ElForm>
+      <template #footer><ElButton @click="directSendDialog = false">取消</ElButton><ElButton type="primary" :loading="directSending" @click="confirmDirectSend">确认发送</ElButton></template>
+    </ElDialog>
+
     <ElDialog v-model="testDialog" title="测试发送" width="460px">
-      <p>发送给：{{ testContact?.display_name || testContact?.wc_id }}</p>
-      <ElSelect v-model="testStepId" placeholder="选择一个节点" style="width: 100%"><ElOption v-for="step in steps" :key="step.id" :label="`D${step.day_offset} ${step.send_time} · ${stepMessages(step).length} 条消息`" :value="step.id" /></ElSelect>
+      <p>发送给：{{ testContact ? contactOptionLabel(testContact) : '' }}</p>
+      <ElSelect v-model="testStepId" placeholder="选择一个节点" style="width: 100%"><ElOption v-for="step in steps" :key="step.id" :label="`D${step.day_offset} ${step.send_time_start}-${step.send_time_end} · ${stepMessages(step).length} 条消息`" :value="step.id" /></ElSelect>
       <template #footer><ElButton @click="testDialog = false">取消</ElButton><ElButton type="primary" :loading="testing" @click="confirmTestSend">加入发送队列</ElButton></template>
     </ElDialog>
   </ContentWrap>
@@ -244,8 +263,10 @@ const editingId = ref<number>()
 const savingStep = ref(false)
 const uploadingMessageIndex = ref<number>()
 const dragMessageIndex = ref<number>()
+const IMAGE_MAX_BYTES = 10 * 1024 * 1024
+const VIDEO_MAX_BYTES = 100 * 1024 * 1024
 const emptyMessage = (message_type: SopMessageType = 'text'): SopMessageItem => ({ message_type, content: '', preview_url: '' })
-const stepForm = reactive<SopStepPayload>({ day_offset: 0, send_time: '10:00', messages: [emptyMessage()], position: 0, enabled: true })
+const stepForm = reactive<SopStepPayload>({ day_offset: 0, send_time_start: '09:00', send_time_end: '10:00', messages: [emptyMessage()], position: 0, enabled: true })
 const contacts = ref<UnpurchasedSopContact[]>([])
 const contactsTotal = ref(0)
 const contactsLoading = ref(false)
@@ -256,6 +277,12 @@ const testDialog = ref(false)
 const testContact = ref<UnpurchasedSopContact>()
 const testStepId = ref<number>()
 const testing = ref(false)
+const directSendDialog = ref(false)
+const directSendStep = ref<UnpurchasedSopStep>()
+const directContactIds = ref<number[]>([])
+const directContactOptions = ref<UnpurchasedSopContact[]>([])
+const directContactsLoading = ref(false)
+const directSending = ref(false)
 
 const load = async () => {
   const data = await getUnpurchasedSop()
@@ -284,9 +311,9 @@ const syncContacts = async () => {
 
 const stepMessages = (step: UnpurchasedSopStep): SopMessageItem[] => step.messages?.length ? step.messages : [{ message_type: step.message_type, content: step.content, preview_url: step.preview_url }]
 const deliveryMessageSummary = (delivery: UnpurchasedSopDelivery) => delivery.messages?.length ? delivery.messages.map((message) => typeText(message.message_type)).join(' → ') : delivery.content
-const resetStep = () => Object.assign(stepForm, { day_offset: 0, send_time: config.send_window_start || '10:00', messages: [emptyMessage()], position: steps.value.length, enabled: true })
+const resetStep = () => Object.assign(stepForm, { day_offset: 0, send_time_start: config.send_window_start || '09:00', send_time_end: config.send_window_end || '20:00', messages: [emptyMessage()], position: steps.value.length, enabled: true })
 const openCreate = () => { editingId.value = undefined; resetStep(); stepDialog.value = true }
-const openEdit = (step: UnpurchasedSopStep) => { editingId.value = step.id; Object.assign(stepForm, { day_offset: step.day_offset, send_time: step.send_time, messages: stepMessages(step).map((message) => ({ ...message, preview_url: message.preview_url || '' })), position: step.position, enabled: step.enabled }); stepDialog.value = true }
+const openEdit = (step: UnpurchasedSopStep) => { editingId.value = step.id; Object.assign(stepForm, { day_offset: step.day_offset, send_time_start: step.send_time_start || step.send_time, send_time_end: step.send_time_end || step.send_time, messages: stepMessages(step).map((message) => ({ ...message, preview_url: message.preview_url || '' })), position: step.position, enabled: step.enabled }); stepDialog.value = true }
 
 const addMessage = (messageType: SopMessageType) => { if (stepForm.messages.length < 20) stepForm.messages.push(emptyMessage(messageType)) }
 const removeMessage = (index: number) => { if (stepForm.messages.length > 1) stepForm.messages.splice(index, 1) }
@@ -306,6 +333,7 @@ const dropMessage = (target: number) => {
 const changeMessageType = (message: SopMessageItem) => { message.content = ''; message.preview_url = '' }
 
 const saveStep = async () => {
+  if (stepForm.send_time_end < stepForm.send_time_start) return ElMessage.warning('发送结束时间不能早于开始时间')
   const emptyIndex = stepForm.messages.findIndex((message) => !message.content.trim())
   if (emptyIndex >= 0) return ElMessage.warning(`请完善第 ${emptyIndex + 1} 条消息内容`)
   const videoWithoutCover = stepForm.messages.findIndex((message) => message.message_type === 'video' && !message.preview_url)
@@ -334,6 +362,8 @@ const uploadPrimary = async (event: Event, index: number) => {
   if (!file) return
   const message = stepForm.messages[index]
   if (!message) return
+  const maxBytes = message.message_type === 'image' ? IMAGE_MAX_BYTES : VIDEO_MAX_BYTES
+  if (file.size > maxBytes) { input.value = ''; return ElMessage.warning(`${message.message_type === 'image' ? '图片' : '视频'}不能超过 ${maxBytes / 1024 / 1024}MB`) }
   uploadingMessageIndex.value = index
   try {
     const media = await uploadUnpurchasedSopMedia(file)
@@ -352,6 +382,7 @@ const uploadCover = async (event: Event, index: number) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
+  if (file.size > IMAGE_MAX_BYTES) { input.value = ''; return ElMessage.warning('封面图片不能超过 10MB') }
   const message = stepForm.messages[index]
   if (!message) return
   const media = await uploadUnpurchasedSopMedia(file)
@@ -383,7 +414,37 @@ const loadContacts = async (page = 1) => { contactsLoading.value = true; try { c
 const loadDeliveries = async (page = 1) => { deliveriesLoading.value = true; try { const data = await getUnpurchasedSopDeliveries(page, 50); deliveries.value = data.items; deliveriesTotal.value = data.total } finally { deliveriesLoading.value = false } }
 const loadTab = async (name: string | number) => { if (name === 'contacts') await loadContacts(); if (name === 'deliveries') await loadDeliveries() }
 const openTestSend = (contact: UnpurchasedSopContact) => { testContact.value = contact; testStepId.value = steps.value[0]?.id; testDialog.value = true }
-const confirmTestSend = async () => { if (!testContact.value || !testStepId.value) return; testing.value = true; try { await testSendUnpurchasedSop(testStepId.value, testContact.value.id); ElMessage.success('测试消息已加入Eyun发送队列'); testDialog.value = false } finally { testing.value = false } }
+const confirmTestSend = async () => { if (!testContact.value || !testStepId.value) return; testing.value = true; try { await testSendUnpurchasedSop(testStepId.value, [testContact.value.id]); ElMessage.success('测试消息已加入Eyun发送队列'); testDialog.value = false } finally { testing.value = false } }
+
+const contactRemark = (contact: UnpurchasedSopContact) => contact.remark_name || contact.display_name || '未设置备注'
+const contactOptionLabel = (contact: UnpurchasedSopContact) => `${contactRemark(contact)} · ${contact.wechat_id || contact.wc_id}`
+const mediaLimitText = (type: SopMessageType) => type === 'image'
+  ? 'Eyun 官方未规定图片硬性大小上限；本系统单张上限 10MB，支持 JPG、PNG、GIF、WEBP，图片地址需公网可访问。'
+  : 'Eyun 官方未规定视频硬性大小上限；本系统单个上限 100MB，支持 MP4、MOV、M4V，视频地址需公网可访问。'
+const searchDirectContacts = async (keyword = '') => {
+  directContactsLoading.value = true
+  try {
+    const items = (await getUnpurchasedSopContacts(1, 100, keyword)).items
+    const selected = directContactOptions.value.filter((contact) => directContactIds.value.includes(contact.id))
+    directContactOptions.value = [...selected, ...items.filter((contact) => !selected.some((current) => current.id === contact.id))]
+  }
+  finally { directContactsLoading.value = false }
+}
+const openDirectSend = async (step: UnpurchasedSopStep) => {
+  directSendStep.value = step
+  directContactIds.value = []
+  directSendDialog.value = true
+  await searchDirectContacts()
+}
+const confirmDirectSend = async () => {
+  if (!directSendStep.value || !directContactIds.value.length) return ElMessage.warning('请至少选择一位联系人')
+  directSending.value = true
+  try {
+    const result = await testSendUnpurchasedSop(directSendStep.value.id, directContactIds.value)
+    ElMessage.success(`已将 ${result.contact_count} 位联系人的消息加入风控发送队列`)
+    directSendDialog.value = false
+  } finally { directSending.value = false }
+}
 
 const typeText = (type: SopMessageType) => ({ text: '文本', image: '图片', video: '视频' }[type])
 const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未执行'
@@ -396,5 +457,5 @@ onMounted(load)
 
 <style scoped>
 .page-head,.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-head h1,.section-head h2{margin:0;color:#18352d}.page-head p,.section-head p{margin:7px 0 0;color:#708079}.head-actions{display:flex;gap:10px}.metrics{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:12px;margin:20px 0}.metrics div,.panel{background:#fff;border:1px solid #e2e9e6;border-radius:12px}.metrics div{padding:16px}.metrics span{display:block;color:#75857f;font-size:13px}.metrics strong{display:block;margin-top:8px;color:#18352d;font-size:25px}.sop-tabs{margin-top:18px}.panel{padding:18px}.config-panel{margin-bottom:20px}.config-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.time-range{display:flex;align-items:center;gap:8px}.sync-info{color:#84918c;font-size:12px}.section-head{margin:24px 0 12px}.message-text{display:-webkit-box;overflow:hidden;-webkit-line-clamp:3;-webkit-box-orient:vertical;white-space:pre-wrap}.media-thumb{width:90px;height:64px;border-radius:8px}.video-cell video{width:150px;max-height:100px;border-radius:8px;background:#111}.step-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.file-input{display:block;width:100%;padding:10px;border:1px dashed #aebdb7;border-radius:8px}.large-preview,.large-video{display:block;width:100%;max-height:300px;margin-top:12px;border-radius:8px;background:#f3f6f5}.cover-preview{width:160px;height:90px;margin-top:10px;border-radius:8px}.tag{margin-right:5px}small{display:block;margin-top:4px;color:#8b9994}.el-pagination{justify-content:flex-end;margin-top:16px}@media(max-width:1000px){.metrics{grid-template-columns:repeat(2,1fr)}.config-grid{grid-template-columns:1fr 1fr}}@media(max-width:640px){.page-head,.section-head{display:block}.head-actions{margin-top:14px}.metrics,.config-grid,.step-grid{grid-template-columns:1fr}}
-.sequence-tag{margin:2px 4px 2px 0}.sequence-preview{display:flex;flex-direction:column;gap:8px}.sequence-preview-item{display:flex;align-items:flex-start;gap:8px}.sequence-number{display:flex;flex:0 0 22px;align-items:center;justify-content:center;height:22px;border-radius:50%;background:#eef4f1;color:#567068;font-size:12px}.message-editor-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 10px}.message-editor-head small{margin:0}.message-editor-list{display:flex;flex-direction:column;gap:12px;max-height:55vh;overflow:auto;padding-right:4px}.message-editor-card{padding:14px 14px 2px;border:1px solid #dce6e2;border-radius:10px;background:#fbfdfc}.message-editor-card:hover{border-color:#9ebdb2}.message-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.drag-handle{color:#4f675f;cursor:grab;font-weight:600}.add-message-actions{display:flex;align-items:center;gap:8px;margin:14px 0 20px;padding:12px;border:1px dashed #b8c8c2;border-radius:10px}.add-message-actions span{color:#64756f;font-size:13px}@media(max-width:640px){.message-editor-head,.add-message-actions{align-items:flex-start;flex-wrap:wrap}.message-editor-list{max-height:none}}
+.sequence-tag{margin:2px 4px 2px 0}.sequence-preview{display:flex;flex-direction:column;gap:8px}.sequence-preview-item{display:flex;align-items:flex-start;gap:8px}.sequence-number{display:flex;flex:0 0 22px;align-items:center;justify-content:center;height:22px;border-radius:50%;background:#eef4f1;color:#567068;font-size:12px}.message-editor-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 10px}.message-editor-head small{margin:0}.message-editor-list{display:flex;flex-direction:column;gap:12px;max-height:55vh;overflow:auto;padding-right:4px}.message-editor-card{padding:14px 14px 2px;border:1px solid #dce6e2;border-radius:10px;background:#fbfdfc}.message-editor-card:hover{border-color:#9ebdb2}.message-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.drag-handle{color:#4f675f;cursor:grab;font-weight:600}.media-limit{margin:0 0 8px;color:#768781;line-height:1.5}.add-message-actions{display:flex;align-items:center;gap:8px;margin:14px 0 20px;padding:12px;border:1px dashed #b8c8c2;border-radius:10px}.add-message-actions span{color:#64756f;font-size:13px}@media(max-width:640px){.message-editor-head,.add-message-actions{align-items:flex-start;flex-wrap:wrap}.message-editor-list{max-height:none}}
 </style>

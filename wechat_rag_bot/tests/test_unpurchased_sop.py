@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +13,10 @@ from app.schemas.unpurchased_sop import (
 )
 from app.services import unpurchased_sop_service
 from app.services.unpurchased_sop_service import (
+    SHANGHAI_TZ,
+    _get_session as get_sop_session,
+    _refresh_new_contact_details,
+    _step_due_at,
     create_unpurchased_sop_step,
     get_unpurchased_sop,
     list_unpurchased_sop_deliveries,
@@ -21,6 +25,7 @@ from app.services.unpurchased_sop_service import (
     sync_eyun_contacts,
     sync_sop_delivery_from_outbound,
     sync_sop_delivery_status,
+    test_send_unpurchased_sop_step as send_unpurchased_sop_step,
     update_unpurchased_sop,
 )
 from app.services.user_profile_service import get_profile_bundle, patch_user_profile
@@ -36,6 +41,8 @@ def _settings(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{(tmp_path / 'sop.db').as_posix()}")
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{(tmp_path / 'chat.db').as_posix()}")
     monkeypatch.setenv("EYUN_WID", "wid-1")
+    monkeypatch.setenv("EYUN_BASE_URL", "")
+    monkeypatch.setenv("EYUN_AUTHORIZATION", "")
     monkeypatch.setenv("API_AUTH_ENABLED", "false")
     get_settings.cache_clear()
 
@@ -144,12 +151,94 @@ def test_existing_sop_table_gets_polling_columns_automatically(monkeypatch, tmp_
                       'Asia/Shanghai', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE unpurchased_sop_steps (
+                id INTEGER PRIMARY KEY,
+                sop_id INTEGER NOT NULL,
+                day_offset INTEGER NOT NULL,
+                send_time VARCHAR(5) NOT NULL,
+                message_type VARCHAR(32) NOT NULL,
+                content TEXT NOT NULL,
+                preview_url TEXT,
+                position INTEGER NOT NULL,
+                enabled BOOLEAN NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO unpurchased_sop_steps (
+                id, sop_id, day_offset, send_time, message_type, content,
+                position, enabled, created_at, updated_at
+            ) VALUES (1, 1, 0, '10:30', 'text', '旧节点', 0, 1,
+                      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+        )
 
     _settings(monkeypatch, tmp_path)
     sop = get_unpurchased_sop()["sop"]
 
     assert sop["contact_poll_interval_minutes"] == 120
     assert sop["contact_missing_threshold"] == 3
+    step = get_unpurchased_sop()["steps"][0]
+    assert step["send_time_start"] == "10:30"
+    assert step["send_time_end"] == "10:30"
+
+
+def test_step_time_range_generates_stable_random_due_time(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+    step_data = create_unpurchased_sop_step(
+        UnpurchasedSopStepRequest(
+            day_offset=2,
+            send_time_start="09:00",
+            send_time_end="10:00",
+            message_type="text",
+            content="范围发送",
+        )
+    )
+    with get_sop_session() as session:
+        from app.db.models import UnpurchasedSopStepModel
+
+        row = session.get(UnpurchasedSopStepModel, step_data["id"])
+        first = _step_due_at(
+            date(2026, 7, 17), row, "Asia/Shanghai", seed="enrollment:1"
+        )
+        second = _step_due_at(
+            date(2026, 7, 17), row, "Asia/Shanghai", seed="enrollment:1"
+        )
+
+    assert first == second
+    local_clock = first.astimezone(SHANGHAI_TZ).time().replace(tzinfo=None)
+    assert time(9, 0) <= local_clock <= time(10, 0)
+
+
+@pytest.mark.asyncio
+async def test_contact_identity_stores_remark_and_wechat_alias(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+    await sync_eyun_contacts(friend_ids=["wxid-original"])
+
+    async def fake_snapshot(**kwargs):
+        del kwargs
+        return {
+            "remark_name": "兰友张姐",
+            "nickname": "花开富贵",
+            "alias_name": "zhangjie888",
+        }
+
+    monkeypatch.setattr(
+        "app.services.eyun_contact_service.get_eyun_contact_snapshot",
+        fake_snapshot,
+    )
+    await _refresh_new_contact_details(["wxid-original"], "wid-1")
+
+    contact = list_unpurchased_sop_contacts(page_size=10)["items"][0]
+    assert contact["remark_name"] == "兰友张姐"
+    assert contact["wechat_id"] == "zhangjie888"
+    assert list_unpurchased_sop_contacts(keyword="兰友")["total"] == 1
+    assert list_unpurchased_sop_contacts(keyword="zhangjie888")["total"] == 1
 
 
 def test_sop_media_upload_uses_persistent_upload_directory_and_public_url(monkeypatch, tmp_path):
@@ -313,6 +402,36 @@ async def test_combination_node_queues_messages_in_risk_control_order(monkeypatc
     assert "第一条文字" in memories[-1]["content"]
     assert "[未购SOP发送图片]" in memories[-1]["content"]
     assert "[未购SOP发送视频]" in memories[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_direct_send_queues_selected_contacts(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+    await sync_eyun_contacts(friend_ids=["contact-a", "contact-b"])
+    step = create_unpurchased_sop_step(
+        UnpurchasedSopStepRequest(
+            day_offset=0,
+            send_time_start="09:00",
+            send_time_end="10:00",
+            message_type="text",
+            content="直接发送",
+        )
+    )
+    contacts = list_unpurchased_sop_contacts(page_size=10)["items"]
+    captured = []
+
+    async def fake_enqueue(**kwargs):
+        captured.append(kwargs)
+        return {"id": 200 + len(captured), "status": "queued"}
+
+    monkeypatch.setattr(unpurchased_sop_service, "enqueue_eyun_outbound", fake_enqueue)
+
+    result = await send_unpurchased_sop_step(
+        step["id"], contact_ids=[contact["id"] for contact in contacts]
+    )
+
+    assert result["contact_count"] == 2
+    assert {item["wc_id"] for item in captured} == {"contact-a", "contact-b"}
 
 
 @pytest.mark.asyncio

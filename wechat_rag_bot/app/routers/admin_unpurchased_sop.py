@@ -74,11 +74,12 @@ async def sync_contacts() -> APIResponse:
 async def contacts(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
+    keyword: str = Query(default="", max_length=256),
 ) -> APIResponse:
     return APIResponse(
         code=0,
         message="success",
-        data=list_unpurchased_sop_contacts(page, page_size),
+        data=list_unpurchased_sop_contacts(page, page_size, keyword),
     )
 
 
@@ -99,7 +100,9 @@ async def test_send(request: UnpurchasedSopTestSendRequest) -> APIResponse:
     return APIResponse(
         code=0,
         message="success",
-        data=await test_send_unpurchased_sop_step(request.step_id, request.contact_id),
+        data=await test_send_unpurchased_sop_step(
+            request.step_id, contact_ids=request.contact_ids
+        ),
     )
 
 

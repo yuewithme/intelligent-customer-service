@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 from datetime import date, datetime, time, timedelta, timezone
@@ -45,7 +46,7 @@ def get_unpurchased_sop() -> dict[str, Any]:
             .where(UnpurchasedSopStepModel.sop_id == sop.id)
             .order_by(
                 UnpurchasedSopStepModel.day_offset.asc(),
-                UnpurchasedSopStepModel.send_time.asc(),
+                UnpurchasedSopStepModel.send_time_start.asc(),
                 UnpurchasedSopStepModel.position.asc(),
                 UnpurchasedSopStepModel.id.asc(),
             )
@@ -66,7 +67,14 @@ def update_unpurchased_sop(request: UnpurchasedSopUpdateRequest) -> dict[str, An
                 UnpurchasedSopStepModel.enabled.is_(True),
             )
         ).all()
-        invalid = [step.id for step in steps if not request.send_window_start <= step.send_time <= request.send_window_end]
+        invalid = [
+            step.id
+            for step in steps
+            if not (
+                request.send_window_start <= step.send_time_start
+                and step.send_time_end <= request.send_window_end
+            )
+        ]
         if invalid:
             raise AppError(
                 ErrorCode.REQUEST_INVALID,
@@ -89,14 +97,18 @@ def update_unpurchased_sop(request: UnpurchasedSopUpdateRequest) -> dict[str, An
 def create_unpurchased_sop_step(request: UnpurchasedSopStepRequest) -> dict[str, Any]:
     with _get_session() as session:
         sop = _get_or_create_sop(session)
-        _validate_step_window(sop, request.send_time)
+        _validate_step_window(
+            sop, request.send_time_start, request.send_time_end
+        )
         now = _utcnow()
         messages = _request_messages(request)
         first = messages[0]
         row = UnpurchasedSopStepModel(
             sop_id=sop.id,
             day_offset=request.day_offset,
-            send_time=request.send_time,
+            send_time=request.send_time_start,
+            send_time_start=request.send_time_start,
+            send_time_end=request.send_time_end,
             message_type=first["message_type"],
             content=first["content"],
             preview_url=first.get("preview_url"),
@@ -118,9 +130,13 @@ def update_unpurchased_sop_step(
     with _get_session() as session:
         sop = _get_or_create_sop(session)
         row = _get_step(session, step_id)
-        _validate_step_window(sop, request.send_time)
+        _validate_step_window(
+            sop, request.send_time_start, request.send_time_end
+        )
         row.day_offset = request.day_offset
-        row.send_time = request.send_time
+        row.send_time = request.send_time_start
+        row.send_time_start = request.send_time_start
+        row.send_time_end = request.send_time_end
         messages = _request_messages(request)
         first = messages[0]
         row.message_type = first["message_type"]
@@ -261,6 +277,18 @@ async def sync_eyun_contacts(*, friend_ids: list[str] | None = None) -> dict[str
             row.last_seen_at = now
             row.updated_at = now
 
+        identity_backfill_count = 0
+        for row in by_wc_id.values():
+            if identity_backfill_count >= 20:
+                break
+            if (
+                row.wc_id in current_ids
+                and row.wc_id not in detail_ids
+                and not row.display_name
+            ):
+                detail_ids.append(row.wc_id)
+                identity_backfill_count += 1
+
         for row in rows:
             if row.wc_id in current_ids or row.status == "removed":
                 continue
@@ -362,7 +390,12 @@ async def process_due_unpurchased_sop_deliveries(limit: int = 100) -> int:
                     )
                 ):
                     continue
-                due_at = _step_due_at(enrollment.friend_added_on, step, sop.timezone)
+                due_at = _step_due_at(
+                    enrollment.friend_added_on,
+                    step,
+                    sop.timezone,
+                    seed=f"{enrollment.id}:{step.id}",
+                )
                 if due_at <= now:
                     candidates.append((enrollment.id, contact.id, step.id, due_at))
         session.commit()
@@ -442,26 +475,64 @@ async def _create_and_queue_delivery(
     return True
 
 
-async def test_send_unpurchased_sop_step(step_id: int, contact_id: int) -> dict[str, Any]:
+async def test_send_unpurchased_sop_step(
+    step_id: int,
+    contact_id: int | None = None,
+    contact_ids: list[int] | None = None,
+) -> dict[str, Any]:
+    selected_ids = list(
+        dict.fromkeys(
+            ([contact_id] if contact_id is not None else []) + (contact_ids or [])
+        )
+    )
+    if not selected_ids:
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message="至少选择一个联系人",
+            status_code=422,
+        )
     with _get_session() as session:
         step = _get_step(session, step_id)
-        contact = session.get(EyunContactModel, contact_id)
-        if contact is None or contact.status != "active":
-            raise AppError(ErrorCode.REQUEST_INVALID, message="联系人不存在或已不是好友", status_code=404)
         messages = _step_messages(step)
-        w_id = contact.current_w_id or get_settings().eyun_wid
-        wc_id = contact.wc_id
-    outbounds = await _enqueue_sop_message_sequence(
-        w_id=w_id,
-        wc_id=wc_id,
-        messages=messages,
-        source_key=f"unpurchased_sop_test:{step_id}:{contact_id}",
-    )
-    outbound_ids = [int(outbound["id"]) for outbound in outbounds]
+        targets = []
+        for selected_id in selected_ids:
+            contact = session.get(EyunContactModel, selected_id)
+            if contact is None or contact.status != "active":
+                raise AppError(
+                    ErrorCode.REQUEST_INVALID,
+                    message=f"联系人 {selected_id} 不存在或已不是好友",
+                    status_code=404,
+                )
+            targets.append(
+                (
+                    contact.id,
+                    contact.current_w_id or get_settings().eyun_wid,
+                    contact.wc_id,
+                )
+            )
+    results = []
+    for selected_id, w_id, wc_id in targets:
+        outbounds = await _enqueue_sop_message_sequence(
+            w_id=w_id,
+            wc_id=wc_id,
+            messages=messages,
+            source_key=f"unpurchased_sop_test:{step_id}:{selected_id}",
+        )
+        outbound_ids = [int(outbound["id"]) for outbound in outbounds]
+        results.append(
+            {
+                "contact_id": selected_id,
+                "outbound_message_ids": outbound_ids,
+                "status": outbounds[0]["status"],
+            }
+        )
+    first = results[0]
     return {
-        "outbound_message_id": outbound_ids[0],
-        "outbound_message_ids": outbound_ids,
-        "status": outbounds[0]["status"],
+        "contact_count": len(results),
+        "results": results,
+        "outbound_message_id": first["outbound_message_ids"][0],
+        "outbound_message_ids": first["outbound_message_ids"],
+        "status": first["status"],
     }
 
 
@@ -486,13 +557,27 @@ async def _enqueue_sop_message_sequence(
     return outbounds
 
 
-def list_unpurchased_sop_contacts(page: int = 1, page_size: int = 50) -> dict[str, Any]:
+def list_unpurchased_sop_contacts(
+    page: int = 1, page_size: int = 50, keyword: str = ""
+) -> dict[str, Any]:
     page = max(1, page)
     page_size = min(200, max(1, page_size))
     with _get_session() as session:
-        total = session.scalar(select(func.count(EyunContactModel.id))) or 0
+        query = select(EyunContactModel)
+        keyword = keyword.strip()
+        if keyword:
+            pattern = f"%{keyword}%"
+            query = query.where(
+                EyunContactModel.remark_name.ilike(pattern)
+                | EyunContactModel.wechat_id.ilike(pattern)
+                | EyunContactModel.display_name.ilike(pattern)
+                | EyunContactModel.wc_id.ilike(pattern)
+            )
+        total = session.scalar(
+            select(func.count()).select_from(query.subquery())
+        ) or 0
         rows = session.scalars(
-            select(EyunContactModel)
+            query
             .order_by(EyunContactModel.last_seen_at.desc(), EyunContactModel.id.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -587,7 +672,12 @@ def pause_unpurchased_sop_for_customer(user_id: str, hours: int = 24) -> None:
                 )
             ).all()
             for step in steps:
-                due_at = _step_due_at(enrollment.friend_added_on, step, sop.timezone)
+                due_at = _step_due_at(
+                    enrollment.friend_added_on,
+                    step,
+                    sop.timezone,
+                    seed=f"{enrollment.id}:{step.id}",
+                )
                 if due_at > paused_until:
                     continue
                 exists = session.scalar(
@@ -755,7 +845,25 @@ def _get_session() -> Session:
                 if column_name not in sop_columns:
                     connection.execute(text(statement))
         table_column_migrations = {
+            "eyun_contacts": {
+                "remark_name": (
+                    "ALTER TABLE eyun_contacts "
+                    "ADD COLUMN remark_name VARCHAR(256)"
+                ),
+                "wechat_id": (
+                    "ALTER TABLE eyun_contacts "
+                    "ADD COLUMN wechat_id VARCHAR(256)"
+                ),
+            },
             "unpurchased_sop_steps": {
+                "send_time_start": (
+                    "ALTER TABLE unpurchased_sop_steps "
+                    "ADD COLUMN send_time_start VARCHAR(5) DEFAULT '09:00'"
+                ),
+                "send_time_end": (
+                    "ALTER TABLE unpurchased_sop_steps "
+                    "ADD COLUMN send_time_end VARCHAR(5) DEFAULT '09:00'"
+                ),
                 "messages_json": (
                     "ALTER TABLE unpurchased_sop_steps "
                     "ADD COLUMN messages_json TEXT DEFAULT '[]'"
@@ -781,6 +889,19 @@ def _get_session() -> Session:
                 for column_name, statement in migrations.items():
                     if column_name not in existing:
                         connection.execute(text(statement))
+                if table_name == "unpurchased_sop_steps":
+                    assignments = []
+                    if "send_time_start" not in existing:
+                        assignments.append("send_time_start = send_time")
+                    if "send_time_end" not in existing:
+                        assignments.append("send_time_end = send_time")
+                    if assignments:
+                        connection.execute(
+                            text(
+                                "UPDATE unpurchased_sop_steps SET "
+                                + ", ".join(assignments)
+                            )
+                        )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[url] = factory
     return factory()
@@ -807,12 +928,16 @@ async def _refresh_new_contact_details(wc_ids: list[str], w_id: str) -> None:
                 or snapshot.get("display_name")
                 or ""
             ).strip()
+            remark_name = str(snapshot.get("remark_name") or "").strip()
+            wechat_id = str(snapshot.get("alias_name") or "").strip()
             with _get_session() as session:
                 row = session.scalar(
                     select(EyunContactModel).where(EyunContactModel.wc_id == wc_id)
                 )
                 if row:
                     row.display_name = display_name or row.display_name
+                    row.remark_name = remark_name or row.remark_name
+                    row.wechat_id = wechat_id or row.wechat_id
                     row.avatar_url = str(snapshot.get("avatar_url") or "") or row.avatar_url
                     row.updated_at = _utcnow()
                     session.commit()
@@ -935,20 +1060,47 @@ def _has_purchase_tag(profile: UserProfileModel | None) -> bool:
     return bool(PURCHASE_TAGS.intersection(str(tag) for tag in tags))
 
 
-def _step_due_at(friend_added_on: date, step: UnpurchasedSopStepModel, timezone_name: str) -> datetime:
+def _step_due_at(
+    friend_added_on: date,
+    step: UnpurchasedSopStepModel,
+    timezone_name: str,
+    *,
+    seed: str,
+) -> datetime:
+    del timezone_name
     local_tz = SHANGHAI_TZ
     local_date = friend_added_on + timedelta(days=step.day_offset)
-    hour, minute = (int(value) for value in step.send_time.split(":"))
+    start = _time_to_minutes(step.send_time_start or step.send_time)
+    end = _time_to_minutes(step.send_time_end or step.send_time)
+    span = max(0, end - start)
+    digest = hashlib.sha256(
+        f"{seed}:{local_date.isoformat()}".encode("utf-8")
+    ).digest()
+    selected = start + int.from_bytes(digest[:8], "big") % (span + 1)
+    hour, minute = divmod(selected, 60)
     return datetime.combine(local_date, time(hour, minute), tzinfo=local_tz).astimezone(timezone.utc)
 
 
-def _validate_step_window(sop: UnpurchasedSopModel, send_time: str) -> None:
-    if not sop.send_window_start <= send_time <= sop.send_window_end:
+def _validate_step_window(
+    sop: UnpurchasedSopModel,
+    send_time_start: str,
+    send_time_end: str,
+) -> None:
+    if not (
+        sop.send_window_start <= send_time_start
+        and send_time_start <= send_time_end
+        and send_time_end <= sop.send_window_end
+    ):
         raise AppError(
             ErrorCode.REQUEST_INVALID,
-            message="节点发送时间必须位于SOP发送窗口内",
+            message="节点发送时间范围必须完整位于SOP发送窗口内",
             status_code=422,
         )
+
+
+def _time_to_minutes(value: str) -> int:
+    hour, minute = (int(part) for part in value.split(":", 1))
+    return hour * 60 + minute
 
 
 def _stats(session: Session, sop_id: int) -> dict[str, int]:
@@ -999,6 +1151,8 @@ def _step_to_dict(row: UnpurchasedSopStepModel) -> dict[str, Any]:
         "sop_id": row.sop_id,
         "day_offset": row.day_offset,
         "send_time": row.send_time,
+        "send_time_start": row.send_time_start,
+        "send_time_end": row.send_time_end,
         "message_type": row.message_type,
         "content": row.content,
         "preview_url": row.preview_url,
@@ -1023,6 +1177,8 @@ def _contact_to_dict(
         "id": row.id,
         "wc_id": row.wc_id,
         "display_name": row.display_name,
+        "remark_name": row.remark_name,
+        "wechat_id": row.wechat_id,
         "avatar_url": row.avatar_url,
         "friend_added_on": row.friend_added_on.isoformat() if row.friend_added_on else None,
         "first_seen_at": _iso(row.first_seen_at),
@@ -1042,7 +1198,9 @@ def _delivery_to_dict(
         "id": row.id,
         "contact_id": contact.id if contact else None,
         "wc_id": contact.wc_id if contact else None,
-        "display_name": contact.display_name if contact else None,
+        "display_name": (
+            contact.remark_name or contact.display_name if contact else None
+        ),
         "step_id": row.step_id,
         "due_at": _iso(row.due_at),
         "status": row.status,

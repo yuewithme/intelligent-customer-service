@@ -86,28 +86,36 @@ async def get_eyun_contact_snapshot(*, w_id: str, wc_id: str) -> dict[str, Any]:
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                f"{base_url}/getContact",
-                headers={
-                    "Authorization": authorization,
-                    "Content-Type": "application/json",
-                },
-                json={"wId": w_id, "wcId": wc_id},
-            )
-        response.raise_for_status()
-        body = response.json()
-        snapshot = parse_contact_snapshot(body)
-        if not snapshot:
-            logger.warning(
-                "Eyun getContact returned no usable contact fields: code=%s message=%s",
-                body.get("code"),
-                body.get("message"),
-            )
-            return {}
-        _contact_cache[cache_key] = (now, snapshot)
-        return dict(snapshot)
+            for endpoint in ("getContactPlus", "getContact"):
+                try:
+                    response = await client.post(
+                        f"{base_url}/{endpoint}",
+                        headers={
+                            "Authorization": authorization,
+                            "Content-Type": "application/json",
+                        },
+                        json={"wId": w_id, "wcId": wc_id},
+                    )
+                    response.raise_for_status()
+                    body = response.json()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Eyun %s failed for wcId=%s: %s", endpoint, wc_id, exc
+                    )
+                    continue
+                snapshot = parse_contact_snapshot(body)
+                if snapshot:
+                    _contact_cache[cache_key] = (now, snapshot)
+                    return dict(snapshot)
+                logger.warning(
+                    "Eyun %s returned no usable contact fields: code=%s message=%s",
+                    endpoint,
+                    body.get("code"),
+                    body.get("message"),
+                )
+        return {}
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Eyun getContact failed for wcId=%s: %s", wc_id, exc)
+        logger.warning("Eyun contact lookup failed for wcId=%s: %s", wc_id, exc)
         return {}
 
 

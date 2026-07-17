@@ -70,7 +70,9 @@ class UnpurchasedSopMessageRequest(BaseModel):
 
 class UnpurchasedSopStepRequest(BaseModel):
     day_offset: int = Field(ge=0, le=3650)
-    send_time: str
+    send_time: str | None = None
+    send_time_start: str | None = None
+    send_time_end: str | None = None
     messages: list[UnpurchasedSopMessageRequest] = Field(
         default_factory=list, max_length=20
     )
@@ -80,13 +82,22 @@ class UnpurchasedSopStepRequest(BaseModel):
     position: int = Field(default=0, ge=0)
     enabled: bool = True
 
-    @field_validator("send_time")
+    @field_validator("send_time", "send_time_start", "send_time_end")
     @classmethod
-    def validate_time(cls, value: str) -> str:
-        return _validate_hhmm(value)
+    def validate_time(cls, value: str | None) -> str | None:
+        return _validate_hhmm(value) if value is not None else None
 
     @model_validator(mode="after")
     def normalize_messages(self):
+        start = self.send_time_start or self.send_time
+        end = self.send_time_end or self.send_time or start
+        if start is None or end is None:
+            raise ValueError("节点必须设置发送时间范围")
+        if end < start:
+            raise ValueError("发送时间范围的结束时间不能早于开始时间")
+        self.send_time_start = start
+        self.send_time_end = end
+        self.send_time = start
         if not self.messages:
             if self.message_type is None or not (self.content or "").strip():
                 raise ValueError("节点至少需要一条消息")
@@ -106,4 +117,17 @@ class UnpurchasedSopStepRequest(BaseModel):
 
 class UnpurchasedSopTestSendRequest(BaseModel):
     step_id: int = Field(gt=0)
-    contact_id: int = Field(gt=0)
+    contact_id: int | None = Field(default=None, gt=0)
+    contact_ids: list[int] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def normalize_contacts(self):
+        values = ([self.contact_id] if self.contact_id is not None else []) + self.contact_ids
+        self.contact_ids = list(dict.fromkeys(values))
+        if not self.contact_ids:
+            raise ValueError("至少选择一个联系人")
+        if len(self.contact_ids) > 50:
+            raise ValueError("单次最多选择 50 位联系人")
+        if any(value <= 0 for value in self.contact_ids):
+            raise ValueError("联系人 ID 必须大于 0")
+        return self
