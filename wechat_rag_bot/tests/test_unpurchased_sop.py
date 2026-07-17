@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,7 +33,6 @@ def _settings(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{(tmp_path / 'sop.db').as_posix()}")
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{(tmp_path / 'chat.db').as_posix()}")
     monkeypatch.setenv("EYUN_WID", "wid-1")
-    monkeypatch.setenv("EYUN_ACCOUNT_ID", "owner-1")
     monkeypatch.setenv("API_AUTH_ENABLED", "false")
     get_settings.cache_clear()
 
@@ -92,16 +92,73 @@ def test_sop_steps_support_text_image_and_video(monkeypatch, tmp_path):
     assert get_unpurchased_sop()["steps"][2]["preview_url"].endswith("cover.jpg")
 
 
+def test_contact_polling_controls_are_saved_in_sop(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+
+    updated = update_unpurchased_sop(
+        UnpurchasedSopUpdateRequest(
+            name="未购SOP",
+            enabled=False,
+            dry_run=True,
+            send_window_start="09:00",
+            send_window_end="20:00",
+            contact_poll_interval_minutes=60,
+            contact_missing_threshold=5,
+        )
+    )
+
+    assert updated["contact_poll_interval_minutes"] == 60
+    assert updated["contact_missing_threshold"] == 5
+    assert get_unpurchased_sop()["sop"]["contact_poll_interval_minutes"] == 60
+
+
+def test_existing_sop_table_gets_polling_columns_automatically(monkeypatch, tmp_path):
+    database_path = tmp_path / "sop.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE unpurchased_sops (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR(256) NOT NULL,
+                enabled BOOLEAN NOT NULL,
+                dry_run BOOLEAN NOT NULL,
+                send_window_start VARCHAR(5) NOT NULL,
+                send_window_end VARCHAR(5) NOT NULL,
+                timezone VARCHAR(64) NOT NULL,
+                baseline_initialized_at DATETIME,
+                last_contact_sync_at DATETIME,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO unpurchased_sops (
+                id, name, enabled, dry_run, send_window_start, send_window_end,
+                timezone, created_at, updated_at
+            ) VALUES (1, '未购SOP', 0, 1, '09:00', '20:00',
+                      'Asia/Shanghai', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+        )
+
+    _settings(monkeypatch, tmp_path)
+    sop = get_unpurchased_sop()["sop"]
+
+    assert sop["contact_poll_interval_minutes"] == 120
+    assert sop["contact_missing_threshold"] == 3
+
+
 def test_sop_media_upload_uses_persistent_upload_directory_and_public_url(monkeypatch, tmp_path):
     _settings(monkeypatch, tmp_path)
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
-    monkeypatch.setenv("PUBLIC_BASE_URL", "https://admin.example.com")
     get_settings.cache_clear()
     from app.main import app
 
     response = TestClient(app).post(
         "/api/v1/admin/unpurchased-sop/media/upload",
         files={"file": ("poster.png", b"\x89PNG\r\n\x1a\ncontent", "image/png")},
+        headers={"Origin": "https://admin.example.com"},
     )
 
     assert response.status_code == 200

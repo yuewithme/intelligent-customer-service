@@ -31,6 +31,7 @@ from app.services.message_risk_control_service import enqueue_eyun_outbound
 logger = logging.getLogger("wechat_rag_bot.unpurchased_sop")
 PURCHASE_TAGS = {"抖音已购", "微信已购"}
 SOP_ID = 1
+OWNER_ACCOUNT_ID = "default"
 SHANGHAI_TZ = timezone(timedelta(hours=8), name="Asia/Shanghai")
 _sessionmakers: dict[str, sessionmaker] = {}
 
@@ -77,6 +78,8 @@ def update_unpurchased_sop(request: UnpurchasedSopUpdateRequest) -> dict[str, An
         sop.dry_run = request.dry_run
         sop.send_window_start = request.send_window_start
         sop.send_window_end = request.send_window_end
+        sop.contact_poll_interval_minutes = request.contact_poll_interval_minutes
+        sop.contact_missing_threshold = request.contact_missing_threshold
         sop.updated_at = _utcnow()
         session.commit()
         session.refresh(sop)
@@ -205,7 +208,7 @@ async def sync_eyun_contacts(*, friend_ids: list[str] | None = None) -> dict[str
         rows = session.scalars(
             select(EyunContactModel).where(
                 EyunContactModel.tenant_id == "tenant_default",
-                EyunContactModel.owner_account_id == settings.eyun_account_id,
+                EyunContactModel.owner_account_id == OWNER_ACCOUNT_ID,
             )
         ).all()
         by_wc_id = {row.wc_id: row for row in rows}
@@ -216,7 +219,7 @@ async def sync_eyun_contacts(*, friend_ids: list[str] | None = None) -> dict[str
                 added_on = None if first_sync else local_today
                 row = EyunContactModel(
                     tenant_id="tenant_default",
-                    owner_account_id=settings.eyun_account_id,
+                    owner_account_id=OWNER_ACCOUNT_ID,
                     wc_id=wc_id,
                     current_w_id=w_id,
                     friend_added_on=added_on,
@@ -257,7 +260,7 @@ async def sync_eyun_contacts(*, friend_ids: list[str] | None = None) -> dict[str
                 continue
             row.missing_count += 1
             row.updated_at = now
-            if row.missing_count >= settings.eyun_contact_missing_threshold:
+            if row.missing_count >= sop.contact_missing_threshold:
                 row.status = "removed"
                 removed_count += 1
                 _exit_contact_enrollments(session, row.id, "contact_removed", now)
@@ -285,7 +288,7 @@ async def run_unpurchased_sop_tick(*, force_contact_sync: bool = False) -> dict[
         sop = _get_or_create_sop(session)
         last_sync = _aware(sop.last_contact_sync_at) if sop.last_contact_sync_at else None
         due_sync = last_sync is None or _utcnow() - last_sync >= timedelta(
-            seconds=get_settings().eyun_contact_poll_seconds
+            minutes=sop.contact_poll_interval_minutes
         )
         session.commit()
     if force_contact_sync or due_sync:
@@ -683,6 +686,23 @@ def _get_session() -> Session:
                         "ADD COLUMN friend_added_at DATETIME"
                     )
                 )
+        sop_columns = {
+            column["name"] for column in inspect(engine).get_columns("unpurchased_sops")
+        }
+        sop_column_migrations = {
+            "contact_poll_interval_minutes": (
+                "ALTER TABLE unpurchased_sops "
+                "ADD COLUMN contact_poll_interval_minutes INTEGER DEFAULT 120"
+            ),
+            "contact_missing_threshold": (
+                "ALTER TABLE unpurchased_sops "
+                "ADD COLUMN contact_missing_threshold INTEGER DEFAULT 3"
+            ),
+        }
+        with engine.begin() as connection:
+            for column_name, statement in sop_column_migrations.items():
+                if column_name not in sop_columns:
+                    connection.execute(text(statement))
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[url] = factory
     return factory()
@@ -734,6 +754,8 @@ def _get_or_create_sop(session: Session) -> UnpurchasedSopModel:
             send_window_start="09:00",
             send_window_end="20:00",
             timezone="Asia/Shanghai",
+            contact_poll_interval_minutes=120,
+            contact_missing_threshold=3,
             created_at=now,
             updated_at=now,
         )
@@ -885,6 +907,8 @@ def _sop_to_dict(row: UnpurchasedSopModel) -> dict[str, Any]:
         "send_window_start": row.send_window_start,
         "send_window_end": row.send_window_end,
         "timezone": row.timezone,
+        "contact_poll_interval_minutes": row.contact_poll_interval_minutes,
+        "contact_missing_threshold": row.contact_missing_threshold,
         "baseline_initialized_at": _iso(row.baseline_initialized_at),
         "last_contact_sync_at": _iso(row.last_contact_sync_at),
         "updated_at": _iso(row.updated_at),

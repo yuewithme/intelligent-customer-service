@@ -25,6 +25,8 @@ class UnpurchasedSopUpdateRequest(BaseModel):
     dry_run: bool = True
     send_window_start: str = "09:00"
     send_window_end: str = "20:00"
+    contact_poll_interval_minutes: int = Field(default=120, ge=5, le=1440)
+    contact_missing_threshold: int = Field(default=3, ge=1, le=10)
 
     @field_validator("send_window_start", "send_window_end")
     @classmethod

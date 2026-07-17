@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 
@@ -157,9 +158,9 @@ def sop_media_storage_dir() -> Path:
 
 
 def _public_url(request: Request, relative_url: str) -> str:
-    configured = get_settings().public_base_url.strip().rstrip("/")
-    if configured:
-        return f"{configured}{relative_url}"
+    origin = urlsplit(request.headers.get("origin", ""))
+    if origin.scheme in {"http", "https"} and origin.netloc:
+        return f"{origin.scheme}://{origin.netloc}{relative_url}"
     proto = request.headers.get("x-forwarded-proto") or request.url.scheme
     host = request.headers.get("x-forwarded-host") or request.headers.get("host")
     return f"{proto}://{host}{relative_url}"

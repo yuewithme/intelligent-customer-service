@@ -42,6 +42,21 @@
               </ElFormItem>
               <ElFormItem label="总开关"><ElSwitch v-model="config.enabled" active-text="启用" inactive-text="停用" /></ElFormItem>
               <ElFormItem label="运行方式"><ElSwitch v-model="config.dry_run" active-text="试运行" inactive-text="真实发送" /></ElFormItem>
+              <ElFormItem label="联系人轮询间隔">
+                <ElSelect v-model="config.contact_poll_interval_minutes">
+                  <ElOption label="每 30 分钟" :value="30" />
+                  <ElOption label="每 1 小时" :value="60" />
+                  <ElOption label="每 2 小时" :value="120" />
+                  <ElOption label="每 4 小时" :value="240" />
+                  <ElOption label="每 12 小时" :value="720" />
+                  <ElOption label="每天" :value="1440" />
+                </ElSelect>
+                <small>系统按此频率识别新添加的好友</small>
+              </ElFormItem>
+              <ElFormItem label="好友移除确认次数">
+                <ElInputNumber v-model="config.contact_missing_threshold" :min="1" :max="10" />
+                <small>连续多次未发现后才标记为已移除，避免接口偶发漏数</small>
+              </ElFormItem>
             </div>
           </ElForm>
           <div class="sync-info">
@@ -180,7 +195,7 @@ import {
 } from '@/api/admin/unpurchasedSop'
 
 const activeTab = ref('flow')
-const config = reactive<UnpurchasedSopConfig>({ id: 1, name: '未购SOP', enabled: false, dry_run: true, send_window_start: '09:00', send_window_end: '20:00', timezone: 'Asia/Shanghai', updated_at: '' })
+const config = reactive<UnpurchasedSopConfig>({ id: 1, name: '未购SOP', enabled: false, dry_run: true, send_window_start: '09:00', send_window_end: '20:00', contact_poll_interval_minutes: 120, contact_missing_threshold: 3, timezone: 'Asia/Shanghai', updated_at: '' })
 const steps = ref<UnpurchasedSopStep[]>([])
 const stats = reactive<Record<string, number>>({})
 const savingConfig = ref(false)
@@ -211,7 +226,7 @@ const load = async () => {
 const saveConfig = async () => {
   savingConfig.value = true
   try {
-    Object.assign(config, await updateUnpurchasedSop({ name: config.name, enabled: config.enabled, dry_run: config.dry_run, send_window_start: config.send_window_start, send_window_end: config.send_window_end }))
+    Object.assign(config, await updateUnpurchasedSop({ name: config.name, enabled: config.enabled, dry_run: config.dry_run, send_window_start: config.send_window_start, send_window_end: config.send_window_end, contact_poll_interval_minutes: config.contact_poll_interval_minutes, contact_missing_threshold: config.contact_missing_threshold }))
     ElMessage.success('SOP设置已保存')
   } finally { savingConfig.value = false }
 }
@@ -314,5 +329,5 @@ onMounted(load)
 </script>
 
 <style scoped>
-.page-head,.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-head h1,.section-head h2{margin:0;color:#18352d}.page-head p,.section-head p{margin:7px 0 0;color:#708079}.head-actions{display:flex;gap:10px}.metrics{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:12px;margin:20px 0}.metrics div,.panel{background:#fff;border:1px solid #e2e9e6;border-radius:12px}.metrics div{padding:16px}.metrics span{display:block;color:#75857f;font-size:13px}.metrics strong{display:block;margin-top:8px;color:#18352d;font-size:25px}.sop-tabs{margin-top:18px}.panel{padding:18px}.config-panel{margin-bottom:20px}.config-grid{display:grid;grid-template-columns:2fr 2fr 1fr 1fr;gap:16px}.time-range{display:flex;align-items:center;gap:8px}.sync-info{color:#84918c;font-size:12px}.section-head{margin:24px 0 12px}.message-text{display:-webkit-box;overflow:hidden;-webkit-line-clamp:3;-webkit-box-orient:vertical;white-space:pre-wrap}.media-thumb{width:90px;height:64px;border-radius:8px}.video-cell video{width:150px;max-height:100px;border-radius:8px;background:#111}.step-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.file-input{display:block;width:100%;padding:10px;border:1px dashed #aebdb7;border-radius:8px}.large-preview,.large-video{display:block;width:100%;max-height:300px;margin-top:12px;border-radius:8px;background:#f3f6f5}.cover-preview{width:160px;height:90px;margin-top:10px;border-radius:8px}.tag{margin-right:5px}small{display:block;margin-top:4px;color:#8b9994}.el-pagination{justify-content:flex-end;margin-top:16px}@media(max-width:1000px){.metrics{grid-template-columns:repeat(2,1fr)}.config-grid{grid-template-columns:1fr 1fr}}@media(max-width:640px){.page-head,.section-head{display:block}.head-actions{margin-top:14px}.metrics,.config-grid,.step-grid{grid-template-columns:1fr}}
+.page-head,.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-head h1,.section-head h2{margin:0;color:#18352d}.page-head p,.section-head p{margin:7px 0 0;color:#708079}.head-actions{display:flex;gap:10px}.metrics{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:12px;margin:20px 0}.metrics div,.panel{background:#fff;border:1px solid #e2e9e6;border-radius:12px}.metrics div{padding:16px}.metrics span{display:block;color:#75857f;font-size:13px}.metrics strong{display:block;margin-top:8px;color:#18352d;font-size:25px}.sop-tabs{margin-top:18px}.panel{padding:18px}.config-panel{margin-bottom:20px}.config-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.time-range{display:flex;align-items:center;gap:8px}.sync-info{color:#84918c;font-size:12px}.section-head{margin:24px 0 12px}.message-text{display:-webkit-box;overflow:hidden;-webkit-line-clamp:3;-webkit-box-orient:vertical;white-space:pre-wrap}.media-thumb{width:90px;height:64px;border-radius:8px}.video-cell video{width:150px;max-height:100px;border-radius:8px;background:#111}.step-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.file-input{display:block;width:100%;padding:10px;border:1px dashed #aebdb7;border-radius:8px}.large-preview,.large-video{display:block;width:100%;max-height:300px;margin-top:12px;border-radius:8px;background:#f3f6f5}.cover-preview{width:160px;height:90px;margin-top:10px;border-radius:8px}.tag{margin-right:5px}small{display:block;margin-top:4px;color:#8b9994}.el-pagination{justify-content:flex-end;margin-top:16px}@media(max-width:1000px){.metrics{grid-template-columns:repeat(2,1fr)}.config-grid{grid-template-columns:1fr 1fr}}@media(max-width:640px){.page-head,.section-head{display:block}.head-actions{margin-top:14px}.metrics,.config-grid,.step-grid{grid-template-columns:1fr}}
 </style>

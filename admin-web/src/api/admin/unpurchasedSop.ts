@@ -9,6 +9,8 @@ export interface UnpurchasedSopConfig {
   dry_run: boolean
   send_window_start: string
   send_window_end: string
+  contact_poll_interval_minutes: number
+  contact_missing_threshold: number
   timezone: string
   baseline_initialized_at?: string | null
   last_contact_sync_at?: string | null
@@ -87,7 +89,7 @@ export const getUnpurchasedSop = () =>
     stats: Record<string, number>
   }>({ url: '/api/v1/admin/unpurchased-sop' })
 
-export const updateUnpurchasedSop = (data: Pick<UnpurchasedSopConfig, 'name' | 'enabled' | 'dry_run' | 'send_window_start' | 'send_window_end'>) =>
+export const updateUnpurchasedSop = (data: Pick<UnpurchasedSopConfig, 'name' | 'enabled' | 'dry_run' | 'send_window_start' | 'send_window_end' | 'contact_poll_interval_minutes' | 'contact_missing_threshold'>) =>
   request.put<UnpurchasedSopConfig>({ url: '/api/v1/admin/unpurchased-sop', data })
 
 export const createUnpurchasedSopStep = (data: SopStepPayload) =>

@@ -274,6 +274,8 @@ class UnpurchasedSopModel(Base):
     send_window_start: Mapped[str] = mapped_column(String(5), default="09:00")
     send_window_end: Mapped[str] = mapped_column(String(5), default="20:00")
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Shanghai")
+    contact_poll_interval_minutes: Mapped[int] = mapped_column(Integer, default=120)
+    contact_missing_threshold: Mapped[int] = mapped_column(Integer, default=3)
     baseline_initialized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_contact_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
