@@ -1,46 +1,44 @@
-import type { App } from 'vue'
-import type { RouteRecordRaw } from 'vue-router'
-import { createRouter, createWebHistory } from 'vue-router'
-import remainingRouter from './modules/remaining'
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import SalesLayout from '@/layouts/SalesLayout.vue'
+import { getAccessToken, setDefaultAccessToken } from '@/utils/auth'
 
-// 创建路由实例
-const router = createRouter({
-  history: createWebHistory(import.meta.env.VITE_BASE_PATH), // createWebHashHistory URL带#，createWebHistory URL不带#
-  strict: true,
-  routes: remainingRouter as RouteRecordRaw[],
-  scrollBehavior: () => {
-    // 新开标签时、返回标签时，滚动条回到顶部，否则会保留上次标签的滚动位置。
-    const scrollbarWrap = document.querySelector('.v-layout-content-scrollbar .el-scrollbar__wrap')
-    if (scrollbarWrap) {
-      // scrollbarWrap.scrollTo({ left: 0, top: 0, behavior: 'auto' })
-      scrollbarWrap.scrollTop = 0
-    }
-    return { left: 0, top: 0 }
+const PlaceholderPage = () => import('@/views/PlaceholderPage.vue')
+
+const routes: RouteRecordRaw[] = [
+  { path: '/demo-chat', component: () => import('@/views/demo-chat/index.vue'), meta: { public: true } },
+  { path: '/demo-admin', component: () => import('@/views/demo-admin/index.vue'), meta: { public: true } },
+  { path: '/gate', component: () => import('@/views/Gate/index.vue'), meta: { public: true } },
+  { path: '/login', component: () => import('@/views/Login.vue'), meta: { public: true } },
+  {
+    path: '/',
+    component: SalesLayout,
+    redirect: '/workbench',
+    children: [
+      { path: 'workbench', component: () => import('@/views/workbench/index.vue'), meta: { title: '销售工作台' } },
+      { path: 'operations/chat-logs', component: PlaceholderPage, props: { title: '销售对话日志' }, meta: { title: '销售对话日志' } },
+      { path: 'operations/handoff', component: PlaceholderPage, props: { title: '人工接管' }, meta: { title: '人工接管' } },
+      { path: 'operations/user-profile', component: PlaceholderPage, props: { title: '客户画像' }, meta: { title: '客户画像' } },
+      { path: 'knowledge-ops/current-activities', component: () => import('@/views/current-activities/index.vue'), meta: { title: '销售活动' } },
+      { path: 'knowledge-ops/knowledge', component: PlaceholderPage, props: { title: '销售知识库' }, meta: { title: '销售知识库' } },
+      { path: 'knowledge-ops/templates', component: PlaceholderPage, props: { title: '销售话术' }, meta: { title: '销售话术' } },
+      { path: 'knowledge-ops/intent-examples', component: PlaceholderPage, props: { title: '销售意图样本' }, meta: { title: '销售意图样本' } },
+      { path: 'settings/model-config', component: PlaceholderPage, props: { title: '模型配置' }, meta: { title: '模型配置' } }
+    ]
+  },
+  { path: '/:pathMatch(.*)*', redirect: '/workbench' }
+]
+
+const router = createRouter({ history: createWebHistory(import.meta.env.BASE_URL), routes })
+
+router.beforeEach((to) => {
+  if (to.meta.public) return true
+  if (!getAccessToken()) {
+    if (import.meta.env.VITE_DEFAULT_API_KEY) setDefaultAccessToken()
+    else return { path: '/login', query: { redirect: to.fullPath } }
   }
+  return true
 })
 
-// 处理动态导入失败（如重新构建后 chunk 哈希变化），自动跳转到目标页面
-router.onError((error, to) => {
-  if (
-    error.message.includes('Failed to fetch dynamically imported module') ||
-    error.message.includes('Importing a module script failed')
-  ) {
-    window.location.assign(to.fullPath)
-  }
-})
-
-export const resetRouter = (): void => {
-  const resetWhiteNameList = ['Redirect', 'RedirectRoot', 'Login', 'NoFound', 'Home']
-  router.getRoutes().forEach((route) => {
-    const { name } = route
-    if (name && !resetWhiteNameList.includes(name as string)) {
-      router.hasRoute(name) && router.removeRoute(name)
-    }
-  })
-}
-
-export const setupRouter = (app: App<Element>) => {
-  app.use(router)
-}
+router.afterEach((to) => { document.title = `${String(to.meta.title || '销售 Agent')} - 销售 Agent` })
 
 export default router

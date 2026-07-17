@@ -1,116 +1,23 @@
-import {dirname, relative, resolve} from 'path'
-import type {ConfigEnv, UserConfig} from 'vite'
-import {loadEnv, normalizePath} from 'vite'
-import {createVitePlugins} from './build/vite'
-import {exclude, include} from "./build/vite/optimize"
-// 当前执行node命令时文件夹的地址(工作目录)
-const root = process.cwd()
+import { fileURLToPath, URL } from 'node:url'
+import { defineConfig, loadEnv } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import UnoCSS from 'unocss/vite'
 
-// 路径查找
-function pathResolve(dir: string) {
-    return resolve(root, '.', dir)
-}
-
-function getRelativeScssUsePath(filename: string, targetPath: string) {
-    const cleanFilename = filename.split('?')[0]
-    const relativePath = normalizePath(relative(dirname(cleanFilename), targetPath))
-    return relativePath.startsWith('.') ? relativePath : `./${relativePath}`
-}
-
-// https://vitejs.dev/config/
-export default ({command, mode}: ConfigEnv): UserConfig => {
-    let env = {} as any
-    const isBuild = command === 'build'
-    if (!isBuild) {
-        env = loadEnv((process.argv[3] === '--mode' ? process.argv[4] : process.argv[3]), root)
-    } else {
-        env = loadEnv(mode, root)
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  return {
+    base: env.VITE_BASE_PATH || '/',
+    plugins: [vue(), UnoCSS()],
+    resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+    server: {
+      host: '0.0.0.0',
+      port: Number(env.VITE_PORT || 5173),
+      proxy: { '/api': 'http://127.0.0.1:8000', '/health': 'http://127.0.0.1:8000' }
+    },
+    build: {
+      outDir: env.VITE_OUT_DIR || 'dist',
+      sourcemap: env.VITE_SOURCEMAP === 'true',
+      chunkSizeWarningLimit: 1200
     }
-    const variablesScssPath = pathResolve('src/styles/variables.scss')
-    return {
-        base: env.VITE_BASE_PATH,
-        root: root,
-        // 服务端渲染
-        server: {
-            port: env.VITE_PORT, // 端口号
-            host: "0.0.0.0",
-            open: env.VITE_OPEN === 'true',
-            proxy: {
-                '/api': {
-                    target: 'http://127.0.0.1:8000',
-                    ws: false,
-                    changeOrigin: true
-                },
-                '/wechat': {
-                    target: 'http://127.0.0.1:8000',
-                    ws: false,
-                    changeOrigin: true
-                },
-                '/health': {
-                    target: 'http://127.0.0.1:8000',
-                    ws: false,
-                    changeOrigin: true
-                }
-            },
-        },
-        // 项目使用的vite插件。 单独提取到build/vite/plugin中管理
-        plugins: createVitePlugins(isBuild, env),
-        css: {
-            lightningcss: {
-                // Preserve legacy star-hack declarations by stripping invalid syntax during minification.
-                errorRecovery: true
-            },
-            preprocessorOptions: {
-                scss: {
-                    additionalData: (source: string, filename: string) => {
-                        const normalizedFilename = normalizePath(filename)
-                        // Windows 下更容易触发重复注入：定义或显式转导变量的文件，不能再次注入同一个
-                        // `@use ... as *`，否则 Sass 会报 duplicate global variables。
-                        if (
-                            normalizedFilename.endsWith('/src/styles/variables.scss') ||
-                            normalizedFilename.endsWith('/src/styles/global.module.scss')
-                        ) {
-                            return source
-                        }
-                        return `@use "${getRelativeScssUsePath(filename, variablesScssPath)}" as *;\n${source}`
-                    },
-                    api: 'modern-compiler'
-                }
-            }
-        },
-        resolve: {
-            extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json', '.scss', '.css'],
-            alias: [
-                {
-                    find: /\@\//,
-                    replacement: `${pathResolve('src')}/`
-                }
-            ]
-        },
-        build: {
-            chunkSizeWarningLimit: 2000,
-            minify: 'oxc',
-            outDir: env.VITE_OUT_DIR || 'dist',
-            reportCompressedSize: false,
-            sourcemap: env.VITE_SOURCEMAP === 'true' ? 'inline' : false,
-            rollupOptions: {
-                output: {
-                    minify: {
-                        compress: {
-                            dropDebugger: env.VITE_DROP_DEBUGGER === 'true',
-                            dropConsole: env.VITE_DROP_CONSOLE === 'true'
-                        }
-                    },
-                    codeSplitting: {
-                        groups: [
-                            { name: 'echarts', test: /node_modules[\\/]echarts[\\/]/ },
-                            { name: 'form-create', test: /node_modules[\\/]@form-create[\\/]element-ui[\\/]/ },
-                            { name: 'form-designer', test: /node_modules[\\/]@form-create[\\/]designer[\\/]/ }
-                        ]
-                    }
-                },
-            },
-        },
-        optimizeDeps: {include, exclude}
-    }
-}
+  }
+})

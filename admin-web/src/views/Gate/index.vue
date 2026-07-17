@@ -1,115 +1,45 @@
 <template>
-  <div class="gate-page">
-    <section class="gate-panel">
-      <div class="brand">
-        <img src="@/assets/imgs/logo.png" alt="" />
-        <span>智能客服后台</span>
-      </div>
-      <h1>访问门禁</h1>
-      <p>输入访问密码后进入客服工作台。</p>
-      <ElForm :model="form" label-position="top" size="large" @submit.prevent="unlock">
-        <ElFormItem label="访问密码">
-          <ElInput
-            v-model="form.password"
-            autofocus
-            placeholder="请输入访问密码"
-            show-password
-            type="password"
-            @keyup.enter="unlock"
-          />
-        </ElFormItem>
-        <ElButton :loading="loading" class="submit" type="primary" @click="unlock">
-          进入后台
-        </ElButton>
-      </ElForm>
-    </section>
-  </div>
+  <main class="gate-page">
+    <form class="gate-card" @submit.prevent="unlock">
+      <div class="brand"><span>SA</span><strong>销售 Agent 后台</strong></div>
+      <h1>访问验证</h1>
+      <p>请输入演示后台访问密码。</p>
+      <ElInput v-model="password" autofocus placeholder="访问密码" show-password size="large" type="password" />
+      <ElButton :loading="loading" native-type="submit" size="large" type="primary">进入后台</ElButton>
+    </form>
+  </main>
 </template>
 
-<script lang="ts" setup>
+<script setup lang="ts">
+import { ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
-defineOptions({ name: 'Gate' })
-
 const route = useRoute()
+const password = ref('')
 const loading = ref(false)
-const form = reactive({ password: '' })
 
 const unlock = async () => {
-  if (!form.password.trim()) {
-    ElMessage.warning('请输入访问密码')
-    return
-  }
+  if (!password.value.trim()) return ElMessage.warning('请输入访问密码')
   loading.value = true
   try {
     const response = await fetch('/api/gate', {
-      method: 'POST',
-      credentials: 'same-origin',
+      method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: form.password })
+      body: JSON.stringify({ password: password.value })
     })
-    if (!response.ok) {
-      ElMessage.error('访问密码不正确')
-      return
-    }
-    const redirect =
-      typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
-        ? route.query.redirect
-        : '/workbench'
+    if (!response.ok) return ElMessage.error('访问密码不正确')
+    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
+      ? route.query.redirect : '/workbench'
     window.location.replace(redirect)
-  } finally {
-    loading.value = false
-  }
+  } finally { loading.value = false }
 }
 </script>
 
-<style lang="scss" scoped>
-.gate-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f4f7fb;
-  padding: 24px;
-}
-
-.gate-panel {
-  width: min(420px, 100%);
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 36px;
-  box-shadow: 0 18px 48px rgb(15 23 42 / 8%);
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: #111827;
-    font-size: 20px;
-    font-weight: 700;
-
-    img {
-      width: 40px;
-      height: 40px;
-    }
-  }
-
-  h1 {
-    margin: 32px 0 10px;
-    color: #111827;
-    font-size: 28px;
-    font-weight: 700;
-  }
-
-  p {
-    margin: 0 0 28px;
-    color: #64748b;
-    line-height: 1.7;
-  }
-
-  .submit {
-    width: 100%;
-  }
-}
+<style scoped>
+.gate-page { display: grid; min-height: 100vh; padding: 24px; place-items: center; background: #eef5f2; }
+.gate-card { display: grid; width: min(410px, 100%); gap: 18px; padding: 38px; background: #fff; border: 1px solid #dce7e3; border-radius: 18px; box-shadow: 0 22px 70px rgb(18 63 51 / 12%); }
+.brand { display: flex; align-items: center; gap: 11px; }
+.brand span { display: grid; width: 40px; height: 40px; place-items: center; color: #fff; font-weight: 800; background: #207457; border-radius: 11px; }
+h1 { margin: 8px 0 -10px; } p { margin: 0; color: #6d7d77; }
 </style>

@@ -28,7 +28,7 @@
       </ElSelect>
       <ElAlert
         v-if="!sendMode"
-        title="新活动请先在客服工作台中右键选择消息，再点击“存为活动”"
+        title="新活动请先在销售工作台中右键选择消息，再点击“存为活动”"
         type="info"
         :closable="false"
       />

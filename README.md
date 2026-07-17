@@ -1,11 +1,11 @@
-# Intelligent Customer Service
+# AI Sales Agent
 
-智能客服产品仓库，包含 FastAPI 后端和 Vue 管理后台。
+面向微信私域销售场景的 AI 销售 Agent，包含 FastAPI 销售编排后端和自主开发的 Vue 运营管理后台。
 
 ## Structure
 
-- `wechat_rag_bot/`: FastAPI 后端服务，提供聊天、微信回调、会话日志和受控人工接管 API。
-- `admin-web/`: Vue 3 + Element Plus 管理后台，包含受控人工接管工作台。
+- `wechat_rag_bot/`: FastAPI 后端服务，提供销售对话编排、微信回调、客户记忆、会话日志和受控人工接管 API。
+- `admin-web/`: 自主开发的 Vue 3 + TypeScript 销售运营后台，包含销售工作台、活动管理和受控人工接管。
 - `docs/`: 产品计划、开发计划和测试记录。
 
 ## Local Checks
