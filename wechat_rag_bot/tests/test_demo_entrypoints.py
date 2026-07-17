@@ -111,6 +111,36 @@ def test_demo_chat_uses_opening_then_normal_sales_flow(monkeypatch, tmp_path):
     ]
 
 
+@pytest.mark.parametrize("message", ["??????", "内容已损坏\ufffd"])
+def test_demo_chat_rejects_corrupted_message_without_recording(
+    monkeypatch, tmp_path, message
+):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/demo/chat",
+        json={"customer_id": "corrupted-customer", "message": message},
+    )
+    conversations = client.get("/api/v1/demo-admin/conversations")
+
+    assert response.status_code == 422
+    assert "UTF-8" in response.json()["message"]
+    assert conversations.json()["data"]["total"] == 0
+
+
+def test_demo_chat_allows_question_marks_in_normal_text(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/demo/chat",
+        json={"customer_id": "valid-customer", "message": "这个怎么用??"},
+    )
+
+    assert response.status_code == 200
+
+
 def test_demo_admin_only_lists_demo_conversations(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)

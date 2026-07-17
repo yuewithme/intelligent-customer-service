@@ -4,6 +4,7 @@ from typing import Literal
 
 from app.config import get_settings
 from app.schemas.chat import ChatRequest
+from app.schemas.common import AppError, ErrorCode
 from app.schemas.event import NormalizedMessage
 from app.services.channel_service import normalize_chat_request
 from app.services.chat_orchestrator import handle_chat
@@ -33,6 +34,7 @@ async def chat_with_demo_sales_agent(
     conversation_id: str | None = None,
     customer_name: str | None = None,
 ) -> dict:
+    _reject_corrupted_message(message)
     request = ChatRequest(
         channel=channel,
         user_id=demo_user_id(customer_id),
@@ -73,6 +75,20 @@ async def chat_with_demo_sales_agent(
         "route": result.get("route"),
         "trace_id": result.get("trace_id"),
     }
+
+
+def _reject_corrupted_message(message: str) -> None:
+    stripped = message.strip()
+    replacement_mark_found = "\ufffd" in stripped
+    only_question_marks = len(stripped) >= 2 and all(
+        char in {"?", "？"} for char in stripped
+    )
+    if replacement_mark_found or only_question_marks:
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message="消息疑似发生编码损坏，请使用 UTF-8 编码后重新发送",
+            status_code=422,
+        )
 
 
 async def _handle_opening_message(message: NormalizedMessage) -> dict:
