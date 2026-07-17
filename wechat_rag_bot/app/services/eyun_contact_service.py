@@ -25,15 +25,7 @@ def _text(data: dict[str, Any], *keys: str) -> str | None:
     return None
 
 
-def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, Any]:
-    if str(response.get("code")) != "1000":
-        return {}
-    data = response.get("data")
-    if isinstance(data, list):
-        contact = data[0] if data and isinstance(data[0], dict) else {}
-    else:
-        contact = data if isinstance(data, dict) else {}
-
+def _parse_contact(contact: dict[str, Any]) -> dict[str, Any]:
     user_name = _text(contact, "userName", "username")
     remark = _text(contact, "remark", "remarkName", "conRemark")
     nickname = _text(contact, "nickName", "nickname")
@@ -66,6 +58,77 @@ def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, Any]:
     if avatar_url:
         snapshot["avatar_url"] = avatar_url
     return snapshot
+
+
+def parse_contact_snapshots(response: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Map an Eyun getContactPlus response by its stable userName field."""
+    if str(response.get("code")) != "1000":
+        return {}
+    data = response.get("data")
+    contacts = data if isinstance(data, list) else [data]
+    snapshots: dict[str, dict[str, Any]] = {}
+    for contact in contacts:
+        if not isinstance(contact, dict):
+            continue
+        user_name = _text(contact, "userName", "username")
+        if user_name:
+            snapshots[user_name] = _parse_contact(contact)
+    return snapshots
+
+
+def parse_contact_snapshot(response: dict[str, Any]) -> dict[str, Any]:
+    snapshots = parse_contact_snapshots(response)
+    return next(iter(snapshots.values()), {})
+
+
+async def get_eyun_contact_snapshots(
+    *, w_id: str, wc_ids: list[str], force: bool = False
+) -> dict[str, dict[str, Any]]:
+    """Fetch complete Eyun contact details in documented batches of at most 20."""
+    unique_ids = list(dict.fromkeys(value.strip() for value in wc_ids if value.strip()))
+    if not w_id or not unique_ids:
+        return {}
+
+    now = time.monotonic()
+    results: dict[str, dict[str, Any]] = {}
+    pending: list[str] = []
+    for wc_id in unique_ids:
+        cached = _contact_cache.get((w_id, wc_id))
+        if not force and cached and now - cached[0] < _CACHE_TTL_SECONDS:
+            results[wc_id] = dict(cached[1])
+        else:
+            pending.append(wc_id)
+
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization:
+        return results
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        for offset in range(0, len(pending), 20):
+            batch = pending[offset : offset + 20]
+            try:
+                response = await client.post(
+                    f"{base_url}/getContactPlus",
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                    },
+                    json={"wId": w_id, "wcId": ",".join(batch)},
+                )
+                response.raise_for_status()
+                body = response.json()
+                parsed = parse_contact_snapshots(body)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Eyun getContactPlus batch failed: %s", exc)
+                parsed = {}
+            for wc_id, snapshot in parsed.items():
+                _contact_cache[(w_id, wc_id)] = (now, snapshot)
+                results[wc_id] = dict(snapshot)
+            if offset + 20 < len(pending):
+                await asyncio.sleep(0.3)
+    return results
 
 
 async def get_eyun_contact_snapshot(*, w_id: str, wc_id: str) -> dict[str, Any]:

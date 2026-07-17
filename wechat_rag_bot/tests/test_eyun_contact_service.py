@@ -1,4 +1,7 @@
-from app.services.eyun_contact_service import parse_contact_snapshot
+from app.services.eyun_contact_service import (
+    parse_contact_snapshot,
+    parse_contact_snapshots,
+)
 
 
 def test_contact_snapshot_prefers_remark_and_large_avatar():
@@ -46,3 +49,18 @@ def test_contact_snapshot_parses_official_alias_and_label_list_fields():
 
 def test_contact_snapshot_ignores_failed_provider_response():
     assert parse_contact_snapshot({"code": "1001", "data": []}) == {}
+
+
+def test_contact_snapshots_are_mapped_by_official_user_name():
+    snapshots = parse_contact_snapshots(
+        {
+            "code": "1000",
+            "data": [
+                {"userName": "wxid_a", "remark": "备注甲"},
+                {"userName": "wxid_b", "remark": "备注乙"},
+            ],
+        }
+    )
+
+    assert snapshots["wxid_a"]["remark_name"] == "备注甲"
+    assert snapshots["wxid_b"]["remark_name"] == "备注乙"

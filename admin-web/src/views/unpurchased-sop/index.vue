@@ -190,7 +190,7 @@
                 <video v-if="message.message_type === 'video' && message.content" class="large-video" :src="message.content" :poster="message.preview_url || undefined" controls></video>
               </ElFormItem>
               <ElFormItem v-if="message.message_type === 'video'" label="视频封面（上传视频后自动生成，也可重新上传）">
-                <small class="media-limit">Eyun 官方建议视频封面控制在 50KB 以内；本系统图片上传上限 10MB。</small>
+                <small class="media-limit">Eyun 官方建议视频封面控制在 50KB 以内；本系统图片上传上限 5MB。</small>
                 <input class="file-input" type="file" accept="image/*" @change="uploadCover($event, index)" />
                 <ElImage v-if="message.preview_url" class="cover-preview" :src="message.preview_url" fit="cover" />
               </ElFormItem>
@@ -263,7 +263,7 @@ const editingId = ref<number>()
 const savingStep = ref(false)
 const uploadingMessageIndex = ref<number>()
 const dragMessageIndex = ref<number>()
-const IMAGE_MAX_BYTES = 10 * 1024 * 1024
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 const VIDEO_MAX_BYTES = 100 * 1024 * 1024
 const emptyMessage = (message_type: SopMessageType = 'text'): SopMessageItem => ({ message_type, content: '', preview_url: '' })
 const stepForm = reactive<SopStepPayload>({ day_offset: 0, send_time_start: '09:00', send_time_end: '10:00', messages: [emptyMessage()], position: 0, enabled: true })
@@ -382,7 +382,7 @@ const uploadCover = async (event: Event, index: number) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  if (file.size > IMAGE_MAX_BYTES) { input.value = ''; return ElMessage.warning('封面图片不能超过 10MB') }
+  if (file.size > IMAGE_MAX_BYTES) { input.value = ''; return ElMessage.warning('封面图片不能超过 5MB') }
   const message = stepForm.messages[index]
   if (!message) return
   const media = await uploadUnpurchasedSopMedia(file)
@@ -419,7 +419,7 @@ const confirmTestSend = async () => { if (!testContact.value || !testStepId.valu
 const contactRemark = (contact: UnpurchasedSopContact) => contact.remark_name || contact.display_name || '未设置备注'
 const contactOptionLabel = (contact: UnpurchasedSopContact) => `${contactRemark(contact)} · ${contact.wechat_id || contact.wc_id}`
 const mediaLimitText = (type: SopMessageType) => type === 'image'
-  ? 'Eyun 官方未规定图片硬性大小上限；本系统单张上限 10MB，支持 JPG、PNG、GIF、WEBP，图片地址需公网可访问。'
+  ? '单张图片不能超过 5MB；超过后无法上传或发送。支持 JPG、PNG、GIF、WEBP，图片地址需公网可访问。'
   : 'Eyun 官方未规定视频硬性大小上限；本系统单个上限 100MB，支持 MP4、MOV、M4V，视频地址需公网可访问。'
 const searchDirectContacts = async (keyword = '') => {
   directContactsLoading.value = true

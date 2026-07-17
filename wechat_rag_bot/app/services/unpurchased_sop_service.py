@@ -277,17 +277,10 @@ async def sync_eyun_contacts(*, friend_ids: list[str] | None = None) -> dict[str
             row.last_seen_at = now
             row.updated_at = now
 
-        identity_backfill_count = 0
-        for row in by_wc_id.values():
-            if identity_backfill_count >= 20:
-                break
-            if (
-                row.wc_id in current_ids
-                and row.wc_id not in detail_ids
-                and not row.display_name
-            ):
-                detail_ids.append(row.wc_id)
-                identity_backfill_count += 1
+        # Refresh complete Eyun details for every active contact. Remarks can be
+        # added or changed after the contact was first discovered, so using the
+        # presence of a nickname/display name as a backfill guard is incorrect.
+        detail_ids = sorted(current_ids)
 
         for row in rows:
             if row.wc_id in current_ids or row.status == "removed":
@@ -910,11 +903,14 @@ def _get_session() -> Session:
 async def _refresh_new_contact_details(wc_ids: list[str], w_id: str) -> None:
     if not wc_ids or not w_id:
         return
-    from app.services.eyun_contact_service import get_eyun_contact_snapshot
+    from app.services.eyun_contact_service import get_eyun_contact_snapshots
     from app.services.user_profile_service import ensure_user_profile
 
-    for index, wc_id in enumerate(wc_ids):
-        snapshot = await get_eyun_contact_snapshot(w_id=w_id, wc_id=wc_id)
+    snapshots = await get_eyun_contact_snapshots(
+        w_id=w_id, wc_ids=wc_ids, force=True
+    )
+    for wc_id in wc_ids:
+        snapshot = snapshots.get(wc_id, {})
         if snapshot:
             await ensure_user_profile(
                 wc_id,
@@ -941,8 +937,6 @@ async def _refresh_new_contact_details(wc_ids: list[str], w_id: str) -> None:
                     row.avatar_url = str(snapshot.get("avatar_url") or "") or row.avatar_url
                     row.updated_at = _utcnow()
                     session.commit()
-        if index < len(wc_ids) - 1:
-            await asyncio.sleep(0.3)
 
 
 def _get_or_create_sop(session: Session) -> UnpurchasedSopModel:

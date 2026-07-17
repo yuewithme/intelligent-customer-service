@@ -153,7 +153,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./rag.db"
     redis_url: str = "redis://localhost:6379/0"
     upload_dir: str = "data/uploads"
-    sop_image_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    sop_image_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1)
     sop_video_max_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
 
     chat_log_enabled: bool = True

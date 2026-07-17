@@ -220,17 +220,19 @@ async def test_contact_identity_stores_remark_and_wechat_alias(monkeypatch, tmp_
     _settings(monkeypatch, tmp_path)
     await sync_eyun_contacts(friend_ids=["wxid-original"])
 
-    async def fake_snapshot(**kwargs):
-        del kwargs
+    async def fake_snapshots(**kwargs):
         return {
-            "remark_name": "兰友张姐",
-            "nickname": "花开富贵",
-            "alias_name": "zhangjie888",
+            wc_id: {
+                "remark_name": "兰友张姐",
+                "nickname": "花开富贵",
+                "alias_name": "zhangjie888",
+            }
+            for wc_id in kwargs["wc_ids"]
         }
 
     monkeypatch.setattr(
-        "app.services.eyun_contact_service.get_eyun_contact_snapshot",
-        fake_snapshot,
+        "app.services.eyun_contact_service.get_eyun_contact_snapshots",
+        fake_snapshots,
     )
     await _refresh_new_contact_details(["wxid-original"], "wid-1")
 
@@ -258,6 +260,29 @@ def test_sop_media_upload_uses_persistent_upload_directory_and_public_url(monkey
     assert media["type"] == "image"
     assert media["url"].startswith("https://admin.example.com/static/sop-media/")
     assert any((tmp_path / "uploads" / "sop-media").iterdir())
+
+
+def test_sop_image_upload_rejects_files_larger_than_five_mb(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
+    get_settings.cache_clear()
+    from app.main import app
+
+    response = TestClient(app).post(
+        "/api/v1/admin/unpurchased-sop/media/upload",
+        files={
+            "file": (
+                "oversized.png",
+                b"x" * (5 * 1024 * 1024 + 1),
+                "image/png",
+            )
+        },
+    )
+
+    assert response.status_code == 413
+    assert "5MB" in response.json()["message"]
+    media_dir = tmp_path / "uploads" / "sop-media"
+    assert not media_dir.exists() or not any(media_dir.iterdir())
 
 
 @pytest.mark.asyncio
