@@ -1,11 +1,13 @@
 import json
 import sqlite3
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.schemas.unpurchased_sop import (
+    UnpurchasedSopMessageRequest,
     UnpurchasedSopStepRequest,
     UnpurchasedSopUpdateRequest,
 )
@@ -17,6 +19,7 @@ from app.services.unpurchased_sop_service import (
     list_unpurchased_sop_contacts,
     process_due_unpurchased_sop_deliveries,
     sync_eyun_contacts,
+    sync_sop_delivery_from_outbound,
     sync_sop_delivery_status,
     update_unpurchased_sop,
 )
@@ -247,6 +250,107 @@ async def test_due_video_uses_existing_outbound_queue_without_conversation(monke
     sync_sop_delivery_status(delivery["id"], "sent")
     memories = (await get_profile_bundle("new-contact"))["recent_memories"]
     assert memories[-1]["content"].startswith("[未购SOP发送视频]")
+
+
+@pytest.mark.asyncio
+async def test_combination_node_queues_messages_in_risk_control_order(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+    await sync_eyun_contacts(friend_ids=["baseline"])
+    await sync_eyun_contacts(friend_ids=["baseline", "new-contact"])
+    update_unpurchased_sop(
+        UnpurchasedSopUpdateRequest(
+            name="未购SOP",
+            enabled=True,
+            dry_run=False,
+            send_window_start="00:00",
+            send_window_end="23:59",
+        )
+    )
+    step = create_unpurchased_sop_step(
+        UnpurchasedSopStepRequest(
+            day_offset=0,
+            send_time="00:00",
+            messages=[
+                UnpurchasedSopMessageRequest(
+                    message_type="text", content="第一条文字"
+                ),
+                UnpurchasedSopMessageRequest(
+                    message_type="image", content="https://example.com/image.jpg"
+                ),
+                UnpurchasedSopMessageRequest(
+                    message_type="video",
+                    content="https://example.com/video.mp4",
+                    preview_url="https://example.com/cover.jpg",
+                ),
+            ],
+        )
+    )
+    captured = []
+
+    async def fake_enqueue(**kwargs):
+        captured.append(kwargs)
+        return {"id": 100 + len(captured) - 1, "status": "queued"}
+
+    monkeypatch.setattr(unpurchased_sop_service, "enqueue_eyun_outbound", fake_enqueue)
+
+    assert await process_due_unpurchased_sop_deliveries() == 1
+    assert [item["message_type"] for item in captured] == ["text", "image", "video"]
+    assert [item["depends_on_outbound_id"] for item in captured] == [None, 100, 101]
+    assert [item["source_batch_key"].rsplit(":", 2)[1:] for item in captured] == [
+        ["0", "3"],
+        ["1", "3"],
+        ["2", "3"],
+    ]
+    assert len(step["messages"]) == 3
+
+    delivery = list_unpurchased_sop_deliveries()["items"][0]
+    assert delivery["outbound_message_ids"] == [100, 101, 102]
+    sync_sop_delivery_from_outbound(captured[0]["source_batch_key"], "sent")
+    assert list_unpurchased_sop_deliveries()["items"][0]["status"] == "queued"
+    sync_sop_delivery_from_outbound(captured[2]["source_batch_key"], "sent")
+    assert list_unpurchased_sop_deliveries()["items"][0]["status"] == "sent"
+    memories = (await get_profile_bundle("new-contact"))["recent_memories"]
+    assert "第一条文字" in memories[-1]["content"]
+    assert "[未购SOP发送图片]" in memories[-1]["content"]
+    assert "[未购SOP发送视频]" in memories[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_risk_queue_cancels_dependent_message_after_previous_failure(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+    from app.db.models import EyunOutboundMessageModel
+    from app.services.message_risk_control_service import (
+        _get_session as get_risk_session,
+        enqueue_eyun_outbound,
+        process_due_eyun_outbound_messages,
+    )
+
+    now = datetime.now(timezone.utc)
+    first = await enqueue_eyun_outbound(
+        w_id="wid-1",
+        wc_id="customer-1",
+        content="first",
+        source_batch_key="sequence:test:0",
+        due_at=now,
+    )
+    second = await enqueue_eyun_outbound(
+        w_id="wid-1",
+        wc_id="customer-1",
+        content="second",
+        source_batch_key="sequence:test:1",
+        depends_on_outbound_id=first["id"],
+        due_at=now,
+    )
+    with get_risk_session() as session:
+        row = session.get(EyunOutboundMessageModel, first["id"])
+        row.status = "failed"
+        session.commit()
+
+    assert await process_due_eyun_outbound_messages(limit=5) == 0
+    with get_risk_session() as session:
+        dependent = session.get(EyunOutboundMessageModel, second["id"])
+        assert dependent.status == "cancelled"
+        assert dependent.last_error == "前一条组合消息发送失败"
 
 
 @pytest.mark.asyncio

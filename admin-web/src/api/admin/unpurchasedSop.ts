@@ -2,6 +2,12 @@ import request from '@/config/axios'
 
 export type SopMessageType = 'text' | 'image' | 'video'
 
+export interface SopMessageItem {
+  message_type: SopMessageType
+  content: string
+  preview_url?: string | null
+}
+
 export interface UnpurchasedSopConfig {
   id: number
   name: string
@@ -25,6 +31,7 @@ export interface UnpurchasedSopStep {
   message_type: SopMessageType
   content: string
   preview_url?: string | null
+  messages: SopMessageItem[]
   position: number
   enabled: boolean
   created_at: string
@@ -58,6 +65,8 @@ export interface UnpurchasedSopDelivery {
   content: string
   preview_url?: string | null
   outbound_message_id?: number | null
+  outbound_message_ids: number[]
+  messages: SopMessageItem[]
   attempts: number
   last_error?: string | null
   sent_at?: string | null
@@ -67,9 +76,7 @@ export interface UnpurchasedSopDelivery {
 export interface SopStepPayload {
   day_offset: number
   send_time: string
-  message_type: SopMessageType
-  content: string
-  preview_url?: string
+  messages: SopMessageItem[]
   position: number
   enabled: boolean
 }
@@ -120,7 +127,7 @@ export const getUnpurchasedSopDeliveries = (page = 1, page_size = 50) =>
   })
 
 export const testSendUnpurchasedSop = (step_id: number, contact_id: number) =>
-  request.post<{ outbound_message_id: number; status: string }>({
+  request.post<{ outbound_message_id: number; outbound_message_ids: number[]; status: string }>({
     url: '/api/v1/admin/unpurchased-sop/test-send',
     data: { step_id, contact_id }
   })

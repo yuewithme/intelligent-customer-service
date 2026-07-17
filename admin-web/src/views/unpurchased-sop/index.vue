@@ -65,7 +65,7 @@
         </section>
 
         <div class="section-head">
-          <div><h2>触达节点</h2><p>支持文本、图片和视频；媒体文件上传后由 Docker 公网地址提供给 Eyun。</p></div>
+          <div><h2>触达节点</h2><p>一个节点可组合多条文本、图片和视频，并按设定顺序通过风控队列逐条发送。</p></div>
           <ElButton type="primary" @click="openCreate">新增节点</ElButton>
         </div>
 
@@ -76,14 +76,21 @@
               <template #default="{ row }"><strong>D{{ row.day_offset }}</strong></template>
             </ElTableColumn>
             <ElTableColumn prop="send_time" label="发送时间" width="110" />
-            <ElTableColumn label="类型" width="100">
-              <template #default="{ row }"><ElTag>{{ typeText(row.message_type) }}</ElTag></template>
+            <ElTableColumn label="消息序列" width="190">
+              <template #default="{ row }">
+                <ElTag v-for="(message, index) in stepMessages(row)" :key="index" class="sequence-tag">{{ index + 1 }}. {{ typeText(message.message_type) }}</ElTag>
+              </template>
             </ElTableColumn>
             <ElTableColumn label="内容" min-width="320">
               <template #default="{ row }">
-                <span v-if="row.message_type === 'text'" class="message-text">{{ row.content }}</span>
-                <ElImage v-else-if="row.message_type === 'image'" class="media-thumb" :src="row.content" fit="cover" :preview-src-list="[row.content]" />
-                <div v-else class="video-cell"><video :src="row.content" :poster="row.preview_url || undefined" controls preload="metadata"></video></div>
+                <div class="sequence-preview">
+                  <div v-for="(message, index) in stepMessages(row)" :key="index" class="sequence-preview-item">
+                    <span class="sequence-number">{{ index + 1 }}</span>
+                    <span v-if="message.message_type === 'text'" class="message-text">{{ message.content }}</span>
+                    <ElImage v-else-if="message.message_type === 'image'" class="media-thumb" :src="message.content" fit="cover" :preview-src-list="[message.content]" />
+                    <div v-else class="video-cell"><video :src="message.content" :poster="message.preview_url || undefined" controls preload="metadata"></video></div>
+                  </div>
+                </div>
               </template>
             </ElTableColumn>
             <ElTableColumn label="状态" width="90">
@@ -128,8 +135,8 @@
           <ElTable v-loading="deliveriesLoading" :data="deliveries" row-key="id">
             <ElTableColumn label="客户" min-width="160"><template #default="{ row }">{{ row.display_name || row.wc_id || '-' }}</template></ElTableColumn>
             <ElTableColumn prop="step_id" label="节点ID" width="90" />
-            <ElTableColumn label="类型" width="90"><template #default="{ row }">{{ typeText(row.message_type) }}</template></ElTableColumn>
-            <ElTableColumn label="内容" min-width="260"><template #default="{ row }"><span class="message-text">{{ row.content }}</span></template></ElTableColumn>
+            <ElTableColumn label="消息" width="100"><template #default="{ row }">{{ row.messages?.length || 1 }} 条</template></ElTableColumn>
+            <ElTableColumn label="内容" min-width="260"><template #default="{ row }"><span class="message-text">{{ deliveryMessageSummary(row) }}</span></template></ElTableColumn>
             <ElTableColumn label="计划时间" width="180"><template #default="{ row }">{{ formatTime(row.due_at) }}</template></ElTableColumn>
             <ElTableColumn label="状态" width="110"><template #default="{ row }"><ElTag :type="deliveryTagType(row.status)">{{ deliveryText(row.status) }}</ElTag></template></ElTableColumn>
             <ElTableColumn prop="last_error" label="失败原因" min-width="180" />
@@ -139,26 +146,57 @@
       </ElTabPane>
     </ElTabs>
 
-    <ElDialog v-model="stepDialog" :title="editingId ? '修改节点' : '新增节点'" width="620px" destroy-on-close>
+    <ElDialog v-model="stepDialog" :title="editingId ? '修改节点' : '新增节点'" width="760px" destroy-on-close>
       <ElForm label-position="top">
         <div class="step-grid">
           <ElFormItem label="加好友后第几天"><ElInputNumber v-model="stepForm.day_offset" :min="0" :max="3650" /></ElFormItem>
           <ElFormItem label="发送时间"><ElTimeSelect v-model="stepForm.send_time" start="00:00" step="00:30" end="23:30" /></ElFormItem>
         </div>
-        <ElFormItem label="消息类型"><ElRadioGroup v-model="stepForm.message_type"><ElRadioButton value="text">文本</ElRadioButton><ElRadioButton value="image">图片</ElRadioButton><ElRadioButton value="video">视频</ElRadioButton></ElRadioGroup></ElFormItem>
-        <ElFormItem v-if="stepForm.message_type === 'text'" label="消息内容"><ElInput v-model="stepForm.content" type="textarea" :rows="6" maxlength="20000" show-word-limit /></ElFormItem>
-        <template v-else>
-          <ElFormItem :label="stepForm.message_type === 'image' ? '上传图片' : '上传视频'">
-            <input class="file-input" type="file" :accept="stepForm.message_type === 'image' ? 'image/*' : 'video/mp4,video/quicktime'" @change="uploadPrimary" />
-            <ElProgress v-if="uploadingPrimary" :percentage="100" :indeterminate="true" />
-            <ElImage v-if="stepForm.message_type === 'image' && stepForm.content" class="large-preview" :src="stepForm.content" fit="contain" />
-            <video v-if="stepForm.message_type === 'video' && stepForm.content" class="large-video" :src="stepForm.content" :poster="stepForm.preview_url || undefined" controls></video>
-          </ElFormItem>
-          <ElFormItem v-if="stepForm.message_type === 'video'" label="视频封面（上传视频后自动生成，也可重新上传）">
-            <input class="file-input" type="file" accept="image/*" @change="uploadCover" />
-            <ElImage v-if="stepForm.preview_url" class="cover-preview" :src="stepForm.preview_url" fit="cover" />
-          </ElFormItem>
-        </template>
+        <div class="message-editor-head"><strong>消息序列</strong><small>拖动卡片或使用箭头调整顺序，系统将从上到下发送</small></div>
+        <div class="message-editor-list">
+          <div
+            v-for="(message, index) in stepForm.messages"
+            :key="index"
+            class="message-editor-card"
+            @dragover.prevent
+            @drop="dropMessage(index)"
+          >
+            <div class="message-card-head">
+              <span class="drag-handle" draggable="true" @dragstart="dragMessageIndex = index">⠿ 第 {{ index + 1 }} 条</span>
+              <div>
+                <ElButton link :disabled="index === 0" @click="moveMessage(index, -1)">↑</ElButton>
+                <ElButton link :disabled="index === stepForm.messages.length - 1" @click="moveMessage(index, 1)">↓</ElButton>
+                <ElButton link type="danger" :disabled="stepForm.messages.length === 1" @click="removeMessage(index)">删除</ElButton>
+              </div>
+            </div>
+            <ElFormItem label="消息类型">
+              <ElRadioGroup v-model="message.message_type" @change="changeMessageType(message)">
+                <ElRadioButton value="text">文本</ElRadioButton><ElRadioButton value="image">图片</ElRadioButton><ElRadioButton value="video">视频</ElRadioButton>
+              </ElRadioGroup>
+            </ElFormItem>
+            <ElFormItem v-if="message.message_type === 'text'" label="消息内容">
+              <ElInput v-model="message.content" type="textarea" :rows="4" maxlength="20000" show-word-limit />
+            </ElFormItem>
+            <template v-else>
+              <ElFormItem :label="message.message_type === 'image' ? '上传图片' : '上传视频'">
+                <input class="file-input" type="file" :accept="message.message_type === 'image' ? 'image/*' : 'video/mp4,video/quicktime'" @change="uploadPrimary($event, index)" />
+                <ElProgress v-if="uploadingMessageIndex === index" :percentage="100" :indeterminate="true" />
+                <ElImage v-if="message.message_type === 'image' && message.content" class="large-preview" :src="message.content" fit="contain" />
+                <video v-if="message.message_type === 'video' && message.content" class="large-video" :src="message.content" :poster="message.preview_url || undefined" controls></video>
+              </ElFormItem>
+              <ElFormItem v-if="message.message_type === 'video'" label="视频封面（上传视频后自动生成，也可重新上传）">
+                <input class="file-input" type="file" accept="image/*" @change="uploadCover($event, index)" />
+                <ElImage v-if="message.preview_url" class="cover-preview" :src="message.preview_url" fit="cover" />
+              </ElFormItem>
+            </template>
+          </div>
+        </div>
+        <div class="add-message-actions">
+          <span>添加消息：</span>
+          <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('text')">+ 文本</ElButton>
+          <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('image')">+ 图片</ElButton>
+          <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('video')">+ 视频</ElButton>
+        </div>
         <ElFormItem label="节点状态"><ElSwitch v-model="stepForm.enabled" active-text="启用" inactive-text="停用" /></ElFormItem>
       </ElForm>
       <template #footer><ElButton @click="stepDialog = false">取消</ElButton><ElButton type="primary" :loading="savingStep" @click="saveStep">保存节点</ElButton></template>
@@ -166,7 +204,7 @@
 
     <ElDialog v-model="testDialog" title="测试发送" width="460px">
       <p>发送给：{{ testContact?.display_name || testContact?.wc_id }}</p>
-      <ElSelect v-model="testStepId" placeholder="选择一个节点" style="width: 100%"><ElOption v-for="step in steps" :key="step.id" :label="`D${step.day_offset} ${step.send_time} · ${typeText(step.message_type)}`" :value="step.id" /></ElSelect>
+      <ElSelect v-model="testStepId" placeholder="选择一个节点" style="width: 100%"><ElOption v-for="step in steps" :key="step.id" :label="`D${step.day_offset} ${step.send_time} · ${stepMessages(step).length} 条消息`" :value="step.id" /></ElSelect>
       <template #footer><ElButton @click="testDialog = false">取消</ElButton><ElButton type="primary" :loading="testing" @click="confirmTestSend">加入发送队列</ElButton></template>
     </ElDialog>
   </ContentWrap>
@@ -186,6 +224,7 @@ import {
   updateUnpurchasedSop,
   updateUnpurchasedSopStep,
   uploadUnpurchasedSopMedia,
+  type SopMessageItem,
   type SopMessageType,
   type SopStepPayload,
   type UnpurchasedSopConfig,
@@ -203,8 +242,10 @@ const syncing = ref(false)
 const stepDialog = ref(false)
 const editingId = ref<number>()
 const savingStep = ref(false)
-const uploadingPrimary = ref(false)
-const stepForm = reactive<SopStepPayload>({ day_offset: 0, send_time: '10:00', message_type: 'text', content: '', preview_url: '', position: 0, enabled: true })
+const uploadingMessageIndex = ref<number>()
+const dragMessageIndex = ref<number>()
+const emptyMessage = (message_type: SopMessageType = 'text'): SopMessageItem => ({ message_type, content: '', preview_url: '' })
+const stepForm = reactive<SopStepPayload>({ day_offset: 0, send_time: '10:00', messages: [emptyMessage()], position: 0, enabled: true })
 const contacts = ref<UnpurchasedSopContact[]>([])
 const contactsTotal = ref(0)
 const contactsLoading = ref(false)
@@ -241,16 +282,37 @@ const syncContacts = async () => {
   } finally { syncing.value = false }
 }
 
-const resetStep = () => Object.assign(stepForm, { day_offset: 0, send_time: config.send_window_start || '10:00', message_type: 'text' as SopMessageType, content: '', preview_url: '', position: steps.value.length, enabled: true })
+const stepMessages = (step: UnpurchasedSopStep): SopMessageItem[] => step.messages?.length ? step.messages : [{ message_type: step.message_type, content: step.content, preview_url: step.preview_url }]
+const deliveryMessageSummary = (delivery: UnpurchasedSopDelivery) => delivery.messages?.length ? delivery.messages.map((message) => typeText(message.message_type)).join(' → ') : delivery.content
+const resetStep = () => Object.assign(stepForm, { day_offset: 0, send_time: config.send_window_start || '10:00', messages: [emptyMessage()], position: steps.value.length, enabled: true })
 const openCreate = () => { editingId.value = undefined; resetStep(); stepDialog.value = true }
-const openEdit = (step: UnpurchasedSopStep) => { editingId.value = step.id; Object.assign(stepForm, { day_offset: step.day_offset, send_time: step.send_time, message_type: step.message_type, content: step.content, preview_url: step.preview_url || '', position: step.position, enabled: step.enabled }); stepDialog.value = true }
+const openEdit = (step: UnpurchasedSopStep) => { editingId.value = step.id; Object.assign(stepForm, { day_offset: step.day_offset, send_time: step.send_time, messages: stepMessages(step).map((message) => ({ ...message, preview_url: message.preview_url || '' })), position: step.position, enabled: step.enabled }); stepDialog.value = true }
+
+const addMessage = (messageType: SopMessageType) => { if (stepForm.messages.length < 20) stepForm.messages.push(emptyMessage(messageType)) }
+const removeMessage = (index: number) => { if (stepForm.messages.length > 1) stepForm.messages.splice(index, 1) }
+const moveMessage = (index: number, offset: number) => {
+  const target = index + offset
+  if (target < 0 || target >= stepForm.messages.length) return
+  const [message] = stepForm.messages.splice(index, 1)
+  stepForm.messages.splice(target, 0, message)
+}
+const dropMessage = (target: number) => {
+  const source = dragMessageIndex.value
+  dragMessageIndex.value = undefined
+  if (source === undefined || source === target) return
+  const [message] = stepForm.messages.splice(source, 1)
+  stepForm.messages.splice(target, 0, message)
+}
+const changeMessageType = (message: SopMessageItem) => { message.content = ''; message.preview_url = '' }
 
 const saveStep = async () => {
-  if (!stepForm.content.trim()) return ElMessage.warning(stepForm.message_type === 'text' ? '请输入消息内容' : '请先上传媒体文件')
-  if (stepForm.message_type === 'video' && !stepForm.preview_url) return ElMessage.warning('视频必须有封面图')
+  const emptyIndex = stepForm.messages.findIndex((message) => !message.content.trim())
+  if (emptyIndex >= 0) return ElMessage.warning(`请完善第 ${emptyIndex + 1} 条消息内容`)
+  const videoWithoutCover = stepForm.messages.findIndex((message) => message.message_type === 'video' && !message.preview_url)
+  if (videoWithoutCover >= 0) return ElMessage.warning(`第 ${videoWithoutCover + 1} 条视频必须有封面图`)
   savingStep.value = true
   try {
-    const payload = { ...stepForm, content: stepForm.content.trim(), preview_url: stepForm.preview_url || undefined }
+    const payload = { ...stepForm, messages: stepForm.messages.map((message) => ({ ...message, content: message.content.trim(), preview_url: message.preview_url || undefined })) }
     if (editingId.value) await updateUnpurchasedSopStep(editingId.value, payload)
     else await createUnpurchasedSopStep(payload)
     ElMessage.success('节点已保存')
@@ -260,36 +322,40 @@ const saveStep = async () => {
 }
 
 const removeStep = async (step: UnpurchasedSopStep) => {
-  await ElMessageBox.confirm(`确认删除 D${step.day_offset} 的${typeText(step.message_type)}节点？历史发送记录仍会保留。`, '删除节点', { type: 'warning' })
+  await ElMessageBox.confirm(`确认删除 D${step.day_offset} 的组合节点（${stepMessages(step).length} 条消息）？历史发送记录仍会保留。`, '删除节点', { type: 'warning' })
   await deleteUnpurchasedSopStep(step.id)
   ElMessage.success('节点已删除')
   await load()
 }
 
-const uploadPrimary = async (event: Event) => {
+const uploadPrimary = async (event: Event, index: number) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  uploadingPrimary.value = true
+  const message = stepForm.messages[index]
+  if (!message) return
+  uploadingMessageIndex.value = index
   try {
     const media = await uploadUnpurchasedSopMedia(file)
-    stepForm.content = media.url
-    if (stepForm.message_type === 'video') {
+    message.content = media.url
+    if (message.message_type === 'video') {
       try {
         const cover = await createVideoCover(file)
-        stepForm.preview_url = (await uploadUnpurchasedSopMedia(cover)).url
+        message.preview_url = (await uploadUnpurchasedSopMedia(cover)).url
       } catch { ElMessage.warning('视频已上传，请补充上传封面图') }
     }
     ElMessage.success('媒体上传成功')
-  } finally { uploadingPrimary.value = false; input.value = '' }
+  } finally { uploadingMessageIndex.value = undefined; input.value = '' }
 }
 
-const uploadCover = async (event: Event) => {
+const uploadCover = async (event: Event, index: number) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
+  const message = stepForm.messages[index]
+  if (!message) return
   const media = await uploadUnpurchasedSopMedia(file)
-  stepForm.preview_url = media.url
+  message.preview_url = media.url
   if (media.size > 50 * 1024) ElMessage.warning('Eyun建议视频封面控制在50KB以内，当前封面可能影响发送速度')
   ElMessage.success('封面上传成功')
   input.value = ''
@@ -330,4 +396,5 @@ onMounted(load)
 
 <style scoped>
 .page-head,.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-head h1,.section-head h2{margin:0;color:#18352d}.page-head p,.section-head p{margin:7px 0 0;color:#708079}.head-actions{display:flex;gap:10px}.metrics{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:12px;margin:20px 0}.metrics div,.panel{background:#fff;border:1px solid #e2e9e6;border-radius:12px}.metrics div{padding:16px}.metrics span{display:block;color:#75857f;font-size:13px}.metrics strong{display:block;margin-top:8px;color:#18352d;font-size:25px}.sop-tabs{margin-top:18px}.panel{padding:18px}.config-panel{margin-bottom:20px}.config-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.time-range{display:flex;align-items:center;gap:8px}.sync-info{color:#84918c;font-size:12px}.section-head{margin:24px 0 12px}.message-text{display:-webkit-box;overflow:hidden;-webkit-line-clamp:3;-webkit-box-orient:vertical;white-space:pre-wrap}.media-thumb{width:90px;height:64px;border-radius:8px}.video-cell video{width:150px;max-height:100px;border-radius:8px;background:#111}.step-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.file-input{display:block;width:100%;padding:10px;border:1px dashed #aebdb7;border-radius:8px}.large-preview,.large-video{display:block;width:100%;max-height:300px;margin-top:12px;border-radius:8px;background:#f3f6f5}.cover-preview{width:160px;height:90px;margin-top:10px;border-radius:8px}.tag{margin-right:5px}small{display:block;margin-top:4px;color:#8b9994}.el-pagination{justify-content:flex-end;margin-top:16px}@media(max-width:1000px){.metrics{grid-template-columns:repeat(2,1fr)}.config-grid{grid-template-columns:1fr 1fr}}@media(max-width:640px){.page-head,.section-head{display:block}.head-actions{margin-top:14px}.metrics,.config-grid,.step-grid{grid-template-columns:1fr}}
+.sequence-tag{margin:2px 4px 2px 0}.sequence-preview{display:flex;flex-direction:column;gap:8px}.sequence-preview-item{display:flex;align-items:flex-start;gap:8px}.sequence-number{display:flex;flex:0 0 22px;align-items:center;justify-content:center;height:22px;border-radius:50%;background:#eef4f1;color:#567068;font-size:12px}.message-editor-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 10px}.message-editor-head small{margin:0}.message-editor-list{display:flex;flex-direction:column;gap:12px;max-height:55vh;overflow:auto;padding-right:4px}.message-editor-card{padding:14px 14px 2px;border:1px solid #dce6e2;border-radius:10px;background:#fbfdfc}.message-editor-card:hover{border-color:#9ebdb2}.message-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.drag-handle{color:#4f675f;cursor:grab;font-weight:600}.add-message-actions{display:flex;align-items:center;gap:8px;margin:14px 0 20px;padding:12px;border:1px dashed #b8c8c2;border-radius:10px}.add-message-actions span{color:#64756f;font-size:13px}@media(max-width:640px){.message-editor-head,.add-message-actions{align-items:flex-start;flex-wrap:wrap}.message-editor-list{max-height:none}}
 </style>

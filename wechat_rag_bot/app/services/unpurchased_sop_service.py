@@ -91,13 +91,16 @@ def create_unpurchased_sop_step(request: UnpurchasedSopStepRequest) -> dict[str,
         sop = _get_or_create_sop(session)
         _validate_step_window(sop, request.send_time)
         now = _utcnow()
+        messages = _request_messages(request)
+        first = messages[0]
         row = UnpurchasedSopStepModel(
             sop_id=sop.id,
             day_offset=request.day_offset,
             send_time=request.send_time,
-            message_type=request.message_type,
-            content=request.content.strip(),
-            preview_url=(request.preview_url or "").strip() or None,
+            message_type=first["message_type"],
+            content=first["content"],
+            preview_url=first.get("preview_url"),
+            messages_json=json.dumps(messages, ensure_ascii=False),
             position=request.position,
             enabled=request.enabled,
             created_at=now,
@@ -118,9 +121,12 @@ def update_unpurchased_sop_step(
         _validate_step_window(sop, request.send_time)
         row.day_offset = request.day_offset
         row.send_time = request.send_time
-        row.message_type = request.message_type
-        row.content = request.content.strip()
-        row.preview_url = (request.preview_url or "").strip() or None
+        messages = _request_messages(request)
+        first = messages[0]
+        row.message_type = first["message_type"]
+        row.content = first["content"]
+        row.preview_url = first.get("preview_url")
+        row.messages_json = json.dumps(messages, ensure_ascii=False)
         row.position = request.position
         row.enabled = request.enabled
         row.updated_at = _utcnow()
@@ -386,14 +392,18 @@ async def _create_and_queue_delivery(
             _exit_enrollment(enrollment, "purchase_tag_added", now)
             session.commit()
             return False
+        messages = _step_messages(step)
+        first = messages[0]
         delivery = UnpurchasedSopDeliveryModel(
             enrollment_id=enrollment.id,
             step_id=step.id,
             due_at=due_at,
             status="dry_run" if sop.dry_run else "creating",
-            message_type=step.message_type,
-            content_snapshot=step.content,
-            preview_url_snapshot=step.preview_url,
+            message_type=first["message_type"],
+            content_snapshot=first["content"],
+            preview_url_snapshot=first.get("preview_url"),
+            messages_snapshot_json=json.dumps(messages, ensure_ascii=False),
+            outbound_message_ids_json="[]",
             attempts=0,
             created_at=now,
             updated_at=now,
@@ -410,24 +420,12 @@ async def _create_and_queue_delivery(
         delivery_id = delivery.id
         w_id = contact.current_w_id or get_settings().eyun_wid
         wc_id = contact.wc_id
-        message_type = step.message_type
-        content = step.content
-        preview_url = step.preview_url
-
-    outbound_content = content
-    if message_type == "video":
-        outbound_content = json.dumps(
-            {"path": content, "thumb_path": preview_url or ""},
-            ensure_ascii=False,
-        )
     try:
-        outbound = await enqueue_eyun_outbound(
+        outbounds = await _enqueue_sop_message_sequence(
             w_id=w_id,
             wc_id=wc_id,
-            content=outbound_content,
-            source_batch_key=f"unpurchased_sop:{delivery_id}",
-            message_type=message_type,
-            due_at=now,
+            messages=messages,
+            source_key=f"unpurchased_sop:{delivery_id}",
         )
     except Exception as exc:
         sync_sop_delivery_status(delivery_id, "failed", str(exc))
@@ -436,7 +434,9 @@ async def _create_and_queue_delivery(
         delivery = session.get(UnpurchasedSopDeliveryModel, delivery_id)
         if delivery:
             delivery.status = "queued"
-            delivery.outbound_message_id = int(outbound["id"])
+            outbound_ids = [int(outbound["id"]) for outbound in outbounds]
+            delivery.outbound_message_id = outbound_ids[0]
+            delivery.outbound_message_ids_json = json.dumps(outbound_ids)
             delivery.updated_at = _utcnow()
             session.commit()
     return True
@@ -448,24 +448,42 @@ async def test_send_unpurchased_sop_step(step_id: int, contact_id: int) -> dict[
         contact = session.get(EyunContactModel, contact_id)
         if contact is None or contact.status != "active":
             raise AppError(ErrorCode.REQUEST_INVALID, message="联系人不存在或已不是好友", status_code=404)
-        content = step.content
-        if step.message_type == "video":
-            content = json.dumps(
-                {"path": step.content, "thumb_path": step.preview_url or ""},
-                ensure_ascii=False,
-            )
+        messages = _step_messages(step)
         w_id = contact.current_w_id or get_settings().eyun_wid
         wc_id = contact.wc_id
-        message_type = step.message_type
-    outbound = await enqueue_eyun_outbound(
+    outbounds = await _enqueue_sop_message_sequence(
         w_id=w_id,
         wc_id=wc_id,
-        content=content,
-        source_batch_key=f"unpurchased_sop_test:{step_id}:{contact_id}",
-        message_type=message_type,
-        due_at=_utcnow(),
+        messages=messages,
+        source_key=f"unpurchased_sop_test:{step_id}:{contact_id}",
     )
-    return {"outbound_message_id": outbound["id"], "status": outbound["status"]}
+    outbound_ids = [int(outbound["id"]) for outbound in outbounds]
+    return {
+        "outbound_message_id": outbound_ids[0],
+        "outbound_message_ids": outbound_ids,
+        "status": outbounds[0]["status"],
+    }
+
+
+async def _enqueue_sop_message_sequence(
+    *, w_id: str, wc_id: str, messages: list[dict[str, Any]], source_key: str
+) -> list[dict[str, Any]]:
+    outbounds: list[dict[str, Any]] = []
+    dependency_id: int | None = None
+    total = len(messages)
+    for index, message in enumerate(messages):
+        outbound = await enqueue_eyun_outbound(
+            w_id=w_id,
+            wc_id=wc_id,
+            content=_message_outbound_content(message),
+            source_batch_key=f"{source_key}:{index}:{total}",
+            message_type=message["message_type"],
+            depends_on_outbound_id=dependency_id,
+            due_at=_utcnow(),
+        )
+        outbounds.append(outbound)
+        dependency_id = int(outbound["id"])
+    return outbounds
 
 
 def list_unpurchased_sop_contacts(page: int = 1, page_size: int = 50) -> dict[str, Any]:
@@ -580,15 +598,21 @@ def pause_unpurchased_sop_for_customer(user_id: str, hours: int = 24) -> None:
                 )
                 if exists:
                     continue
+                messages = _step_messages(step)
+                first = messages[0]
                 session.add(
                     UnpurchasedSopDeliveryModel(
                         enrollment_id=enrollment.id,
                         step_id=step.id,
                         due_at=due_at,
                         status="skipped_reply",
-                        message_type=step.message_type,
-                        content_snapshot=step.content,
-                        preview_url_snapshot=step.preview_url,
+                        message_type=first["message_type"],
+                        content_snapshot=first["content"],
+                        preview_url_snapshot=first.get("preview_url"),
+                        messages_snapshot_json=json.dumps(
+                            messages, ensure_ascii=False
+                        ),
+                        outbound_message_ids_json="[]",
                         attempts=0,
                         last_error="客户回复后24小时内暂停自动触达",
                         created_at=now,
@@ -601,15 +625,38 @@ def pause_unpurchased_sop_for_customer(user_id: str, hours: int = 24) -> None:
 def sync_sop_delivery_from_outbound(
     source_batch_key: str | None, status: str, error: str | None = None
 ) -> None:
-    delivery_id = _delivery_id_from_source(source_batch_key)
+    delivery_id, message_index, message_total = _delivery_source_parts(
+        source_batch_key
+    )
     if delivery_id is not None:
-        sync_sop_delivery_status(delivery_id, status, error)
+        sync_sop_delivery_status(
+            delivery_id,
+            status,
+            error,
+            message_index=message_index,
+            message_total=message_total,
+        )
 
 
-def sync_sop_delivery_status(delivery_id: int, status: str, error: str | None = None) -> None:
+def sync_sop_delivery_status(
+    delivery_id: int,
+    status: str,
+    error: str | None = None,
+    *,
+    message_index: int = 0,
+    message_total: int = 1,
+) -> None:
     with _get_session() as session:
         row = session.get(UnpurchasedSopDeliveryModel, delivery_id)
         if row is None:
+            return
+        if row.status == "failed" and status == "cancelled":
+            return
+        if status == "sent" and message_index < message_total - 1:
+            row.status = "queued"
+            row.last_error = None
+            row.updated_at = _utcnow()
+            session.commit()
             return
         first_sent_transition = status == "sent" and row.status != "sent"
         row.status = status
@@ -626,11 +673,7 @@ def sync_sop_delivery_status(delivery_id: int, status: str, error: str | None = 
                     ConversationMemoryModel.trace_id == trace_id
                 )
             ):
-                memory_content = row.content_snapshot
-                if row.message_type == "image":
-                    memory_content = f"[未购SOP发送图片] {row.content_snapshot}"
-                elif row.message_type == "video":
-                    memory_content = f"[未购SOP发送视频] {row.content_snapshot}"
+                memory_content = _delivery_memory_content(row)
                 session.add(
                     ConversationMemoryModel(
                         user_id=contact.wc_id,
@@ -650,12 +693,20 @@ def sync_sop_delivery_status(delivery_id: int, status: str, error: str | None = 
 
 
 def _delivery_id_from_source(value: str | None) -> int | None:
+    return _delivery_source_parts(value)[0]
+
+
+def _delivery_source_parts(value: str | None) -> tuple[int | None, int, int]:
     if not value or not value.startswith("unpurchased_sop:"):
-        return None
+        return None, 0, 1
+    parts = value.split(":")
     try:
-        return int(value.split(":", 1)[1])
-    except ValueError:
-        return None
+        delivery_id = int(parts[1])
+        message_index = int(parts[2]) if len(parts) > 2 else 0
+        message_total = int(parts[3]) if len(parts) > 3 else 1
+        return delivery_id, message_index, max(1, message_total)
+    except (ValueError, IndexError):
+        return None, 0, 1
 
 
 def _get_session() -> Session:
@@ -703,6 +754,33 @@ def _get_session() -> Session:
             for column_name, statement in sop_column_migrations.items():
                 if column_name not in sop_columns:
                     connection.execute(text(statement))
+        table_column_migrations = {
+            "unpurchased_sop_steps": {
+                "messages_json": (
+                    "ALTER TABLE unpurchased_sop_steps "
+                    "ADD COLUMN messages_json TEXT DEFAULT '[]'"
+                )
+            },
+            "unpurchased_sop_deliveries": {
+                "messages_snapshot_json": (
+                    "ALTER TABLE unpurchased_sop_deliveries "
+                    "ADD COLUMN messages_snapshot_json TEXT DEFAULT '[]'"
+                ),
+                "outbound_message_ids_json": (
+                    "ALTER TABLE unpurchased_sop_deliveries "
+                    "ADD COLUMN outbound_message_ids_json TEXT DEFAULT '[]'"
+                ),
+            },
+        }
+        with engine.begin() as connection:
+            for table_name, migrations in table_column_migrations.items():
+                existing = {
+                    column["name"]
+                    for column in inspect(engine).get_columns(table_name)
+                }
+                for column_name, statement in migrations.items():
+                    if column_name not in existing:
+                        connection.execute(text(statement))
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[url] = factory
     return factory()
@@ -924,6 +1002,7 @@ def _step_to_dict(row: UnpurchasedSopStepModel) -> dict[str, Any]:
         "message_type": row.message_type,
         "content": row.content,
         "preview_url": row.preview_url,
+        "messages": _step_messages(row),
         "position": row.position,
         "enabled": row.enabled,
         "created_at": _iso(row.created_at),
@@ -970,12 +1049,111 @@ def _delivery_to_dict(
         "message_type": row.message_type,
         "content": row.content_snapshot,
         "preview_url": row.preview_url_snapshot,
+        "messages": _delivery_messages(row),
         "outbound_message_id": row.outbound_message_id,
+        "outbound_message_ids": _json_int_list(row.outbound_message_ids_json),
         "attempts": row.attempts,
         "last_error": row.last_error,
         "sent_at": _iso(row.sent_at),
         "created_at": _iso(row.created_at),
     }
+
+
+def _request_messages(request: UnpurchasedSopStepRequest) -> list[dict[str, Any]]:
+    return [
+        {
+            "message_type": message.message_type,
+            "content": message.content,
+            "preview_url": (message.preview_url or "").strip() or None,
+        }
+        for message in request.messages
+    ]
+
+
+def _step_messages(row: UnpurchasedSopStepModel) -> list[dict[str, Any]]:
+    return _stored_messages(
+        row.messages_json,
+        row.message_type,
+        row.content,
+        row.preview_url,
+    )
+
+
+def _delivery_messages(row: UnpurchasedSopDeliveryModel) -> list[dict[str, Any]]:
+    return _stored_messages(
+        row.messages_snapshot_json,
+        row.message_type,
+        row.content_snapshot,
+        row.preview_url_snapshot,
+    )
+
+
+def _stored_messages(
+    raw: str | None,
+    fallback_type: str,
+    fallback_content: str,
+    fallback_preview_url: str | None,
+) -> list[dict[str, Any]]:
+    try:
+        values = json.loads(raw or "[]")
+    except (json.JSONDecodeError, TypeError):
+        values = []
+    messages = []
+    if isinstance(values, list):
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            message_type = str(value.get("message_type") or "")
+            content = str(value.get("content") or "").strip()
+            if message_type in {"text", "image", "video"} and content:
+                messages.append(
+                    {
+                        "message_type": message_type,
+                        "content": content,
+                        "preview_url": str(value.get("preview_url") or "") or None,
+                    }
+                )
+    if messages:
+        return messages
+    return [
+        {
+            "message_type": fallback_type,
+            "content": fallback_content,
+            "preview_url": fallback_preview_url,
+        }
+    ]
+
+
+def _message_outbound_content(message: dict[str, Any]) -> str:
+    if message["message_type"] == "video":
+        return json.dumps(
+            {
+                "path": message["content"],
+                "thumb_path": message.get("preview_url") or "",
+            },
+            ensure_ascii=False,
+        )
+    return str(message["content"])
+
+
+def _delivery_memory_content(row: UnpurchasedSopDeliveryModel) -> str:
+    parts = []
+    for message in _delivery_messages(row):
+        if message["message_type"] == "image":
+            parts.append(f"[未购SOP发送图片] {message['content']}")
+        elif message["message_type"] == "video":
+            parts.append(f"[未购SOP发送视频] {message['content']}")
+        else:
+            parts.append(str(message["content"]))
+    return "\n".join(parts)
+
+
+def _json_int_list(raw: str | None) -> list[int]:
+    try:
+        values = json.loads(raw or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [int(value) for value in values if isinstance(value, int)]
 
 
 def _aware(value: datetime) -> datetime:

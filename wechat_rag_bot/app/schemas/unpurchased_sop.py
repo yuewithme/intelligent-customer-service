@@ -40,19 +40,18 @@ class UnpurchasedSopUpdateRequest(BaseModel):
         return self
 
 
-class UnpurchasedSopStepRequest(BaseModel):
-    day_offset: int = Field(ge=0, le=3650)
-    send_time: str
+class UnpurchasedSopMessageRequest(BaseModel):
     message_type: MessageType
     content: str = Field(min_length=1, max_length=20000)
     preview_url: str | None = Field(default=None, max_length=4000)
-    position: int = Field(default=0, ge=0)
-    enabled: bool = True
 
-    @field_validator("send_time")
+    @field_validator("content")
     @classmethod
-    def validate_time(cls, value: str) -> str:
-        return _validate_hhmm(value)
+    def validate_content(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("消息内容不能为空")
+        return value
 
     @model_validator(mode="after")
     def validate_media(self):
@@ -66,6 +65,42 @@ class UnpurchasedSopStepRequest(BaseModel):
             ("http://", "https://")
         ):
             raise ValueError("视频封面必须使用公网 HTTP(S) 地址")
+        return self
+
+
+class UnpurchasedSopStepRequest(BaseModel):
+    day_offset: int = Field(ge=0, le=3650)
+    send_time: str
+    messages: list[UnpurchasedSopMessageRequest] = Field(
+        default_factory=list, max_length=20
+    )
+    message_type: MessageType | None = None
+    content: str | None = Field(default=None, max_length=20000)
+    preview_url: str | None = Field(default=None, max_length=4000)
+    position: int = Field(default=0, ge=0)
+    enabled: bool = True
+
+    @field_validator("send_time")
+    @classmethod
+    def validate_time(cls, value: str) -> str:
+        return _validate_hhmm(value)
+
+    @model_validator(mode="after")
+    def normalize_messages(self):
+        if not self.messages:
+            if self.message_type is None or not (self.content or "").strip():
+                raise ValueError("节点至少需要一条消息")
+            self.messages = [
+                UnpurchasedSopMessageRequest(
+                    message_type=self.message_type,
+                    content=str(self.content),
+                    preview_url=self.preview_url,
+                )
+            ]
+        first = self.messages[0]
+        self.message_type = first.message_type
+        self.content = first.content
+        self.preview_url = first.preview_url
         return self
 
 

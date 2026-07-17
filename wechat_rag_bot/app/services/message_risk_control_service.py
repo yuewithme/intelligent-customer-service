@@ -179,6 +179,7 @@ async def enqueue_eyun_outbound(
     source_batch_key: str | None,
     message_type: str = "text",
     conversation_message_id: int | None = None,
+    depends_on_outbound_id: int | None = None,
     due_at: datetime | None = None,
 ) -> dict[str, Any]:
     now = utcnow()
@@ -188,6 +189,7 @@ async def enqueue_eyun_outbound(
         content=_encode_outbound_content(message_type, content),
         source_batch_key=source_batch_key,
         conversation_message_id=conversation_message_id,
+        depends_on_outbound_id=depends_on_outbound_id,
         status="queued",
         due_at=due_at or now + timedelta(seconds=random_reply_delay_seconds()),
         attempts=0,
@@ -249,6 +251,27 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             .limit(limit)
         ).all()
         for row in rows:
+            if row.depends_on_outbound_id:
+                dependency = session.get(
+                    EyunOutboundMessageModel, row.depends_on_outbound_id
+                )
+                if dependency is None or dependency.status in {
+                    "failed",
+                    "cancelled",
+                }:
+                    row.status = "cancelled"
+                    row.last_error = "前一条组合消息发送失败"
+                    row.updated_at = now
+                    session.commit()
+                    _sync_sop_outbound(
+                        row.source_batch_key, row.status, row.last_error
+                    )
+                    continue
+                if dependency.status != "sent":
+                    row.due_at = now + timedelta(seconds=5)
+                    row.updated_at = now
+                    session.commit()
+                    continue
             if not _validate_sop_outbound(row.source_batch_key):
                 row.status = "cancelled"
                 row.last_error = "SOP发送前条件已不满足"
@@ -766,6 +789,13 @@ def _ensure_risk_control_columns(factory: sessionmaker) -> None:
                     "ADD COLUMN conversation_message_id INTEGER"
                 )
             )
+        if "depends_on_outbound_id" not in outbound_columns:
+            session.execute(
+                text(
+                    "ALTER TABLE eyun_outbound_messages "
+                    "ADD COLUMN depends_on_outbound_id INTEGER"
+                )
+            )
         message_columns = {
             column["name"]
             for column in inspect(bind).get_columns("conversation_messages")
@@ -818,6 +848,7 @@ def _outbound_to_dict(row: EyunOutboundMessageModel) -> dict[str, Any]:
         "content": row.content,
         "source_batch_key": row.source_batch_key,
         "conversation_message_id": row.conversation_message_id,
+        "depends_on_outbound_id": row.depends_on_outbound_id,
         "status": row.status,
         "due_at": _ensure_aware(row.due_at),
         "attempts": row.attempts,

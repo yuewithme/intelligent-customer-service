@@ -107,6 +107,9 @@ class EyunOutboundMessageModel(Base):
     conversation_message_id: Mapped[int | None] = mapped_column(
         Integer, index=True, nullable=True
     )
+    depends_on_outbound_id: Mapped[int | None] = mapped_column(
+        Integer, index=True, nullable=True
+    )
     status: Mapped[str] = mapped_column(String(32), index=True, default="queued")
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -292,6 +295,7 @@ class UnpurchasedSopStepModel(Base):
     message_type: Mapped[str] = mapped_column(String(32), index=True)
     content: Mapped[str] = mapped_column(Text)
     preview_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    messages_json: Mapped[str] = mapped_column(Text, default="[]")
     position: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, index=True, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -329,7 +333,9 @@ class UnpurchasedSopDeliveryModel(Base):
     message_type: Mapped[str] = mapped_column(String(32))
     content_snapshot: Mapped[str] = mapped_column(Text)
     preview_url_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    messages_snapshot_json: Mapped[str] = mapped_column(Text, default="[]")
     outbound_message_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    outbound_message_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
