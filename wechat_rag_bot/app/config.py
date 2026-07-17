@@ -26,6 +26,7 @@ class Settings(BaseSettings):
         "testserver",
         "124.160.45.66",
         "124.160.45.66:*",
+        "intelligent-customer-service-r63g.onrender.com",
     ]
     mcp_allowed_origins: list[str] = []
     admin_gate_enabled: bool = True
