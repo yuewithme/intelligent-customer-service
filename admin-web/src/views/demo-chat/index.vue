@@ -7,7 +7,10 @@
           <h1>销售 Agent 测试台</h1>
           <p>像真实客户一样提问，体验知识问答、需求理解和销售推进。</p>
         </div>
-        <a class="admin-link" href="/workbench">进入管理后台</a>
+        <a
+          class="admin-link"
+          href="http://124.160.45.66:21873/gate?redirect=/workbench"
+        >进入管理后台</a>
       </header>
 
       <div class="customer-bar">
