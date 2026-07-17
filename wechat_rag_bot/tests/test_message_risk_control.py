@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -406,6 +407,43 @@ async def test_enqueue_outbound_adds_random_due_at(monkeypatch):
 
     assert row["due_at"] == now + timedelta(seconds=7)
     assert row["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_enqueue_outbound_always_creates_workbench_message(monkeypatch):
+    from app.services.message_risk_control_service import (
+        _get_session,
+        enqueue_wechat_outbound,
+    )
+
+    now = datetime(2026, 7, 17, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.services.message_risk_control_service.utcnow", lambda: now)
+
+    outbound = await enqueue_wechat_outbound(
+        w_id="wid",
+        wc_id="customer",
+        content="SOP message",
+        source_batch_key="unpurchased_sop:42:0:1",
+        source_type="unpurchased_sop",
+        source_id="42",
+        sender_type="system",
+        sender_id="unpurchased_sop",
+        due_at=now,
+    )
+
+    assert outbound["conversation_message_id"] is not None
+    with _get_session() as session:
+        message = session.get(
+            ConversationMessageModel, outbound["conversation_message_id"]
+        )
+        queue_row = session.get(EyunOutboundMessageModel, outbound["id"])
+
+    assert queue_row.conversation_message_id == message.id
+    assert message.conversation_id == "wechat:customer:default"
+    assert message.content == "SOP message"
+    assert message.sender_type == "system"
+    assert message.delivery_status == "queued"
+    assert json.loads(message.metadata_json)["source_type"] == "unpurchased_sop"
 
 
 @pytest.mark.asyncio

@@ -185,41 +185,80 @@ async def enqueue_wechat_outbound(
     material_id: int | None = None,
     bulk_job_id: int | None = None,
     due_at: datetime | None = None,
+    channel: str = "wechat",
+    user_id: str | None = None,
+    session_id: str | None = "default",
+    tenant_id: str = "tenant_default",
+    sender_type: str = "ai",
+    sender_id: str | None = "ai",
+    source_type: str | None = None,
+    source_id: str | None = None,
 ) -> dict[str, Any]:
-    if material_id is None and message_type in {"image", "video"}:
-        from app.services.eyun_material_service import materialize_eyun_outbound_media
-
-        material = await materialize_eyun_outbound_media(
-            w_id=w_id, message_type=message_type, content=content
+    original_message_type = message_type
+    original_content = content
+    if conversation_message_id is None:
+        origin = source_type or _source_type_from_batch_key(source_batch_key)
+        conversation_message = await ensure_outbound_conversation_message(
+            channel=channel,
+            user_id=(user_id or wc_id).strip(),
+            session_id=session_id,
+            tenant_id=tenant_id,
+            content=original_content,
+            message_type=original_message_type,
+            sender_type=sender_type,
+            sender_id=sender_id,
+            trace_id=source_batch_key,
+            delivery_status="queued",
+            route=origin,
+            reconcile_pending=False,
+            metadata={
+                "origin": origin,
+                "source_type": origin,
+                "source_id": source_id,
+                "source_batch_key": source_batch_key,
+                "w_id": w_id,
+                "wc_id": wc_id,
+            },
         )
-        material_id = int(material["id"])
-        message_type = f"received_{material['media_type']}"
-        content = ""
-    if material_id is not None:
-        from app.services.eyun_material_service import get_ready_material
+        conversation_message_id = int(conversation_message["id"])
+    try:
+        if material_id is None and message_type in {"image", "video"}:
+            from app.services.eyun_material_service import materialize_eyun_outbound_media
 
-        get_ready_material(material_id)
-    now = utcnow()
-    row = EyunOutboundMessageModel(
-        w_id=w_id,
-        wc_id=wc_id,
-        content=_encode_outbound_content(message_type, content),
-        source_batch_key=source_batch_key,
-        conversation_message_id=conversation_message_id,
-        depends_on_outbound_id=depends_on_outbound_id,
-        material_id=material_id,
-        bulk_job_id=bulk_job_id,
-        status="queued",
-        due_at=due_at or now + timedelta(seconds=random_reply_delay_seconds()),
-        attempts=0,
-        created_at=now,
-        updated_at=now,
-    )
-    with _get_session() as session:
-        session.add(row)
-        session.commit()
-        session.refresh(row)
-        return _outbound_to_dict(row)
+            material = await materialize_eyun_outbound_media(
+                w_id=w_id, message_type=message_type, content=content
+            )
+            material_id = int(material["id"])
+            message_type = f"received_{material['media_type']}"
+            content = ""
+        if material_id is not None:
+            from app.services.eyun_material_service import get_ready_material
+
+            get_ready_material(material_id)
+        now = utcnow()
+        row = EyunOutboundMessageModel(
+            w_id=w_id,
+            wc_id=wc_id,
+            content=_encode_outbound_content(message_type, content),
+            source_batch_key=source_batch_key,
+            conversation_message_id=conversation_message_id,
+            depends_on_outbound_id=depends_on_outbound_id,
+            material_id=material_id,
+            bulk_job_id=bulk_job_id,
+            status="queued",
+            due_at=due_at or now + timedelta(seconds=random_reply_delay_seconds()),
+            attempts=0,
+            created_at=now,
+            updated_at=now,
+        )
+        with _get_session() as session:
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return _outbound_to_dict(row)
+    except Exception:
+        update_outbound_message_delivery(conversation_message_id, status="failed")
+        raise
 
 
 async def enqueue_eyun_outbound(
@@ -300,6 +339,8 @@ async def enqueue_wechat_bulk_send(
         session.add(job)
         session.flush()
         job_id = job.id
+        session.commit()
+    try:
         for recipient_index, recipient in enumerate(recipients):
             wc_id = str(recipient.get("wc_id") or "").strip()
             if not wc_id:
@@ -307,28 +348,33 @@ async def enqueue_wechat_bulk_send(
             dependency_id: int | None = None
             due_at = now + timedelta(seconds=random_reply_delay_seconds())
             for item_index, item in enumerate(normalized_items):
-                row = EyunOutboundMessageModel(
+                outbound = await enqueue_wechat_outbound(
                     w_id=str(recipient["w_id"]).strip(),
                     wc_id=wc_id,
-                    content=_encode_outbound_content(
-                        str(item["message_type"]), str(item.get("content") or "")
-                    ),
+                    content=str(item.get("content") or ""),
                     source_batch_key=f"bulk:{job_id}:{recipient_index}:{item_index}",
+                    message_type=str(item["message_type"]),
                     depends_on_outbound_id=dependency_id,
                     material_id=item.get("material_id"),
                     bulk_job_id=job_id,
-                    status="queued",
                     due_at=due_at,
-                    attempts=0,
-                    created_at=now,
-                    updated_at=now,
+                    user_id=wc_id,
+                    source_type=source_type,
+                    source_id=source_id,
+                    sender_type="human" if created_by else "system",
+                    sender_id=created_by or "system",
                 )
-                session.add(row)
-                session.flush()
-                dependency_id = row.id
-                outbound_ids.append(row.id)
+                dependency_id = int(outbound["id"])
+                outbound_ids.append(dependency_id)
                 due_at += timedelta(seconds=random_outbound_spacing_seconds())
-        session.commit()
+    except Exception:
+        with _get_session() as session:
+            failed_job = session.get(EyunBulkSendJobModel, job_id)
+            if failed_job is not None:
+                failed_job.status = "failed"
+                failed_job.updated_at = utcnow()
+                session.commit()
+        raise
     return {
         "id": job_id,
         "status": "queued",
@@ -401,6 +447,10 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     _sync_sop_outbound(
                         row.source_batch_key, row.status, row.last_error
                     )
+                    if row.conversation_message_id:
+                        update_outbound_message_delivery(
+                            row.conversation_message_id, status="cancelled"
+                        )
                     continue
                 if dependency.status != "sent":
                     row.due_at = now + timedelta(seconds=5)
@@ -412,6 +462,10 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 row.last_error = "SOP发送前条件已不满足"
                 row.updated_at = now
                 session.commit()
+                if row.conversation_message_id:
+                    update_outbound_message_delivery(
+                        row.conversation_message_id, status="cancelled"
+                    )
                 continue
             if row.material_id is None:
                 legacy_type, legacy_content = _decode_outbound_content(row.content)
@@ -437,6 +491,10 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         _sync_sop_outbound(
                             row.source_batch_key, row.status, row.last_error
                         )
+                        if row.conversation_message_id:
+                            update_outbound_message_delivery(
+                                row.conversation_message_id, status=row.status
+                            )
                         continue
                     row.material_id = int(material["id"])
                     row.content = _encode_outbound_content(
@@ -457,6 +515,10 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             row.status = "sending"
             row.updated_at = now
             session.commit()
+            if row.conversation_message_id:
+                update_outbound_message_delivery(
+                    row.conversation_message_id, status="sending"
+                )
             send_result = None
             material_message: tuple[str, str] | None = None
             if row.material_id is not None:
@@ -758,6 +820,18 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
                 )
             return formatted
     return [{"type": "text", "content": answer} for answer in _answer_segments(chat_result)]
+
+
+def _source_type_from_batch_key(source_batch_key: str | None) -> str:
+    prefix = str(source_batch_key or "").partition(":")[0].strip()
+    return {
+        "activity": "activity",
+        "bulk": "bulk",
+        "unpurchased_sop": "unpurchased_sop",
+        "unpurchased_sop_test": "unpurchased_sop_test",
+        "workbench": "admin_workbench",
+        "image_description_prompt": "image_description_prompt",
+    }.get(prefix, prefix or "system")
 
 
 def is_first_eyun_inbound_message(session: Session, batch_key: str) -> bool:

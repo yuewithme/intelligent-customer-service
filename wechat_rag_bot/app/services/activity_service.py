@@ -240,11 +240,18 @@ async def send_activity(
             w_id=target["w_id"],
             wc_id=target["wc_id"],
             content=str(item["content"]),
-            source_batch_key=f"activity:{activity_id}",
+            source_batch_key=f"activity:{activity_id}:{conversation_id}:{index}",
             message_type=str(item["type"]),
             material_id=int(item["material_id"]) if item.get("material_id") else None,
             depends_on_outbound_id=dependency_id,
             due_at=due_at,
+            user_id=target["user_id"],
+            session_id=target["session_id"],
+            tenant_id=target["tenant_id"],
+            sender_type="human",
+            sender_id=operator_id,
+            source_type="activity",
+            source_id=str(activity_id),
         )
         dependency_id = int(outbound["id"])
         outbound_ids.append(dependency_id)

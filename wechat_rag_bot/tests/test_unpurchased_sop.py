@@ -462,7 +462,7 @@ async def test_direct_send_queues_selected_contacts(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_risk_queue_cancels_dependent_message_after_previous_failure(monkeypatch, tmp_path):
     _settings(monkeypatch, tmp_path)
-    from app.db.models import EyunOutboundMessageModel
+    from app.db.models import ConversationMessageModel, EyunOutboundMessageModel
     from app.services.message_risk_control_service import (
         _get_session as get_risk_session,
         enqueue_wechat_outbound,
@@ -495,6 +495,10 @@ async def test_risk_queue_cancels_dependent_message_after_previous_failure(monke
         dependent = session.get(EyunOutboundMessageModel, second["id"])
         assert dependent.status == "cancelled"
         assert dependent.last_error == "前一条组合消息发送失败"
+        workbench_message = session.get(
+            ConversationMessageModel, dependent.conversation_message_id
+        )
+        assert workbench_message.delivery_status == "cancelled"
 
 
 @pytest.mark.asyncio

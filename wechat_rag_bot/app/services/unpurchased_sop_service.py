@@ -545,6 +545,15 @@ async def _enqueue_sop_message_sequence(
             material_id=message.get("material_id"),
             depends_on_outbound_id=dependency_id,
             due_at=_utcnow(),
+            user_id=wc_id,
+            sender_type="system",
+            sender_id="unpurchased_sop",
+            source_type=(
+                "unpurchased_sop_test"
+                if source_key.startswith("unpurchased_sop_test:")
+                else "unpurchased_sop"
+            ),
+            source_id=source_key,
         )
         outbounds.append(outbound)
         dependency_id = int(outbound["id"])

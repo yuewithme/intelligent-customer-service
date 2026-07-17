@@ -111,6 +111,7 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
     _configure_db(monkeypatch, tmp_path, "opening-sync")
     monkeypatch.setenv("EYUN_OPENING_TEXT", "欢迎开场")
     monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://example.com/opening.jpg")
+    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "0")
     get_settings.cache_clear()
     now = datetime(2026, 7, 15, 8, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(risk_control, "utcnow", lambda: now)
@@ -119,7 +120,11 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
         del kwargs
         return {}
 
+    async def keep_queued(**kwargs):
+        return kwargs
+
     monkeypatch.setattr(risk_control, "get_eyun_contact_snapshot", empty_contact)
+    monkeypatch.setattr(risk_control, "enqueue_eyun_outbound", keep_queued)
     await record_customer_message(
         channel="wechat",
         user_id="wxid_customer",

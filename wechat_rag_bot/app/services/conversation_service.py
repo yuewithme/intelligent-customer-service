@@ -417,10 +417,12 @@ async def ensure_outbound_conversation_message(
     sender_id: str | None = "ai",
     tenant_id: str = "tenant_default",
     provider_message_id: str | None = None,
+    trace_id: str | None = None,
     delivery_status: str = "queued",
     route: str | None = None,
     metadata: dict[str, Any] | None = None,
     created_after: datetime | None = None,
+    reconcile_pending: bool = True,
 ) -> dict:
     """Create or reconcile one outbound message shown in the workbench."""
     conversation_id = make_conversation_id(channel, user_id, session_id)
@@ -450,14 +452,21 @@ async def ensure_outbound_conversation_message(
             session.flush()
 
         message = None
-        if provider_message_id:
+        if trace_id:
             message = session.scalar(
+                select(ConversationMessageModel).where(
+                    ConversationMessageModel.conversation_id == conversation_id,
+                    ConversationMessageModel.trace_id == trace_id,
+                )
+            )
+        if provider_message_id:
+            message = message or session.scalar(
                 select(ConversationMessageModel).where(
                     ConversationMessageModel.conversation_id == conversation_id,
                     ConversationMessageModel.message_id == provider_message_id,
                 )
             )
-        if message is None:
+        if message is None and reconcile_pending:
             pending_query = select(ConversationMessageModel).where(
                 ConversationMessageModel.conversation_id == conversation_id,
                 ConversationMessageModel.content == display_content,
@@ -482,6 +491,7 @@ async def ensure_outbound_conversation_message(
         if message is None:
             message = ConversationMessageModel(
                 conversation_id=conversation_id,
+                trace_id=trace_id,
                 message_id=provider_message_id,
                 delivery_status=delivery_status,
                 sender_type=sender_type,
@@ -718,7 +728,12 @@ def get_human_activity_send_target(
                 message="当前会话缺少 Eyun 发送目标",
                 status_code=409,
             )
-        return {**target, "user_id": conversation.user_id}
+        return {
+            **target,
+            "user_id": conversation.user_id,
+            "session_id": conversation.session_id or "default",
+            "tenant_id": conversation.tenant_id,
+        }
 
 
 async def mark_conversation_read(conversation_id: str) -> dict:
