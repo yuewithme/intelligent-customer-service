@@ -4,58 +4,12 @@ services:
     runtime: docker
     plan: starter
     region: singapore
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./Dockerfile.render
     dockerContext: .
     healthCheckPath: /health
     autoDeployTrigger: off
     envVars:
-      - key: APP_ENV
-        value: prod
-      - key: APP_NAME
-        value: intelligent_customer_service
       - key: DEMO_UPSTREAM_BASE_URL
         value: http://124.160.45.66:21873
       - key: DEMO_UPSTREAM_TIMEOUT_SECONDS
         value: "200"
-      - key: API_AUTH_ENABLED
-        value: "true"
-      - key: API_KEY
-        sync: false
-      - key: ADMIN_GATE_ENABLED
-        value: "true"
-      - key: ADMIN_GATE_PASSWORD
-        sync: false
-      - key: ADMIN_GATE_TEST_PASSWORD
-        sync: false
-      - key: ADMIN_GATE_SECRET
-        sync: false
-      - key: DATABASE_URL
-        value: sqlite:////var/data/rag.db
-      - key: CHAT_LOG_ENABLED
-        value: "true"
-      - key: CHAT_LOG_PROVIDER
-        value: sqlite
-      - key: CHAT_LOG_DB_URL
-        value: sqlite:////var/data/chat_logs.db
-      - key: UPLOAD_DIR
-        value: /var/data/uploads
-      - key: WECHAT_TOKEN
-        sync: false
-      - key: WECHAT_APP_ID
-        sync: false
-      - key: WECHAT_APP_SECRET
-        sync: false
-      - key: WECHAT_DEFAULT_KB_ID
-        value: kb_default
-      - key: EYUN_BASE_URL
-        sync: false
-      - key: EYUN_AUTHORIZATION
-        sync: false
-      - key: EYUN_WID
-        sync: false
-      - key: DEBUG_API_ENABLED
-        value: "false"
-    disk:
-      name: backend-data
-      mountPath: /var/data
-      sizeGB: 1
