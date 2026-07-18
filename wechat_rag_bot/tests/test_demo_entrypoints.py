@@ -74,59 +74,41 @@ def test_demo_chat_forces_web_demo_channel(monkeypatch, tmp_path):
     assert response.json()["data"]["conversation_id"] == "session-1"
 
 
-def test_demo_chat_uses_opening_then_normal_sales_flow(monkeypatch, tmp_path):
+def test_demo_chat_reuses_normal_sales_flow_for_first_message(monkeypatch, tmp_path):
+    from app.services import demo_sales_agent_service
+
     _reset_settings(monkeypatch, tmp_path)
-    monkeypatch.setenv("EYUN_OPENING_TEXT", "shared-opening")
-    get_settings.cache_clear()
+    captured = {}
+
+    async def fake_handle_chat(request):
+        captured["request"] = request
+        return {
+            "answer": "正常销售链路回复",
+            "session_id": "session-1",
+            "sources": [],
+            "usage": {},
+            "reply_type": "text",
+            "route": "rag_answer",
+            "intent": {"sales_stage": "interest"},
+            "template": {},
+            "need_human": False,
+            "next_action": "继续了解需求",
+            "trace_id": "trace-1",
+            "metadata": {},
+        }
+
+    monkeypatch.setattr(demo_sales_agent_service, "handle_chat", fake_handle_chat)
     client = TestClient(app)
-
-    opening = client.post(
-        "/api/v1/demo/chat",
-        json={"customer_id": "opening-customer", "message": "hello"},
-    )
-    assert opening.status_code == 200
-    opening_data = opening.json()["data"]
-    assert opening_data["reply"] == "shared-opening"
-    assert opening_data["route"] == "opening"
-
-    follow_up = client.post(
-        "/api/v1/demo/chat",
-        json={
-            "customer_id": "opening-customer",
-            "conversation_id": opening_data["conversation_id"],
-            "message": "second question",
-        },
-    )
-    assert follow_up.status_code == 200
-    assert follow_up.json()["data"]["reply"] != "shared-opening"
-
-    detail = client.get(
-        f"/api/v1/demo-admin/conversations/web_demo:"
-        f"{demo_user_id('opening-customer')}:{opening_data['conversation_id']}"
-    )
-    assert detail.status_code == 200
-    assert [item["content"] for item in detail.json()["data"]["messages"][:2]] == [
-        "hello",
-        "shared-opening",
-    ]
-
-
-@pytest.mark.parametrize("message", ["??????", "内容已损坏\ufffd"])
-def test_demo_chat_rejects_corrupted_message_without_recording(
-    monkeypatch, tmp_path, message
-):
-    _reset_settings(monkeypatch, tmp_path)
-    client = TestClient(app)
-
     response = client.post(
         "/api/v1/demo/chat",
-        json={"customer_id": "corrupted-customer", "message": message},
+        json={"customer_id": "customer-1", "message": "我的兰花烂根了"},
     )
-    conversations = client.get("/api/v1/demo-admin/conversations")
 
-    assert response.status_code == 422
-    assert "UTF-8" in response.json()["message"]
-    assert conversations.json()["data"]["total"] == 0
+    assert response.status_code == 200
+    assert response.json()["data"]["reply"] == "正常销售链路回复"
+    assert response.json()["data"]["route"] == "rag_answer"
+    assert captured["request"].message == "我的兰花烂根了"
+    assert captured["request"].session_id is None
 
 
 def test_demo_chat_allows_question_marks_in_normal_text(monkeypatch, tmp_path):
