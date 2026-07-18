@@ -14,7 +14,7 @@ from app.db.models import (
 )
 from app.services.llm_service import generate_json
 from app.services.sales_action_service import evolve_opportunity
-from app.services.tag_catalog import TAG_CATEGORIES
+from app.services.tag_catalog import get_tag_categories
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -662,17 +662,19 @@ def _normalize_customer_tag(tag: str) -> str:
 
 def _tag_replace_key(tag: str) -> str:
     category_id = _catalog_category_for_tag(tag)
-    if category_id and TAG_CATEGORIES[category_id].exclusive:
+    categories = get_tag_categories()
+    if category_id and categories[category_id].exclusive:
         return category_id
     return tag
 
 
 def _ai_assignable_customer_tags(tags: list[str]) -> list[str]:
+    categories = get_tag_categories()
     result: list[str] = []
     for tag in tags:
         normalized = _normalize_customer_tag(tag)
         category_id = _catalog_category_for_tag(normalized)
-        if category_id and TAG_CATEGORIES[category_id].ai_assignable:
+        if category_id and categories[category_id].ai_assignable:
             result.append(normalized)
     return result
 
@@ -690,7 +692,7 @@ def _tag_order(tag: str) -> int:
 def _profile_tag_catalog_prompt() -> dict[str, list[str]]:
     return {
         category.name: [value.name for value in category.values]
-        for category in TAG_CATEGORIES.values()
+        for category in get_tag_categories().values()
         if category.ai_assignable
     }
 
@@ -698,7 +700,7 @@ def _profile_tag_catalog_prompt() -> dict[str, list[str]]:
 def _catalog_tag_values() -> set[str]:
     return {
         value.name
-        for category in TAG_CATEGORIES.values()
+        for category in get_tag_categories().values()
         for value in category.values
     }
 
@@ -708,7 +710,7 @@ def _is_catalog_tag_value(tag: str) -> bool:
 
 
 def _catalog_category_for_tag(tag: str) -> str:
-    for category in TAG_CATEGORIES.values():
+    for category in get_tag_categories().values():
         if any(value.name == tag for value in category.values):
             return category.id
     return ""
@@ -782,6 +784,10 @@ def _dedupe(values: list[str]) -> list[str]:
 
 
 def _get_session() -> Session:
+    # Seed the live tag catalog before opening a profile write transaction.
+    # SQLite cannot create/seed the catalog from a second connection once the
+    # profile transaction has acquired its write lock.
+    get_tag_categories()
     url = get_settings().database_url
     factory = _sessionmakers.get(url)
     if factory is None:

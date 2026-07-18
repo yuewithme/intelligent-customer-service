@@ -12,9 +12,11 @@ from app.db.models import (
     CustomerLevelPromptBindingModel,
     CustomerLevelRuleModel,
     PromptBlockModel,
+    TagPromptBindingModel,
 )
 from app.schemas.customer_level import CustomerLevelResult
 from app.schemas.state import UserState
+from app.services.tag_catalog import get_tag_categories
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -23,6 +25,7 @@ _tables = [
     CustomerLevelRuleModel.__table__,
     PromptBlockModel.__table__,
     CustomerLevelPromptBindingModel.__table__,
+    TagPromptBindingModel.__table__,
 ]
 _PROMPT_PREFIX = "customer_level."
 
@@ -153,6 +156,11 @@ _PROMPT_BINDINGS = {
 
 def seed_customer_level_policy() -> None:
     with _get_session() as session:
+        session.execute(
+            delete(TagPromptBindingModel).where(
+                TagPromptBindingModel.category_id == "customer_level"
+            )
+        )
         session.execute(delete(CustomerLevelPromptBindingModel))
         session.execute(delete(CustomerLevelRuleModel))
         session.execute(delete(CustomerLevelProfileModel))
@@ -193,6 +201,18 @@ def seed_customer_level_policy() -> None:
                         enabled=True,
                     )
                 )
+                label = next(
+                    item["name"] for item in _LEVEL_PROFILES if item["level"] == level
+                )
+                session.add(
+                    TagPromptBindingModel(
+                        category_id="customer_level",
+                        tag_value=label,
+                        prompt_block_id=block_id,
+                        priority=priority,
+                        enabled=True,
+                    )
+                )
         session.commit()
 
 
@@ -227,6 +247,10 @@ def classify_customer_level(*, message: str, user_state: UserState) -> CustomerL
 
     level, score = sorted(candidates, key=lambda item: (_level_rank(item[0]), item[1]), reverse=True)[0]
     profile = profiles[level]
+    live_category = get_tag_categories().get("customer_level")
+    live_values = {value.name for value in live_category.values} if live_category else set()
+    if profile.name not in live_values:
+        return CustomerLevelResult()
     return CustomerLevelResult(
         level=level,
         label=profile.name,
@@ -241,13 +265,21 @@ def classify_customer_level(*, message: str, user_state: UserState) -> CustomerL
 def get_customer_level_prompt_block_ids(level: str) -> list[str]:
     _ensure_seeded()
     with _get_session() as session:
-        rows = session.scalars(
-            select(CustomerLevelPromptBindingModel)
-            .where(
-                CustomerLevelPromptBindingModel.level == level,
-                CustomerLevelPromptBindingModel.enabled.is_(True),
+        label = session.scalar(
+            select(CustomerLevelProfileModel.name).where(
+                CustomerLevelProfileModel.level == level
             )
-            .order_by(CustomerLevelPromptBindingModel.priority.asc())
+        )
+        if not label:
+            return []
+        rows = session.scalars(
+            select(TagPromptBindingModel)
+            .where(
+                TagPromptBindingModel.category_id == "customer_level",
+                TagPromptBindingModel.tag_value == label,
+                TagPromptBindingModel.enabled.is_(True),
+            )
+            .order_by(TagPromptBindingModel.priority.asc(), TagPromptBindingModel.id.asc())
         ).all()
         return [row.prompt_block_id for row in rows]
 
@@ -291,8 +323,33 @@ def clear_cache() -> None:
 def _ensure_seeded() -> None:
     with _get_session() as session:
         has_profile = session.scalar(select(CustomerLevelProfileModel.level).limit(1))
+        has_catalog_binding = session.scalar(
+            select(TagPromptBindingModel.id)
+            .where(TagPromptBindingModel.category_id == "customer_level")
+            .limit(1)
+        )
     if has_profile is None:
         seed_customer_level_policy()
+    elif has_catalog_binding is None:
+        with _get_session() as session:
+            profiles = {
+                row.level: row.name
+                for row in session.scalars(select(CustomerLevelProfileModel)).all()
+            }
+            bindings = session.scalars(select(CustomerLevelPromptBindingModel)).all()
+            for binding in bindings:
+                label = profiles.get(binding.level)
+                if label:
+                    session.add(
+                        TagPromptBindingModel(
+                            category_id="customer_level",
+                            tag_value=label,
+                            prompt_block_id=binding.prompt_block_id,
+                            priority=binding.priority,
+                            enabled=binding.enabled,
+                        )
+                    )
+            session.commit()
 
 
 def _get_session() -> Session:

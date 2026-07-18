@@ -1,5 +1,10 @@
 from dataclasses import dataclass
 
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.config import get_settings
+from app.db.models import Base, TagCategoryModel, TagDefinitionModel
 from app.schemas.tag import TagResult
 
 
@@ -108,6 +113,95 @@ TAG_CATEGORIES: dict[str, TagCategory] = {
         exclusive=False,
     ),
 }
+
+
+_sessionmakers: dict[str, sessionmaker] = {}
+_category_cache: dict[str, dict[str, TagCategory]] = {}
+_tables = [TagCategoryModel.__table__, TagDefinitionModel.__table__]
+
+
+def get_tag_categories() -> dict[str, TagCategory]:
+    """Return the live catalog used by profile validation and the admin page."""
+    url = get_settings().database_url
+    cached = _category_cache.get(url)
+    if cached is not None:
+        return cached
+    _ensure_seeded()
+    with _get_session() as session:
+        category_rows = session.scalars(
+            select(TagCategoryModel).order_by(
+                TagCategoryModel.position.asc(), TagCategoryModel.id.asc()
+            )
+        ).all()
+        value_rows = session.scalars(
+            select(TagDefinitionModel).order_by(
+                TagDefinitionModel.position.asc(), TagDefinitionModel.id.asc()
+            )
+        ).all()
+
+    values_by_category: dict[str, list[TagValue]] = {}
+    for row in value_rows:
+        values_by_category.setdefault(row.category_id, []).append(TagValue(row.value))
+    categories = {
+        row.id: TagCategory(
+            id=row.id,
+            name=row.name,
+            prompt_rule=row.prompt_rule,
+            values=tuple(values_by_category.get(row.id, [])),
+            ai_assignable=row.ai_assignable,
+            exclusive=row.exclusive,
+        )
+        for row in category_rows
+    }
+    _category_cache[url] = categories
+    return categories
+
+
+def clear_cache() -> None:
+    _sessionmakers.clear()
+    _category_cache.clear()
+
+
+def invalidate_cache() -> None:
+    _category_cache.pop(get_settings().database_url, None)
+
+
+def _ensure_seeded() -> None:
+    with _get_session() as session:
+        count = session.scalar(select(func.count()).select_from(TagCategoryModel)) or 0
+        if count:
+            return
+        for category_position, category in enumerate(TAG_CATEGORIES.values(), start=1):
+            session.add(
+                TagCategoryModel(
+                    id=category.id,
+                    name=category.name,
+                    prompt_rule=category.prompt_rule,
+                    ai_assignable=category.ai_assignable,
+                    exclusive=category.exclusive,
+                    position=category_position,
+                )
+            )
+            for value_position, value in enumerate(category.values, start=1):
+                session.add(
+                    TagDefinitionModel(
+                        category_id=category.id,
+                        value=value.name,
+                        position=value_position,
+                    )
+                )
+        session.commit()
+
+
+def _get_session() -> Session:
+    url = get_settings().database_url
+    factory = _sessionmakers.get(url)
+    if factory is None:
+        engine = create_engine(url)
+        Base.metadata.create_all(engine, tables=_tables)
+        factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        _sessionmakers[url] = factory
+    return factory()
 
 
 def prompt_blocks_for_tag_result(tag: TagResult) -> list[str]:

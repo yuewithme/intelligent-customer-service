@@ -10,6 +10,7 @@ from app.db.models import Base, PromptBlockModel, TagPromptBindingModel
 _sessionmakers: dict[str, sessionmaker] = {}
 _tables = [PromptBlockModel.__table__, TagPromptBindingModel.__table__]
 _OWNED_PREFIXES = ("orchid_quantity.", "region.", "orchid_preference.")
+_SEED_MARKER_ID = "system.seed.business_tag_prompt_policy"
 
 
 _PROMPT_BLOCKS = {
@@ -122,6 +123,9 @@ _BINDINGS = {
 
 def seed_business_tag_prompt_policy() -> None:
     with _get_session() as session:
+        session.execute(
+            delete(PromptBlockModel).where(PromptBlockModel.block_id == _SEED_MARKER_ID)
+        )
         for prefix in _OWNED_PREFIXES:
             session.execute(
                 delete(PromptBlockModel).where(PromptBlockModel.block_id.startswith(prefix))
@@ -140,6 +144,14 @@ def seed_business_tag_prompt_policy() -> None:
                     enabled=True,
                 )
             )
+        session.add(
+            PromptBlockModel(
+                block_id=_SEED_MARKER_ID,
+                title="Business tag prompt policy seeded",
+                content="",
+                enabled=False,
+            )
+        )
         for category_id, bindings in _BINDINGS.items():
             for tag_value, block_id in bindings.items():
                 session.add(
@@ -199,14 +211,30 @@ def clear_cache() -> None:
     _sessionmakers.clear()
 
 
+def ensure_business_tag_prompt_policy() -> None:
+    _ensure_seeded()
+
+
 def _ensure_seeded() -> None:
     with _get_session() as session:
+        marker = session.get(PromptBlockModel, _SEED_MARKER_ID)
         has_binding = session.scalar(
             select(TagPromptBindingModel.id)
             .where(TagPromptBindingModel.category_id.in_(list(_BINDINGS.keys())))
             .limit(1)
         )
-    if has_binding is None:
+        if marker is None and has_binding is not None:
+            session.add(
+                PromptBlockModel(
+                    block_id=_SEED_MARKER_ID,
+                    title="Business tag prompt policy seeded",
+                    content="",
+                    enabled=False,
+                )
+            )
+            session.commit()
+            return
+    if marker is None and has_binding is None:
         seed_business_tag_prompt_policy()
 
 

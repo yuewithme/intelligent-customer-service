@@ -448,6 +448,27 @@ class TagPromptBindingModel(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class TagCategoryModel(Base):
+    __tablename__ = "tag_categories"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    prompt_rule: Mapped[str] = mapped_column(Text, default="")
+    ai_assignable: Mapped[bool] = mapped_column(Boolean, default=True)
+    exclusive: Mapped[bool] = mapped_column(Boolean, default=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class TagDefinitionModel(Base):
+    __tablename__ = "tag_definitions"
+    __table_args__ = (UniqueConstraint("value", name="uq_tag_definition_value"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_id: Mapped[str] = mapped_column(String(64), index=True)
+    value: Mapped[str] = mapped_column(String(256), index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class ConversationMemoryModel(Base):
     __tablename__ = "conversation_memories"
 

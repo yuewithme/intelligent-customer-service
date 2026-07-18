@@ -49,7 +49,8 @@ const navigation = [
   { title: '销售运营', items: [
     { label: '对话日志', to: '/operations/chat-logs' },
     { label: '人工接管', to: '/operations/handoff' },
-    { label: '客户画像', to: '/operations/user-profile' }
+    { label: '客户画像', to: '/operations/user-profile' },
+    { label: '标签管理', to: '/operations/tags' }
   ] },
   { title: '策略与知识', items: [
     { label: '销售活动', to: '/knowledge-ops/current-activities' },

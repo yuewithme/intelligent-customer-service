@@ -79,6 +79,18 @@ async def patch_user_state(user_id: str, updates: dict) -> UserState:
     return state
 
 
+def replace_customer_tag(old_value: str, new_value: str) -> None:
+    for state in _state_store.values():
+        state.customer_tags = _replace_tag_values(
+            state.customer_tags, {old_value}, new_value
+        )
+
+
+def remove_customer_tags(values: set[str]) -> None:
+    for state in _state_store.values():
+        state.customer_tags = _replace_tag_values(state.customer_tags, values, None)
+
+
 def _dict_value(value) -> dict:
     return dict(value) if isinstance(value, dict) else {}
 
@@ -88,4 +100,19 @@ def _merge_strings(existing: list[str], incoming: list) -> list[str]:
     for value in incoming:
         if isinstance(value, str) and value and value not in result:
             result.append(value)
+    return result
+
+
+def _replace_tag_values(
+    tags: list[str], old_values: set[str], replacement: str | None
+) -> list[str]:
+    result: list[str] = []
+    for tag in tags:
+        prefix = "customer_tag:" if tag.startswith("customer_tag:") else ""
+        value = tag.split(":", 1)[1] if prefix else tag
+        if value in old_values:
+            value = replacement or ""
+        normalized = f"{prefix}{value}" if value else ""
+        if normalized and normalized not in result:
+            result.append(normalized)
     return result
