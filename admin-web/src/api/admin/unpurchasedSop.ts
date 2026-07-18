@@ -1,6 +1,6 @@
 import request from '@/config/axios'
 
-export type SopMessageType = 'text' | 'image' | 'video' | 'material'
+export type SopMessageType = 'text' | 'image' | 'video' | 'link_card' | 'material'
 export type SopKind = 'unpurchased' | 'service'
 
 const sopBaseUrl = (kind: SopKind) => `/api/v1/admin/${kind === 'service' ? 'service-sop' : 'unpurchased-sop'}`
@@ -10,6 +10,10 @@ export interface SopMessageItem {
   content: string
   preview_url?: string | null
   material_id?: number | null
+  title?: string | null
+  url?: string | null
+  description?: string | null
+  thumb_url?: string | null
 }
 
 export interface UnpurchasedSopConfig {

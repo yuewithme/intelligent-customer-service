@@ -88,6 +88,10 @@
                     <span class="sequence-number">{{ index + 1 }}</span>
                     <span v-if="message.message_type === 'text'" class="message-text">{{ message.content }}</span>
                     <ElImage v-else-if="message.message_type === 'image'" class="media-thumb" :src="message.content" fit="cover" :preview-src-list="[message.content]" />
+                    <a v-else-if="message.message_type === 'link_card'" class="link-card-preview" :href="message.url || message.content" target="_blank" rel="noreferrer">
+                      <ElImage class="link-card-thumb" :src="message.thumb_url || ''" fit="cover" />
+                      <span><strong>{{ message.title }}</strong><small>{{ message.description }}</small></span>
+                    </a>
                     <ElImage v-else-if="message.message_type === 'material' && message.preview_url" class="media-thumb" :src="message.preview_url" fit="cover" />
                     <div v-else-if="message.message_type === 'video'" class="video-cell"><video :src="message.content" :poster="message.preview_url || undefined" controls preload="metadata"></video></div>
                     <span v-else>{{ message.content }}</span>
@@ -177,12 +181,22 @@
             </div>
             <ElFormItem label="消息类型">
               <ElRadioGroup v-model="message.message_type" @change="changeMessageType(message)">
-                <ElRadioButton value="text">文本</ElRadioButton><ElRadioButton value="image">图片</ElRadioButton><ElRadioButton value="video">视频</ElRadioButton><ElRadioButton value="material">微信素材</ElRadioButton>
+                <ElRadioButton value="text">文本</ElRadioButton><ElRadioButton value="image">图片</ElRadioButton><ElRadioButton value="video">视频</ElRadioButton><ElRadioButton value="link_card">链接卡片</ElRadioButton><ElRadioButton value="material">微信素材</ElRadioButton>
               </ElRadioGroup>
             </ElFormItem>
             <ElFormItem v-if="message.message_type === 'text'" label="消息内容">
               <ElInput v-model="message.content" type="textarea" :rows="4" maxlength="20000" show-word-limit />
             </ElFormItem>
+            <template v-else-if="message.message_type === 'link_card'">
+              <ElFormItem label="卡片标题"><ElInput v-model="message.title" maxlength="256" /></ElFormItem>
+              <ElFormItem label="卡片描述"><ElInput v-model="message.description" type="textarea" :rows="2" maxlength="1000" show-word-limit /></ElFormItem>
+              <ElFormItem label="点击跳转链接"><ElInput v-model="message.url" placeholder="https://j.youzan.com/..." /></ElFormItem>
+              <ElFormItem label="缩略图公网地址">
+                <ElInput v-model="message.thumb_url" placeholder="https://cdn.example.com/card.jpg" />
+                <small>使用 JPG/PNG 公网地址，建议控制在 50KB 以内；不能使用 127.0.0.1 或内网地址。</small>
+                <ElImage v-if="message.thumb_url" class="link-card-large-thumb" :src="message.thumb_url" fit="cover" />
+              </ElFormItem>
+            </template>
             <template v-else-if="message.message_type === 'material'">
               <ElFormItem label="选择微信素材">
                 <ElSelect :model-value="message.material_id" filterable placeholder="选择已就绪的图片或视频素材" style="width:100%" @change="selectMaterial(message, $event)">
@@ -212,6 +226,7 @@
           <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('text')">+ 文本</ElButton>
           <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('image')">+ 图片</ElButton>
           <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('video')">+ 视频</ElButton>
+          <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('link_card')">+ 链接卡片</ElButton>
           <ElButton :disabled="stepForm.messages.length >= 20" @click="addMessage('material')">+ 微信素材</ElButton>
         </div>
         <ElFormItem label="节点状态"><ElSwitch v-model="stepForm.enabled" active-text="启用" inactive-text="停用" /></ElFormItem>
@@ -287,7 +302,7 @@ const uploadingMessageIndex = ref<number>()
 const dragMessageIndex = ref<number>()
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 const VIDEO_MAX_BYTES = 100 * 1024 * 1024
-const emptyMessage = (message_type: SopMessageType = 'text'): SopMessageItem => ({ message_type, content: '', preview_url: '', material_id: undefined })
+const emptyMessage = (message_type: SopMessageType = 'text'): SopMessageItem => ({ message_type, content: '', preview_url: '', material_id: undefined, title: '', url: '', description: '', thumb_url: '' })
 const stepForm = reactive<SopStepPayload>({ day_offset: 0, send_time_start: '09:00', send_time_end: '10:00', messages: [emptyMessage()], position: 0, enabled: true })
 const contacts = ref<UnpurchasedSopContact[]>([])
 const contactsTotal = ref(0)
@@ -352,7 +367,9 @@ const dropMessage = (target: number) => {
   const [message] = stepForm.messages.splice(source, 1)
   stepForm.messages.splice(target, 0, message)
 }
-const changeMessageType = (message: SopMessageItem) => { message.content = ''; message.preview_url = ''; message.material_id = undefined }
+const changeMessageType = (message: SopMessageItem) => {
+  Object.assign(message, { content: '', preview_url: '', material_id: undefined, title: '', url: '', description: '', thumb_url: '' })
+}
 const selectMaterial = (message: SopMessageItem, materialId: number) => {
   const material = materials.value.find((item) => item.id === materialId)
   if (!material) return
@@ -363,13 +380,29 @@ const selectMaterial = (message: SopMessageItem, materialId: number) => {
 
 const saveStep = async () => {
   if (stepForm.send_time_end < stepForm.send_time_start) return ElMessage.warning('发送结束时间不能早于开始时间')
+  stepForm.messages.forEach((message) => {
+    if (message.message_type === 'link_card') message.content = (message.url || '').trim()
+  })
   const emptyIndex = stepForm.messages.findIndex((message) => !message.content.trim())
   if (emptyIndex >= 0) return ElMessage.warning(`请完善第 ${emptyIndex + 1} 条消息内容`)
   const videoWithoutCover = stepForm.messages.findIndex((message) => message.message_type === 'video' && !message.preview_url)
   if (videoWithoutCover >= 0) return ElMessage.warning(`第 ${videoWithoutCover + 1} 条视频必须有封面图`)
+  const invalidCard = stepForm.messages.findIndex((message) => message.message_type === 'link_card' && (
+    !message.title?.trim() || !message.description?.trim() || !message.url?.trim() || !message.thumb_url?.trim()
+    || !/^https?:\/\//.test(message.url) || !/^https?:\/\//.test(message.thumb_url)
+  ))
+  if (invalidCard >= 0) return ElMessage.warning(`请完善第 ${invalidCard + 1} 条链接卡片，并使用公网 HTTP(S) 地址`)
   savingStep.value = true
   try {
-    const payload = { ...stepForm, messages: stepForm.messages.map((message) => ({ ...message, content: message.content.trim(), preview_url: message.preview_url || undefined })) }
+    const payload = { ...stepForm, messages: stepForm.messages.map((message) => ({
+      ...message,
+      content: message.content.trim(),
+      preview_url: message.preview_url || undefined,
+      title: message.title?.trim() || undefined,
+      url: message.url?.trim() || undefined,
+      description: message.description?.trim() || undefined,
+      thumb_url: message.thumb_url?.trim() || undefined
+    })) }
     if (editingId.value) await updateUnpurchasedSopStep(editingId.value, payload, sopKind.value)
     else await createUnpurchasedSopStep(payload, sopKind.value)
     ElMessage.success('节点已保存')
@@ -475,7 +508,7 @@ const confirmDirectSend = async () => {
   } finally { directSending.value = false }
 }
 
-const typeText = (type: SopMessageType) => ({ text: '文本', image: '图片', video: '视频', material: '微信素材' }[type])
+const typeText = (type: SopMessageType) => ({ text: '文本', image: '图片', video: '视频', link_card: '链接卡片', material: '微信素材' }[type])
 const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未执行'
 const enrollmentText = (status?: string | null, reason?: string | null) => !status ? '未加入' : status === 'active' ? '执行中' : reason === 'purchase_tag_added' ? '已购退出' : reason === 'purchase_tag_removed' ? '已购标签移除' : reason === 'contact_removed' ? '好友移除' : '已退出'
 const deliveryText = (status: string) => ({ dry_run: '试运行', creating: '创建中', queued: '待发送', sending: '发送中', sent: '已发送', failed: '失败', cancelled: '已取消', skipped_reply: '客户回复跳过' }[status] || status)
@@ -495,4 +528,5 @@ watch(sopKind, async () => {
 <style scoped>
 .page-head,.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-head h1,.section-head h2{margin:0;color:#18352d}.page-head p,.section-head p{margin:7px 0 0;color:#708079}.head-actions{display:flex;gap:10px}.metrics{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:12px;margin:20px 0}.metrics div,.panel{background:#fff;border:1px solid #e2e9e6;border-radius:12px}.metrics div{padding:16px}.metrics span{display:block;color:#75857f;font-size:13px}.metrics strong{display:block;margin-top:8px;color:#18352d;font-size:25px}.sop-tabs{margin-top:18px}.panel{padding:18px}.config-panel{margin-bottom:20px}.config-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.time-range{display:flex;align-items:center;gap:8px}.sync-info{color:#84918c;font-size:12px}.section-head{margin:24px 0 12px}.message-text{display:-webkit-box;overflow:hidden;-webkit-line-clamp:3;-webkit-box-orient:vertical;white-space:pre-wrap}.media-thumb{width:90px;height:64px;border-radius:8px}.video-cell video{width:150px;max-height:100px;border-radius:8px;background:#111}.step-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.file-input{display:block;width:100%;padding:10px;border:1px dashed #aebdb7;border-radius:8px}.large-preview,.large-video{display:block;width:100%;max-height:300px;margin-top:12px;border-radius:8px;background:#f3f6f5}.cover-preview{width:160px;height:90px;margin-top:10px;border-radius:8px}.tag{margin-right:5px}small{display:block;margin-top:4px;color:#8b9994}.el-pagination{justify-content:flex-end;margin-top:16px}@media(max-width:1000px){.metrics{grid-template-columns:repeat(2,1fr)}.config-grid{grid-template-columns:1fr 1fr}}@media(max-width:640px){.page-head,.section-head{display:block}.head-actions{margin-top:14px}.metrics,.config-grid,.step-grid{grid-template-columns:1fr}}
 .sequence-tag{margin:2px 4px 2px 0}.sequence-preview{display:flex;flex-direction:column;gap:8px}.sequence-preview-item{display:flex;align-items:flex-start;gap:8px}.sequence-number{display:flex;flex:0 0 22px;align-items:center;justify-content:center;height:22px;border-radius:50%;background:#eef4f1;color:#567068;font-size:12px}.message-editor-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 10px}.message-editor-head small{margin:0}.message-editor-list{display:flex;flex-direction:column;gap:12px;max-height:55vh;overflow:auto;padding-right:4px}.message-editor-card{padding:14px 14px 2px;border:1px solid #dce6e2;border-radius:10px;background:#fbfdfc}.message-editor-card:hover{border-color:#9ebdb2}.message-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.drag-handle{color:#4f675f;cursor:grab;font-weight:600}.media-limit{margin:0 0 8px;color:#768781;line-height:1.5}.add-message-actions{display:flex;align-items:center;gap:8px;margin:14px 0 20px;padding:12px;border:1px dashed #b8c8c2;border-radius:10px}.add-message-actions span{color:#64756f;font-size:13px}@media(max-width:640px){.message-editor-head,.add-message-actions{align-items:flex-start;flex-wrap:wrap}.message-editor-list{max-height:none}}
+.link-card-preview{display:flex;min-width:260px;max-width:380px;padding:10px;color:#30443d;text-decoration:none;border:1px solid #dce6e2;border-radius:8px;background:#fff}.link-card-preview span{min-width:0;flex:1}.link-card-preview strong,.link-card-preview small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.link-card-preview small{margin-top:6px}.link-card-thumb{flex:0 0 56px;width:56px;height:56px;margin-left:10px;order:2;border-radius:5px}.link-card-large-thumb{display:block;width:180px;height:120px;margin-top:10px;border-radius:8px}
 </style>

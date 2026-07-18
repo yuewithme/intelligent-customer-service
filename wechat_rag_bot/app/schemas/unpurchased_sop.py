@@ -1,9 +1,11 @@
+import ipaddress
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-MessageType = Literal["text", "image", "video", "material"]
+MessageType = Literal["text", "image", "video", "link_card", "material"]
 
 
 def _validate_hhmm(value: str) -> str:
@@ -17,6 +19,31 @@ def _validate_hhmm(value: str) -> str:
     if not 0 <= hour <= 23 or not 0 <= minute <= 59:
         raise ValueError("时间格式必须为 HH:MM")
     return f"{hour:02d}:{minute:02d}"
+
+
+def _validate_public_http_url(value: str, label: str) -> str:
+    value = value.strip()
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(f"{label}必须使用公网 HTTP(S) 地址")
+    hostname = parsed.hostname.lower()
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        raise ValueError(f"{label}不能使用本机或内网地址")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return value
+    if any(
+        (
+            address.is_private,
+            address.is_loopback,
+            address.is_link_local,
+            address.is_reserved,
+            address.is_unspecified,
+        )
+    ):
+        raise ValueError(f"{label}不能使用本机或内网地址")
+    return value
 
 
 class UnpurchasedSopUpdateRequest(BaseModel):
@@ -45,6 +72,10 @@ class UnpurchasedSopMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
     preview_url: str | None = Field(default=None, max_length=4000)
     material_id: int | None = Field(default=None, gt=0)
+    title: str | None = Field(default=None, max_length=256)
+    url: str | None = Field(default=None, max_length=4000)
+    description: str | None = Field(default=None, max_length=1000)
+    thumb_url: str | None = Field(default=None, max_length=4000)
 
     @field_validator("content")
     @classmethod
@@ -68,6 +99,27 @@ class UnpurchasedSopMessageRequest(BaseModel):
             raise ValueError("视频封面必须使用公网 HTTP(S) 地址")
         if self.message_type == "material" and self.material_id is None:
             raise ValueError("批量媒体消息必须选择微信素材")
+        if self.message_type == "link_card":
+            fields = {
+                "卡片标题": self.title,
+                "跳转链接": self.url,
+                "卡片描述": self.description,
+                "缩略图链接": self.thumb_url,
+            }
+            missing = [
+                label
+                for label, value in fields.items()
+                if not (value or "").strip()
+            ]
+            if missing:
+                raise ValueError(f"链接卡片缺少：{'、'.join(missing)}")
+            self.title = str(self.title).strip()
+            self.description = str(self.description).strip()
+            self.url = _validate_public_http_url(str(self.url), "链接卡片跳转链接")
+            self.thumb_url = _validate_public_http_url(
+                str(self.thumb_url), "链接卡片缩略图"
+            )
+            self.content = self.url
         return self
 
 

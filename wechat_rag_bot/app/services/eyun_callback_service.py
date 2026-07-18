@@ -666,3 +666,39 @@ async def send_eyun_mini_program(
         logger.warning("Eyun sendApplets returned non-success response: %s", result)
         raise RuntimeError(f"Eyun sendApplets failed: {result}")
     return result
+
+
+async def send_eyun_link_card(
+    *,
+    w_id: str,
+    wc_id: str,
+    card: dict[str, str],
+) -> dict[str, Any] | None:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id:
+        raise RuntimeError("Eyun configuration is incomplete")
+    payload = {
+        "wId": w_id,
+        "wcId": wc_id,
+        "title": card.get("title", ""),
+        "url": card.get("url", ""),
+        "description": card.get("description", ""),
+        "thumbUrl": card.get("thumb_url", ""),
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{base_url}/sendUrl",
+            headers={
+                "Authorization": authorization,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+    response.raise_for_status()
+    result = response.json()
+    if str(result.get("code")) != "1000":
+        logger.warning("Eyun sendUrl returned non-success response: %s", result)
+        raise RuntimeError(f"Eyun sendUrl failed: {result}")
+    return result

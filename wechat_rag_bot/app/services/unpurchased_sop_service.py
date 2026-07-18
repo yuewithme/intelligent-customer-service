@@ -1386,6 +1386,10 @@ def _request_messages(request: UnpurchasedSopStepRequest) -> list[dict[str, Any]
             "content": message.content,
             "preview_url": (message.preview_url or "").strip() or None,
             "material_id": message.material_id,
+            "title": (message.title or "").strip() or None,
+            "url": (message.url or "").strip() or None,
+            "description": (message.description or "").strip() or None,
+            "thumb_url": (message.thumb_url or "").strip() or None,
         }
         if message.message_type == "material" and message.material_id is not None:
             material = get_ready_material(message.material_id)
@@ -1430,13 +1434,23 @@ def _stored_messages(
                 continue
             message_type = str(value.get("message_type") or "")
             content = str(value.get("content") or "").strip()
-            if message_type in {"text", "image", "video", "material"} and content:
+            if message_type in {
+                "text",
+                "image",
+                "video",
+                "link_card",
+                "material",
+            } and content:
                 messages.append(
                     {
                         "message_type": message_type,
                         "content": content,
                         "preview_url": str(value.get("preview_url") or "") or None,
                         "material_id": int(value["material_id"]) if value.get("material_id") else None,
+                        "title": str(value.get("title") or "") or None,
+                        "url": str(value.get("url") or "") or None,
+                        "description": str(value.get("description") or "") or None,
+                        "thumb_url": str(value.get("thumb_url") or "") or None,
                     }
                 )
     if messages:
@@ -1459,6 +1473,16 @@ def _message_outbound_content(message: dict[str, Any]) -> str:
             },
             ensure_ascii=False,
         )
+    if message["message_type"] == "link_card":
+        return json.dumps(
+            {
+                "title": message.get("title") or "",
+                "url": message.get("url") or message["content"],
+                "description": message.get("description") or "",
+                "thumb_url": message.get("thumb_url") or "",
+            },
+            ensure_ascii=False,
+        )
     return str(message["content"])
 
 
@@ -1471,6 +1495,10 @@ def _delivery_memory_content(
             parts.append(f"[{sop_name}发送图片] {message['content']}")
         elif message["message_type"] == "video":
             parts.append(f"[{sop_name}发送视频] {message['content']}")
+        elif message["message_type"] == "link_card":
+            parts.append(
+                f"[{sop_name}发送链接卡片] {message.get('title') or message['content']}"
+            )
         else:
             parts.append(str(message["content"]))
     return "\n".join(parts)

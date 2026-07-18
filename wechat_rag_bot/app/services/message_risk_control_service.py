@@ -540,6 +540,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             try:
                 from app.services.eyun_callback_service import (
                     send_eyun_image,
+                    send_eyun_link_card,
                     send_eyun_mini_program,
                     send_eyun_received_media,
                     send_eyun_text,
@@ -556,6 +557,12 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     )
                 elif message_type == "mini_program":
                     send_result = await send_eyun_mini_program(
+                        w_id=row.w_id,
+                        wc_id=row.wc_id,
+                        card=json.loads(content),
+                    )
+                elif message_type == "link_card":
+                    send_result = await send_eyun_link_card(
                         w_id=row.w_id,
                         wc_id=row.wc_id,
                         card=json.loads(content),
@@ -859,6 +866,7 @@ def _encode_outbound_content(message_type: str, content: str) -> str:
     if message_type in {
         "image",
         "video",
+        "link_card",
         "mini_program",
         "received_image",
         "received_video",
@@ -875,7 +883,14 @@ def _decode_outbound_content(content: str) -> tuple[str, str]:
     if (
         isinstance(payload, dict)
         and payload.get("type")
-        in {"image", "video", "mini_program", "received_image", "received_video"}
+        in {
+            "image",
+            "video",
+            "link_card",
+            "mini_program",
+            "received_image",
+            "received_video",
+        }
         and payload.get("content")
     ):
         return str(payload["type"]), str(payload["content"])

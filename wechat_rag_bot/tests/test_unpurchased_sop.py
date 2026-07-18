@@ -102,6 +102,67 @@ def test_sop_steps_support_text_image_and_video(monkeypatch, tmp_path):
     assert get_unpurchased_sop()["steps"][2]["preview_url"].endswith("cover.jpg")
 
 
+@pytest.mark.asyncio
+async def test_link_card_step_queues_eyun_send_url_payload(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+    await sync_eyun_contacts(friend_ids=["contact-a"])
+    step = create_unpurchased_sop_step(
+        UnpurchasedSopStepRequest(
+            day_offset=0,
+            send_time="10:00",
+            messages=[
+                UnpurchasedSopMessageRequest(
+                    message_type="link_card",
+                    content="https://j.youzan.com/yddHbe",
+                    title="兰花标准上盆示范",
+                    url="https://j.youzan.com/yddHbe",
+                    description="点击查看完整示范视频",
+                    thumb_url=(
+                        "https://img01.yzcdn.cn/card.jpg"
+                        "?imageView2/2/w/300/h/300/q/70/format/jpg"
+                    ),
+                )
+            ],
+        )
+    )
+    captured = {}
+
+    async def fake_enqueue(**kwargs):
+        captured.update(kwargs)
+        return {"id": 301, "status": "queued"}
+
+    monkeypatch.setattr(
+        unpurchased_sop_service, "enqueue_wechat_outbound", fake_enqueue
+    )
+
+    contact = list_unpurchased_sop_contacts(page_size=10)["items"][0]
+    await send_unpurchased_sop_step(step["id"], contact_ids=[contact["id"]])
+
+    assert captured["message_type"] == "link_card"
+    card = json.loads(captured["content"])
+    assert card == {
+        "title": "兰花标准上盆示范",
+        "url": "https://j.youzan.com/yddHbe",
+        "description": "点击查看完整示范视频",
+        "thumb_url": (
+            "https://img01.yzcdn.cn/card.jpg"
+            "?imageView2/2/w/300/h/300/q/70/format/jpg"
+        ),
+    }
+
+
+def test_link_card_rejects_local_urls():
+    with pytest.raises(ValueError, match="不能使用本机或内网地址"):
+        UnpurchasedSopMessageRequest(
+            message_type="link_card",
+            content="http://127.0.0.1:21873/card",
+            title="本地卡片",
+            url="http://127.0.0.1:21873/card",
+            description="不可发送",
+            thumb_url="http://127.0.0.1:21873/card.jpg",
+        )
+
+
 def test_contact_polling_controls_are_saved_in_sop(monkeypatch, tmp_path):
     _settings(monkeypatch, tmp_path)
 

@@ -1104,6 +1104,13 @@ def _outbound_display_content(message_type: str, content: str) -> str:
             card = {}
         title = str(card.get("title") or "").strip() if isinstance(card, dict) else ""
         return f"[小程序] {title}".strip()
+    if message_type == "link_card":
+        try:
+            card = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            card = {}
+        title = str(card.get("title") or "").strip() if isinstance(card, dict) else ""
+        return f"[链接卡片] {title}".strip()
     return {
         "image": "[图片]",
         "received_image": "[图片]",
@@ -1130,6 +1137,11 @@ def _outbound_metadata(
             result["mini_program"] = json.loads(content)
         except (json.JSONDecodeError, TypeError):
             result["mini_program"] = {"content": content}
+    elif message_type == "link_card":
+        try:
+            result["link_card"] = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            result["link_card"] = {"content": content}
     if metadata:
         result.update(metadata)
     return result
