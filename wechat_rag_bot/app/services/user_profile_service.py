@@ -123,6 +123,43 @@ async def patch_user_profile(user_id: str, updates: dict) -> dict:
         return _profile_to_dict(profile)
 
 
+async def add_verified_customer_tag(
+    user_id: str,
+    tag: str,
+    *,
+    reason: str,
+    trace_id: str | None = None,
+) -> dict:
+    normalized_tag = _normalize_customer_tag(tag)
+    if not normalized_tag:
+        raise ValueError(f"unknown customer tag: {tag}")
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        before = _profile_to_dict(profile)
+        current_tags = _json_loads(profile.customer_tags_json, [])
+        profile.customer_tags_json = _json_dumps(
+            _merge_customer_tags(current_tags, [normalized_tag])
+        )
+        profile.updated_at = _now()
+        after = _profile_to_dict(profile)
+        changed_before, changed_after = _changed_fields(before, after)
+        if changed_after:
+            session.add(
+                ProfileEventModel(
+                    user_id=profile.user_id,
+                    tenant_id=profile.tenant_id,
+                    event_type="verified_customer_tag_added",
+                    before_json=_json_dumps(changed_before),
+                    after_json=_json_dumps(changed_after),
+                    reason=reason,
+                    trace_id=trace_id,
+                    created_at=_now(),
+                )
+            )
+        session.commit()
+        return _profile_to_dict(profile)
+
+
 async def get_recent_memories(user_id: str, limit: int = 10) -> dict:
     limit = _clamp_limit(limit, default=10, maximum=50)
     with _get_session() as session:

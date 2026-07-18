@@ -167,7 +167,7 @@ class Settings(BaseSettings):
         alias="VISION_BASE_URL",
     )
     vision_timeout_seconds: float = Field(
-        default=30, ge=1, alias="VISION_TIMEOUT_SECONDS"
+        default=120, ge=1, alias="VISION_TIMEOUT_SECONDS"
     )
     vision_max_retries: int = Field(default=1, ge=0, le=3, alias="VISION_MAX_RETRIES")
     vision_min_confidence: float = Field(

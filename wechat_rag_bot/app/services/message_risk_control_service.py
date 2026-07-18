@@ -33,7 +33,10 @@ from app.services.conversation_service import (
 )
 from app.services.customer_reply_formatter import split_customer_messages
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
-from app.services.user_profile_service import append_conversation_memory
+from app.services.user_profile_service import (
+    add_verified_customer_tag,
+    append_conversation_memory,
+)
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
@@ -682,21 +685,31 @@ async def _process_inbound_batch(batch_id: int) -> None:
             _mark_batch(batch_id, "skipped")
             return
 
+        prepared_content, image_count, recognized_image_count, verified_order_count = (
+            await _prepare_inbound_content(batch_data["content"], inbound_payloads)
+        )
+        batch_data["content"] = prepared_content
+        all_images_failed = image_count > 0 and recognized_image_count == 0
+        user_id = batch_data["from_user"] or batch_data["target_wc_id"]
+
+        if verified_order_count:
+            profile = await add_verified_customer_tag(
+                user_id,
+                "抖音已购",
+                reason="vision_verified_store_order",
+                trace_id=batch_data["batch_key"],
+            )
+            customer_snapshot["customer_tags"] = profile.get("customer_tags", [])
+
         if _conversation_blocks_ai(batch_data):
             _mark_batch(batch_id, "skipped")
             return
 
         contact_snapshot = await get_eyun_contact_snapshot(
             w_id=batch_data["w_id"],
-            wc_id=batch_data["from_user"] or batch_data["target_wc_id"],
+            wc_id=user_id,
         )
         customer_snapshot.update(contact_snapshot)
-
-        prepared_content, image_count, recognized_image_count = (
-            await _prepare_inbound_content(batch_data["content"], inbound_payloads)
-        )
-        batch_data["content"] = prepared_content
-        all_images_failed = image_count > 0 and recognized_image_count == 0
 
         if all_images_failed:
             chat_result = {
@@ -726,6 +739,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "message_count": batch_data["message_count"],
                         "image_count": image_count,
                         "recognized_image_count": recognized_image_count,
+                        "verified_order_count": verified_order_count,
                         **customer_snapshot,
                     },
                 )
@@ -793,17 +807,19 @@ def _batch_inbound_payloads(
 
 async def _prepare_inbound_content(
     stored_content: str, payloads: list[dict[str, Any]]
-) -> tuple[str, int, int]:
+) -> tuple[str, int, int, int]:
     from app.services.eyun_callback_service import fetch_eyun_image_url
     from app.services.vision_service import (
         VisionError,
         analyze_image,
         format_analysis_for_chat,
+        purchase_tag_for_analysis,
     )
 
     parts: list[str] = []
     image_count = 0
     recognized_image_count = 0
+    verified_order_count = 0
     for payload in payloads:
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         message_type = str(payload.get("messageType") or "")
@@ -849,12 +865,19 @@ async def _prepare_inbound_content(
             logger.warning("Eyun image recognition failed: %s", exc)
             continue
         recognized_image_count += 1
+        if purchase_tag_for_analysis(analysis):
+            verified_order_count += 1
         parts.append(format_analysis_for_chat(analysis, index=image_count))
 
     if not parts and image_count == 0:
         parts.append(stored_content)
     separator = "\n\n" if image_count else "\n"
-    return separator.join(part for part in parts if part), image_count, recognized_image_count
+    return (
+        separator.join(part for part in parts if part),
+        image_count,
+        recognized_image_count,
+        verified_order_count,
+    )
 
 
 async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
