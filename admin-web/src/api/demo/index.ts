@@ -9,6 +9,7 @@ export interface DemoChatRequest {
 
 export interface DemoChatResponse {
   reply: string
+  opening_image_url?: string | null
   customer_id: string
   conversation_id: string
   sales_stage?: string | null
@@ -19,6 +20,11 @@ export interface DemoChatResponse {
   route?: string | null
   trace_id?: string | null
 }
+
+export type DemoOpeningRequest = Omit<DemoChatRequest, 'message'>
+
+export const openDemoSalesConversation = (data: DemoOpeningRequest) =>
+  request.post<DemoChatResponse>({ url: '/api/v1/demo/opening', data })
 
 export const chatWithDemoSalesAgent = (data: DemoChatRequest) =>
   request.post<DemoChatResponse>({ url: '/api/v1/demo/chat', data })

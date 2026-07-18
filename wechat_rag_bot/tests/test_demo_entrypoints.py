@@ -75,6 +75,94 @@ def test_demo_chat_forces_web_demo_channel(monkeypatch, tmp_path):
     assert response.json()["data"]["conversation_id"] == "session-1"
 
 
+def test_demo_opening_uses_wechat_opening_and_records_conversation(
+    monkeypatch, tmp_path
+):
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("EYUN_OPENING_TEXT", "正式微信新联系人开场白")
+    monkeypatch.setenv(
+        "EYUN_OPENING_IMAGE_URL", "https://example.com/opening.jpg"
+    )
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/demo/opening",
+        json={"customer_id": "customer-opening", "customer_name": "测试客户"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["reply"] == "正式微信新联系人开场白"
+    assert data["opening_image_url"] == "https://example.com/opening.jpg"
+    assert data["route"] == "opening"
+    assert data["conversation_id"].startswith("sess_")
+
+    conversations = client.get("/api/v1/demo-admin/conversations").json()["data"]
+    assert conversations["total"] == 1
+    conversation_id = conversations["items"][0]["conversation_id"]
+    detail = client.get(
+        f"/api/v1/demo-admin/conversations/{conversation_id}"
+    ).json()["data"]
+    assert detail["conversation"]["user_display_name"] == "测试客户"
+    assert [(item["sender_type"], item["content"]) for item in detail["messages"]] == [
+        ("ai", "正式微信新联系人开场白")
+    ]
+
+
+def test_demo_opening_can_proxy_to_official_backend(monkeypatch, tmp_path):
+    from app.routers import demo
+
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("DEMO_UPSTREAM_BASE_URL", "http://official-backend")
+    get_settings.cache_clear()
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "code": 0,
+                "message": "success",
+                "data": {
+                    "reply": "正式开场白",
+                    "customer_id": "customer-1",
+                    "conversation_id": "session-1",
+                },
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def post(self, url, json):
+            captured["url"] = url
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(demo.httpx, "AsyncClient", FakeClient)
+    response = TestClient(app).post(
+        "/api/v1/demo/opening",
+        json={"customer_id": "customer-1", "customer_name": "测试客户"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["reply"] == "正式开场白"
+    assert captured["url"] == "http://official-backend/api/v1/demo/opening"
+    assert captured["json"] == {
+        "customer_id": "customer-1",
+        "customer_name": "测试客户",
+    }
+
+
 def test_demo_chat_can_proxy_to_official_backend(monkeypatch, tmp_path):
     from app.routers import demo
 

@@ -16,7 +16,7 @@
       <div class="customer-bar">
         <ElInput v-model="customerName" placeholder="客户昵称" maxlength="128" />
         <ElInput v-model="customerId" placeholder="客户编号" maxlength="128" />
-        <ElButton @click="newConversation">新建会话</ElButton>
+        <ElButton :loading="loading" @click="newConversation()">新建会话</ElButton>
       </div>
 
       <div ref="messageListRef" class="message-list">
@@ -33,6 +33,12 @@
           <div class="bubble">
             <span class="sender">{{ item.role === 'customer' ? customerName || '客户' : '销售 Agent' }}</span>
             <p>{{ item.content }}</p>
+            <img
+              v-if="item.imageUrl"
+              class="opening-image"
+              :src="item.imageUrl"
+              alt="开场介绍"
+            />
           </div>
         </div>
       </div>
@@ -62,10 +68,11 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   chatWithDemoSalesAgent,
+  openDemoSalesConversation,
   type DemoChatResponse
 } from '@/api/demo'
 
@@ -73,6 +80,7 @@ interface ChatMessage {
   id: number
   role: 'customer' | 'agent'
   content: string
+  imageUrl?: string
 }
 
 const customerName = ref('测试客户')
@@ -92,12 +100,31 @@ const scrollToBottom = async () => {
   }
 }
 
-const newConversation = () => {
+const newConversation = async (showSuccess = true) => {
+  if (loading.value) return
   conversationId.value = ''
   messages.value = []
   latestResult.value = undefined
   customerId.value = `visitor_${Date.now().toString(36)}`
-  ElMessage.success('已创建新的测试客户')
+  loading.value = true
+  try {
+    const result = await openDemoSalesConversation({
+      customer_id: customerId.value.trim(),
+      customer_name: customerName.value.trim() || undefined
+    })
+    conversationId.value = result.conversation_id
+    latestResult.value = result
+    messages.value.push({
+      id: ++messageId,
+      role: 'agent',
+      content: result.reply,
+      imageUrl: result.opening_image_url || undefined
+    })
+    if (showSuccess) ElMessage.success('已创建新的测试客户')
+  } finally {
+    loading.value = false
+    await scrollToBottom()
+  }
 }
 
 const sendMessage = async () => {
@@ -122,6 +149,10 @@ const sendMessage = async () => {
     await scrollToBottom()
   }
 }
+
+onMounted(() => {
+  void newConversation(false)
+})
 </script>
 
 <style scoped>
@@ -241,6 +272,13 @@ const sendMessage = async () => {
   margin: 5px 0 0;
   line-height: 1.7;
   white-space: pre-wrap;
+}
+
+.opening-image {
+  display: block;
+  width: min(100%, 360px);
+  margin-top: 12px;
+  border-radius: 12px;
 }
 
 .sender {
