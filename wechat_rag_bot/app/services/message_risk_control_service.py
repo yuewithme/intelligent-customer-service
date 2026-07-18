@@ -829,6 +829,8 @@ def _source_type_from_batch_key(source_batch_key: str | None) -> str:
         "bulk": "bulk",
         "unpurchased_sop": "unpurchased_sop",
         "unpurchased_sop_test": "unpurchased_sop_test",
+        "service_sop": "service_sop",
+        "service_sop_test": "service_sop_test",
         "workbench": "admin_workbench",
         "image_description_prompt": "image_description_prompt",
     }.get(prefix, prefix or "system")
@@ -1174,7 +1176,9 @@ def _ensure_aware(value: datetime) -> datetime:
 
 
 def _validate_sop_outbound(source_batch_key: str | None) -> bool:
-    if not source_batch_key or not source_batch_key.startswith("unpurchased_sop:"):
+    if not source_batch_key or not source_batch_key.startswith(
+        ("unpurchased_sop:", "service_sop:")
+    ):
         return True
     from app.services.unpurchased_sop_service import validate_sop_delivery_before_send
 
@@ -1184,7 +1188,9 @@ def _validate_sop_outbound(source_batch_key: str | None) -> bool:
 def _sync_sop_outbound(
     source_batch_key: str | None, status: str, error: str | None = None
 ) -> None:
-    if not source_batch_key or not source_batch_key.startswith("unpurchased_sop:"):
+    if not source_batch_key or not source_batch_key.startswith(
+        ("unpurchased_sop:", "service_sop:")
+    ):
         return
     from app.services.unpurchased_sop_service import sync_sop_delivery_from_outbound
 

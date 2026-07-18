@@ -1,6 +1,9 @@
 import request from '@/config/axios'
 
 export type SopMessageType = 'text' | 'image' | 'video' | 'material'
+export type SopKind = 'unpurchased' | 'service'
+
+const sopBaseUrl = (kind: SopKind) => `/api/v1/admin/${kind === 'service' ? 'service-sop' : 'unpurchased-sop'}`
 
 export interface SopMessageItem {
   message_type: SopMessageType
@@ -95,54 +98,54 @@ export interface SopMediaUpload {
   relative_url: string
 }
 
-export const getUnpurchasedSop = () =>
+export const getUnpurchasedSop = (kind: SopKind = 'unpurchased') =>
   request.get<{
     sop: UnpurchasedSopConfig
     steps: UnpurchasedSopStep[]
     stats: Record<string, number>
-  }>({ url: '/api/v1/admin/unpurchased-sop' })
+  }>({ url: sopBaseUrl(kind) })
 
-export const updateUnpurchasedSop = (data: Pick<UnpurchasedSopConfig, 'name' | 'enabled' | 'dry_run' | 'send_window_start' | 'send_window_end' | 'contact_poll_interval_minutes' | 'contact_missing_threshold'>) =>
-  request.put<UnpurchasedSopConfig>({ url: '/api/v1/admin/unpurchased-sop', data })
+export const updateUnpurchasedSop = (data: Pick<UnpurchasedSopConfig, 'name' | 'enabled' | 'dry_run' | 'send_window_start' | 'send_window_end' | 'contact_poll_interval_minutes' | 'contact_missing_threshold'>, kind: SopKind = 'unpurchased') =>
+  request.put<UnpurchasedSopConfig>({ url: sopBaseUrl(kind), data })
 
-export const createUnpurchasedSopStep = (data: SopStepPayload) =>
-  request.post<UnpurchasedSopStep>({ url: '/api/v1/admin/unpurchased-sop/steps', data })
+export const createUnpurchasedSopStep = (data: SopStepPayload, kind: SopKind = 'unpurchased') =>
+  request.post<UnpurchasedSopStep>({ url: `${sopBaseUrl(kind)}/steps`, data })
 
-export const updateUnpurchasedSopStep = (stepId: number, data: SopStepPayload) =>
-  request.put<UnpurchasedSopStep>({ url: `/api/v1/admin/unpurchased-sop/steps/${stepId}`, data })
+export const updateUnpurchasedSopStep = (stepId: number, data: SopStepPayload, kind: SopKind = 'unpurchased') =>
+  request.put<UnpurchasedSopStep>({ url: `${sopBaseUrl(kind)}/steps/${stepId}`, data })
 
-export const deleteUnpurchasedSopStep = (stepId: number) =>
-  request.delete<{ id: number; deleted: boolean }>({ url: `/api/v1/admin/unpurchased-sop/steps/${stepId}` })
+export const deleteUnpurchasedSopStep = (stepId: number, kind: SopKind = 'unpurchased') =>
+  request.delete<{ id: number; deleted: boolean }>({ url: `${sopBaseUrl(kind)}/steps/${stepId}` })
 
-export const syncUnpurchasedSopContacts = () =>
+export const syncUnpurchasedSopContacts = (kind: SopKind = 'unpurchased') =>
   request.post<Record<string, number | string | boolean>>({
-    url: '/api/v1/admin/unpurchased-sop/contacts/sync',
+    url: `${sopBaseUrl(kind)}/contacts/sync`,
     timeout: 240000
   })
 
-export const getUnpurchasedSopContacts = (page = 1, page_size = 50, keyword = '') =>
+export const getUnpurchasedSopContacts = (page = 1, page_size = 50, keyword = '', kind: SopKind = 'unpurchased') =>
   request.get<{ items: UnpurchasedSopContact[]; total: number }>({
-    url: '/api/v1/admin/unpurchased-sop/contacts',
+    url: `${sopBaseUrl(kind)}/contacts`,
     params: { page, page_size, keyword }
   })
 
-export const getUnpurchasedSopDeliveries = (page = 1, page_size = 50) =>
+export const getUnpurchasedSopDeliveries = (page = 1, page_size = 50, kind: SopKind = 'unpurchased') =>
   request.get<{ items: UnpurchasedSopDelivery[]; total: number }>({
-    url: '/api/v1/admin/unpurchased-sop/deliveries',
+    url: `${sopBaseUrl(kind)}/deliveries`,
     params: { page, page_size }
   })
 
-export const testSendUnpurchasedSop = (step_id: number, contact_ids: number[]) =>
+export const testSendUnpurchasedSop = (step_id: number, contact_ids: number[], kind: SopKind = 'unpurchased') =>
   request.post<{ contact_count: number; results: Array<{ contact_id: number; outbound_message_ids: number[]; status: string }>; outbound_message_id: number; outbound_message_ids: number[]; status: string }>({
-    url: '/api/v1/admin/unpurchased-sop/test-send',
+    url: `${sopBaseUrl(kind)}/test-send`,
     data: { step_id, contact_ids }
   })
 
-export const uploadUnpurchasedSopMedia = (file: File) => {
+export const uploadUnpurchasedSopMedia = (file: File, kind: SopKind = 'unpurchased') => {
   const data = new FormData()
   data.append('file', file)
   return request.upload<SopMediaUpload>({
-    url: '/api/v1/admin/unpurchased-sop/media/upload',
+    url: `${sopBaseUrl(kind)}/media/upload`,
     data,
     timeout: 240000
   })

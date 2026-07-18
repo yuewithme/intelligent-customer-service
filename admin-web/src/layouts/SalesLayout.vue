@@ -58,7 +58,10 @@ const navigation = [
     { label: '销售话术', to: '/knowledge-ops/templates' },
     { label: '意图样本', to: '/knowledge-ops/intent-examples' }
   ] },
-  { title: 'SOP流程', items: [{ label: '未购SOP', to: '/sop/unpurchased' }] },
+  { title: 'SOP流程', items: [
+    { label: '未购SOP', to: '/sop/unpurchased' },
+    { label: '服务SOP', to: '/sop/service' }
+  ] },
   { title: '系统', items: [{ label: '模型配置', to: '/settings/model-config' }] }
 ]
 

@@ -2,8 +2,8 @@
   <ContentWrap>
     <div class="page-head">
       <div>
-        <h1>未购 SOP</h1>
-        <p>按加好友天数触达未购买客户；抖音已购或微信已购客户会自动退出。</p>
+        <h1>{{ pageTitle }}</h1>
+        <p>{{ pageDescription }}</p>
       </div>
       <div class="head-actions">
         <ElButton :loading="syncing" @click="syncContacts">立即同步联系人</ElButton>
@@ -152,7 +152,7 @@
     <ElDialog v-model="stepDialog" :title="editingId ? '修改节点' : '新增节点'" width="760px" destroy-on-close>
       <ElForm label-position="top">
         <div class="step-grid">
-          <ElFormItem label="加好友后第几天"><ElInputNumber v-model="stepForm.day_offset" :min="0" :max="3650" /></ElFormItem>
+          <ElFormItem :label="dayOffsetLabel"><ElInputNumber v-model="stepForm.day_offset" :min="0" :max="3650" /></ElFormItem>
           <ElFormItem label="随机发送时间范围">
             <div class="time-range"><ElTimeSelect v-model="stepForm.send_time_start" start="00:00" step="00:30" end="23:30" /><span>至</span><ElTimeSelect v-model="stepForm.send_time_end" start="00:00" step="00:30" end="23:30" /></div>
             <small>每位客户会在该范围内生成一个随机发送时刻</small>
@@ -241,7 +241,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getWechatMaterials, type WechatMaterial } from '@/api/admin/wechatMaterials'
 import {
@@ -258,12 +259,20 @@ import {
   type SopMessageItem,
   type SopMessageType,
   type SopStepPayload,
+  type SopKind,
   type UnpurchasedSopConfig,
   type UnpurchasedSopContact,
   type UnpurchasedSopDelivery,
   type UnpurchasedSopStep
 } from '@/api/admin/unpurchasedSop'
 
+const route = useRoute()
+const sopKind = computed<SopKind>(() => route.meta.sopKind === 'service' ? 'service' : 'unpurchased')
+const pageTitle = computed(() => sopKind.value === 'service' ? '服务 SOP' : '未购 SOP')
+const pageDescription = computed(() => sopKind.value === 'service'
+  ? '客户被打上“微信已购”或“抖音已购”标签后自动进入；标签移除后自动退出。'
+  : '按加好友天数触达未购买客户；抖音已购或微信已购客户会自动退出。')
+const dayOffsetLabel = computed(() => sopKind.value === 'service' ? '进入服务SOP后第几天' : '加好友后第几天')
 const activeTab = ref('flow')
 const config = reactive<UnpurchasedSopConfig>({ id: 1, name: '未购SOP', enabled: false, dry_run: true, send_window_start: '09:00', send_window_end: '20:00', contact_poll_interval_minutes: 120, contact_missing_threshold: 3, timezone: 'Asia/Shanghai', updated_at: '' })
 const steps = ref<UnpurchasedSopStep[]>([])
@@ -298,7 +307,7 @@ const directContactsLoading = ref(false)
 const directSending = ref(false)
 
 const load = async () => {
-  const data = await getUnpurchasedSop()
+  const data = await getUnpurchasedSop(sopKind.value)
   Object.assign(config, data.sop)
   steps.value = data.steps
   Object.assign(stats, data.stats)
@@ -307,7 +316,7 @@ const load = async () => {
 const saveConfig = async () => {
   savingConfig.value = true
   try {
-    Object.assign(config, await updateUnpurchasedSop({ name: config.name, enabled: config.enabled, dry_run: config.dry_run, send_window_start: config.send_window_start, send_window_end: config.send_window_end, contact_poll_interval_minutes: config.contact_poll_interval_minutes, contact_missing_threshold: config.contact_missing_threshold }))
+    Object.assign(config, await updateUnpurchasedSop({ name: config.name, enabled: config.enabled, dry_run: config.dry_run, send_window_start: config.send_window_start, send_window_end: config.send_window_end, contact_poll_interval_minutes: config.contact_poll_interval_minutes, contact_missing_threshold: config.contact_missing_threshold }, sopKind.value))
     ElMessage.success('SOP设置已保存')
   } finally { savingConfig.value = false }
 }
@@ -315,7 +324,7 @@ const saveConfig = async () => {
 const syncContacts = async () => {
   syncing.value = true
   try {
-    const result = await syncUnpurchasedSopContacts()
+    const result = await syncUnpurchasedSopContacts(sopKind.value)
     ElMessage.success(`同步完成，本次新增 ${result.new || 0} 位联系人`)
     await load()
     if (activeTab.value === 'contacts') await loadContacts()
@@ -361,8 +370,8 @@ const saveStep = async () => {
   savingStep.value = true
   try {
     const payload = { ...stepForm, messages: stepForm.messages.map((message) => ({ ...message, content: message.content.trim(), preview_url: message.preview_url || undefined })) }
-    if (editingId.value) await updateUnpurchasedSopStep(editingId.value, payload)
-    else await createUnpurchasedSopStep(payload)
+    if (editingId.value) await updateUnpurchasedSopStep(editingId.value, payload, sopKind.value)
+    else await createUnpurchasedSopStep(payload, sopKind.value)
     ElMessage.success('节点已保存')
     stepDialog.value = false
     await load()
@@ -371,7 +380,7 @@ const saveStep = async () => {
 
 const removeStep = async (step: UnpurchasedSopStep) => {
   await ElMessageBox.confirm(`确认删除 D${step.day_offset} 的组合节点（${stepMessages(step).length} 条消息）？历史发送记录仍会保留。`, '删除节点', { type: 'warning' })
-  await deleteUnpurchasedSopStep(step.id)
+  await deleteUnpurchasedSopStep(step.id, sopKind.value)
   ElMessage.success('节点已删除')
   await load()
 }
@@ -386,12 +395,12 @@ const uploadPrimary = async (event: Event, index: number) => {
   if (file.size > maxBytes) { input.value = ''; return ElMessage.warning(`${message.message_type === 'image' ? '图片' : '视频'}不能超过 ${maxBytes / 1024 / 1024}MB`) }
   uploadingMessageIndex.value = index
   try {
-    const media = await uploadUnpurchasedSopMedia(file)
+    const media = await uploadUnpurchasedSopMedia(file, sopKind.value)
     message.content = media.url
     if (message.message_type === 'video') {
       try {
         const cover = await createVideoCover(file)
-        message.preview_url = (await uploadUnpurchasedSopMedia(cover)).url
+        message.preview_url = (await uploadUnpurchasedSopMedia(cover, sopKind.value)).url
       } catch { ElMessage.warning('视频已上传，请补充上传封面图') }
     }
     ElMessage.success('媒体上传成功')
@@ -405,7 +414,7 @@ const uploadCover = async (event: Event, index: number) => {
   if (file.size > IMAGE_MAX_BYTES) { input.value = ''; return ElMessage.warning('封面图片不能超过 5MB') }
   const message = stepForm.messages[index]
   if (!message) return
-  const media = await uploadUnpurchasedSopMedia(file)
+  const media = await uploadUnpurchasedSopMedia(file, sopKind.value)
   message.preview_url = media.url
   if (media.size > 50 * 1024) ElMessage.warning('Eyun建议视频封面控制在50KB以内，当前封面可能影响发送速度')
   ElMessage.success('封面上传成功')
@@ -430,11 +439,11 @@ const createVideoCover = (file: File): Promise<File> => new Promise((resolve, re
   video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('无法读取视频')) }
 })
 
-const loadContacts = async (page = 1) => { contactsLoading.value = true; try { const data = await getUnpurchasedSopContacts(page, 50); contacts.value = data.items; contactsTotal.value = data.total } finally { contactsLoading.value = false } }
-const loadDeliveries = async (page = 1) => { deliveriesLoading.value = true; try { const data = await getUnpurchasedSopDeliveries(page, 50); deliveries.value = data.items; deliveriesTotal.value = data.total } finally { deliveriesLoading.value = false } }
+const loadContacts = async (page = 1) => { contactsLoading.value = true; try { const data = await getUnpurchasedSopContacts(page, 50, '', sopKind.value); contacts.value = data.items; contactsTotal.value = data.total } finally { contactsLoading.value = false } }
+const loadDeliveries = async (page = 1) => { deliveriesLoading.value = true; try { const data = await getUnpurchasedSopDeliveries(page, 50, sopKind.value); deliveries.value = data.items; deliveriesTotal.value = data.total } finally { deliveriesLoading.value = false } }
 const loadTab = async (name: string | number) => { if (name === 'contacts') await loadContacts(); if (name === 'deliveries') await loadDeliveries() }
 const openTestSend = (contact: UnpurchasedSopContact) => { testContact.value = contact; testStepId.value = steps.value[0]?.id; testDialog.value = true }
-const confirmTestSend = async () => { if (!testContact.value || !testStepId.value) return; testing.value = true; try { await testSendUnpurchasedSop(testStepId.value, [testContact.value.id]); ElMessage.success('测试消息已加入Eyun发送队列'); testDialog.value = false } finally { testing.value = false } }
+const confirmTestSend = async () => { if (!testContact.value || !testStepId.value) return; testing.value = true; try { await testSendUnpurchasedSop(testStepId.value, [testContact.value.id], sopKind.value); ElMessage.success('测试消息已加入Eyun发送队列'); testDialog.value = false } finally { testing.value = false } }
 
 const contactRemark = (contact: UnpurchasedSopContact) => contact.remark_name || contact.display_name || '未设置备注'
 const contactOptionLabel = (contact: UnpurchasedSopContact) => `${contactRemark(contact)} · ${contact.wechat_id || contact.wc_id}`
@@ -444,7 +453,7 @@ const mediaLimitText = (type: SopMessageType) => type === 'image'
 const searchDirectContacts = async (keyword = '') => {
   directContactsLoading.value = true
   try {
-    const items = (await getUnpurchasedSopContacts(1, 100, keyword)).items
+    const items = (await getUnpurchasedSopContacts(1, 100, keyword, sopKind.value)).items
     const selected = directContactOptions.value.filter((contact) => directContactIds.value.includes(contact.id))
     directContactOptions.value = [...selected, ...items.filter((contact) => !selected.some((current) => current.id === contact.id))]
   }
@@ -460,7 +469,7 @@ const confirmDirectSend = async () => {
   if (!directSendStep.value || !directContactIds.value.length) return ElMessage.warning('请至少选择一位联系人')
   directSending.value = true
   try {
-    const result = await testSendUnpurchasedSop(directSendStep.value.id, directContactIds.value)
+    const result = await testSendUnpurchasedSop(directSendStep.value.id, directContactIds.value, sopKind.value)
     ElMessage.success(`已将 ${result.contact_count} 位联系人的消息加入风控发送队列`)
     directSendDialog.value = false
   } finally { directSending.value = false }
@@ -468,13 +477,18 @@ const confirmDirectSend = async () => {
 
 const typeText = (type: SopMessageType) => ({ text: '文本', image: '图片', video: '视频', material: '微信素材' }[type])
 const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未执行'
-const enrollmentText = (status?: string | null, reason?: string | null) => !status ? '未加入' : status === 'active' ? '执行中' : reason === 'purchase_tag_added' ? '已购退出' : reason === 'contact_removed' ? '好友移除' : '已退出'
+const enrollmentText = (status?: string | null, reason?: string | null) => !status ? '未加入' : status === 'active' ? '执行中' : reason === 'purchase_tag_added' ? '已购退出' : reason === 'purchase_tag_removed' ? '已购标签移除' : reason === 'contact_removed' ? '好友移除' : '已退出'
 const deliveryText = (status: string) => ({ dry_run: '试运行', creating: '创建中', queued: '待发送', sending: '发送中', sent: '已发送', failed: '失败', cancelled: '已取消', skipped_reply: '客户回复跳过' }[status] || status)
 const deliveryTagType = (status: string): 'success' | 'danger' | 'info' | 'warning' | undefined => status === 'sent' ? 'success' : status === 'failed' ? 'danger' : ['cancelled', 'skipped_reply'].includes(status) ? 'info' : status === 'dry_run' ? 'warning' : undefined
 
 onMounted(async () => {
   await load()
   materials.value = (await getWechatMaterials(1, 200, '', 'ready')).items
+})
+
+watch(sopKind, async () => {
+  activeTab.value = 'flow'
+  await load()
 })
 </script>
 

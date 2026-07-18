@@ -15,6 +15,7 @@ from app.routers import (
     admin_eyun_materials,
     admin_gate,
     admin_logs,
+    admin_service_sop,
     admin_unpurchased_sop,
     chat,
     debug,
@@ -91,6 +92,7 @@ app.include_router(demo_admin.router)
 app.include_router(demo_admin.profile_router)
 app.include_router(admin_logs.router)
 app.include_router(admin_unpurchased_sop.router)
+app.include_router(admin_service_sop.router)
 app.include_router(wechat.router)
 app.include_router(eyun.router)
 

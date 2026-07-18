@@ -32,14 +32,15 @@ from app.services.message_risk_control_service import enqueue_wechat_outbound
 logger = logging.getLogger("wechat_rag_bot.unpurchased_sop")
 PURCHASE_TAGS = {"抖音已购", "微信已购"}
 SOP_ID = 1
+SERVICE_SOP_ID = 2
 OWNER_ACCOUNT_ID = "default"
 SHANGHAI_TZ = timezone(timedelta(hours=8), name="Asia/Shanghai")
 _sessionmakers: dict[str, sessionmaker] = {}
 
 
-def get_unpurchased_sop() -> dict[str, Any]:
+def get_unpurchased_sop(*, sop_id: int = SOP_ID) -> dict[str, Any]:
     with _get_session() as session:
-        sop = _get_or_create_sop(session)
+        sop = _get_or_create_sop(session, sop_id)
         session.commit()
         steps = session.scalars(
             select(UnpurchasedSopStepModel)
@@ -58,9 +59,11 @@ def get_unpurchased_sop() -> dict[str, Any]:
         }
 
 
-def update_unpurchased_sop(request: UnpurchasedSopUpdateRequest) -> dict[str, Any]:
+def update_unpurchased_sop(
+    request: UnpurchasedSopUpdateRequest, *, sop_id: int = SOP_ID
+) -> dict[str, Any]:
     with _get_session() as session:
-        sop = _get_or_create_sop(session)
+        sop = _get_or_create_sop(session, sop_id)
         steps = session.scalars(
             select(UnpurchasedSopStepModel).where(
                 UnpurchasedSopStepModel.sop_id == sop.id,
@@ -94,9 +97,11 @@ def update_unpurchased_sop(request: UnpurchasedSopUpdateRequest) -> dict[str, An
         return _sop_to_dict(sop)
 
 
-def create_unpurchased_sop_step(request: UnpurchasedSopStepRequest) -> dict[str, Any]:
+def create_unpurchased_sop_step(
+    request: UnpurchasedSopStepRequest, *, sop_id: int = SOP_ID
+) -> dict[str, Any]:
     with _get_session() as session:
-        sop = _get_or_create_sop(session)
+        sop = _get_or_create_sop(session, sop_id)
         _validate_step_window(
             sop, request.send_time_start, request.send_time_end
         )
@@ -125,11 +130,11 @@ def create_unpurchased_sop_step(request: UnpurchasedSopStepRequest) -> dict[str,
 
 
 def update_unpurchased_sop_step(
-    step_id: int, request: UnpurchasedSopStepRequest
+    step_id: int, request: UnpurchasedSopStepRequest, *, sop_id: int = SOP_ID
 ) -> dict[str, Any]:
     with _get_session() as session:
-        sop = _get_or_create_sop(session)
-        row = _get_step(session, step_id)
+        sop = _get_or_create_sop(session, sop_id)
+        row = _get_step(session, step_id, sop_id)
         _validate_step_window(
             sop, request.send_time_start, request.send_time_end
         )
@@ -151,9 +156,11 @@ def update_unpurchased_sop_step(
         return _step_to_dict(row)
 
 
-def delete_unpurchased_sop_step(step_id: int) -> dict[str, Any]:
+def delete_unpurchased_sop_step(
+    step_id: int, *, sop_id: int = SOP_ID
+) -> dict[str, Any]:
     with _get_session() as session:
-        row = _get_step(session, step_id)
+        row = _get_step(session, step_id, sop_id)
         session.delete(row)
         session.commit()
         return {"id": step_id, "deleted": True}
@@ -217,6 +224,9 @@ async def sync_eyun_contacts(*, friend_ids: list[str] | None = None) -> dict[str
         if first_sync and not current_ids:
             sop.last_contact_sync_at = now
             sop.updated_at = now
+            service_sop = _get_or_create_sop(session, SERVICE_SOP_ID)
+            service_sop.last_contact_sync_at = now
+            service_sop.updated_at = now
             session.commit()
             return {
                 "total": 0,
@@ -296,6 +306,12 @@ async def sync_eyun_contacts(*, friend_ids: list[str] | None = None) -> dict[str
             sop.baseline_initialized_at = now
         sop.last_contact_sync_at = now
         sop.updated_at = now
+        service_sop = _get_or_create_sop(session, SERVICE_SOP_ID)
+        service_sop.baseline_initialized_at = (
+            service_sop.baseline_initialized_at or now
+        )
+        service_sop.last_contact_sync_at = now
+        service_sop.updated_at = now
         session.commit()
         result = {
             "total": len(current_ids),
@@ -306,22 +322,73 @@ async def sync_eyun_contacts(*, friend_ids: list[str] | None = None) -> dict[str
             "synced_at": now.isoformat(),
         }
     await _refresh_new_contact_details(detail_ids, w_id)
+    sync_service_sop_enrollments()
     return result
+
+
+def sync_service_sop_enrollments() -> dict[str, int]:
+    """Keep service SOP membership aligned with the two purchased tags."""
+    now = _utcnow()
+    local_today = now.astimezone(SHANGHAI_TZ).date()
+    enrolled = 0
+    exited = 0
+    with _get_session() as session:
+        _get_or_create_sop(session, SERVICE_SOP_ID)
+        contacts = session.scalars(
+            select(EyunContactModel).where(EyunContactModel.status == "active")
+        ).all()
+        for contact in contacts:
+            profile = session.get(UserProfileModel, contact.wc_id)
+            active = session.scalar(
+                select(UnpurchasedSopEnrollmentModel)
+                .where(
+                    UnpurchasedSopEnrollmentModel.sop_id == SERVICE_SOP_ID,
+                    UnpurchasedSopEnrollmentModel.contact_id == contact.id,
+                    UnpurchasedSopEnrollmentModel.status == "active",
+                )
+                .order_by(UnpurchasedSopEnrollmentModel.id.desc())
+                .limit(1)
+            )
+            if _has_purchase_tag(profile):
+                if active is None:
+                    if _ensure_enrollment(
+                        session,
+                        SERVICE_SOP_ID,
+                        contact,
+                        now,
+                        enrollment_date=local_today,
+                    ):
+                        enrolled += 1
+                continue
+            if active is not None:
+                _exit_enrollment(active, "purchase_tag_removed", now)
+                _cancel_pending_deliveries(session, active.id, now)
+                exited += 1
+        session.commit()
+    return {"enrolled": enrolled, "exited": exited}
 
 
 async def run_unpurchased_sop_tick(*, force_contact_sync: bool = False) -> dict[str, int]:
     synced = 0
     with _get_session() as session:
-        sop = _get_or_create_sop(session)
-        last_sync = _aware(sop.last_contact_sync_at) if sop.last_contact_sync_at else None
-        due_sync = last_sync is None or _utcnow() - last_sync >= timedelta(
-            minutes=sop.contact_poll_interval_minutes
+        sops = (
+            _get_or_create_sop(session),
+            _get_or_create_sop(session, SERVICE_SOP_ID),
+        )
+        now = _utcnow()
+        due_sync = any(
+            sop.last_contact_sync_at is None
+            or now - _aware(sop.last_contact_sync_at)
+            >= timedelta(minutes=sop.contact_poll_interval_minutes)
+            for sop in sops
         )
         session.commit()
     if force_contact_sync or due_sync:
         await sync_eyun_contacts()
         synced = 1
+    sync_service_sop_enrollments()
     queued = await process_due_unpurchased_sop_deliveries()
+    queued += await process_due_unpurchased_sop_deliveries(sop_id=SERVICE_SOP_ID)
     return {"contact_syncs": synced, "queued": queued}
 
 
@@ -331,6 +398,11 @@ async def unpurchased_sop_worker(stop_event: asyncio.Event) -> None:
             settings = get_settings()
             if settings.eyun_base_url and settings.eyun_authorization and settings.eyun_wid:
                 await run_unpurchased_sop_tick()
+            else:
+                sync_service_sop_enrollments()
+                await process_due_unpurchased_sop_deliveries(
+                    sop_id=SERVICE_SOP_ID
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Unpurchased SOP worker tick failed: %s", exc)
         try:
@@ -339,17 +411,22 @@ async def unpurchased_sop_worker(stop_event: asyncio.Event) -> None:
             pass
 
 
-async def process_due_unpurchased_sop_deliveries(limit: int = 100) -> int:
+async def process_due_unpurchased_sop_deliveries(
+    limit: int = 100, *, sop_id: int = SOP_ID
+) -> int:
     now = _utcnow()
     candidates: list[tuple[int, int, int, datetime]] = []
     with _get_session() as session:
-        sop = _get_or_create_sop(session)
+        sop = _get_or_create_sop(session, sop_id)
         if not sop.enabled:
             session.commit()
             return 0
         enrollments = session.scalars(
             select(UnpurchasedSopEnrollmentModel)
-            .where(UnpurchasedSopEnrollmentModel.status == "active")
+            .where(
+                UnpurchasedSopEnrollmentModel.sop_id == sop.id,
+                UnpurchasedSopEnrollmentModel.status == "active",
+            )
             .order_by(UnpurchasedSopEnrollmentModel.id.asc())
             .limit(limit)
         ).all()
@@ -367,8 +444,8 @@ async def process_due_unpurchased_sop_deliveries(limit: int = 100) -> int:
                 _exit_enrollment(enrollment, "contact_removed", now)
                 continue
             profile = session.get(UserProfileModel, contact.wc_id)
-            if _has_purchase_tag(profile):
-                _exit_enrollment(enrollment, "purchase_tag_added", now)
+            if not _profile_matches_sop(profile, sop.id):
+                _exit_enrollment(enrollment, _eligibility_exit_reason(sop.id), now)
                 _cancel_pending_deliveries(session, enrollment.id, now)
                 continue
             if profile is not None and profile.is_human_handoff:
@@ -395,27 +472,46 @@ async def process_due_unpurchased_sop_deliveries(limit: int = 100) -> int:
 
     queued = 0
     for enrollment_id, contact_id, step_id, due_at in candidates[:limit]:
-        if await _create_and_queue_delivery(enrollment_id, contact_id, step_id, due_at):
+        if await _create_and_queue_delivery(
+            enrollment_id, contact_id, step_id, due_at, sop_id=sop_id
+        ):
             queued += 1
     return queued
 
 
 async def _create_and_queue_delivery(
-    enrollment_id: int, contact_id: int, step_id: int, due_at: datetime
+    enrollment_id: int,
+    contact_id: int,
+    step_id: int,
+    due_at: datetime,
+    *,
+    sop_id: int = SOP_ID,
 ) -> bool:
     now = _utcnow()
     with _get_session() as session:
         enrollment = session.get(UnpurchasedSopEnrollmentModel, enrollment_id)
         contact = session.get(EyunContactModel, contact_id)
         step = session.get(UnpurchasedSopStepModel, step_id)
-        sop = session.get(UnpurchasedSopModel, SOP_ID)
-        if not enrollment or enrollment.status != "active" or not contact or contact.status != "active":
+        sop = session.get(UnpurchasedSopModel, sop_id)
+        if (
+            not enrollment
+            or enrollment.sop_id != sop_id
+            or enrollment.status != "active"
+            or not contact
+            or contact.status != "active"
+        ):
             return False
-        if not step or not step.enabled or not sop or not sop.enabled:
+        if (
+            not step
+            or step.sop_id != sop_id
+            or not step.enabled
+            or not sop
+            or not sop.enabled
+        ):
             return False
         profile = session.get(UserProfileModel, contact.wc_id)
-        if _has_purchase_tag(profile):
-            _exit_enrollment(enrollment, "purchase_tag_added", now)
+        if not _profile_matches_sop(profile, sop_id):
+            _exit_enrollment(enrollment, _eligibility_exit_reason(sop_id), now)
             session.commit()
             return False
         messages = _step_messages(step)
@@ -451,7 +547,7 @@ async def _create_and_queue_delivery(
             w_id=w_id,
             wc_id=wc_id,
             messages=messages,
-            source_key=f"unpurchased_sop:{delivery_id}",
+            source_key=f"{_sop_source_type(sop_id)}:{delivery_id}",
         )
     except Exception as exc:
         sync_sop_delivery_status(delivery_id, "failed", str(exc))
@@ -472,6 +568,8 @@ async def test_send_unpurchased_sop_step(
     step_id: int,
     contact_id: int | None = None,
     contact_ids: list[int] | None = None,
+    *,
+    sop_id: int = SOP_ID,
 ) -> dict[str, Any]:
     selected_ids = list(
         dict.fromkeys(
@@ -485,7 +583,7 @@ async def test_send_unpurchased_sop_step(
             status_code=422,
         )
     with _get_session() as session:
-        step = _get_step(session, step_id)
+        step = _get_step(session, step_id, sop_id)
         messages = _step_messages(step)
         targets = []
         for selected_id in selected_ids:
@@ -509,7 +607,7 @@ async def test_send_unpurchased_sop_step(
             w_id=w_id,
             wc_id=wc_id,
             messages=messages,
-            source_key=f"unpurchased_sop_test:{step_id}:{selected_id}",
+            source_key=f"{_sop_source_type(sop_id)}_test:{step_id}:{selected_id}",
         )
         outbound_ids = [int(outbound["id"]) for outbound in outbounds]
         results.append(
@@ -536,6 +634,7 @@ async def _enqueue_sop_message_sequence(
     dependency_id: int | None = None
     total = len(messages)
     for index, message in enumerate(messages):
+        source_type = source_key.split(":", 1)[0]
         outbound = await enqueue_wechat_outbound(
             w_id=w_id,
             wc_id=wc_id,
@@ -547,12 +646,8 @@ async def _enqueue_sop_message_sequence(
             due_at=_utcnow(),
             user_id=wc_id,
             sender_type="system",
-            sender_id="unpurchased_sop",
-            source_type=(
-                "unpurchased_sop_test"
-                if source_key.startswith("unpurchased_sop_test:")
-                else "unpurchased_sop"
-            ),
+            sender_id=source_type.removesuffix("_test"),
+            source_type=source_type,
             source_id=source_key,
         )
         outbounds.append(outbound)
@@ -561,7 +656,11 @@ async def _enqueue_sop_message_sequence(
 
 
 def list_unpurchased_sop_contacts(
-    page: int = 1, page_size: int = 50, keyword: str = ""
+    page: int = 1,
+    page_size: int = 50,
+    keyword: str = "",
+    *,
+    sop_id: int = SOP_ID,
 ) -> dict[str, Any]:
     page = max(1, page)
     page_size = min(200, max(1, page_size))
@@ -590,7 +689,10 @@ def list_unpurchased_sop_contacts(
             profile = session.get(UserProfileModel, row.wc_id)
             enrollment = session.scalar(
                 select(UnpurchasedSopEnrollmentModel)
-                .where(UnpurchasedSopEnrollmentModel.contact_id == row.id)
+                .where(
+                    UnpurchasedSopEnrollmentModel.sop_id == sop_id,
+                    UnpurchasedSopEnrollmentModel.contact_id == row.id,
+                )
                 .order_by(UnpurchasedSopEnrollmentModel.id.desc())
                 .limit(1)
             )
@@ -598,13 +700,22 @@ def list_unpurchased_sop_contacts(
         return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-def list_unpurchased_sop_deliveries(page: int = 1, page_size: int = 50) -> dict[str, Any]:
+def list_unpurchased_sop_deliveries(
+    page: int = 1, page_size: int = 50, *, sop_id: int = SOP_ID
+) -> dict[str, Any]:
     page = max(1, page)
     page_size = min(200, max(1, page_size))
     with _get_session() as session:
-        total = session.scalar(select(func.count(UnpurchasedSopDeliveryModel.id))) or 0
+        enrollment_ids = select(UnpurchasedSopEnrollmentModel.id).where(
+            UnpurchasedSopEnrollmentModel.sop_id == sop_id
+        )
+        scoped = UnpurchasedSopDeliveryModel.enrollment_id.in_(enrollment_ids)
+        total = session.scalar(
+            select(func.count(UnpurchasedSopDeliveryModel.id)).where(scoped)
+        ) or 0
         rows = session.scalars(
             select(UnpurchasedSopDeliveryModel)
+            .where(scoped)
             .order_by(UnpurchasedSopDeliveryModel.created_at.desc(), UnpurchasedSopDeliveryModel.id.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -633,12 +744,17 @@ def validate_sop_delivery_before_send(source_batch_key: str | None) -> bool:
         profile = session.get(UserProfileModel, contact.wc_id) if contact else None
         paused = bool(enrollment and enrollment.paused_until and _aware(enrollment.paused_until) > now)
         flow_disabled = not sop or not sop.enabled or not step or not step.enabled
-        if not enrollment or enrollment.status != "active" or not contact or contact.status != "active" or _has_purchase_tag(profile) or paused or flow_disabled:
+        eligible = bool(
+            enrollment and _profile_matches_sop(profile, enrollment.sop_id)
+        )
+        if not enrollment or enrollment.status != "active" or not contact or contact.status != "active" or not eligible or paused or flow_disabled:
             delivery.status = "cancelled"
             delivery.last_error = "客户回复暂停中" if paused else "发送前条件已不满足"
             delivery.updated_at = now
-            if enrollment and _has_purchase_tag(profile):
-                _exit_enrollment(enrollment, "purchase_tag_added", now)
+            if enrollment and not eligible:
+                _exit_enrollment(
+                    enrollment, _eligibility_exit_reason(enrollment.sop_id), now
+                )
             session.commit()
             return False
         return True
@@ -760,13 +876,19 @@ def sync_sop_delivery_status(
         if first_sent_transition:
             enrollment = session.get(UnpurchasedSopEnrollmentModel, row.enrollment_id)
             contact = session.get(EyunContactModel, enrollment.contact_id) if enrollment else None
-            trace_id = f"unpurchased_sop_delivery:{row.id}"
+            source_type = _sop_source_type(enrollment.sop_id if enrollment else SOP_ID)
+            trace_id = f"{source_type}_delivery:{row.id}"
             if contact and not session.scalar(
                 select(ConversationMemoryModel.id).where(
                     ConversationMemoryModel.trace_id == trace_id
                 )
             ):
-                memory_content = _delivery_memory_content(row)
+                memory_content = _delivery_memory_content(
+                    row,
+                    sop_name="服务SOP"
+                    if enrollment and enrollment.sop_id == SERVICE_SOP_ID
+                    else "未购SOP",
+                )
                 session.add(
                     ConversationMemoryModel(
                         user_id=contact.wc_id,
@@ -774,8 +896,8 @@ def sync_sop_delivery_status(
                         session_id="default",
                         role="assistant",
                         content=memory_content,
-                        intent="unpurchased_sop",
-                        route="unpurchased_sop",
+                        intent=source_type,
+                        route=source_type,
                         trace_id=trace_id,
                         created_at=row.sent_at,
                     )
@@ -790,7 +912,7 @@ def _delivery_id_from_source(value: str | None) -> int | None:
 
 
 def _delivery_source_parts(value: str | None) -> tuple[int | None, int, int]:
-    if not value or not value.startswith("unpurchased_sop:"):
+    if not value or not value.startswith(("unpurchased_sop:", "service_sop:")):
         return None, 0, 1
     parts = value.split(":")
     try:
@@ -949,13 +1071,15 @@ async def _refresh_new_contact_details(wc_ids: list[str], w_id: str) -> None:
                     session.commit()
 
 
-def _get_or_create_sop(session: Session) -> UnpurchasedSopModel:
-    row = session.get(UnpurchasedSopModel, SOP_ID)
+def _get_or_create_sop(
+    session: Session, sop_id: int = SOP_ID
+) -> UnpurchasedSopModel:
+    row = session.get(UnpurchasedSopModel, sop_id)
     if row is None:
         now = _utcnow()
         row = UnpurchasedSopModel(
-            id=SOP_ID,
-            name="未购SOP",
+            id=sop_id,
+            name="服务SOP" if sop_id == SERVICE_SOP_ID else "未购SOP",
             enabled=False,
             dry_run=True,
             send_window_start="09:00",
@@ -971,23 +1095,31 @@ def _get_or_create_sop(session: Session) -> UnpurchasedSopModel:
     return row
 
 
-def _get_step(session: Session, step_id: int) -> UnpurchasedSopStepModel:
+def _get_step(
+    session: Session, step_id: int, sop_id: int = SOP_ID
+) -> UnpurchasedSopStepModel:
     row = session.get(UnpurchasedSopStepModel, step_id)
-    if row is None or row.sop_id != SOP_ID:
+    if row is None or row.sop_id != sop_id:
         raise AppError(ErrorCode.REQUEST_INVALID, message="SOP节点不存在", status_code=404)
     return row
 
 
 def _ensure_enrollment(
-    session: Session, sop_id: int, contact: EyunContactModel, now: datetime
-) -> None:
-    if contact.friend_added_on is None:
-        return
+    session: Session,
+    sop_id: int,
+    contact: EyunContactModel,
+    now: datetime,
+    *,
+    enrollment_date: date | None = None,
+) -> bool:
+    effective_date = enrollment_date or contact.friend_added_on
+    if effective_date is None:
+        return False
     existing = session.scalar(
         select(UnpurchasedSopEnrollmentModel).where(
             UnpurchasedSopEnrollmentModel.sop_id == sop_id,
             UnpurchasedSopEnrollmentModel.contact_id == contact.id,
-            UnpurchasedSopEnrollmentModel.friend_added_on == contact.friend_added_on,
+            UnpurchasedSopEnrollmentModel.friend_added_on == effective_date,
         )
     )
     if existing is None:
@@ -995,12 +1127,14 @@ def _ensure_enrollment(
             UnpurchasedSopEnrollmentModel(
                 sop_id=sop_id,
                 contact_id=contact.id,
-                friend_added_on=contact.friend_added_on,
+                friend_added_on=effective_date,
                 status="active",
                 enrolled_at=now,
                 updated_at=now,
             )
         )
+        return True
+    return False
 
 
 def _set_profile_friend_added_at(session: Session, wc_id: str, added_on: date) -> None:
@@ -1064,6 +1198,19 @@ def _has_purchase_tag(profile: UserProfileModel | None) -> bool:
     return bool(PURCHASE_TAGS.intersection(str(tag) for tag in tags))
 
 
+def _profile_matches_sop(profile: UserProfileModel | None, sop_id: int) -> bool:
+    purchased = _has_purchase_tag(profile)
+    return purchased if sop_id == SERVICE_SOP_ID else not purchased
+
+
+def _eligibility_exit_reason(sop_id: int) -> str:
+    return "purchase_tag_removed" if sop_id == SERVICE_SOP_ID else "purchase_tag_added"
+
+
+def _sop_source_type(sop_id: int) -> str:
+    return "service_sop" if sop_id == SERVICE_SOP_ID else "unpurchased_sop"
+
+
 def _step_due_at(
     friend_added_on: date,
     step: UnpurchasedSopStepModel,
@@ -1108,6 +1255,12 @@ def _time_to_minutes(value: str) -> int:
 
 
 def _stats(session: Session, sop_id: int) -> dict[str, int]:
+    enrollment_ids = select(UnpurchasedSopEnrollmentModel.id).where(
+        UnpurchasedSopEnrollmentModel.sop_id == sop_id
+    )
+    scoped_deliveries = UnpurchasedSopDeliveryModel.enrollment_id.in_(
+        enrollment_ids
+    )
     return {
         "contacts": session.scalar(select(func.count(EyunContactModel.id))) or 0,
         "active_contacts": session.scalar(
@@ -1121,11 +1274,13 @@ def _stats(session: Session, sop_id: int) -> dict[str, int]:
         ) or 0,
         "sent": session.scalar(
             select(func.count(UnpurchasedSopDeliveryModel.id)).where(
+                scoped_deliveries,
                 UnpurchasedSopDeliveryModel.status == "sent"
             )
         ) or 0,
         "failed": session.scalar(
             select(func.count(UnpurchasedSopDeliveryModel.id)).where(
+                scoped_deliveries,
                 UnpurchasedSopDeliveryModel.status == "failed"
             )
         ) or 0,
@@ -1307,13 +1462,15 @@ def _message_outbound_content(message: dict[str, Any]) -> str:
     return str(message["content"])
 
 
-def _delivery_memory_content(row: UnpurchasedSopDeliveryModel) -> str:
+def _delivery_memory_content(
+    row: UnpurchasedSopDeliveryModel, *, sop_name: str = "未购SOP"
+) -> str:
     parts = []
     for message in _delivery_messages(row):
         if message["message_type"] == "image":
-            parts.append(f"[未购SOP发送图片] {message['content']}")
+            parts.append(f"[{sop_name}发送图片] {message['content']}")
         elif message["message_type"] == "video":
-            parts.append(f"[未购SOP发送视频] {message['content']}")
+            parts.append(f"[{sop_name}发送视频] {message['content']}")
         else:
             parts.append(str(message["content"]))
     return "\n".join(parts)
