@@ -7,6 +7,7 @@ from app.schemas.intent import IntentResult
 from app.schemas.reply_plan import BusinessFacts
 from app.schemas.state import UserState
 from app.services.youzan_order_service import YouzanOrderSummary
+from app.services.youzan_order_service import YouzanCustomerIdentity
 from app.services.youzan_product_service import YouzanProduct
 
 
@@ -145,6 +146,49 @@ async def test_order_query_reuses_mobile_from_recent_customer_chat():
 
 
 @pytest.mark.asyncio
+async def test_order_query_reuses_durable_youzan_identity_without_mobile():
+    from app.services.commerce_query_service import build_commerce_context
+
+    identity = YouzanCustomerIdentity(
+        yz_uid="6190904",
+        buyer_id="6190904",
+        mobile_masked="138****8000",
+    )
+
+    class FakeIdentityStore:
+        def get(self, **kwargs):
+            assert kwargs["external_user_id"] == "wxid-customer"
+            return identity
+
+        def upsert(self, **kwargs):
+            raise AssertionError("existing binding does not need to be rewritten")
+
+    class FakeOrderService:
+        async def search_by_identity(self, value, *, limit):
+            assert value == identity
+            assert limit == 3
+            return [
+                YouzanOrderSummary(
+                    order_no="E001",
+                    status="WAIT_SELLER_SEND_GOODS",
+                    status_text="待发货",
+                    item_summary="建兰皇帝 × 1",
+                )
+            ]
+
+    facts = await build_commerce_context(
+        _message("帮我查一下订单"),
+        UserState(user_id="wxid-customer"),
+        _intent("order_query"),
+        order_service=FakeOrderService(),
+        identity_store=FakeIdentityStore(),
+    )
+
+    assert facts.tool_state["status"] == "found"
+    assert facts.tool_state["mobile_masked"] == "138****8000"
+
+
+@pytest.mark.asyncio
 async def test_product_query_returns_first_product_as_mini_program_card():
     from app.services.commerce_query_service import build_commerce_context
 
@@ -257,6 +301,30 @@ async def test_commerce_renderer_returns_text_and_mini_program_message():
     assert reply.outbound_messages[0].type == "text"
     assert reply.outbound_messages[1].type == "mini_program"
     assert json.loads(reply.outbound_messages[1].content)["app_id"] == "wx123"
+
+
+@pytest.mark.asyncio
+async def test_product_renderer_uses_real_h5_link_without_mini_program_config():
+    from app.services.business_reply_renderer import render_business_reply
+
+    facts = BusinessFacts(
+        tool_state={
+            "commerce_type": "product",
+            "status": "found",
+            "products": [
+                {
+                    "title": "建兰皇帝",
+                    "price_cent": 29900,
+                    "h5_url": "https://h5.youzan.com/goods/abc",
+                }
+            ],
+        }
+    )
+
+    reply = await render_business_reply(_message("发我链接"), facts)
+
+    assert "https://h5.youzan.com/goods/abc" in reply.answer
+    assert [item.type for item in reply.outbound_messages] == ["text"]
 
 
 @pytest.mark.asyncio

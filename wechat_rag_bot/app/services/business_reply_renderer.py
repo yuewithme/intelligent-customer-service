@@ -88,7 +88,14 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             first = products[0]
             price = first.get("price_cent") if isinstance(first, dict) else None
             price_text = f"，当前售价{price / 100:g}元" if isinstance(price, int) else ""
-            answer = f"给您找到这款“{first.get('title') or '商品'}”{price_text}，点击商品卡片就可以查看和下单。"
+            card = state.get("mini_program")
+            if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
+                next_step = "，点击商品卡片就可以查看和下单。"
+            elif first.get("h5_url"):
+                next_step = f"。购买链接：{first['h5_url']}"
+            else:
+                next_step = "。如果需要下单，我再帮您确认购买入口。"
+            answer = f"给您找到这款“{first.get('title') or '商品'}”{price_text}{next_step}"
         return _commerce_final_reply(answer, state)
 
     if status == "missing_mobile":
@@ -105,8 +112,14 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
         detail = f"{index}. {order.get('item_summary') or '商品'}，{order.get('status_text') or '状态待确认'}"
         if order.get("express_company"):
             detail += f"，{order['express_company']}"
+        if order.get("tracking_no_masked"):
+            detail += f"，单号{order['tracking_no_masked']}"
         lines.append(detail)
-    lines.append("详细信息可以点击订单卡片查看。")
+    card = state.get("mini_program")
+    if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
+        lines.append("详细信息可以点击订单卡片查看。")
+    else:
+        lines.append("以上为有赞最新查询结果。")
     return _commerce_final_reply("\n".join(lines), state)
 
 

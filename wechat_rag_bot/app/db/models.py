@@ -306,6 +306,48 @@ class EyunContactModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class YouzanIdentityBindingModel(Base):
+    __tablename__ = "youzan_identity_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "channel",
+            "external_user_id",
+            "kdt_id",
+            name="uq_youzan_identity_binding",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    channel: Mapped[str] = mapped_column(String(64), index=True)
+    external_user_id: Mapped[str] = mapped_column(String(256), index=True)
+    kdt_id: Mapped[str] = mapped_column(String(64), index=True)
+    yz_uid: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    buyer_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    yz_open_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    fans_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    weixin_openid: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    union_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    mobile_masked: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source: Mapped[str] = mapped_column(String(64), index=True)
+    verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class YouzanEventReceiptModel(Base):
+    __tablename__ = "youzan_event_receipts"
+
+    msg_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    kdt_id: Mapped[str] = mapped_column(String(64), index=True)
+    event_type: Mapped[str] = mapped_column(String(128), index=True)
+    event_status: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    payload_digest: Mapped[str] = mapped_column(String(64))
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class HandoffNotificationSettingModel(Base):
     __tablename__ = "handoff_notification_settings"
 

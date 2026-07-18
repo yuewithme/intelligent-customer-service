@@ -643,7 +643,26 @@ P2 增加监控：错误码、trace_id、接口延迟和连续失败告警
 
 后续 AI 不应要求用户在聊天中粘贴 `client_secret` 或 `access_token`。应在服务器环境变量中读取，并只输出“是否已设置”、长度、错误码和 `trace_id` 等脱敏诊断信息。
 
-## 14. 官方资料
+## 14. 2026-07-19 接入进展
+
+已完成：
+
+- `YouzanClient` 识别 `gw_err_resp`、`error_response`、业务失败和非法 JSON，不再把网关错误当成空数据。
+- 商品查询会用 `youzan.item.get/3.0.0` 补齐首个商品详情；未配置小程序路径时使用有赞真实 H5 商品链接。
+- 手机号查询成功后，仅持久化脱敏手机号和有赞身份标识；同一微信客户后续查单无需重复发送手机号。
+- 公众号 `openid` 可通过 `youzan.users.weixin.follower.get/3.0.0` 解析粉丝身份，再查询客户和订单。
+- 订单列表会用 `youzan.trade.get/4.0.0` 补齐最近订单详情，物流单号继续脱敏输出。
+- 新增 `/youzan/callback`：按有赞旧版 HTTP 消息协议严格校验 `MD5(client_id + msg + client_secret)`，消息落库去重，只保存摘要，不保存完整隐私载荷。
+
+生产能力验证（从 `150.158.52.233` 的 API 容器发起）：
+
+- 在售商品、单品详情、库存列表、订单详情接口可调用。
+- 独立物流轨迹接口返回网关错误 `4204`（没有操作权限），因此 `YOUZAN_LOGISTICS_ENABLED` 必须保持 `false`，待有赞云能力包开通后再启用。
+- 消息回调默认关闭；只有在服务器安全注入真实 `YOUZAN_CLIENT_ID`、`YOUZAN_CLIENT_SECRET` 并在有赞云配置推送地址后，才允许将 `YOUZAN_CALLBACK_ENABLED` 改为 `true`。
+
+仍需外部配置：有赞小程序真实 `appId`、`userName`、商品页路径、订单页路径和图片地址；这些值不能从接口示例猜测。
+
+## 15. 官方资料
 
 - 有赞商品接口场景说明：<https://developers.youzanyun.com/article/1567497554527>
 - 有赞自用型应用数据打通流程：<https://help.youzan.com/displaylist/detail_13_13-2-52098>

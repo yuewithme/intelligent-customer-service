@@ -4,6 +4,7 @@ import re
 from app.config import get_settings
 from app.integrations.youzan.client import YouzanClient
 from app.schemas.reply_plan import BusinessFacts
+from app.services.youzan_identity_store import YouzanIdentityStore
 from app.services.youzan_order_service import YouzanOrderService
 from app.services.youzan_product_service import YouzanProductService
 
@@ -21,6 +22,7 @@ async def build_commerce_context(
     order_service=None,
     mini_program_base: dict | None = None,
     order_card: dict | None = None,
+    identity_store=None,
 ) -> BusinessFacts:
     commerce_type = _commerce_type(intent.primary_intent)
     if not commerce_type:
@@ -41,6 +43,11 @@ async def build_commerce_context(
             page_path_template=settings.youzan_product_page_path_template,
             h5_url_template=settings.youzan_product_h5_url_template,
             kdt_id=settings.youzan_kdt_id,
+            detail_enabled=settings.youzan_product_detail_enabled,
+            detail_method=settings.youzan_product_detail_method,
+            detail_version=settings.youzan_product_detail_version,
+            inventory_method=settings.youzan_inventory_method,
+            inventory_version=settings.youzan_inventory_version,
         )
         order_service = YouzanOrderService(
             client,
@@ -48,7 +55,16 @@ async def build_commerce_context(
             version=settings.youzan_order_search_version,
             customer_method=settings.youzan_customer_get_method,
             customer_version=settings.youzan_customer_get_version,
+            follower_method=settings.youzan_follower_get_method,
+            follower_version=settings.youzan_follower_get_version,
+            detail_enabled=settings.youzan_order_detail_enabled,
+            detail_method=settings.youzan_order_detail_method,
+            detail_version=settings.youzan_order_detail_version,
+            logistics_enabled=settings.youzan_logistics_enabled,
+            logistics_method=settings.youzan_logistics_method,
+            logistics_version=settings.youzan_logistics_version,
         )
+        identity_store = identity_store or YouzanIdentityStore()
 
     base_card = mini_program_base or _mini_program_base(settings)
     if commerce_type == "product":
@@ -87,32 +103,89 @@ async def build_commerce_context(
             }
         return BusinessFacts(tool_state=tool_state)
 
-    mobile = (
-        _mobile_from(message.message)
-        or str(user_state.metadata.get("commerce_mobile") or "")
-        or _mobile_from_profile(user_state.metadata.get("profile"))
-        or _mobile_from_recent_turns(user_state.metadata.get("recent_turns"))
-    )
-    if not mobile:
-        user_state.metadata["commerce_pending"] = "order_mobile"
-        return BusinessFacts(
-            tool_state={"commerce_type": "order", "status": "missing_mobile"}
-        )
-    user_state.metadata["commerce_mobile"] = mobile
-    user_state.metadata.pop("commerce_pending", None)
     if order_service is None:
         return BusinessFacts()
+
+    tenant_id = str(getattr(message, "tenant_id", "tenant_default") or "tenant_default")
+    external_user_id = str(getattr(message, "user_id", "") or "")
+    binding = None
+    if identity_store is not None and external_user_id:
+        binding = identity_store.get(
+            tenant_id=tenant_id,
+            channel=str(getattr(message, "channel", "wechat") or "wechat"),
+            external_user_id=external_user_id,
+            kdt_id=settings.youzan_kdt_id,
+        )
+    explicit_mobile = _mobile_from(message.message)
+    mobile = explicit_mobile or (
+        ""
+        if binding is not None
+        else (
+            str(user_state.metadata.get("commerce_mobile") or "")
+            or _mobile_from_profile(user_state.metadata.get("profile"))
+            or _mobile_from_recent_turns(user_state.metadata.get("recent_turns"))
+        )
+    )
+    lookup_identity = binding
+    identity_source = ""
     try:
-        orders = await order_service.search_by_mobile(mobile, limit=3)
+        if mobile:
+            user_state.metadata["commerce_mobile"] = mobile
+            if hasattr(order_service, "lookup_by_mobile"):
+                lookup = await order_service.lookup_by_mobile(mobile, limit=3)
+                lookup_identity = lookup.identity
+                orders = lookup.orders
+                identity_source = "mobile_verified"
+            else:
+                orders = await order_service.search_by_mobile(mobile, limit=3)
+        elif binding is not None and hasattr(order_service, "search_by_identity"):
+            orders = await order_service.search_by_identity(binding, limit=3)
+        elif _is_official_wechat_message(message) and hasattr(
+            order_service, "lookup_by_weixin_openid"
+        ):
+            lookup = await order_service.lookup_by_weixin_openid(
+                external_user_id,
+                limit=3,
+            )
+            lookup_identity = lookup.identity
+            orders = lookup.orders
+            identity_source = "official_wechat_openid"
+        else:
+            user_state.metadata["commerce_pending"] = "order_mobile"
+            return BusinessFacts(
+                tool_state={"commerce_type": "order", "status": "missing_mobile"}
+            )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Youzan order query failed: %s", type(exc).__name__)
         return BusinessFacts(
             tool_state={"commerce_type": "order", "status": "unavailable"}
         )
+    user_state.metadata.pop("commerce_pending", None)
+    if (
+        identity_store is not None
+        and lookup_identity is not None
+        and identity_source
+        and external_user_id
+        and any(
+            getattr(lookup_identity, field, "")
+            for field in ("buyer_id", "yz_uid", "yz_open_id", "fans_id", "weixin_openid")
+        )
+    ):
+        identity_store.upsert(
+            tenant_id=tenant_id,
+            channel=str(getattr(message, "channel", "wechat") or "wechat"),
+            external_user_id=external_user_id,
+            kdt_id=settings.youzan_kdt_id,
+            identity=lookup_identity,
+            source=identity_source,
+        )
     tool_state = {
         "commerce_type": "order",
         "status": "found" if orders else "not_found",
-        "mobile_masked": _mask_mobile(mobile),
+        "mobile_masked": (
+            str(getattr(lookup_identity, "mobile_masked", "") or "")
+            or _mask_mobile(mobile)
+        ),
         "orders": [order.model_dump() for order in orders],
     }
     configured_order_card = order_card or _order_card(settings)
@@ -205,3 +278,8 @@ def _order_card(settings) -> dict[str, str]:
         "thumb_url": settings.youzan_order_card_thumb_url,
         "title": settings.youzan_order_card_title,
     }
+
+
+def _is_official_wechat_message(message) -> bool:
+    metadata = message.metadata if isinstance(message.metadata, dict) else {}
+    return bool(metadata.get("wechat_to_user")) and metadata.get("provider") != "eyun"

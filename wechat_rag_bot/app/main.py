@@ -30,6 +30,7 @@ from app.routers import (
     templates,
     user_profile,
     wechat,
+    youzan,
 )
 from app.schemas.common import AppError, ErrorCode
 from app.services.message_risk_control_service import eyun_risk_control_worker
@@ -99,6 +100,7 @@ app.include_router(admin_unpurchased_sop.router)
 app.include_router(admin_service_sop.router)
 app.include_router(wechat.router)
 app.include_router(eyun.router)
+app.include_router(youzan.router)
 
 
 def _admin_web_dir() -> Path | None:
