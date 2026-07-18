@@ -414,6 +414,44 @@ def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
     assert media["resolve_status"] == "failed"
     assert media["resolve_error"] == "provider_download_failed"
 
+    retry = client.post(
+        f"/api/v1/admin/conversations/messages/{message_id}/resolve-media"
+    )
+    assert retry.status_code == 200
+    assert retry.json()["data"]["metadata"]["media"]["resolve_status"] == "failed"
+
+
+def test_non_resolvable_eyun_video_is_not_marked_pending(monkeypatch, tmp_path):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="wxid_customer",
+            session_id="default",
+            content="[video]",
+            metadata={
+                "provider": "eyun",
+                "message_type": "other",
+                "media": {
+                    "type": "video",
+                    "url": "https://cdn.example.com/video.mp4",
+                },
+            },
+        )
+    )
+
+    client = TestClient(app)
+    message = client.get(
+        "/api/v1/admin/conversations/wechat:wxid_customer:default"
+    ).json()["data"]["messages"][0]
+
+    assert message["metadata"]["media"]["url"] == (
+        "https://cdn.example.com/video.mp4"
+    )
+    assert "resolve_status" not in message["metadata"]["media"]
+
 
 def test_message_panel_does_not_resolve_video_on_playback_error():
     panel = (
@@ -429,7 +467,7 @@ def test_message_panel_does_not_resolve_video_on_playback_error():
     assert '@error="resolveVideo(message)"' not in panel
     assert '@error="markVideoFailed(message)"' in panel
     assert "autoResolvePendingVideos" in panel
-    assert "media.resolve_status === 'pending'" in panel
+    assert "canResolveVideo(message) && media?.resolve_status === 'pending'" in panel
     assert "void resolveVideo(message, { silent: true })" in panel
 
 

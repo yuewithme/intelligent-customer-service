@@ -87,7 +87,7 @@
               {{ mediaFileName(message) || message.content }}
             </a>
             <ElButton
-              v-else-if="mediaType(message) === 'video'"
+              v-else-if="canResolveVideo(message) && messageMedia(message)?.resolve_status !== 'failed'"
               type="primary"
               link
               :loading="resolvingMediaIds.has(message.id)"
@@ -225,6 +225,11 @@ const messageMedia = (message: ConversationMessage): MediaMetadata | undefined =
 
 const mediaType = (message: ConversationMessage) => messageMedia(message)?.type || ''
 
+const canResolveVideo = (message: ConversationMessage) =>
+  message.metadata.provider === 'eyun' &&
+  String(message.metadata.message_type || '') === '60003' &&
+  mediaType(message) === 'video'
+
 const isImageMessage = (message: ConversationMessage) => mediaType(message) === 'image'
 
 const mediaSource = (message: ConversationMessage) => {
@@ -314,7 +319,7 @@ const clearSelection = () => {
 const autoResolvePendingVideos = (messages: ConversationMessage[]) => {
   for (const message of messages) {
     const media = messageMedia(message)
-    if (media?.type === 'video' && media.resolve_status === 'pending') {
+    if (canResolveVideo(message) && media?.resolve_status === 'pending') {
       void resolveVideo(message, { silent: true })
     }
   }

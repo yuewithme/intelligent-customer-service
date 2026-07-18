@@ -774,6 +774,8 @@ async def resolve_message_media(message_id: int) -> dict:
         media = metadata.get("media")
         if not isinstance(media, dict):
             media = {"type": "video"}
+        if media.get("resolve_status") in {"succeeded", "failed"}:
+            return _message_to_dict(message)
         media.update({"type": "video", "resolve_status": "processing"})
         media.pop("resolve_error", None)
         metadata["media"] = media
@@ -969,16 +971,20 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         if media:
             metadata["media"] = media
     media = metadata.get("media")
-    if (
+    media_is_resolvable = (
         metadata.get("provider") == "eyun"
+        and str(metadata.get("message_type") or "") == "60003"
         and isinstance(media, dict)
         and media.get("type") == "video"
+    )
+    if (
+        media_is_resolvable
         and isinstance(media.get("url"), str)
         and not media["url"].startswith("/static/media/")
     ):
         media["original_url"] = media.pop("url")
         media["fallback"] = True
-    if isinstance(media, dict) and media.get("type") == "video":
+    if media_is_resolvable:
         media.setdefault(
             "resolve_status",
             "succeeded" if media.get("url") else "pending",
