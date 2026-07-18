@@ -20,7 +20,10 @@ from app.schemas.demo import DemoChatRequest, DemoOpeningRequest
 class RenderGatewaySettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
 
-    demo_upstream_base_url: str = Field(default="", alias="DEMO_UPSTREAM_BASE_URL")
+    demo_upstream_base_url: str = Field(
+        default="http://124.160.45.66:21873",
+        alias="DEMO_UPSTREAM_BASE_URL",
+    )
     demo_upstream_timeout_seconds: float = Field(
         default=200, ge=1, alias="DEMO_UPSTREAM_TIMEOUT_SECONDS"
     )
