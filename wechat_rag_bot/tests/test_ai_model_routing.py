@@ -104,27 +104,6 @@ def test_profile_model_config_prefers_dedicated_provider(monkeypatch):
     assert config.model == "deepseek-profile"
 
 
-def test_production_never_uses_mock_when_real_provider_key_exists(monkeypatch):
-    from app.config import get_settings
-    from app.services.llm_service import get_model_config
-
-    monkeypatch.setenv("APP_ENV", "prod")
-    monkeypatch.setenv("EVALUATION_MODE", "false")
-    monkeypatch.setenv("LLM_PROVIDER", "mock")
-    monkeypatch.setenv("RAG_LLM_PROVIDER", "mock")
-    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-key")
-    get_settings.cache_clear()
-
-    try:
-        config = get_model_config("rag")
-    finally:
-        get_settings.cache_clear()
-
-    assert config.provider == "deepseek"
-    assert config.model == "deepseek-chat"
-
-
 @pytest.mark.asyncio
 async def test_talk_script_classifier_uses_talk_script_model(monkeypatch):
     from app.config import get_settings

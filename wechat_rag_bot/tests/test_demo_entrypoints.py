@@ -26,6 +26,7 @@ def _reset_settings(monkeypatch, tmp_path, *, auth: bool = False):
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "false")
     monkeypatch.setenv("STATE_PROVIDER", "memory")
+    monkeypatch.delenv("DEMO_UPSTREAM_BASE_URL", raising=False)
     get_settings.cache_clear()
 
 
@@ -72,6 +73,64 @@ def test_demo_chat_forces_web_demo_channel(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.json()["data"]["conversation_id"] == "session-1"
+
+
+def test_demo_chat_can_proxy_to_official_backend(monkeypatch, tmp_path):
+    from app.routers import demo
+
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("DEMO_UPSTREAM_BASE_URL", "http://official-backend")
+    get_settings.cache_clear()
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "code": 0,
+                "message": "success",
+                "data": {
+                    "reply": "正式后台回复",
+                    "customer_id": "customer-1",
+                    "conversation_id": "session-1",
+                },
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def post(self, url, json):
+            captured["url"] = url
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(demo.httpx, "AsyncClient", FakeClient)
+    response = TestClient(app).post(
+        "/api/v1/demo/chat",
+        json={
+            "customer_id": "customer-1",
+            "customer_name": "测试客户",
+            "message": "我的兰花烂根了",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["reply"] == "正式后台回复"
+    assert captured["url"] == "http://official-backend/api/v1/demo/chat"
+    assert captured["json"] == {
+        "customer_id": "customer-1",
+        "customer_name": "测试客户",
+        "message": "我的兰花烂根了",
+    }
 
 
 def test_demo_chat_reuses_normal_sales_flow_for_first_message(monkeypatch, tmp_path):

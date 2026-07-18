@@ -169,32 +169,5 @@ def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
         provider = str(getattr(settings, provider_name, "") or "").strip()
         model = str(getattr(settings, model_name, "") or "").strip()
         if provider:
-            provider = provider.lower()
-            production_provider = _production_provider_for_mock(settings, provider)
-            if production_provider:
-                return production_provider, settings.llm_model
-            return provider, model or settings.llm_model
-    provider = settings.llm_provider.lower()
-    production_provider = _production_provider_for_mock(settings, provider)
-    if production_provider:
-        return production_provider, settings.llm_model
-    return provider, settings.llm_model
-
-
-def _production_provider_for_mock(settings, provider: str) -> str | None:
-    if (
-        provider != "mock"
-        or settings.app_env.lower() != "prod"
-        or settings.evaluation_mode
-    ):
-        return None
-    for candidate, key_name in (
-        ("deepseek", "deepseek_api_key"),
-        ("volcengine", "volcengine_api_key"),
-        ("ark", "ark_api_key"),
-        ("openai", "openai_api_key"),
-        ("dashscope", "dashscope_api_key"),
-    ):
-        if str(getattr(settings, key_name, "") or "").strip():
-            return candidate
-    return None
+            return provider.lower(), model or settings.llm_model
+    return settings.llm_provider.lower(), settings.llm_model
