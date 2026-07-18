@@ -62,7 +62,10 @@ const navigation = [
     { label: '未购SOP', to: '/sop/unpurchased' },
     { label: '服务SOP', to: '/sop/service' }
   ] },
-  { title: '系统', items: [{ label: '模型配置', to: '/settings/model-config' }] }
+  { title: '系统', items: [
+    { label: '转人工设置', to: '/settings/handoff' },
+    { label: '模型配置', to: '/settings/model-config' }
+  ] }
 ]
 
 const logout = async () => {

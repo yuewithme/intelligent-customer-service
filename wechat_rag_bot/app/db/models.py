@@ -306,6 +306,16 @@ class EyunContactModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class HandoffNotificationSettingModel(Base):
+    __tablename__ = "handoff_notification_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    recipient_contact_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    message_text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class UnpurchasedSopModel(Base):
     __tablename__ = "unpurchased_sops"
 

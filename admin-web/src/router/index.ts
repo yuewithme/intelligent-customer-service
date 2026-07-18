@@ -24,6 +24,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'knowledge-ops/intent-examples', component: PlaceholderPage, props: { title: '销售意图样本' }, meta: { title: '销售意图样本' } },
       { path: 'sop/unpurchased', component: () => import('@/views/unpurchased-sop/index.vue'), meta: { title: '未购 SOP', sopKind: 'unpurchased' } },
       { path: 'sop/service', component: () => import('@/views/unpurchased-sop/index.vue'), meta: { title: '服务 SOP', sopKind: 'service' } },
+      { path: 'settings/handoff', component: () => import('@/views/handoff-settings/index.vue'), meta: { title: '转人工设置' } },
       { path: 'settings/model-config', component: PlaceholderPage, props: { title: '模型配置' }, meta: { title: '模型配置' } }
     ]
   },

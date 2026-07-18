@@ -14,6 +14,7 @@ from app.routers import (
     admin_conversations,
     admin_eyun_materials,
     admin_gate,
+    admin_handoff_notification,
     admin_logs,
     admin_service_sop,
     admin_unpurchased_sop,
@@ -80,6 +81,7 @@ app.include_router(admin_activities.router)
 app.include_router(admin_conversations.router)
 app.include_router(admin_eyun_materials.router)
 app.include_router(admin_gate.router)
+app.include_router(admin_handoff_notification.router)
 app.include_router(chat.router)
 app.include_router(knowledge.router)
 app.include_router(templates.router)

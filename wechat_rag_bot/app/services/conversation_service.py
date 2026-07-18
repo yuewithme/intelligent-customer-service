@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,6 +21,7 @@ RESOLVED = "resolved"
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _initialized_urls: set[str] = set()
+logger = logging.getLogger("wechat_rag_bot.conversation")
 
 
 def _now() -> datetime:
@@ -119,6 +121,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
     intent = result.get("intent") or {}
     skip_customer_record = bool(message.metadata.get("skip_customer_record"))
     now = _now()
+    should_notify_handoff = status == HANDOFF_PENDING
     with _get_session() as session:
         conversation = session.scalar(
             select(ConversationModel).where(
@@ -177,6 +180,9 @@ async def record_ai_turn(*, message, result: dict) -> None:
             session.add(conversation)
             session.flush()
         else:
+            should_notify_handoff = (
+                status == HANDOFF_PENDING and conversation.status != HANDOFF_PENDING
+            )
             display_name = _metadata_text(
                 message.metadata,
                 (
@@ -257,8 +263,45 @@ async def record_ai_turn(*, message, result: dict) -> None:
                     created_at=now,
                 )
             )
+        fallback_nickname = conversation.user_display_name
         session.commit()
     _publish_change(conversation_id, "message")
+    if should_notify_handoff:
+        await _notify_handoff_safely(
+            customer_wc_id=message.user_id,
+            metadata=message.metadata,
+            fallback_nickname=fallback_nickname,
+            source_reference=message.trace_id or conversation_id,
+        )
+
+
+async def _notify_handoff_safely(
+    *,
+    customer_wc_id: str,
+    metadata: dict[str, Any],
+    fallback_nickname: str | None,
+    source_reference: str,
+) -> None:
+    try:
+        from app.services.handoff_notification_service import (
+            enqueue_handoff_notification,
+        )
+
+        await enqueue_handoff_notification(
+            customer_wc_id=customer_wc_id,
+            nickname=_metadata_text(
+                metadata,
+                ("nickname", "nick_name", "user_nickname", "display_name"),
+            )
+            or fallback_nickname,
+            wechat_id=_metadata_text(
+                metadata,
+                ("alias_name", "wechat_id", "wechatId", "alias"),
+            ),
+            source_reference=source_reference,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to enqueue handoff notification: %s", exc)
 
 
 def _answer_segments(result: dict) -> list[str]:
@@ -287,6 +330,7 @@ async def record_customer_message(
     tenant_id = tenant_id or "tenant_default"
     conversation_id = make_conversation_id(channel, user_id, session_id)
     now = _now()
+    should_notify_handoff = status == HANDOFF_PENDING
 
     with _get_session() as session:
         conversation = session.scalar(
@@ -341,6 +385,9 @@ async def record_customer_message(
             session.add(conversation)
             session.flush()
         else:
+            should_notify_handoff = (
+                status == HANDOFF_PENDING and conversation.status != HANDOFF_PENDING
+            )
             display_name = _metadata_text(
                 metadata,
                 (
@@ -403,6 +450,13 @@ async def record_customer_message(
         result = _conversation_to_dict(conversation)
 
     _publish_change(conversation_id, "message")
+    if should_notify_handoff:
+        await _notify_handoff_safely(
+            customer_wc_id=user_id,
+            metadata=metadata,
+            fallback_nickname=result.get("user_display_name"),
+            source_reference=message_id or result.get("handoff_ticket_id") or conversation_id,
+        )
     return result
 
 
@@ -833,6 +887,7 @@ async def force_handoff(
     conversation_id: str, operator_id: str, reason: str | None
 ) -> dict:
     del operator_id
+    should_notify_handoff = False
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)
         if conversation.status == RESOLVED:
@@ -841,6 +896,7 @@ async def force_handoff(
                 message="已结束会话不能强制转人工",
                 status_code=409,
             )
+        should_notify_handoff = conversation.status != HANDOFF_PENDING
         conversation.status = HANDOFF_PENDING
         conversation.owner_id = None
         conversation.handoff_reason = reason or "manual_force_handoff"
@@ -849,8 +905,16 @@ async def force_handoff(
         )
         conversation.updated_at = _now()
         session.commit()
+        result = _conversation_to_dict(conversation)
         _publish_change(conversation_id, "handoff")
-        return _conversation_to_dict(conversation)
+    if should_notify_handoff:
+        await _notify_handoff_safely(
+            customer_wc_id=result["user_id"],
+            metadata={},
+            fallback_nickname=result.get("user_display_name"),
+            source_reference=result.get("handoff_ticket_id") or conversation_id,
+        )
+    return result
 
 
 async def release_to_ai(conversation_id: str, operator_id: str) -> dict:
