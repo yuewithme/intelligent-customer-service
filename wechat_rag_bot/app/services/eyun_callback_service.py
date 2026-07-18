@@ -21,8 +21,6 @@ from app.services.eyun_contact_service import (
 )
 from app.services.message_risk_control_service import (
     enqueue_eyun_inbound,
-    enqueue_wechat_outbound,
-    reserve_eyun_image_description_prompt,
 )
 from app.services.user_profile_service import ensure_user_profile
 
@@ -33,7 +31,6 @@ EYUN_TEST_CALLBACK = "00000"
 EYUN_PRIVATE_TEXT = "60001"
 EYUN_PRIVATE_IMAGE = "60002"
 EYUN_GROUP_TEXT = "80001"
-IMAGE_DESCRIPTION_PROMPT = "亲能否具体描述一下图片内容"
 
 
 def is_eyun_text_message(payload: dict[str, Any]) -> bool:
@@ -140,7 +137,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         route=(
             "inbound_text"
             if is_eyun_text_message(payload)
-            else "inbound_image_prompt" if is_private_image else "non_text"
+            else "inbound_image" if is_private_image else "non_text"
         ),
         primary_intent="message" if is_eyun_text_message(payload) else _eyun_message_kind(message_type),
         handoff_reason=(
@@ -165,25 +162,11 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     if is_private_image:
-        w_id = str(metadata.get("w_id") or get_settings().eyun_wid or "")
-        if await reserve_eyun_image_description_prompt(w_id=w_id, wc_id=user_id):
-            prompt_message = await ensure_outbound_conversation_message(
-                channel="wechat",
-                user_id=user_id,
-                session_id="default",
-                content=IMAGE_DESCRIPTION_PROMPT,
-                message_type="text",
-                sender_type="ai",
-                sender_id="ai",
-                route="image_description_prompt",
-            )
-            await enqueue_wechat_outbound(
-                w_id=w_id,
-                wc_id=user_id,
-                content=IMAGE_DESCRIPTION_PROMPT,
-                source_batch_key=None,
-                conversation_message_id=prompt_message["id"],
-            )
+        queued_payload = {**payload, "data": dict(data)}
+        media = metadata.get("media") if isinstance(metadata.get("media"), dict) else {}
+        if media.get("url"):
+            queued_payload["data"]["_image_url"] = str(media["url"])
+        await enqueue_eyun_inbound(queued_payload)
         return eyun_success()
 
     if not is_eyun_private_text_message(payload):

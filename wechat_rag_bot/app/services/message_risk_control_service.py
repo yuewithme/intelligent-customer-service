@@ -54,7 +54,8 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     now = utcnow()
-    content = str(data.get("content") or "").strip()
+    is_image = str(payload.get("messageType") or "") == "60002"
+    content = "[图片]" if is_image else str(data.get("content") or "").strip()
     w_id = str(data.get("wId") or payload.get("wId") or settings.eyun_wid or "")
     from_user = str(data.get("fromUser") or "")
     from_group = str(data.get("fromGroup") or "")
@@ -90,7 +91,7 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
                 content=content,
                 message_count=1,
                 status="pending",
-                due_at=now,
+                due_at=due_at if is_image else now,
                 created_at=now,
                 updated_at=now,
             )
@@ -107,6 +108,7 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
             batch.message_count = 1
             batch.status = "pending"
             batch.due_at = due_at
+            batch.created_at = now
             batch.updated_at = now
         else:
             batch.content = f"{batch.content}\n{content}" if batch.content else content
@@ -667,6 +669,11 @@ async def _process_inbound_batch(batch_id: int) -> None:
         if batch is None:
             return
         batch_data = _inbound_batch_to_dict(batch)
+        inbound_payloads = _batch_inbound_payloads(
+            session,
+            batch_data["batch_key"],
+            created_after=batch_data["created_at"],
+        )
         customer_snapshot = _latest_customer_snapshot(session, batch_data["batch_key"])
         is_first_inbound = is_first_eyun_inbound_message(session, batch_data["batch_key"])
 
@@ -685,7 +692,18 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         customer_snapshot.update(contact_snapshot)
 
-        if is_first_inbound:
+        prepared_content, image_count, recognized_image_count = (
+            await _prepare_inbound_content(batch_data["content"], inbound_payloads)
+        )
+        batch_data["content"] = prepared_content
+        all_images_failed = image_count > 0 and recognized_image_count == 0
+
+        if all_images_failed:
+            chat_result = {
+                "answer": get_settings().vision_fallback_text,
+                "route": "image_recognition_fallback",
+            }
+        elif is_first_inbound and image_count == 0:
             chat_result = _opening_chat_result()
             await _record_opening_memories(batch_data, chat_result.get("answer", ""))
         else:
@@ -706,6 +724,8 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "from_group": batch_data["from_group"],
                         "batch_key": batch_data["batch_key"],
                         "message_count": batch_data["message_count"],
+                        "image_count": image_count,
+                        "recognized_image_count": recognized_image_count,
                         **customer_snapshot,
                     },
                 )
@@ -724,7 +744,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     sender_id="ai",
                     route=str(
                         chat_result.get("route")
-                        or ("opening" if is_first_inbound else "")
+                        or ("opening" if is_first_inbound and image_count == 0 else "")
                     ),
                     created_after=batch_data["created_at"],
                 )
@@ -747,6 +767,94 @@ async def _process_inbound_batch(batch_id: int) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
         _mark_batch(batch_id, "failed")
+
+
+def _batch_inbound_payloads(
+    session: Session, batch_key: str, *, created_after: datetime
+) -> list[dict[str, Any]]:
+    rows = session.scalars(
+        select(EyunInboundMessageModel)
+        .where(
+            EyunInboundMessageModel.batch_key == batch_key,
+            EyunInboundMessageModel.created_at >= created_after,
+        )
+        .order_by(EyunInboundMessageModel.created_at.asc(), EyunInboundMessageModel.id.asc())
+    ).all()
+    payloads: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            payload = json.loads(row.payload_json)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    return payloads
+
+
+async def _prepare_inbound_content(
+    stored_content: str, payloads: list[dict[str, Any]]
+) -> tuple[str, int, int]:
+    from app.services.eyun_callback_service import fetch_eyun_image_url
+    from app.services.vision_service import (
+        VisionError,
+        analyze_image,
+        format_analysis_for_chat,
+    )
+
+    parts: list[str] = []
+    image_count = 0
+    recognized_image_count = 0
+    for payload in payloads:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        message_type = str(payload.get("messageType") or "")
+        if message_type == "60001":
+            text_content = str(data.get("content") or "").strip()
+            if text_content:
+                parts.append(text_content)
+            continue
+        if message_type != "60002":
+            continue
+
+        image_count += 1
+        image_source = str(
+            data.get("_image_url")
+            or data.get("imageUrl")
+            or data.get("imgUrl")
+            or data.get("url")
+            or ""
+        ).strip()
+        if not image_source:
+            image_request = {
+                "w_id": str(data.get("wId") or payload.get("wId") or ""),
+                "msg_id": str(data.get("msgId") or data.get("newMsgId") or ""),
+                "content": str(data.get("content") or ""),
+            }
+            image_source = str(
+                await fetch_eyun_image_url(**image_request, image_type=1)
+                or await fetch_eyun_image_url(**image_request, image_type=0)
+                or ""
+            )
+        if not image_source:
+            thumbnail = str(data.get("img") or "").strip()
+            if thumbnail:
+                image_source = (
+                    thumbnail
+                    if thumbnail.startswith("data:")
+                    else f"data:image/jpeg;base64,{thumbnail}"
+                )
+
+        try:
+            analysis = await analyze_image(image_source)
+        except VisionError as exc:
+            logger.warning("Eyun image recognition failed: %s", exc)
+            continue
+        recognized_image_count += 1
+        parts.append(format_analysis_for_chat(analysis, index=image_count))
+
+    if not parts and image_count == 0:
+        parts.append(stored_content)
+    separator = "\n\n" if image_count else "\n"
+    return separator.join(part for part in parts if part), image_count, recognized_image_count
 
 
 async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:

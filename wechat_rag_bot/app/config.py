@@ -141,6 +141,27 @@ class Settings(BaseSettings):
     volcengine_api_key: str = ""
     ark_api_key: str = ""
 
+    vision_enabled: bool = Field(default=False, alias="VISION_ENABLED")
+    vision_model: str = Field(default="qwen3.7-plus", alias="VISION_MODEL")
+    vision_ocr_enabled: bool = Field(default=True, alias="VISION_OCR_ENABLED")
+    vision_ocr_model: str = Field(default="qwen3.5-ocr", alias="VISION_OCR_MODEL")
+    vision_api_key: str = Field(default="", alias="VISION_API_KEY")
+    vision_base_url: str = Field(
+        default="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        alias="VISION_BASE_URL",
+    )
+    vision_timeout_seconds: float = Field(
+        default=30, ge=1, alias="VISION_TIMEOUT_SECONDS"
+    )
+    vision_max_retries: int = Field(default=1, ge=0, le=3, alias="VISION_MAX_RETRIES")
+    vision_min_confidence: float = Field(
+        default=0.55, ge=0, le=1, alias="VISION_MIN_CONFIDENCE"
+    )
+    vision_fallback_text: str = Field(
+        default="亲能否描述一下图片或重拍一下图片",
+        alias="VISION_FALLBACK_TEXT",
+    )
+
     embedding_provider: str = "mock"
     embedding_model: str = "BAAI/bge-m3"
     embedding_api_key: str = ""

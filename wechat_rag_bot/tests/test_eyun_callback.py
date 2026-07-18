@@ -142,12 +142,12 @@ def test_private_non_text_callback_uses_external_user_id(monkeypatch, tmp_path):
     assert recorded[0]["user_id"] == "wxid_customer"
 
 
-def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_path):
+def test_private_image_callback_enters_recognition_batch(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
-    outbound = []
+    enqueued = []
 
     async def fake_ensure(user_id, **kwargs):
         return {"user_id": user_id}
@@ -161,15 +161,9 @@ def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_
     async def fake_fetch_image_url(**kwargs):
         return "https://cdn.example.com/image.jpg"
 
-    async def fake_enqueue_outbound(**kwargs):
-        outbound.append(kwargs)
-        return {"id": 1, "status": "queued"}
-
-    async def allow_image_prompt(**kwargs):
-        return True
-
-    async def fail_enqueue_inbound(payload):
-        raise AssertionError("image messages should not enter the text AI queue")
+    async def fake_enqueue_inbound(payload):
+        enqueued.append(payload)
+        return {"batch_key": "wid:wxid_customer"}
 
     monkeypatch.setattr(
         eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
@@ -177,19 +171,7 @@ def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_
     monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
     monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
     monkeypatch.setattr(eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url)
-    monkeypatch.setattr(
-        eyun_callback_service,
-        "enqueue_wechat_outbound",
-        fake_enqueue_outbound,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        eyun_callback_service,
-        "reserve_eyun_image_description_prompt",
-        allow_image_prompt,
-        raising=False,
-    )
-    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_enqueue_inbound)
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue_inbound)
 
     response = TestClient(app).post(
         "/wechat/callback",
@@ -210,27 +192,18 @@ def test_private_image_callback_queues_text_description_prompt(monkeypatch, tmp_
 
     assert response.status_code == 200
     assert recorded[0]["status"] == "ai_waiting"
-    assert recorded[0]["route"] == "inbound_image_prompt"
+    assert recorded[0]["route"] == "inbound_image"
     assert recorded[0]["handoff_reason"] is None
-    assert outbound == [
-        {
-            "w_id": "wid",
-            "wc_id": "wxid_customer",
-            "content": "亲能否具体描述一下图片内容",
-            "source_batch_key": None,
-            "conversation_message_id": 1,
-        }
-    ]
+    assert len(enqueued) == 1
+    assert enqueued[0]["messageType"] == "60002"
+    assert enqueued[0]["data"]["_image_url"] == "https://cdn.example.com/image.jpg"
 
 
-def test_private_image_callback_queues_only_one_prompt_within_cooldown(
-    monkeypatch, tmp_path
-):
+def test_private_image_callback_never_sends_immediate_fallback(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
-    outbound = []
-    reservation_calls = []
+    enqueued = []
 
     async def fake_ensure(user_id, **kwargs):
         return {"user_id": user_id}
@@ -244,13 +217,9 @@ def test_private_image_callback_queues_only_one_prompt_within_cooldown(
     async def fake_fetch_image_url(**kwargs):
         return "https://cdn.example.com/image.jpg"
 
-    async def fake_reserve(**kwargs):
-        reservation_calls.append(kwargs)
-        return len(reservation_calls) == 1
-
-    async def fake_enqueue_outbound(**kwargs):
-        outbound.append(kwargs)
-        return {"id": 1, "status": "queued"}
+    async def fake_enqueue(payload):
+        enqueued.append(payload)
+        return {"batch_key": "wid:wxid_customer"}
 
     monkeypatch.setattr(
         eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
@@ -258,15 +227,7 @@ def test_private_image_callback_queues_only_one_prompt_within_cooldown(
     monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
     monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
     monkeypatch.setattr(eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url)
-    monkeypatch.setattr(
-        eyun_callback_service,
-        "reserve_eyun_image_description_prompt",
-        fake_reserve,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        eyun_callback_service, "enqueue_wechat_outbound", fake_enqueue_outbound
-    )
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
 
     client = TestClient(app)
     for message_id in (102, 103):
@@ -288,11 +249,7 @@ def test_private_image_callback_queues_only_one_prompt_within_cooldown(
         )
         assert response.status_code == 200
 
-    assert reservation_calls == [
-        {"w_id": "wid", "wc_id": "wxid_customer"},
-        {"w_id": "wid", "wc_id": "wxid_customer"},
-    ]
-    assert len(outbound) == 1
+    assert [item["data"]["newMsgId"] for item in enqueued] == [102, 103]
 
 
 def test_eyun_callback_accepts_json_payload(monkeypatch, tmp_path):
@@ -439,7 +396,7 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
 
     assert text_response.status_code == 200
     assert response.status_code == 200
-    assert len(enqueued) == 1
+    assert len(enqueued) == 2
     conversations = client.get("/api/v1/admin/conversations").json()["data"]
     assert conversations["total"] == 1
     item = conversations["items"][0]
@@ -452,9 +409,8 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     assert [message["content"] for message in messages] == [
         "hello",
         "[图片]",
-        "亲能否具体描述一下图片内容",
     ]
-    assert [message["sender_type"] for message in messages] == ["customer", "customer", "ai"]
+    assert [message["sender_type"] for message in messages] == ["customer", "customer"]
     assert messages[1]["metadata"]["message_type"] == "60002"
     assert messages[1]["metadata"]["image_thumb_base64"]
     assert messages[1]["metadata"]["media"] == {
