@@ -329,6 +329,7 @@ class YouzanIdentityBindingModel(Base):
     fans_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     weixin_openid: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     union_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    mobile: Mapped[str | None] = mapped_column(String(32), nullable=True)
     mobile_masked: Mapped[str | None] = mapped_column(String(32), nullable=True)
     source: Mapped[str] = mapped_column(String(64), index=True)
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -346,6 +347,22 @@ class YouzanEventReceiptModel(Base):
     event_status: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     payload_digest: Mapped[str] = mapped_column(String(64))
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class YouzanToolCallAuditModel(Base):
+    __tablename__ = "youzan_tool_call_audits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    tool_name: Mapped[str] = mapped_column(String(128), index=True)
+    caller: Mapped[str] = mapped_column(String(64), index=True, default="mcp")
+    customer_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    parameters_json: Mapped[str] = mapped_column(Text, default="{}")
+    result_count: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class HandoffNotificationSettingModel(Base):

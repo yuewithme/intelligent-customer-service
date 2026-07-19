@@ -448,6 +448,23 @@ YOUZAN_ORDER_CARD_THUMB_URL=https://稳定公网地址/order.jpg
 
 当前使用配置中的 `YOUZAN_ACCESS_TOKEN`。正式启用前应在有赞控制台完成测试店铺授权，并由部署环境或有赞 Token 托管能力负责更新令牌。
 
+### 有赞 AI Tool Call
+
+MCP 地址为 `/mcp`，使用 `Authorization: Bearer <MCP_API_KEY>`。真实 AI/MCP 客户端可发现并调用以下只读工具：
+
+- `youzan_search_products(keyword, limit)`：搜索在售商品。
+- `youzan_get_product(item_id)`：读取商品详情。
+- `youzan_list_inventory(limit)`：读取库存列表。
+- `youzan_resolve_customer(customer_id, mobile, tenant_id, channel)`：用手机号验证并绑定客户身份。
+- `youzan_search_customer_orders(customer_id, mobile, limit, tenant_id, channel)`：读取当前客户订单。
+- `youzan_get_customer_order(customer_id, order_no, mobile, tenant_id, channel)`：校验订单归属后读取详情。
+
+所有结果都包含 `read_only=true`、工具名和 `trace_id`。手机号在身份表中完整保存，用于后续真实查询；AI 返回值和 `youzan_tool_call_audits` 审计参数仅包含脱敏手机号。订单详情工具不会只凭订单号查询，必须先确认该订单属于当前已验证客户。有赞退款、取消、改价、改地址、发货和库存调整等写接口没有注册为 AI 工具。
+
+### 生产数据目录
+
+生产 Compose 将云服务器项目目录下的 `runtime-data/` bind mount 到容器 `/app/data`。`rag.db`、`chat_logs.db`、上传文件和后续本地数据库统一放在该目录，目录不进入 Git。数据库仍由 Docker 内的应用访问，但文件、备份和迁移由云服务器明确管理。
+
 ## 云服务配置
 
 ### Qdrant Cloud

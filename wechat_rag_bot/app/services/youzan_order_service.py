@@ -35,6 +35,7 @@ class YouzanCustomerIdentity(BaseModel):
     fans_id: str = ""
     weixin_openid: str = ""
     union_id: str = ""
+    mobile: str = ""
     mobile_masked: str = ""
 
     @property
@@ -301,6 +302,7 @@ def _normalize_identity(
             or weixin_openid
         ),
         union_id=_nested_text(data, "union_id", "unionid"),
+        mobile=resolved_mobile,
         mobile_masked=_mask_mobile(resolved_mobile),
     )
 

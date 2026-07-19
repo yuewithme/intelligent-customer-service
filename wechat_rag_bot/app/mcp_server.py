@@ -6,6 +6,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from app.config import get_settings
 from app.services.demo_sales_agent_service import chat_with_demo_sales_agent
+from app.services.youzan_ai_tool_service import YouzanAIToolService
 
 
 settings = get_settings()
@@ -41,6 +42,79 @@ async def chat_with_sales_agent(
         conversation_id=conversation_id,
         message=message,
         customer_name=customer_name,
+    )
+
+
+@sales_mcp.tool()
+async def youzan_search_products(keyword: str, limit: int = 3) -> dict[str, Any]:
+    """只读搜索有赞在售商品。limit 范围 1-10，不执行商品或库存写操作。"""
+    return await YouzanAIToolService.from_settings().search_products(
+        keyword=keyword,
+        limit=limit,
+    )
+
+
+@sales_mcp.tool()
+async def youzan_get_product(item_id: str) -> dict[str, Any]:
+    """只读获取一个有赞商品详情，不执行商品写操作。"""
+    return await YouzanAIToolService.from_settings().get_product(item_id=item_id)
+
+
+@sales_mcp.tool()
+async def youzan_list_inventory(limit: int = 20) -> dict[str, Any]:
+    """只读查询有赞库存列表。limit 范围 1-50，不执行库存调整。"""
+    return await YouzanAIToolService.from_settings().list_inventory(limit=limit)
+
+
+@sales_mcp.tool()
+async def youzan_resolve_customer(
+    customer_id: str,
+    mobile: str,
+    tenant_id: str = "tenant_default",
+    channel: str = "wechat",
+) -> dict[str, Any]:
+    """用手机号只读识别当前客户并持久绑定；手机号完整落库，但绝不返回给 AI。"""
+    return await YouzanAIToolService.from_settings().resolve_customer(
+        customer_id=customer_id,
+        mobile=mobile,
+        tenant_id=tenant_id,
+        channel=channel,
+    )
+
+
+@sales_mcp.tool()
+async def youzan_search_customer_orders(
+    customer_id: str,
+    mobile: str | None = None,
+    limit: int = 3,
+    tenant_id: str = "tenant_default",
+    channel: str = "wechat",
+) -> dict[str, Any]:
+    """只读查询当前客户订单；首次需手机号，之后复用已验证的客户绑定。"""
+    return await YouzanAIToolService.from_settings().search_customer_orders(
+        customer_id=customer_id,
+        mobile=mobile,
+        limit=limit,
+        tenant_id=tenant_id,
+        channel=channel,
+    )
+
+
+@sales_mcp.tool()
+async def youzan_get_customer_order(
+    customer_id: str,
+    order_no: str,
+    mobile: str | None = None,
+    tenant_id: str = "tenant_default",
+    channel: str = "wechat",
+) -> dict[str, Any]:
+    """只读获取当前客户的订单详情；先验证订单归属，再调用有赞详情接口。"""
+    return await YouzanAIToolService.from_settings().get_customer_order(
+        customer_id=customer_id,
+        order_no=order_no,
+        mobile=mobile,
+        tenant_id=tenant_id,
+        channel=channel,
     )
 
 

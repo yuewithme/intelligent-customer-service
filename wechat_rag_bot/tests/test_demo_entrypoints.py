@@ -337,7 +337,13 @@ def test_mcp_streamable_http_lists_sales_agent_tool(monkeypatch, tmp_path):
     assert initialized.status_code == 200
     assert initialized.json()["result"]["serverInfo"]["name"] == "Sales Agent Demo"
     assert [tool["name"] for tool in tools.json()["result"]["tools"]] == [
-        "chat_with_sales_agent"
+        "chat_with_sales_agent",
+        "youzan_search_products",
+        "youzan_get_product",
+        "youzan_list_inventory",
+        "youzan_resolve_customer",
+        "youzan_search_customer_orders",
+        "youzan_get_customer_order",
     ]
 
 

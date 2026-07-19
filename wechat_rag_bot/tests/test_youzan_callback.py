@@ -75,6 +75,7 @@ def test_youzan_callback_verifies_decodes_and_deduplicates_message():
     assert second["data"] == {"duplicate": True, "bindings_refreshed": 0}
     assert store.identities[0].yz_open_id == "yz-open-1"
     assert store.identities[0].fans_id == "123"
+    assert store.identities[0].mobile == "13800138000"
     assert store.identities[0].mobile_masked == "138****8000"
     assert len(store.events) == 1
 

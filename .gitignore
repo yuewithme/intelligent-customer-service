@@ -5,6 +5,7 @@
 **/.pytest_cache/
 **/rag.db
 **/chat_logs.db
+runtime-data/
 tmp/
 deploy/env/backend.prod.env
 admin-web/node_modules/

@@ -14,7 +14,7 @@ services:
     expose:
       - "8000"
     volumes:
-      - backend-data:/app/data
+      - ./runtime-data:/app/data
     restart: unless-stopped
 
   admin-web:
@@ -29,6 +29,3 @@ services:
     volumes:
       - ./admin-web/nginx.conf:/etc/nginx/templates/default.conf.template:ro
     restart: unless-stopped
-
-volumes:
-  backend-data:

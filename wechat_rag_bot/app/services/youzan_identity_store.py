@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Any
 
-from sqlalchemy import create_engine, or_, select
+from sqlalchemy import create_engine, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -11,6 +12,7 @@ from app.db.models import (
     Base,
     YouzanEventReceiptModel,
     YouzanIdentityBindingModel,
+    YouzanToolCallAuditModel,
 )
 from app.services.youzan_order_service import YouzanCustomerIdentity
 
@@ -124,6 +126,7 @@ class YouzanIdentityStore:
             "fans_id",
             "weixin_openid",
             "union_id",
+            "mobile",
         ):
             value = getattr(identity, field)
             if value:
@@ -150,6 +153,40 @@ class YouzanIdentityStore:
             session.commit()
             return len(models)
 
+    def record_tool_call(
+        self,
+        *,
+        trace_id: str,
+        tool_name: str,
+        caller: str,
+        customer_id: str | None,
+        parameters: dict[str, Any],
+        result_count: int,
+        status: str,
+        error_code: str | None,
+        latency_ms: int,
+    ) -> None:
+        with _get_session() as session:
+            session.add(
+                YouzanToolCallAuditModel(
+                    trace_id=trace_id,
+                    tool_name=tool_name,
+                    caller=caller,
+                    customer_id=customer_id,
+                    parameters_json=json.dumps(
+                        parameters,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    result_count=result_count,
+                    status=status,
+                    error_code=error_code,
+                    latency_ms=latency_ms,
+                    created_at=_now(),
+                )
+            )
+            session.commit()
+
 
 def _get_session() -> Session:
     settings = get_settings()
@@ -163,11 +200,30 @@ def _get_session() -> Session:
             tables=[
                 YouzanIdentityBindingModel.__table__,
                 YouzanEventReceiptModel.__table__,
+                YouzanToolCallAuditModel.__table__,
             ],
         )
+        _ensure_identity_schema(engine)
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[settings.chat_log_db_url] = factory
     return factory()
+
+
+def _ensure_identity_schema(engine) -> None:
+    columns = {
+        column["name"]
+        for column in inspect(engine).get_columns(
+            YouzanIdentityBindingModel.__tablename__
+        )
+    }
+    if "mobile" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE youzan_identity_bindings "
+                    "ADD COLUMN mobile VARCHAR(32)"
+                )
+            )
 
 
 def _to_identity(model: YouzanIdentityBindingModel) -> YouzanCustomerIdentity:

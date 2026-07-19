@@ -112,6 +112,7 @@ def _identity_from_event(data: dict[str, Any]) -> YouzanCustomerIdentity:
         fans_id=_nested_text(data, "fans_id"),
         weixin_openid=_nested_text(data, "weixin_openid", "openid", "open_id"),
         union_id=_nested_text(data, "union_id", "unionid"),
+        mobile=mobile,
         mobile_masked=(f"{mobile[:3]}****{mobile[-4:]}" if len(mobile) == 11 else ""),
     )
 
