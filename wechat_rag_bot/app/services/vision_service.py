@@ -23,6 +23,12 @@ class VisionRecognitionError(VisionError):
     pass
 
 
+class UnsupportedStoreOrderError(VisionRecognitionError):
+    def __init__(self, store_name: str):
+        self.store_name = store_name
+        super().__init__("order screenshot is not from a supported store")
+
+
 class OrderScreenshotAnalysis(BaseModel):
     is_order_screenshot: bool = False
     store_name: str = ""
@@ -148,6 +154,13 @@ async def analyze_image(image_source: str) -> VisionAnalysis:
         raise VisionRecognitionError("image recognition confidence is insufficient")
     if analysis.category == "order":
         if not is_verified_store_order(analysis):
+            order = analysis.order
+            if (
+                order
+                and order.is_order_screenshot
+                and order.store_name.strip()
+            ):
+                raise UnsupportedStoreOrderError(order.store_name)
             raise VisionRecognitionError("order screenshot is not from a supported store")
     elif analysis.category == "orchid_health":
         health = analysis.orchid_health

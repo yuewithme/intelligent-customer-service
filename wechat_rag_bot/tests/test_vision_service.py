@@ -166,8 +166,9 @@ async def test_order_from_other_store_is_not_supported(monkeypatch):
         lambda **kwargs: _FakeClient(responses, []),
     )
 
-    with pytest.raises(vision_service.VisionRecognitionError):
+    with pytest.raises(vision_service.UnsupportedStoreOrderError) as exc_info:
         await vision_service.analyze_image("https://cdn.example.com/other-order.jpg")
+    assert exc_info.value.store_name == "其他兰花店"
 
 
 @pytest.mark.asyncio

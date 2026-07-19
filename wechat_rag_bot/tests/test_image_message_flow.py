@@ -94,7 +94,7 @@ async def test_prepare_content_combines_orchid_health_result_and_text(monkeypatc
         )
 
     monkeypatch.setattr(vision_service, "analyze_image", fake_analyze)
-    content, image_count, recognized_count, verified_orders = (
+    content, image_count, recognized_count, verified_orders, wrong_store_orders = (
         await service._prepare_inbound_content(
             "[图片]\n这个怎么处理？",
             [
@@ -110,6 +110,7 @@ async def test_prepare_content_combines_orchid_health_result_and_text(monkeypatc
     assert image_count == 1
     assert recognized_count == 1
     assert verified_orders == 0
+    assert wrong_store_orders == 0
     assert "初步判断：疑似介壳虫" in content
     assert content.endswith("这个怎么处理？")
 
@@ -234,3 +235,137 @@ async def test_unrecognized_image_uses_configured_fallback(monkeypatch):
 
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
     assert queued[0]["content"] == "亲能否描述一下图片或重拍一下图片"
+
+
+@pytest.mark.asyncio
+async def test_order_from_other_store_uses_fixed_reply(monkeypatch):
+    from app.services import message_risk_control_service as service
+    from app.services import vision_service
+
+    queued = []
+    now = datetime(2026, 7, 18, 12, 15, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now - timedelta(seconds=120))
+    await service.enqueue_eyun_inbound(
+        {
+            "account": "acct",
+            "messageType": "60002",
+            "wcId": "bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "customer",
+                "content": "<msg><img /></msg>",
+                "newMsgId": 1,
+                "_image_url": "https://cdn.example.com/other-order.jpg",
+            },
+        }
+    )
+
+    async def fake_analyze(image_source):
+        raise vision_service.UnsupportedStoreOrderError("其他兰花店")
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_conversation_message(**kwargs):
+        return {"id": 7}
+
+    async def fake_enqueue_outbound(**kwargs):
+        queued.append(kwargs)
+        return kwargs
+
+    monkeypatch.setattr(vision_service, "analyze_image", fake_analyze)
+    monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(
+        service, "ensure_outbound_conversation_message", fake_conversation_message
+    )
+    monkeypatch.setattr(service, "enqueue_eyun_outbound", fake_enqueue_outbound)
+    monkeypatch.setattr(service, "random_reply_delay_seconds", lambda: 0)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+
+    assert await service.process_due_eyun_inbound_batches(limit=1) == 1
+    assert queued[0]["content"] == "亲这不是我们萧岚苑的订单截图哦"
+
+
+@pytest.mark.asyncio
+async def test_second_image_failure_within_cooldown_silently_hands_off(monkeypatch):
+    from app.services import message_risk_control_service as service
+    from app.services import vision_service
+
+    queued = []
+    handoffs = []
+    recognition_attempts = 0
+    now = datetime(2026, 7, 18, 12, 20, tzinfo=timezone.utc)
+
+    async def fake_analyze(image_source):
+        nonlocal recognition_attempts
+        recognition_attempts += 1
+        if recognition_attempts == 1:
+            raise vision_service.UnsupportedStoreOrderError("其他兰花店")
+        raise vision_service.VisionRecognitionError("unsupported image category")
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_conversation_message(**kwargs):
+        return {"id": 7}
+
+    async def fake_enqueue_outbound(**kwargs):
+        queued.append(kwargs)
+        return kwargs
+
+    async def fake_record_customer_message(**kwargs):
+        handoffs.append(kwargs)
+        return kwargs
+
+    monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(vision_service, "analyze_image", fake_analyze)
+    monkeypatch.setattr(
+        service, "ensure_outbound_conversation_message", fake_conversation_message
+    )
+    monkeypatch.setattr(service, "enqueue_eyun_outbound", fake_enqueue_outbound)
+    monkeypatch.setattr(service, "record_customer_message", fake_record_customer_message)
+    monkeypatch.setattr(service, "random_reply_delay_seconds", lambda: 0)
+
+    monkeypatch.setattr(service, "utcnow", lambda: now - timedelta(seconds=120))
+    await service.enqueue_eyun_inbound(
+        {
+            "account": "acct",
+            "messageType": "60002",
+            "wcId": "bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "customer",
+                "content": "<msg><img /></msg>",
+                "newMsgId": 1,
+                "_image_url": "https://cdn.example.com/first.jpg",
+            },
+        }
+    )
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    assert await service.process_due_eyun_inbound_batches(limit=1) == 1
+    assert len(queued) == 1
+    assert queued[0]["content"] == "亲这不是我们萧岚苑的订单截图哦"
+    assert handoffs == []
+
+    monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=1))
+    await service.enqueue_eyun_inbound(
+        {
+            "account": "acct",
+            "messageType": "60002",
+            "wcId": "bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "customer",
+                "content": "<msg><img /></msg>",
+                "newMsgId": 2,
+                "_image_url": "https://cdn.example.com/second.jpg",
+            },
+        }
+    )
+    monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=62))
+    assert await service.process_due_eyun_inbound_batches(limit=1) == 1
+
+    assert len(queued) == 1
+    assert len(handoffs) == 1
+    assert handoffs[0]["route"] == "image_recognition_handoff"
+    assert handoffs[0]["handoff_reason"] == "repeated_image_recognition_failure"

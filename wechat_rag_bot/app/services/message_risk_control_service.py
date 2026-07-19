@@ -28,7 +28,9 @@ from app.services.conversation_service import (
     HUMAN_ACTIVE,
     RESOLVED,
     ensure_outbound_conversation_message,
+    force_handoff,
     make_conversation_id,
+    record_customer_message,
     update_outbound_message_delivery,
 )
 from app.services.customer_reply_formatter import split_customer_messages
@@ -40,6 +42,8 @@ from app.services.user_profile_service import (
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
+
+WRONG_STORE_ORDER_REPLY = "亲这不是我们萧岚苑的订单截图哦"
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _initialized_urls: set[str] = set()
@@ -685,9 +689,13 @@ async def _process_inbound_batch(batch_id: int) -> None:
             _mark_batch(batch_id, "skipped")
             return
 
-        prepared_content, image_count, recognized_image_count, verified_order_count = (
-            await _prepare_inbound_content(batch_data["content"], inbound_payloads)
-        )
+        (
+            prepared_content,
+            image_count,
+            recognized_image_count,
+            verified_order_count,
+            wrong_store_order_count,
+        ) = await _prepare_inbound_content(batch_data["content"], inbound_payloads)
         batch_data["content"] = prepared_content
         all_images_failed = image_count > 0 and recognized_image_count == 0
         user_id = batch_data["from_user"] or batch_data["target_wc_id"]
@@ -712,9 +720,29 @@ async def _process_inbound_batch(batch_id: int) -> None:
         customer_snapshot.update(contact_snapshot)
 
         if all_images_failed:
+            is_first_failure = await reserve_eyun_image_description_prompt(
+                w_id=batch_data["w_id"],
+                wc_id=batch_data["target_wc_id"],
+            )
+            if not is_first_failure:
+                await _handoff_repeated_image_failure(
+                    batch_id=batch_id,
+                    batch=batch_data,
+                    customer_snapshot=customer_snapshot,
+                )
+                _mark_batch(batch_id, "processed")
+                return
             chat_result = {
-                "answer": get_settings().vision_fallback_text,
-                "route": "image_recognition_fallback",
+                "answer": (
+                    WRONG_STORE_ORDER_REPLY
+                    if wrong_store_order_count
+                    else get_settings().vision_fallback_text
+                ),
+                "route": (
+                    "unsupported_store_order"
+                    if wrong_store_order_count
+                    else "image_recognition_fallback"
+                ),
             }
         elif is_first_inbound and image_count == 0:
             chat_result = _opening_chat_result()
@@ -807,9 +835,10 @@ def _batch_inbound_payloads(
 
 async def _prepare_inbound_content(
     stored_content: str, payloads: list[dict[str, Any]]
-) -> tuple[str, int, int, int]:
+) -> tuple[str, int, int, int, int]:
     from app.services.eyun_callback_service import fetch_eyun_image_url
     from app.services.vision_service import (
+        UnsupportedStoreOrderError,
         VisionError,
         analyze_image,
         format_analysis_for_chat,
@@ -820,6 +849,7 @@ async def _prepare_inbound_content(
     image_count = 0
     recognized_image_count = 0
     verified_order_count = 0
+    wrong_store_order_count = 0
     for payload in payloads:
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         message_type = str(payload.get("messageType") or "")
@@ -861,6 +891,13 @@ async def _prepare_inbound_content(
 
         try:
             analysis = await analyze_image(image_source)
+        except UnsupportedStoreOrderError as exc:
+            wrong_store_order_count += 1
+            logger.info(
+                "Eyun order screenshot uses an unsupported store: %s",
+                exc.store_name,
+            )
+            continue
         except VisionError as exc:
             logger.warning("Eyun image recognition failed: %s", exc)
             continue
@@ -877,6 +914,7 @@ async def _prepare_inbound_content(
         image_count,
         recognized_image_count,
         verified_order_count,
+        wrong_store_order_count,
     )
 
 
@@ -903,6 +941,51 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
             intent="opening",
             route="chitchat",
         )
+
+
+async def _handoff_repeated_image_failure(
+    *,
+    batch_id: int,
+    batch: dict[str, Any],
+    customer_snapshot: dict[str, Any],
+) -> None:
+    user_id = batch["from_user"] or batch["target_wc_id"]
+    conversation_id = make_conversation_id(
+        "wechat",
+        user_id,
+        batch["from_group"],
+    )
+    with _get_session() as session:
+        conversation_exists = session.scalar(
+            select(ConversationModel.id).where(
+                ConversationModel.conversation_id == conversation_id
+            )
+        ) is not None
+
+    if conversation_exists:
+        await force_handoff(
+            conversation_id,
+            operator_id="system",
+            reason="repeated_image_recognition_failure",
+        )
+        return
+
+    await record_customer_message(
+        channel="wechat",
+        user_id=user_id,
+        session_id=batch["from_group"],
+        content=batch["content"] or "[图片]",
+        message_id=f"image-handoff:{batch['batch_key']}:{batch_id}",
+        route="image_recognition_handoff",
+        metadata={
+            "provider": "eyun",
+            "w_id": batch["w_id"],
+            "wc_id": batch["wc_id"],
+            "batch_key": batch["batch_key"],
+            **customer_snapshot,
+        },
+        handoff_reason="repeated_image_recognition_failure",
+    )
 
 
 def _conversation_blocks_ai(batch: dict[str, Any]) -> bool:
