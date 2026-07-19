@@ -70,6 +70,73 @@ async def test_send_eyun_link_card_uses_send_url(monkeypatch):
     }
 
 
+@pytest.mark.asyncio
+async def test_send_eyun_link_card_fills_required_fields_for_url_only_card(monkeypatch):
+    monkeypatch.setenv("EYUN_BASE_URL", "https://eyun.example.com")
+    monkeypatch.setenv("EYUN_AUTHORIZATION", "test-token")
+    monkeypatch.setenv(
+        "EYUN_LINK_CARD_DEFAULT_THUMB_URL",
+        "https://bot.example.com/static/default-link-card.jpg",
+    )
+    get_settings.cache_clear()
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"code": "1000", "data": {"newMsgId": 456}}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, **kwargs):
+            captured.update({"url": url, **kwargs})
+            return FakeResponse()
+
+    monkeypatch.setattr(eyun_callback_service.httpx, "AsyncClient", FakeClient)
+
+    await send_eyun_link_card(
+        w_id="wid-1",
+        wc_id="customer-1",
+        card={"url": "https://j.youzan.com/yddHbe"},
+    )
+
+    assert captured["json"] == {
+        "wId": "wid-1",
+        "wcId": "customer-1",
+        "title": "查看详情",
+        "url": "https://j.youzan.com/yddHbe",
+        "description": "点击查看详情",
+        "thumbUrl": "https://bot.example.com/static/default-link-card.jpg",
+    }
+
+
+@pytest.mark.asyncio
+async def test_send_eyun_link_card_rejects_url_only_card_without_default_thumb(
+    monkeypatch,
+):
+    monkeypatch.setenv("EYUN_BASE_URL", "https://eyun.example.com")
+    monkeypatch.setenv("EYUN_AUTHORIZATION", "test-token")
+    monkeypatch.delenv("EYUN_LINK_CARD_DEFAULT_THUMB_URL", raising=False)
+    get_settings.cache_clear()
+
+    with pytest.raises(RuntimeError, match="thumbnail is required"):
+        await send_eyun_link_card(
+            w_id="wid-1",
+            wc_id="customer-1",
+            card={"url": "https://j.youzan.com/yddHbe"},
+        )
+
+
 def test_link_card_survives_outbound_queue_encoding():
     card = json.dumps(
         {

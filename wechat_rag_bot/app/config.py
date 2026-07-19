@@ -56,6 +56,9 @@ class Settings(BaseSettings):
         "2. 具体养了哪些品种？"
     )
     eyun_opening_image_url: str = ""
+    eyun_link_card_default_thumb_url: str = Field(
+        default="", alias="EYUN_LINK_CARD_DEFAULT_THUMB_URL"
+    )
     eyun_opening_material_id: int | None = Field(
         default=None, alias="EYUN_OPENING_MATERIAL_ID"
     )

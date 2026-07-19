@@ -662,13 +662,26 @@ async def send_eyun_link_card(
     authorization = settings.eyun_authorization.strip()
     if not base_url or not authorization or not w_id:
         raise RuntimeError("Eyun configuration is incomplete")
+    url = str(card.get("url") or "").strip()
+    title = str(card.get("title") or "").strip() or "查看详情"
+    description = str(card.get("description") or "").strip() or "点击查看详情"
+    thumb_url = str(card.get("thumb_url") or "").strip()
+    if not thumb_url:
+        thumb_url = settings.eyun_link_card_default_thumb_url.strip()
+    if not url:
+        raise RuntimeError("Eyun link card URL is required")
+    if not thumb_url:
+        raise RuntimeError(
+            "Eyun link card thumbnail is required; configure "
+            "EYUN_LINK_CARD_DEFAULT_THUMB_URL or provide thumb_url"
+        )
     payload = {
         "wId": w_id,
         "wcId": wc_id,
-        "title": card.get("title", ""),
-        "url": card.get("url", ""),
-        "description": card.get("description", ""),
-        "thumbUrl": card.get("thumb_url", ""),
+        "title": title,
+        "url": url,
+        "description": description,
+        "thumbUrl": thumb_url,
     }
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
