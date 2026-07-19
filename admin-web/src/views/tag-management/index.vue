@@ -27,7 +27,6 @@
             <span class="category-overview">
             <div class="category-title">
               <h2>{{ category.name }}</h2>
-              <code>{{ category.id }}</code>
               <ElTag v-if="isSystemCategory(category.id)" size="small" type="warning" effect="plain">
                 系统标签
               </ElTag>
@@ -63,14 +62,13 @@
               @click="openTagDetail(category, tag)"
             >
               <span class="tag-card-head">
-                <strong>{{ displayTagValue(tag.value) }}</strong>
+                <strong>{{ tagValueText(tag.value) }}</strong>
                 <em :class="{ empty: !tag.prompts.length }">
                   {{ tag.prompts.length ? `${tag.prompts.length} 条` : '未配置' }}
                 </em>
               </span>
-              <code v-if="displayTagValue(tag.value) !== tag.value" class="tag-token">{{ tag.value }}</code>
               <span v-if="tag.prompts.length" class="prompt-name-list">
-                <span v-for="prompt in tag.prompts" :key="prompt.block_id">{{ prompt.title }}</span>
+                <span v-for="prompt in tag.prompts" :key="prompt.block_id">{{ promptTitleText(prompt.block_id, prompt.title) }}</span>
               </span>
               <span v-else class="empty-prompt">暂无关联提示词</span>
               <span class="view-detail">查看完整内容 <b>→</b></span>
@@ -84,7 +82,7 @@
 
     <ElDialog
       v-model="detailDialog.visible"
-      :title="selectedTag ? `标签详情 · ${displayTagValue(selectedTag.value)}` : '标签详情'"
+      :title="selectedTag ? `标签详情 · ${tagValueText(selectedTag.value)}` : '标签详情'"
       width="760px"
     >
       <template v-if="selectedTag && selectedCategory">
@@ -95,7 +93,7 @@
           </div>
           <div>
             <span>标签名称</span>
-            <strong>{{ displayTagValue(selectedTag.value) }}</strong>
+            <strong>{{ tagValueText(selectedTag.value) }}</strong>
           </div>
           <div>
             <span>提示词</span>
@@ -106,8 +104,7 @@
           <article v-for="prompt in selectedTag.prompts" :key="prompt.block_id">
             <div class="detail-prompt-head">
               <div>
-                <strong>{{ prompt.title }}</strong>
-                <code>{{ prompt.block_id }}</code>
+                <strong>{{ promptTitleText(prompt.block_id, prompt.title) }}</strong>
               </div>
               <ElTag v-if="prompt.shared_count > 1" size="small" type="warning" effect="plain">
                 {{ prompt.shared_count }} 个标签共用
@@ -183,6 +180,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { promptTitleText, tagValueText } from '@/utils/tagDisplay'
 import {
   createTag,
   createTagCategory,
@@ -223,7 +221,6 @@ const systemCategoryIds = new Set([
 ])
 
 const isSystemCategory = (categoryId: string) => systemCategoryIds.has(categoryId)
-const displayTagValue = (value: string) => value.includes(':') ? value.split(':', 2)[1] : value
 
 const selectedCategory = computed(() =>
   catalog.items.find((category) => category.id === detailDialog.categoryId)
@@ -238,7 +235,7 @@ const filteredCategories = computed(() => {
   return catalog.items.flatMap((category) => {
     const categoryMatch = `${category.name} ${category.id} ${category.prompt_rule}`.toLowerCase().includes(query)
     const tags = categoryMatch ? category.tags : category.tags.filter((tag) =>
-      `${tag.value} ${tag.prompts.map((prompt) => `${prompt.title} ${prompt.content}`).join(' ')}`.toLowerCase().includes(query)
+      `${tag.value} ${tagValueText(tag.value)} ${tag.prompts.map((prompt) => `${promptTitleText(prompt.block_id, prompt.title)} ${prompt.title} ${prompt.content}`).join(' ')}`.toLowerCase().includes(query)
     )
     return categoryMatch || tags.length ? [{ ...category, tags }] : []
   })
@@ -365,7 +362,7 @@ const saveTag = async () => {
 
 const removeTag = async (tag: ManagedTag) => {
   await ElMessageBox.confirm(
-    `确定删除标签“${tag.value}”吗？已有客户画像中的该标签和 ${tag.prompts.length} 条提示词关联会同步清除。`,
+    `确定删除标签“${tagValueText(tag.value)}”吗？已有客户画像中的该标签和 ${tag.prompts.length} 条提示词关联会同步清除。`,
     '删除标签', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
   )
   await deleteTagRequest(tag.id)
@@ -487,7 +484,6 @@ onMounted(loadCatalog)
 .tag-card-head strong { overflow: hidden; color: #1d4538; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .tag-card-head em { flex-shrink: 0; padding: 3px 8px; color: #257a5c; font-size: 11px; font-style: normal; background: #e7f5ef; border-radius: 999px; }
 .tag-card-head em.empty { color: #85938e; background: #eef2f0; }
-.tag-token { margin-top: 6px; color: #8a9994; font-size: 10px; }
 .prompt-name-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 13px; }
 .prompt-name-list > span { max-width: 100%; padding: 4px 7px; overflow: hidden; color: #566c65; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; background: #f2f6f4; border-radius: 6px; }
 .empty-prompt { margin-top: 15px; color: #98a39f; font-size: 12px; }

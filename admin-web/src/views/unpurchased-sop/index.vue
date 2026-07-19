@@ -123,7 +123,7 @@
               <template #default="{ row }">{{ row.friend_added_on || '历史基线' }}</template>
             </ElTableColumn>
             <ElTableColumn label="购买标签" min-width="180">
-              <template #default="{ row }"><ElTag v-for="tag in row.customer_tags" :key="tag" class="tag">{{ tag }}</ElTag><span v-if="!row.customer_tags.length">无</span></template>
+              <template #default="{ row }"><ElTag v-for="tag in row.customer_tags" :key="tag" class="tag">{{ tagValueText(tag) }}</ElTag><span v-if="!row.customer_tags.length">无</span></template>
             </ElTableColumn>
             <ElTableColumn label="好友状态" width="110"><template #default="{ row }">{{ row.status === 'active' ? '有效好友' : '已移除' }}</template></ElTableColumn>
             <ElTableColumn label="SOP状态" width="140">
@@ -260,6 +260,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getWechatMaterials, type WechatMaterial } from '@/api/admin/wechatMaterials'
+import { tagValueText } from '@/utils/tagDisplay'
 import {
   createUnpurchasedSopStep,
   deleteUnpurchasedSopStep,

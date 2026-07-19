@@ -34,7 +34,7 @@
             <div v-if="profileLoading" class="muted">更新中...</div>
             <div v-else-if="tags.length" class="tag-list">
               <ElTag v-for="tag in tags" :key="tag" size="small" effect="plain">
-                {{ tag }}
+                {{ tagValueText(tag) }}
               </ElTag>
             </div>
             <span v-else>-</span>
@@ -78,9 +78,9 @@
         <ElEmpty v-else-if="!hasProfileDetail" description="暂无画像" :image-size="72" />
         <dl v-else class="profile-detail">
           <dt>当前阶段</dt>
-          <dd>{{ stageText(profile?.current_stage) }}</dd>
+          <dd>{{ salesStageText(profile?.current_stage) }}</dd>
           <dt>风险等级</dt>
-          <dd>{{ riskText(profile?.risk_level) }}</dd>
+          <dd>{{ riskLevelText(profile?.risk_level) }}</dd>
           <dt>产品兴趣</dt>
           <dd>{{ productInterestText }}</dd>
           <dt>痛点</dt>
@@ -110,6 +110,7 @@ import {
 } from '@/api/admin/conversations'
 import type { UserProfile } from '@/api/user-profile'
 import { useUserStore } from '@/store/modules/user'
+import { intentText, riskLevelText, salesStageText, tagValueText } from '@/utils/tagDisplay'
 import { formatChinaTime } from '../time'
 import ReplyComposer from './ReplyComposer.vue'
 
@@ -217,42 +218,6 @@ const routeText = (value?: string | null) =>
     template_then_rag: '话术后知识库',
     clarify: '追问澄清',
     human: '人工处理'
-  })[value || ''] ||
-  value ||
-  '-'
-
-const intentText = (value?: string | null) =>
-  ({
-    unsupported: '未匹配',
-    unknown: '待识别',
-    message: '普通消息',
-    care_question: '养护问题'
-  })[value || ''] ||
-  value ||
-  '-'
-
-const stageText = (value?: string | null) =>
-  ({
-    greeting: '初次问候',
-    interest: '兴趣了解',
-    objection_handling: '异议处理',
-    order_intent: '下单意向',
-    after_sale: '售后服务',
-    knowledge_consulting: '知识咨询',
-    care_support: '养护支持',
-    first_order_nurture: '首单培育',
-    human_pending: '等待人工',
-    unknown: '待识别'
-  })[value || ''] ||
-  value ||
-  '-'
-
-const riskText = (value?: string | null) =>
-  ({
-    normal: '正常',
-    low: '低风险',
-    medium: '中风险',
-    high: '高风险'
   })[value || ''] ||
   value ||
   '-'
