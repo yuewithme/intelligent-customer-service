@@ -100,25 +100,16 @@ class UnpurchasedSopMessageRequest(BaseModel):
         if self.message_type == "material" and self.material_id is None:
             raise ValueError("批量媒体消息必须选择微信素材")
         if self.message_type == "link_card":
-            fields = {
-                "卡片标题": self.title,
-                "跳转链接": self.url,
-                "卡片描述": self.description,
-                "缩略图链接": self.thumb_url,
-            }
-            missing = [
-                label
-                for label, value in fields.items()
-                if not (value or "").strip()
-            ]
-            if missing:
-                raise ValueError(f"链接卡片缺少：{'、'.join(missing)}")
-            self.title = str(self.title).strip()
-            self.description = str(self.description).strip()
-            self.url = _validate_public_http_url(str(self.url), "链接卡片跳转链接")
-            self.thumb_url = _validate_public_http_url(
-                str(self.thumb_url), "链接卡片缩略图"
-            )
+            link_url = str(self.url or self.content).strip()
+            self.url = _validate_public_http_url(link_url, "链接卡片跳转链接")
+            self.title = (self.title or "").strip() or None
+            self.description = (self.description or "").strip() or None
+            if (self.thumb_url or "").strip():
+                self.thumb_url = _validate_public_http_url(
+                    str(self.thumb_url), "链接卡片缩略图"
+                )
+            else:
+                self.thumb_url = None
             self.content = self.url
         return self
 

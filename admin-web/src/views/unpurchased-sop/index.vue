@@ -188,10 +188,10 @@
               <ElInput v-model="message.content" type="textarea" :rows="4" maxlength="20000" show-word-limit />
             </ElFormItem>
             <template v-else-if="message.message_type === 'link_card'">
-              <ElFormItem label="卡片标题"><ElInput v-model="message.title" maxlength="256" /></ElFormItem>
-              <ElFormItem label="卡片描述"><ElInput v-model="message.description" type="textarea" :rows="2" maxlength="1000" show-word-limit /></ElFormItem>
-              <ElFormItem label="点击跳转链接"><ElInput v-model="message.url" placeholder="https://j.youzan.com/..." /></ElFormItem>
-              <ElFormItem label="缩略图公网地址">
+              <ElFormItem label="点击跳转链接（必填）"><ElInput v-model="message.url" placeholder="https://j.youzan.com/..." /></ElFormItem>
+              <ElFormItem label="卡片标题（选填）"><ElInput v-model="message.title" maxlength="256" /></ElFormItem>
+              <ElFormItem label="卡片描述（选填）"><ElInput v-model="message.description" type="textarea" :rows="2" maxlength="1000" show-word-limit /></ElFormItem>
+              <ElFormItem label="缩略图公网地址（选填）">
                 <ElInput v-model="message.thumb_url" placeholder="https://cdn.example.com/card.jpg" />
                 <small>使用 JPG/PNG 公网地址，建议控制在 50KB 以内；不能使用 127.0.0.1 或内网地址。</small>
                 <ElImage v-if="message.thumb_url" class="link-card-large-thumb" :src="message.thumb_url" fit="cover" />
@@ -388,10 +388,10 @@ const saveStep = async () => {
   const videoWithoutCover = stepForm.messages.findIndex((message) => message.message_type === 'video' && !message.preview_url)
   if (videoWithoutCover >= 0) return ElMessage.warning(`第 ${videoWithoutCover + 1} 条视频必须有封面图`)
   const invalidCard = stepForm.messages.findIndex((message) => message.message_type === 'link_card' && (
-    !message.title?.trim() || !message.description?.trim() || !message.url?.trim() || !message.thumb_url?.trim()
-    || !/^https?:\/\//.test(message.url) || !/^https?:\/\//.test(message.thumb_url)
+    !message.url?.trim() || !/^https?:\/\//.test(message.url)
+    || (!!message.thumb_url?.trim() && !/^https?:\/\//.test(message.thumb_url))
   ))
-  if (invalidCard >= 0) return ElMessage.warning(`请完善第 ${invalidCard + 1} 条链接卡片，并使用公网 HTTP(S) 地址`)
+  if (invalidCard >= 0) return ElMessage.warning(`第 ${invalidCard + 1} 条链接卡片必须填写公网 HTTP(S) 跳转链接`)
   savingStep.value = true
   try {
     const payload = { ...stepForm, messages: stepForm.messages.map((message) => ({

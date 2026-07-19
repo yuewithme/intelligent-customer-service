@@ -163,6 +163,19 @@ def test_link_card_rejects_local_urls():
         )
 
 
+def test_link_card_allows_only_jump_url():
+    message = UnpurchasedSopMessageRequest(
+        message_type="link_card",
+        content="https://j.youzan.com/yddHbe",
+        url="https://j.youzan.com/yddHbe",
+    )
+
+    assert message.url == "https://j.youzan.com/yddHbe"
+    assert message.title is None
+    assert message.description is None
+    assert message.thumb_url is None
+
+
 def test_contact_polling_controls_are_saved_in_sop(monkeypatch, tmp_path):
     _settings(monkeypatch, tmp_path)
 
