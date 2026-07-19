@@ -11,6 +11,8 @@ services:
       CHAT_LOG_DB_URL: sqlite:////app/data/chat_logs.db
       UPLOAD_DIR: /app/data/uploads
       HF_HOME: /app/data/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
     expose:
       - "8000"
     volumes:
