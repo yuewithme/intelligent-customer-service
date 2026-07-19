@@ -272,4 +272,4 @@ def test_intent_examples_debug_and_state_routes():
 
     get_response = client.get("/api/v1/users/user_001/state")
     assert get_response.status_code == 200
-    assert get_response.json()["data"]["customer_tags"] == ["price_sensitive"]
+    assert get_response.json()["data"]["customer_tags"] == []

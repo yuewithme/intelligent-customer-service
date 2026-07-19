@@ -3,20 +3,8 @@ from pydantic import BaseModel
 from app.schemas.intent import IntentResult
 from app.schemas.state import UserState
 from app.schemas.tag import TagResult
+from app.services.tag_catalog import normalize_system_value
 
-
-SALES_STAGES = {
-    "unknown",
-    "greeting",
-    "need_discovery",
-    "pain_confirmed",
-    "solution_recommended",
-    "price_discussed",
-    "objection_handling",
-    "order_intent",
-    "after_sale",
-    "human_pending",
-}
 
 NEED_READY_STAGES = {
     "pain_confirmed",
@@ -51,16 +39,16 @@ def decide_sales_stage(
 ) -> SalesStageDecision:
     current_stage = normalize_sales_stage(user_state.sales_stage)
     if intent.need_human or tag_result.risk_level == "high" or intent.route == "human":
-        return SalesStageDecision(stage="human_pending", reason="human_required")
+        return _decision("human_pending", "human_required")
 
     if intent.primary_intent in {"ask_after_sale", "refund_request", "complaint"}:
-        return SalesStageDecision(stage="after_sale", reason="after_sale_intent")
+        return _decision("after_sale", "after_sale_intent")
 
     if intent.primary_intent in {"order_intent", "payment_intent"}:
-        return SalesStageDecision(stage="order_intent", reason="order_intent")
+        return _decision("order_intent", "order_intent")
 
     if intent.primary_intent in {"price_objection", "discount_request", "hesitation", "trust_issue"}:
-        return SalesStageDecision(stage="objection_handling", reason="objection_intent")
+        return _decision("objection_handling", "objection_intent")
 
     if intent.primary_intent == "ask_price":
         if current_stage in NEED_READY_STAGES or _has_need_evidence(tag_result):
@@ -89,17 +77,23 @@ def decide_sales_stage(
     if stage_from_intent != "unknown":
         return _advance_or_keep(current_stage, stage_from_intent, "intent_sales_stage")
 
-    return SalesStageDecision(stage=current_stage, reason="keep_current_stage")
+    return _decision(current_stage, "keep_current_stage")
 
 
 def normalize_sales_stage(stage: str | None) -> str:
-    return stage if isinstance(stage, str) and stage in SALES_STAGES else "unknown"
+    return normalize_system_value("sales_stage", stage, fallback="unknown")
+
+
+def _decision(stage: str, reason: str) -> SalesStageDecision:
+    return SalesStageDecision(stage=normalize_sales_stage(stage), reason=reason)
 
 
 def _advance_or_keep(current_stage: str, next_stage: str, reason: str) -> SalesStageDecision:
+    current_stage = normalize_sales_stage(current_stage)
+    next_stage = normalize_sales_stage(next_stage)
     if STAGE_ORDER.get(next_stage, 0) < STAGE_ORDER.get(current_stage, 0):
-        return SalesStageDecision(stage=current_stage, reason="keep_current_stage")
-    return SalesStageDecision(stage=next_stage, reason=reason)
+        return _decision(current_stage, "keep_current_stage")
+    return _decision(next_stage, reason)
 
 
 def _has_need_evidence(tag_result: TagResult) -> bool:

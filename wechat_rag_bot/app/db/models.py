@@ -528,6 +528,13 @@ class TagDefinitionModel(Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class TagCatalogMetaModel(Base):
+    __tablename__ = "tag_catalog_meta"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(256))
+
+
 class ConversationMemoryModel(Base):
     __tablename__ = "conversation_memories"
 

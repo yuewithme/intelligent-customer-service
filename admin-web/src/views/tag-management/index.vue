@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1>标签管理</h1>
-        <p>统一维护客户标签与关联提示词，修改后会直接作用于画像识别和回复策略。</p>
+        <p>统一维护客户画像、销售阶段、对话意图、情绪、风险及策略标签；AI 只能使用此处已配置的标签。</p>
       </div>
       <ElButton type="primary" @click="openCategoryCreate">新增分类</ElButton>
     </div>
@@ -16,7 +16,7 @@
 
     <div class="toolbar">
       <ElInput v-model="keyword" clearable placeholder="搜索分类、标签或提示词" />
-      <span>删除标签时，会同步清除客户画像中的该标签及其提示词绑定。</span>
+      <span>删除标签会立即停止后端继续使用，并同步清除画像或销售状态中的对应值。</span>
     </div>
 
     <div v-loading="loading" class="category-list">
@@ -28,6 +28,9 @@
             <div class="category-title">
               <h2>{{ category.name }}</h2>
               <code>{{ category.id }}</code>
+              <ElTag v-if="isSystemCategory(category.id)" size="small" type="warning" effect="plain">
+                系统标签
+              </ElTag>
               <ElTag size="small" :type="category.ai_assignable ? 'success' : 'info'">
                 {{ category.ai_assignable ? 'AI 可分配' : '仅业务分配' }}
               </ElTag>
@@ -60,11 +63,12 @@
               @click="openTagDetail(category, tag)"
             >
               <span class="tag-card-head">
-                <strong>{{ tag.value }}</strong>
+                <strong>{{ displayTagValue(tag.value) }}</strong>
                 <em :class="{ empty: !tag.prompts.length }">
                   {{ tag.prompts.length ? `${tag.prompts.length} 条` : '未配置' }}
                 </em>
               </span>
+              <code v-if="displayTagValue(tag.value) !== tag.value" class="tag-token">{{ tag.value }}</code>
               <span v-if="tag.prompts.length" class="prompt-name-list">
                 <span v-for="prompt in tag.prompts" :key="prompt.block_id">{{ prompt.title }}</span>
               </span>
@@ -80,7 +84,7 @@
 
     <ElDialog
       v-model="detailDialog.visible"
-      :title="selectedTag ? `标签详情 · ${selectedTag.value}` : '标签详情'"
+      :title="selectedTag ? `标签详情 · ${displayTagValue(selectedTag.value)}` : '标签详情'"
       width="760px"
     >
       <template v-if="selectedTag && selectedCategory">
@@ -91,7 +95,7 @@
           </div>
           <div>
             <span>标签名称</span>
-            <strong>{{ selectedTag.value }}</strong>
+            <strong>{{ displayTagValue(selectedTag.value) }}</strong>
           </div>
           <div>
             <span>提示词</span>
@@ -213,6 +217,13 @@ const tagDialog = reactive({ visible: false, editingId: 0, categoryId: '', categ
 const detailDialog = reactive({ visible: false, categoryId: '', tagId: 0 })
 const categoryForm = reactive({ id: '', name: '', prompt_rule: '', ai_assignable: true, exclusive: true })
 const tagForm = reactive<{ value: string; prompts: EditablePrompt[] }>({ value: '', prompts: [] })
+const systemCategoryIds = new Set([
+  'intent', 'sales_stage', 'customer_segment', 'customer_sentiment',
+  'risk_level', 'pain_point', 'product_interest'
+])
+
+const isSystemCategory = (categoryId: string) => systemCategoryIds.has(categoryId)
+const displayTagValue = (value: string) => value.includes(':') ? value.split(':', 2)[1] : value
 
 const selectedCategory = computed(() =>
   catalog.items.find((category) => category.id === detailDialog.categoryId)
@@ -292,7 +303,7 @@ const saveCategory = async () => {
 
 const removeCategory = async (category: TagCategory) => {
   await ElMessageBox.confirm(
-    `确定删除“${category.name}”及其中 ${category.tags.length} 个标签吗？客户画像中的对应标签和提示词绑定也会清除。`,
+    `确定删除“${category.name}”及其中 ${category.tags.length} 个标签吗？画像、销售状态及提示词绑定中的对应内容也会清除。`,
     '删除标签分类', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
   )
   await deleteTagCategory(category.id)
@@ -476,6 +487,7 @@ onMounted(loadCatalog)
 .tag-card-head strong { overflow: hidden; color: #1d4538; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .tag-card-head em { flex-shrink: 0; padding: 3px 8px; color: #257a5c; font-size: 11px; font-style: normal; background: #e7f5ef; border-radius: 999px; }
 .tag-card-head em.empty { color: #85938e; background: #eef2f0; }
+.tag-token { margin-top: 6px; color: #8a9994; font-size: 10px; }
 .prompt-name-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 13px; }
 .prompt-name-list > span { max-width: 100%; padding: 4px 7px; overflow: hidden; color: #566c65; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; background: #f2f6f4; border-radius: 6px; }
 .empty-prompt { margin-top: 15px; color: #98a39f; font-size: 12px; }

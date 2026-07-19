@@ -57,19 +57,19 @@ async def test_build_tag_result_uses_intent_state_and_message_metadata():
 
     result = await build_tag_result(message=message, user_state=state, intent=intent)
 
-    assert result.intent == "orchid_care"
+    assert result.intent == "unknown"
     assert result.route == "rag_answer"
     assert result.segment == "beginner"
     assert result.emotion == "anxious"
-    assert result.stage == "care_support"
+    assert result.stage == "unknown"
     assert result.risk_level == "normal"
-    assert result.secondary_intents == ["root_rot"]
+    assert result.secondary_intents == []
     assert result.entities == {"plant": "orchid"}
-    assert "customer_tag:newbie" in result.labels
+    assert "customer_tag:newbie" not in result.labels
 
 
 @pytest.mark.asyncio
-async def test_build_tag_result_extracts_customer_memory_tags_from_message_and_slots():
+async def test_build_tag_result_rejects_free_form_memory_tags_but_keeps_configured_strategy_tags():
     message = NormalizedMessage(
         trace_id="trace_2",
         channel="wechat",
@@ -93,8 +93,8 @@ async def test_build_tag_result_extracts_customer_memory_tags_from_message_and_s
 
     result = await build_tag_result(message=message, user_state=state, intent=intent)
 
-    assert "region:杭州" in result.labels
-    assert "budget:200" in result.labels
+    assert "region:杭州" not in result.labels
+    assert "budget:200" not in result.labels
     assert "pain_point:兰花烂根" in result.labels
     assert "product_interest:兰花养护" in result.labels
 
@@ -129,7 +129,7 @@ async def test_build_tag_result_does_not_carry_high_risk_into_normal_care_questi
 
 
 @pytest.mark.asyncio
-async def test_build_tag_result_extracts_region_and_plant_count_from_raw_message():
+async def test_build_tag_result_does_not_generate_region_or_plant_count_tags():
     message = NormalizedMessage(
         trace_id="trace_3",
         channel="wechat",
@@ -152,5 +152,5 @@ async def test_build_tag_result_extracts_region_and_plant_count_from_raw_message
 
     result = await build_tag_result(message=message, user_state=state, intent=intent)
 
-    assert "region:广西" in result.labels
-    assert "plant_count:100盆" in result.labels
+    assert "region:广西" not in result.labels
+    assert "plant_count:100盆" not in result.labels

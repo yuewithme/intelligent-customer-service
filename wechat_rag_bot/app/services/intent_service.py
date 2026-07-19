@@ -8,6 +8,7 @@ from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
 from app.schemas.state import UserState
 from app.services.shipping_contact_service import extract_shipping_contact
+from app.services.tag_catalog import normalize_system_value, system_tag_values
 
 
 HUMAN_WORDS = ("人工", "转人工", "真人", "人工客服")
@@ -455,9 +456,34 @@ def _knowledge_primary_intent(text: str) -> str:
 
 def _validated_intent(raw: dict) -> IntentResult:
     try:
-        return IntentResult.model_validate(raw)
+        intent = IntentResult.model_validate(raw)
     except ValidationError as exc:
         raise AppError(ErrorCode.INTENT_SCHEMA_INVALID) from exc
+    primary_intent = normalize_system_value(
+        "intent", intent.primary_intent, fallback="unknown"
+    )
+    secondary_intents = []
+    for value in intent.secondary_intents:
+        normalized = normalize_system_value("intent", value, fallback="")
+        if normalized and normalized != primary_intent and normalized not in secondary_intents:
+            secondary_intents.append(normalized)
+    sentiment = (
+        normalize_system_value(
+            "customer_sentiment", intent.customer_sentiment, fallback="neutral"
+        )
+        if intent.customer_sentiment
+        else None
+    )
+    return intent.model_copy(
+        update={
+            "primary_intent": primary_intent,
+            "secondary_intents": secondary_intents,
+            "sales_stage": normalize_system_value(
+                "sales_stage", intent.sales_stage, fallback="unknown"
+            ),
+            "customer_sentiment": sentiment,
+        }
+    )
 
 
 def classify_opening_followup(
@@ -489,6 +515,11 @@ def classify_opening_followup(
 
 
 def _build_prompt(message: str, recent_turns: list[dict] | None = None) -> str:
+    intent_values = " | ".join(system_tag_values("intent")) or "unknown"
+    stage_values = " | ".join(system_tag_values("sales_stage")) or "unknown"
+    sentiment_values = (
+        " | ".join(system_tag_values("customer_sentiment")) or "neutral"
+    )
     recent_lines = []
     for turn in (recent_turns or [])[-6:]:
         if not isinstance(turn, dict):
@@ -525,10 +556,11 @@ def _build_prompt(message: str, recent_turns: list[dict] | None = None) -> str:
 
 {{
   "route": "template_reply | rag_answer | template_then_rag | clarify | human | chitchat | unsupported",
-  "primary_intent": "greeting | profile_answer | ask_price | price_objection | discount_request | ask_logistics | ask_after_sale | order_intent | payment_intent | knowledge_question | care_question | process_question | usage_question | refund_request | complaint | human_request | unsupported | unknown",
+  "primary_intent": "{intent_values}",
   "secondary_intents": [],
   "slots": {{}},
-  "sales_stage": "unknown | greeting | need_discovery | pain_confirmed | solution_recommended | price_discussed | objection_handling | order_intent | after_sale | human_pending",
+  "sales_stage": "{stage_values}",
+  "customer_sentiment": "{sentiment_values}",
   "confidence": 0.0,
   "need_template": false,
   "need_rag": false,
@@ -542,11 +574,12 @@ def _build_prompt(message: str, recent_turns: list[dict] | None = None) -> str:
 2. `primary_intent`：用户最主要的意图，只能选择一个。
 3. `secondary_intents`：用户同时表达的次要意图，没有则输出空数组。
 4. `sales_stage`：用户当前所处销售阶段或服务阶段。
-5. `confidence`：判断置信度，范围为 `0.00` 到 `1.00`。
-6. `need_template`：是否需要调用固定话术模板。
-7. `need_rag`：是否需要调用兰花知识资料回答。
-8. `need_human`：是否需要转人工。
-9. `reason`：用一句简短中文说明分类原因，不超过 20 个字。
+5. `customer_sentiment`：只能从标签管理中的客户情绪分类选择。
+6. `confidence`：判断置信度，范围为 `0.00` 到 `1.00`。
+7. `need_template`：是否需要调用固定话术模板。
+8. `need_rag`：是否需要调用兰花知识资料回答。
+9. `need_human`：是否需要转人工。
+10. `reason`：用一句简短中文说明分类原因，不超过 20 个字。
 
 `slots.decision_blocker` 格式为 {{"type": "price | trust | product_fit | timing | communication | unknown", "detail": ""}}。
 只记录客户明确表达的成交阻碍；没有明确阻碍时 type 输出 unknown、detail 输出空字符串。

@@ -4,7 +4,12 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
-from app.db.models import Base, TagCategoryModel, TagDefinitionModel
+from app.db.models import (
+    Base,
+    TagCatalogMetaModel,
+    TagCategoryModel,
+    TagDefinitionModel,
+)
 from app.schemas.tag import TagResult
 
 
@@ -78,6 +83,7 @@ TAG_CATEGORIES: dict[str, TagCategory] = {
                 "湖北省",
                 "湖南省",
                 "广东省",
+                "海南省",
                 "四川省",
                 "贵州省",
                 "云南省",
@@ -115,9 +121,124 @@ TAG_CATEGORIES: dict[str, TagCategory] = {
 }
 
 
+SYSTEM_TAG_CATEGORIES: dict[str, TagCategory] = {
+    "intent": TagCategory(
+        id="intent",
+        name="对话意图",
+        prompt_rule="AI 和规则只能从本分类选择意图；未在目录中的意图统一回退为 unknown。",
+        values=tuple(
+            TagValue(f"intent:{value}")
+            for value in (
+                "greeting",
+                "profile_answer",
+                "ask_price",
+                "price_objection",
+                "discount_request",
+                "ask_logistics",
+                "ask_after_sale",
+                "order_intent",
+                "payment_intent",
+                "order_query",
+                "product_query",
+                "purchase_rejection",
+                "knowledge_question",
+                "care_question",
+                "process_question",
+                "usage_question",
+                "refund_request",
+                "complaint",
+                "human_request",
+                "unsupported",
+                "unknown",
+            )
+        ),
+        exclusive=False,
+    ),
+    "sales_stage": TagCategory(
+        id="sales_stage",
+        name="销售阶段",
+        prompt_rule="用于销售推进和售后分流；AI、规则和后台状态写入均受此目录约束。",
+        values=tuple(
+            TagValue(f"stage:{value}")
+            for value in (
+                "unknown",
+                "greeting",
+                "need_discovery",
+                "pain_confirmed",
+                "solution_recommended",
+                "price_discussed",
+                "objection_handling",
+                "order_intent",
+                "after_sale",
+                "human_pending",
+            )
+        ),
+    ),
+    "customer_segment": TagCategory(
+        id="customer_segment",
+        name="客户分群",
+        prompt_rule="用于区分新手、进阶客户及尚未识别的客户，只允许目录内分群。",
+        values=tuple(
+            TagValue(f"segment:{value}")
+            for value in ("unknown", "beginner", "advanced")
+        ),
+    ),
+    "customer_sentiment": TagCategory(
+        id="customer_sentiment",
+        name="客户情绪",
+        prompt_rule="AI 只能选择目录内情绪；目录外输出按 neutral 处理。",
+        values=tuple(
+            TagValue(f"emotion:{value}")
+            for value in ("neutral", "anxious", "angry")
+        ),
+    ),
+    "risk_level": TagCategory(
+        id="risk_level",
+        name="风险等级",
+        prompt_rule="用于升级人工和风险控制，仅允许目录内等级。",
+        values=tuple(
+            TagValue(f"risk:{value}")
+            for value in ("normal", "medium", "high", "elevated")
+        ),
+    ),
+    "pain_point": TagCategory(
+        id="pain_point",
+        name="客户痛点",
+        prompt_rule="仅记录已配置、可被销售策略使用的固定痛点标签。",
+        values=(TagValue("pain_point:兰花烂根"),),
+        exclusive=False,
+    ),
+    "product_interest": TagCategory(
+        id="product_interest",
+        name="产品兴趣",
+        prompt_rule="仅记录已配置、可被销售策略使用的固定兴趣标签。",
+        values=(TagValue("product_interest:兰花养护"),),
+        exclusive=False,
+    ),
+}
+
+TAG_CATEGORIES.update(SYSTEM_TAG_CATEGORIES)
+
+SYSTEM_CATEGORY_IDS = frozenset(SYSTEM_TAG_CATEGORIES)
+SYSTEM_TAG_PREFIXES = {
+    "intent": "intent:",
+    "sales_stage": "stage:",
+    "customer_segment": "segment:",
+    "customer_sentiment": "emotion:",
+    "risk_level": "risk:",
+    "pain_point": "pain_point:",
+    "product_interest": "product_interest:",
+}
+_CATALOG_VERSION = "3"
+
+
 _sessionmakers: dict[str, sessionmaker] = {}
 _category_cache: dict[str, dict[str, TagCategory]] = {}
-_tables = [TagCategoryModel.__table__, TagDefinitionModel.__table__]
+_tables = [
+    TagCategoryModel.__table__,
+    TagDefinitionModel.__table__,
+    TagCatalogMetaModel.__table__,
+]
 
 
 def get_tag_categories() -> dict[str, TagCategory]:
@@ -169,9 +290,14 @@ def invalidate_cache() -> None:
 def _ensure_seeded() -> None:
     with _get_session() as session:
         count = session.scalar(select(func.count()).select_from(TagCategoryModel)) or 0
-        if count:
+        marker = session.get(TagCatalogMetaModel, "seed_version")
+        if count and marker and marker.value == _CATALOG_VERSION:
             return
-        for category_position, category in enumerate(TAG_CATEGORIES.values(), start=1):
+        categories = TAG_CATEGORIES if not count else SYSTEM_TAG_CATEGORIES
+        max_position = session.scalar(select(func.max(TagCategoryModel.position))) or 0
+        for category_position, category in enumerate(categories.values(), start=1):
+            if session.get(TagCategoryModel, category.id):
+                continue
             session.add(
                 TagCategoryModel(
                     id=category.id,
@@ -179,7 +305,7 @@ def _ensure_seeded() -> None:
                     prompt_rule=category.prompt_rule,
                     ai_assignable=category.ai_assignable,
                     exclusive=category.exclusive,
-                    position=category_position,
+                    position=max_position + category_position if count else category_position,
                 )
             )
             for value_position, value in enumerate(category.values, start=1):
@@ -190,7 +316,126 @@ def _ensure_seeded() -> None:
                         position=value_position,
                     )
                 )
+        if count and (marker is None or marker.value != _CATALOG_VERSION):
+            _seed_missing_value(session, "province", "海南省")
+        if marker is None:
+            session.add(TagCatalogMetaModel(key="seed_version", value=_CATALOG_VERSION))
+        else:
+            marker.value = _CATALOG_VERSION
         session.commit()
+
+
+def _seed_missing_value(session: Session, category_id: str, value: str) -> None:
+    if session.get(TagCategoryModel, category_id) is None:
+        return
+    existing = session.scalar(
+        select(TagDefinitionModel.id).where(TagDefinitionModel.value == value).limit(1)
+    )
+    if existing is not None:
+        return
+    max_position = session.scalar(
+        select(func.max(TagDefinitionModel.position)).where(
+            TagDefinitionModel.category_id == category_id
+        )
+    ) or 0
+    session.add(
+        TagDefinitionModel(
+            category_id=category_id,
+            value=value,
+            position=max_position + 1,
+        )
+    )
+
+
+def get_profile_tag_categories() -> dict[str, TagCategory]:
+    """Return customer-profile dimensions, excluding system strategy tags."""
+    return {
+        category_id: category
+        for category_id, category in get_tag_categories().items()
+        if category_id not in SYSTEM_CATEGORY_IDS
+    }
+
+
+def system_tag_token(category_id: str, value: str | None) -> str:
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    prefix = SYSTEM_TAG_PREFIXES.get(category_id, "")
+    if not value or not prefix:
+        return ""
+    return value if value.startswith(prefix) else f"{prefix}{value}"
+
+
+def system_tag_values(category_id: str) -> list[str]:
+    """Return raw values for one system dimension in live catalog order."""
+    category = get_tag_categories().get(category_id)
+    prefix = SYSTEM_TAG_PREFIXES.get(category_id, "")
+    if category is None or not prefix:
+        return []
+    return [
+        value.name[len(prefix):]
+        for value in category.values
+        if value.name.startswith(prefix) and value.name[len(prefix):]
+    ]
+
+
+def normalize_system_value(
+    category_id: str,
+    value: str | None,
+    *,
+    fallback: str,
+) -> str:
+    allowed = set(system_tag_values(category_id))
+    return value.strip() if isinstance(value, str) and value.strip() in allowed else fallback
+
+
+def is_allowed_system_tag(label: str, category_id: str | None = None) -> bool:
+    if not isinstance(label, str) or not label.strip():
+        return False
+    label = label.strip()
+    category_ids = (category_id,) if category_id else tuple(SYSTEM_CATEGORY_IDS)
+    for current_id in category_ids:
+        category = get_tag_categories().get(current_id)
+        if category and any(value.name == label for value in category.values):
+            return True
+    return False
+
+
+def is_allowed_profile_tag(value: str) -> bool:
+    return any(
+        tag.name == value
+        for category in get_profile_tag_categories().values()
+        for tag in category.values
+    )
+
+
+def filter_profile_tags(values: list[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        normalized = value.split(":", 1)[1] if value.startswith("customer_tag:") else value
+        normalized = normalized.strip()
+        if is_allowed_profile_tag(normalized) and normalized not in result:
+            result.append(normalized)
+    return result
+
+
+def filter_runtime_labels(labels: list[str]) -> list[str]:
+    """Keep only configured customer or system labels; never preserve free-form tags."""
+    result: list[str] = []
+    for label in labels:
+        if not isinstance(label, str):
+            continue
+        label = label.strip()
+        if label.startswith("customer_tag:"):
+            value = label.split(":", 1)[1].strip()
+            normalized = f"customer_tag:{value}" if is_allowed_profile_tag(value) else ""
+        else:
+            normalized = label if is_allowed_system_tag(label) else ""
+        if normalized and normalized not in result:
+            result.append(normalized)
+    return result
 
 
 def _get_session() -> Session:

@@ -14,7 +14,12 @@ from app.db.models import (
 )
 from app.services.llm_service import generate_json
 from app.services.sales_action_service import evolve_opportunity
-from app.services.tag_catalog import get_tag_categories
+from app.services.tag_catalog import (
+    get_profile_tag_categories,
+    get_tag_categories,
+    is_allowed_system_tag,
+    normalize_system_value,
+)
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -316,9 +321,14 @@ async def apply_deterministic_profile_update(message, intent, reply) -> None:
             channel=message.channel,
         )
         before = _profile_to_dict(profile)
-        if getattr(intent, "sales_stage", None) and intent.sales_stage != "unknown":
-            profile.current_stage = intent.sales_stage
-        profile.last_intent = intent.primary_intent
+        sales_stage = normalize_system_value(
+            "sales_stage", getattr(intent, "sales_stage", None), fallback="unknown"
+        )
+        if sales_stage != "unknown":
+            profile.current_stage = sales_stage
+        profile.last_intent = normalize_system_value(
+            "intent", getattr(intent, "primary_intent", None), fallback="unknown"
+        )
         profile.last_route = reply.route
         profile.last_template_id = reply.template_id
         profile.last_active_at = _now()
@@ -352,8 +362,11 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     if not isinstance(tag_result, dict):
         return
     risk_level = tag_result.get("risk_level")
-    if isinstance(risk_level, str) and risk_level.strip():
-        profile.risk_level = risk_level.strip()
+    normalized_risk = normalize_system_value(
+        "risk_level", risk_level, fallback="normal"
+    )
+    if normalized_risk:
+        profile.risk_level = normalized_risk
     labels = _string_list(tag_result.get("labels"))
     if not labels:
         return
@@ -362,14 +375,17 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     product_interests = _json_loads(profile.product_interests_json, [])
     pain_points = _json_loads(profile.pain_points_json, [])
     for label in labels:
-        if label.startswith("product_interest:"):
+        if label.startswith("product_interest:") and is_allowed_system_tag(
+            label, "product_interest"
+        ):
             product_interests = _append_unique(product_interests, label.split(":", 1)[1])
-        elif label.startswith("pain_point:"):
+        elif label.startswith("pain_point:") and is_allowed_system_tag(
+            label, "pain_point"
+        ):
             pain_points = _append_unique(pain_points, label.split(":", 1)[1])
-            incoming_customer_tags.append(label)
         elif label.startswith("customer_tag:"):
             incoming_customer_tags.append(label)
-        else:
+        elif label.startswith(("region:", "plant_count:", "preference:")):
             incoming_customer_tags.append(label)
     profile.customer_tags_json = _json_dumps(
         _merge_customer_tags(
@@ -387,7 +403,9 @@ def _apply_sales_action(profile: UserProfileModel, intent, sales_action: Any) ->
     profile.active_opportunity_json = _json_dumps(
         evolve_opportunity(
             _json_loads(profile.active_opportunity_json, {}),
-            sales_stage=intent.sales_stage,
+            sales_stage=normalize_system_value(
+                "sales_stage", intent.sales_stage, fallback="unknown"
+            ),
             sales_action=sales_action,
         )
     )
@@ -658,8 +676,7 @@ def _append_or_replace_specific(values: list[str], value: str) -> list[str]:
 
 
 def _risk_value(value: Any) -> str:
-    allowed = {"normal", "medium", "high"}
-    return value if isinstance(value, str) and value in allowed else ""
+    return normalize_system_value("risk_level", value, fallback="")
 
 
 def _merge_customer_tags(existing: list[str], incoming: list[str]) -> list[str]:
@@ -699,14 +716,14 @@ def _normalize_customer_tag(tag: str) -> str:
 
 def _tag_replace_key(tag: str) -> str:
     category_id = _catalog_category_for_tag(tag)
-    categories = get_tag_categories()
+    categories = get_profile_tag_categories()
     if category_id and categories[category_id].exclusive:
         return category_id
     return tag
 
 
 def _ai_assignable_customer_tags(tags: list[str]) -> list[str]:
-    categories = get_tag_categories()
+    categories = get_profile_tag_categories()
     result: list[str] = []
     for tag in tags:
         normalized = _normalize_customer_tag(tag)
@@ -729,7 +746,7 @@ def _tag_order(tag: str) -> int:
 def _profile_tag_catalog_prompt() -> dict[str, list[str]]:
     return {
         category.name: [value.name for value in category.values]
-        for category in get_tag_categories().values()
+        for category in get_profile_tag_categories().values()
         if category.ai_assignable
     }
 
@@ -737,7 +754,7 @@ def _profile_tag_catalog_prompt() -> dict[str, list[str]]:
 def _catalog_tag_values() -> set[str]:
     return {
         value.name
-        for category in get_tag_categories().values()
+        for category in get_profile_tag_categories().values()
         for value in category.values
     }
 
@@ -747,7 +764,7 @@ def _is_catalog_tag_value(tag: str) -> bool:
 
 
 def _catalog_category_for_tag(tag: str) -> str:
-    for category in get_tag_categories().values():
+    for category in get_profile_tag_categories().values():
         if any(value.name == tag for value in category.values):
             return category.id
     return ""
@@ -922,7 +939,21 @@ def _list_events(session: Session, user_id: str, limit: int) -> list[dict]:
 
 def _set_profile_field(profile: UserProfileModel, field: str, value: Any) -> None:
     if field == "customer_tags":
-        profile.customer_tags_json = _json_dumps(_string_list(value))
+        profile.customer_tags_json = _json_dumps(
+            _merge_customer_tags([], _string_list(value))
+        )
+    elif field == "current_stage":
+        profile.current_stage = normalize_system_value(
+            "sales_stage", value, fallback="unknown"
+        )
+    elif field == "risk_level":
+        profile.risk_level = normalize_system_value(
+            "risk_level", value, fallback="normal"
+        )
+    elif field == "last_intent":
+        profile.last_intent = normalize_system_value(
+            "intent", value, fallback="unknown"
+        )
     elif field == "product_interests":
         profile.product_interests_json = _json_dumps(_string_list(value))
     elif field == "pain_points":
@@ -936,8 +967,12 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "user_id": profile.user_id,
         "tenant_id": profile.tenant_id,
         "channel": profile.channel,
-        "current_stage": profile.current_stage,
-        "risk_level": profile.risk_level,
+        "current_stage": normalize_system_value(
+            "sales_stage", profile.current_stage, fallback="unknown"
+        ),
+        "risk_level": normalize_system_value(
+            "risk_level", profile.risk_level, fallback="normal"
+        ),
         "is_human_handoff": profile.is_human_handoff,
         "human_ticket_id": profile.human_ticket_id,
         "human_handoff_status": profile.human_handoff_status,
@@ -952,7 +987,9 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "pain_points": _json_loads(profile.pain_points_json, []),
         "active_opportunity": _json_loads(profile.active_opportunity_json, {}),
         "basic_info": _json_loads(profile.basic_info_json, {}),
-        "last_intent": profile.last_intent,
+        "last_intent": normalize_system_value(
+            "intent", profile.last_intent, fallback="unknown"
+        ) if profile.last_intent else None,
         "last_route": profile.last_route,
         "last_template_id": profile.last_template_id,
         "last_active_at": _datetime_to_iso(profile.last_active_at),

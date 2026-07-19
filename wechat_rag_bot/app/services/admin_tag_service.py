@@ -27,7 +27,11 @@ from app.schemas.admin_tag import (
 )
 from app.schemas.common import AppError, ErrorCode
 from app.services import business_tag_prompt_service, customer_level_service, state_service
-from app.services.tag_catalog import get_tag_categories, invalidate_cache
+from app.services.tag_catalog import (
+    SYSTEM_TAG_PREFIXES,
+    get_tag_categories,
+    invalidate_cache,
+)
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -184,15 +188,18 @@ def delete_tag_category(category_id: str) -> dict:
         _remove_customer_level_legacy_bindings(session, values)
         _clean_orphan_prompt_blocks(session, block_ids)
         _replace_profile_tags(session, set(values), None)
+        _replace_profile_system_values(session, category_id, set(values), None)
         session.commit()
     invalidate_cache()
     state_service.remove_customer_tags(set(values))
+    for value in values:
+        state_service.replace_system_tag(category_id, value, None)
     return {"id": category_id, "deleted_tags": len(values)}
 
 
 def create_tag(category_id: str, request: TagCreateRequest) -> dict:
     _ensure_defaults()
-    value = request.value.strip()
+    value = _normalized_tag_value(category_id, request.value)
     with _get_session() as session:
         _require_category(session, category_id)
         if _find_tag_by_value(session, value):
@@ -218,9 +225,10 @@ def create_tag(category_id: str, request: TagCreateRequest) -> dict:
 
 def update_tag(tag_id: int, request: TagUpdateRequest) -> dict:
     _ensure_defaults()
-    new_value = request.value.strip()
     with _get_session() as session:
         tag = _require_tag(session, tag_id)
+        category_id = tag.category_id
+        new_value = _normalized_tag_value(category_id, request.value)
         old_value = tag.value
         duplicate = _find_tag_by_value(session, new_value)
         if duplicate and duplicate.id != tag.id:
@@ -237,11 +245,15 @@ def update_tag(tag_id: int, request: TagUpdateRequest) -> dict:
             tag.value = new_value
             _rename_customer_level_profile(session, old_value, new_value)
             _replace_profile_tags(session, {old_value}, new_value)
-        _sync_prompts(session, tag.category_id, new_value, request.prompts)
+            _replace_profile_system_values(
+                session, category_id, {old_value}, new_value
+            )
+        _sync_prompts(session, category_id, new_value, request.prompts)
         session.commit()
     invalidate_cache()
     if new_value != old_value:
         state_service.replace_customer_tag(old_value, new_value)
+        state_service.replace_system_tag(category_id, old_value, new_value)
     return _tag_detail(tag_id)
 
 
@@ -267,9 +279,11 @@ def delete_tag(tag_id: int) -> dict:
         _remove_customer_level_legacy_bindings(session, [value])
         _clean_orphan_prompt_blocks(session, block_ids)
         _replace_profile_tags(session, {value}, None)
+        _replace_profile_system_values(session, category_id, {value}, None)
         session.commit()
     invalidate_cache()
     state_service.remove_customer_tags({value})
+    state_service.replace_system_tag(category_id, value, None)
     return {"id": tag_id, "category_id": category_id, "value": value}
 
 
@@ -367,6 +381,60 @@ def _replace_profile_tags(
         profile.updated_at = datetime.now(timezone.utc)
 
 
+def _replace_profile_system_values(
+    session: Session,
+    category_id: str,
+    old_values: set[str],
+    replacement: str | None,
+) -> None:
+    prefix = SYSTEM_TAG_PREFIXES.get(category_id)
+    if not prefix:
+        return
+    old_raw_values = {
+        value[len(prefix):] for value in old_values if value.startswith(prefix)
+    }
+    replacement_raw = (
+        replacement[len(prefix):]
+        if replacement and replacement.startswith(prefix)
+        else ""
+    )
+    if not old_raw_values:
+        return
+    scalar_fields = {
+        "intent": ("last_intent", "unknown"),
+        "sales_stage": ("current_stage", "unknown"),
+        "risk_level": ("risk_level", "normal"),
+    }
+    list_fields = {
+        "pain_point": "pain_points_json",
+        "product_interest": "product_interests_json",
+    }
+    for profile in session.scalars(select(UserProfileModel)).all():
+        changed = False
+        scalar = scalar_fields.get(category_id)
+        if scalar:
+            field, default = scalar
+            if getattr(profile, field) in old_raw_values:
+                setattr(profile, field, replacement_raw or default)
+                changed = True
+        list_field = list_fields.get(category_id)
+        if list_field:
+            try:
+                items = json.loads(getattr(profile, list_field) or "[]")
+            except (TypeError, ValueError):
+                items = []
+            updated = []
+            for item in items if isinstance(items, list) else []:
+                value = replacement_raw if item in old_raw_values else item
+                if value and value not in updated:
+                    updated.append(value)
+            if updated != items:
+                setattr(profile, list_field, json.dumps(updated, ensure_ascii=False))
+                changed = True
+        if changed:
+            profile.updated_at = datetime.now(timezone.utc)
+
+
 def _clean_orphan_prompt_blocks(session: Session, block_ids: list[str]) -> None:
     for block_id in set(block_ids):
         has_tag_binding = session.scalar(
@@ -447,6 +515,12 @@ def _find_tag_by_value(session: Session, value: str) -> TagDefinitionModel | Non
 
 def _conflict(message: str) -> None:
     raise AppError(ErrorCode.REQUEST_INVALID, message, status_code=409)
+
+
+def _normalized_tag_value(category_id: str, value: str) -> str:
+    value = value.strip()
+    prefix = SYSTEM_TAG_PREFIXES.get(category_id, "")
+    return value if not prefix or value.startswith(prefix) else f"{prefix}{value}"
 
 
 def _ensure_defaults() -> None:
