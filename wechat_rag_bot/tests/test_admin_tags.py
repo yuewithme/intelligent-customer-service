@@ -47,9 +47,21 @@ def test_tag_admin_lists_all_categories_and_prompt_configuration():
         categories
     )
     assert any(
-        tag["value"] == "stage:order_intent"
+        tag["value"] == "stage:closing"
         for tag in categories["sales_stage"]["tags"]
     )
+    assert {
+        tag["value"] for tag in categories["sales_stage"]["tags"]
+    } == {
+        "stage:unknown",
+        "stage:rapport",
+        "stage:need_discovery",
+        "stage:pain_discovery",
+        "stage:solution_recommended",
+        "stage:value_built",
+        "stage:trial_close",
+        "stage:closing",
+    }
     quantity = next(
         tag for tag in categories["orchid_quantity"]["tags"] if tag["value"] == "1-10盆"
     )
@@ -152,6 +164,26 @@ def test_deleting_system_tag_immediately_removes_it_from_intent_whitelist():
 
     assert client.delete(f"/api/v1/admin/tags/items/{care_tag['id']}").status_code == 200
     assert classify_by_soft_rules("兰花怎么养护？").primary_intent == "unknown"
+
+
+def test_sales_stage_contract_cannot_be_changed_through_generic_tag_admin():
+    client = TestClient(app)
+    catalog = client.get("/api/v1/admin/tags").json()["data"]
+    stage_category = next(
+        item for item in catalog["items"] if item["id"] == "sales_stage"
+    )
+    rapport = next(
+        item for item in stage_category["tags"] if item["value"] == "stage:rapport"
+    )
+
+    created = client.post(
+        "/api/v1/admin/tags/categories/sales_stage/items",
+        json={"value": "custom_stage", "prompts": []},
+    )
+    deleted = client.delete(f"/api/v1/admin/tags/items/{rapport['id']}")
+
+    assert created.status_code == 409
+    assert deleted.status_code == 409
 
 
 def test_new_system_tag_is_namespaced_and_added_to_llm_whitelist():

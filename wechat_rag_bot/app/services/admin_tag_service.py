@@ -28,6 +28,7 @@ from app.schemas.admin_tag import (
 from app.schemas.common import AppError, ErrorCode
 from app.services import business_tag_prompt_service, customer_level_service, state_service
 from app.services.tag_catalog import (
+    FROZEN_CATEGORY_IDS,
     SYSTEM_TAG_PREFIXES,
     get_tag_categories,
     invalidate_cache,
@@ -149,6 +150,7 @@ def create_tag_category(request: TagCategoryCreateRequest) -> dict:
 
 def update_tag_category(category_id: str, request: TagCategoryUpdateRequest) -> dict:
     _ensure_defaults()
+    _reject_frozen_category(category_id)
     with _get_session() as session:
         category = _require_category(session, category_id)
         category.name = request.name.strip()
@@ -162,6 +164,7 @@ def update_tag_category(category_id: str, request: TagCategoryUpdateRequest) -> 
 
 def delete_tag_category(category_id: str) -> dict:
     _ensure_defaults()
+    _reject_frozen_category(category_id)
     with _get_session() as session:
         category = _require_category(session, category_id)
         values = session.scalars(
@@ -199,6 +202,7 @@ def delete_tag_category(category_id: str) -> dict:
 
 def create_tag(category_id: str, request: TagCreateRequest) -> dict:
     _ensure_defaults()
+    _reject_frozen_category(category_id)
     value = _normalized_tag_value(category_id, request.value)
     with _get_session() as session:
         _require_category(session, category_id)
@@ -228,6 +232,7 @@ def update_tag(tag_id: int, request: TagUpdateRequest) -> dict:
     with _get_session() as session:
         tag = _require_tag(session, tag_id)
         category_id = tag.category_id
+        _reject_frozen_category(category_id)
         new_value = _normalized_tag_value(category_id, request.value)
         old_value = tag.value
         duplicate = _find_tag_by_value(session, new_value)
@@ -263,6 +268,7 @@ def delete_tag(tag_id: int) -> dict:
         tag = _require_tag(session, tag_id)
         value = tag.value
         category_id = tag.category_id
+        _reject_frozen_category(category_id)
         block_ids = session.scalars(
             select(TagPromptBindingModel.prompt_block_id).where(
                 TagPromptBindingModel.category_id == category_id,
@@ -515,6 +521,11 @@ def _find_tag_by_value(session: Session, value: str) -> TagDefinitionModel | Non
 
 def _conflict(message: str) -> None:
     raise AppError(ErrorCode.REQUEST_INVALID, message, status_code=409)
+
+
+def _reject_frozen_category(category_id: str) -> None:
+    if category_id in FROZEN_CATEGORY_IDS:
+        _conflict("该系统分类由销售流程契约管理，不允许在标签管理中修改")
 
 
 def _normalized_tag_value(category_id: str, value: str) -> str:

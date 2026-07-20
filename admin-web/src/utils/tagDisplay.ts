@@ -25,19 +25,25 @@ const INTENT_TEXT: Record<string, string> = {
 
 const SALES_STAGE_TEXT: Record<string, string> = {
   unknown: '待识别',
-  greeting: '初次问候',
-  need_discovery: '需求探索',
-  pain_confirmed: '痛点确认',
-  solution_recommended: '方案推荐',
-  price_discussed: '价格沟通',
-  objection_handling: '异议处理',
-  order_intent: '下单意向',
+  rapport: '破冰',
+  need_discovery: '挖需求',
+  pain_discovery: '找痛点',
+  solution_recommended: '推品',
+  value_built: '塑品',
+  trial_close: '试成交',
+  closing: '成交推进',
   after_sale: '售后服务',
   human_pending: '等待人工',
-  interest: '兴趣了解',
-  knowledge_consulting: '知识咨询',
-  care_support: '养护支持',
-  first_order_nurture: '首单培育'
+  // Historical values are display-only aliases and must not be written by new flows.
+  greeting: '破冰',
+  pain_confirmed: '找痛点',
+  price_discussed: '试成交',
+  objection_handling: '成交推进',
+  order_intent: '成交推进',
+  interest: '挖需求',
+  knowledge_consulting: '挖需求',
+  care_support: '挖需求',
+  first_order_nurture: '挖需求'
 }
 
 const SEGMENT_TEXT: Record<string, string> = {
