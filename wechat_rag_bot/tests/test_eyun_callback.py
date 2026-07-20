@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 import pytest
 
@@ -52,7 +54,7 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
         return {"batch_key": "wid:wxid_customer"}
 
     async def fake_contact(**kwargs):
-        return {"nickname": "张姐"}
+        return {"nickname": "寮犲"}
 
     monkeypatch.setattr(
         eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
@@ -71,7 +73,7 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
                 "wId": "wid",
                 "fromUser": "wxid_customer",
                 "toUser": "wxid_bot",
-                "content": "你好",
+                "content": "浣犲ソ",
                 "newMsgId": 101,
                 "self": False,
             },
@@ -89,7 +91,7 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
                 "channel": "wechat",
                 "basic_info": {
                     "owner_wc_id": "wxid_bot",
-                    "nickname": "张姐",
+                    "nickname": "寮犲",
                 },
             },
         )
@@ -402,13 +404,13 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     item = conversations["items"][0]
     assert item["conversation_id"] == "wechat:wxid_customer:default"
     assert item["status"] == "ai_waiting"
-    assert item["last_message"] == "[图片]"
+    assert item["last_message"] == "[鍥剧墖]"
 
     detail = client.get(f"/api/v1/admin/conversations/{item['conversation_id']}")
     messages = detail.json()["data"]["messages"]
     assert [message["content"] for message in messages] == [
         "hello",
-        "[图片]",
+        "[鍥剧墖]",
     ]
     assert [message["sender_type"] for message in messages] == ["customer", "customer"]
     assert messages[1]["metadata"]["message_type"] == "60002"
@@ -461,6 +463,59 @@ def test_wechat_callback_ignores_group_messages(monkeypatch, tmp_path):
     assert response.status_code == 200
     conversations = client.get("/api/v1/admin/conversations").json()["data"]
     assert conversations["total"] == 0
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {
+            "fromUser": "wxid_sender",
+            "fromGroup": "12345@chatroom",
+            "toUser": "wxid_bot",
+        },
+        {
+            "fromUser": "12345@chatroom",
+            "fromGroup": "",
+            "toUser": "wxid_bot",
+        },
+    ],
+)
+def test_mislabeled_private_callback_is_blocked_before_processing(
+    monkeypatch, tmp_path, data
+):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fail_processing(*args, **kwargs):
+        raise AssertionError("group messages must be blocked before processing")
+
+    monkeypatch.setattr(
+        eyun_callback_service, "get_eyun_contact_snapshot", fail_processing
+    )
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fail_processing)
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_processing)
+
+    payload = {
+        "account": "test_account",
+        "messageType": "60001",
+        "wcId": "wxid_bot",
+        "data": {
+            "wId": "wid_test",
+            "content": "mislabeled group hello",
+            "msgId": 791,
+            "newMsgId": 792,
+            "self": False,
+            **data,
+        },
+    }
+
+    assert eyun_callback_service.should_process_eyun_payload(payload) is False
+    assert asyncio.run(eyun_callback_service.handle_eyun_callback(payload)) == {
+        "code": "1000",
+        "message": "success",
+        "data": None,
+    }
 
 
 def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
@@ -532,10 +587,10 @@ def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
 
         conversations = client.get("/api/v1/admin/conversations").json()["data"]
         expected_label = {
-            "60003": "[视频]",
-            "60004": "[语音]",
-            "60006": "[表情]",
-            "60007": "[链接]",
+            "60003": "[瑙嗛]",
+            "60004": "[璇煶]",
+            "60006": "[琛ㄦ儏]",
+            "60007": "[閾炬帴]",
         }[message_type]
         conversation = next(
             item for item in conversations["items"] if item["last_message"] == expected_label
