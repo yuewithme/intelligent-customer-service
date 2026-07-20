@@ -18,6 +18,59 @@ class Base(DeclarativeBase):
     pass
 
 
+class YouzanProductModel(Base):
+    __tablename__ = "youzan_products"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(512), index=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    price_cent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stock: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    h5_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    page_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, index=True, default=0)
+    internal_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    youzan_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class YouzanProductSkuModel(Base):
+    __tablename__ = "youzan_product_skus"
+    __table_args__ = (UniqueConstraint("item_id", "sku_id", name="uq_youzan_product_sku"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(128), index=True)
+    sku_id: Mapped[str] = mapped_column(String(128), index=True)
+    spec_name: Mapped[str] = mapped_column(String(512), default="默认规格")
+    price_cent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stock: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sku_code: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class YouzanProductSyncRunModel(Base):
+    __tablename__ = "youzan_product_sync_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trigger: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    product_count: Mapped[int] = mapped_column(Integer, default=0)
+    sku_count: Mapped[int] = mapped_column(Integer, default=0)
+    detail_error_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+
+
 class ChatLogModel(Base):
     __tablename__ = "chat_logs"
 

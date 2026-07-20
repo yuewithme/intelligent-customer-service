@@ -1,0 +1,515 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from typing import Any
+
+from sqlalchemy import asc, create_engine, delete, desc, func, or_, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.config import get_settings
+from app.db.models import (
+    Base,
+    YouzanProductModel,
+    YouzanProductSkuModel,
+    YouzanProductSyncRunModel,
+)
+from app.integrations.youzan.client import YouzanClient
+
+
+logger = logging.getLogger("wechat_rag_bot.youzan_product_sync")
+_TABLES = [
+    YouzanProductModel.__table__,
+    YouzanProductSkuModel.__table__,
+    YouzanProductSyncRunModel.__table__,
+]
+_STATUS_PRIORITY = {"missing": 0, "off_shelf": 1, "sold_out": 2, "on_sale": 3}
+
+
+@lru_cache
+def _session_factory(database_url: str):
+    engine = create_engine(database_url)
+    Base.metadata.create_all(engine, tables=_TABLES)
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def _session() -> Session:
+    return _session_factory(get_settings().database_url)()
+
+
+def reset_product_store_for_tests() -> None:
+    _session_factory.cache_clear()
+
+
+def list_products(
+    *,
+    page: int = 1,
+    page_size: int = 50,
+    keyword: str | None = None,
+    status: str | None = None,
+    sort_by: str = "manual",
+    sort_direction: str = "asc",
+) -> dict[str, Any]:
+    with _session() as session:
+        query = select(YouzanProductModel)
+        count_query = select(func.count()).select_from(YouzanProductModel)
+        filters = []
+        if keyword and keyword.strip():
+            value = f"%{keyword.strip()}%"
+            filters.append(
+                or_(
+                    YouzanProductModel.title.ilike(value),
+                    YouzanProductModel.item_id.ilike(value),
+                )
+            )
+        if status:
+            filters.append(YouzanProductModel.status == status)
+        if filters:
+            query = query.where(*filters)
+            count_query = count_query.where(*filters)
+
+        column = {
+            "manual": YouzanProductModel.sort_order,
+            "title": YouzanProductModel.title,
+            "price": YouzanProductModel.price_cent,
+            "stock": YouzanProductModel.stock,
+            "updated_at": YouzanProductModel.youzan_updated_at,
+        }.get(sort_by, YouzanProductModel.sort_order)
+        direction = desc if sort_direction == "desc" else asc
+        query = query.order_by(
+            direction(column),
+            asc(YouzanProductModel.id),
+        ).offset((page - 1) * page_size).limit(page_size)
+        rows = list(session.scalars(query))
+        item_ids = [row.item_id for row in rows]
+        sku_rows = (
+            list(
+                session.scalars(
+                    select(YouzanProductSkuModel)
+                    .where(YouzanProductSkuModel.item_id.in_(item_ids))
+                    .order_by(
+                        YouzanProductSkuModel.item_id,
+                        YouzanProductSkuModel.id,
+                    )
+                )
+            )
+            if item_ids
+            else []
+        )
+        skus_by_item: dict[str, list[dict[str, Any]]] = {}
+        for sku in sku_rows:
+            skus_by_item.setdefault(sku.item_id, []).append(_serialize_sku(sku))
+        last_run = session.scalar(
+            select(YouzanProductSyncRunModel).order_by(
+                YouzanProductSyncRunModel.id.desc()
+            )
+        )
+        return {
+            "items": [
+                _serialize_product(row, skus_by_item.get(row.item_id, []))
+                for row in rows
+            ],
+            "total": int(session.scalar(count_query) or 0),
+            "page": page,
+            "page_size": page_size,
+            "last_sync": _serialize_sync_run(last_run),
+        }
+
+
+def update_product_sort(item_id: str, sort_order: int) -> dict[str, Any]:
+    with _session() as session:
+        row = session.scalar(
+            select(YouzanProductModel).where(YouzanProductModel.item_id == item_id)
+        )
+        if row is None:
+            raise LookupError("商品不存在")
+        row.sort_order = sort_order
+        row.updated_at = _now()
+        session.commit()
+        session.refresh(row)
+        return _serialize_product(row, [])
+
+
+def update_product_note(item_id: str, internal_note: str) -> dict[str, Any]:
+    with _session() as session:
+        row = session.scalar(
+            select(YouzanProductModel).where(YouzanProductModel.item_id == item_id)
+        )
+        if row is None:
+            raise LookupError("商品不存在")
+        row.internal_note = internal_note.strip() or None
+        row.updated_at = _now()
+        session.commit()
+        session.refresh(row)
+        return _serialize_product(row, [])
+
+
+async def sync_youzan_products(
+    *,
+    trigger: str = "manual",
+    client: YouzanClient | Any | None = None,
+) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.youzan_enabled or not settings.youzan_access_token.strip():
+        raise RuntimeError("有赞商品同步未配置")
+    client = client or YouzanClient(
+        access_token=settings.youzan_access_token,
+        base_url=settings.youzan_base_url,
+    )
+    run_id = _start_sync_run(trigger)
+    try:
+        collections = await asyncio.gather(
+            _fetch_all_pages(
+                client,
+                settings.youzan_product_search_method,
+                settings.youzan_product_search_version,
+                {},
+            ),
+            _fetch_all_pages(
+                client,
+                settings.youzan_inventory_method,
+                settings.youzan_inventory_version,
+                {"banner": "for_shelved"},
+            ),
+            _fetch_all_pages(
+                client,
+                settings.youzan_inventory_method,
+                settings.youzan_inventory_version,
+                {"banner": "sold_out"},
+            ),
+        )
+        merged: dict[str, dict[str, Any]] = {}
+        for status, items in zip(
+            ("on_sale", "off_shelf", "sold_out"), collections, strict=True
+        ):
+            for item in items:
+                item_id = _text(item, "item_id", "num_iid", "goods_id", "id")
+                if not item_id:
+                    continue
+                current = merged.get(item_id)
+                if current is None or _STATUS_PRIORITY[status] > _STATUS_PRIORITY[current["_status"]]:
+                    merged[item_id] = {**item, "_status": status}
+
+        detail_results = await _fetch_details(client, list(merged))
+        result = _persist_sync(merged, detail_results)
+        result["detail_error_count"] = sum(
+            1 for value in detail_results.values() if isinstance(value, Exception)
+        )
+        _finish_sync_run(run_id, result=result)
+        return {**result, "trigger": trigger, "status": "success"}
+    except Exception as exc:
+        _finish_sync_run(run_id, error=exc)
+        raise
+
+
+async def youzan_product_sync_worker(stop_event: asyncio.Event) -> None:
+    settings = get_settings()
+    if (
+        not settings.youzan_product_sync_enabled
+        or not settings.youzan_enabled
+        or not settings.youzan_access_token.strip()
+    ):
+        return
+    if await _wait_or_stop(stop_event, settings.youzan_product_sync_startup_delay_seconds):
+        return
+    while not stop_event.is_set():
+        try:
+            if _sync_is_due(settings.youzan_product_sync_interval_hours):
+                await sync_youzan_products(trigger="scheduled")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Scheduled Youzan product sync failed: %s", type(exc).__name__)
+        if await _wait_or_stop(stop_event, min(300, settings.youzan_product_sync_interval_hours * 3600)):
+            return
+
+
+async def _fetch_all_pages(
+    client: Any,
+    method: str,
+    version: str,
+    extra: dict[str, Any],
+) -> list[dict[str, Any]]:
+    page_size = get_settings().youzan_product_sync_page_size
+    page_no = 1
+    result: list[dict[str, Any]] = []
+    while True:
+        data = await client.call(
+            method,
+            version,
+            {**extra, "page_no": page_no, "page_size": page_size},
+        )
+        items = _list_value(data, "items", "products", "goods_list")
+        result.extend(item for item in items if isinstance(item, dict))
+        total = _integer(data, "count", "total", "total_count")
+        if not items or len(items) < page_size or (total is not None and len(result) >= total):
+            break
+        if page_no * page_size >= 4000:
+            raise RuntimeError("有赞商品超过4000条，需要按更新时间分段同步")
+        page_no += 1
+    return result
+
+
+async def _fetch_details(client: Any, item_ids: list[str]) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.youzan_product_detail_enabled:
+        return {}
+    semaphore = asyncio.Semaphore(settings.youzan_product_sync_detail_concurrency)
+
+    async def fetch(item_id: str) -> tuple[str, Any]:
+        async with semaphore:
+            try:
+                data = await client.call(
+                    settings.youzan_product_detail_method,
+                    settings.youzan_product_detail_version,
+                    {"item_id": item_id},
+                )
+                return item_id, data.get("item") if isinstance(data.get("item"), dict) else data
+            except Exception as exc:  # noqa: BLE001
+                return item_id, exc
+
+    return dict(await asyncio.gather(*(fetch(item_id) for item_id in item_ids)))
+
+
+def _persist_sync(
+    items: dict[str, dict[str, Any]], detail_results: dict[str, Any]
+) -> dict[str, int]:
+    now = _now()
+    sku_count = 0
+    with _session() as session:
+        existing = {
+            row.item_id: row
+            for row in session.scalars(select(YouzanProductModel))
+        }
+        for row in existing.values():
+            if row.item_id not in items:
+                row.status = "missing"
+                row.last_synced_at = now
+                row.updated_at = now
+        for item_id, item in items.items():
+            row = existing.get(item_id)
+            if row is None:
+                row = YouzanProductModel(
+                    item_id=item_id,
+                    title="",
+                    status=item["_status"],
+                    sort_order=0,
+                    created_at=now,
+                    updated_at=now,
+                    last_synced_at=now,
+                )
+                session.add(row)
+            detail = detail_results.get(item_id)
+            source = {**item, **(detail if isinstance(detail, dict) else {})}
+            row.title = _text(source, "title", "name") or row.title
+            row.image_url = _text(source, "image", "pic_url", "image_url") or None
+            row.status = item["_status"]
+            row.price_cent = _integer(source, "price", "price_cent")
+            row.stock = _integer(source, "actual_quantity", "quantity", "stock_num", "stock")
+            row.h5_url = _text(source, "detail_url", "h5_url") or None
+            row.page_url = _text(source, "page_url") or None
+            row.youzan_updated_at = _parse_datetime(
+                _text(source, "update_time", "updated_at", "modified")
+            )
+            row.last_synced_at = now
+            row.updated_at = now
+
+            if isinstance(detail, dict):
+                session.execute(
+                    delete(YouzanProductSkuModel).where(
+                        YouzanProductSkuModel.item_id == item_id
+                    )
+                )
+                for index, sku in enumerate(_extract_skus(detail), start=1):
+                    session.add(
+                        YouzanProductSkuModel(
+                            item_id=item_id,
+                            sku_id=_text(sku, "sku_id", "item_sku_id", "id") or f"default-{index}",
+                            spec_name=_sku_spec_name(sku),
+                            price_cent=_integer(sku, "price", "price_cent"),
+                            stock=_integer(sku, "stock_num", "quantity", "stock"),
+                            sku_code=_text(sku, "sku_no", "code", "sku_code") or None,
+                            image_url=_text(sku, "image_url", "pic_url", "image") or None,
+                            last_synced_at=now,
+                        )
+                    )
+                    sku_count += 1
+        session.commit()
+    return {"product_count": len(items), "sku_count": sku_count}
+
+
+def _extract_skus(detail: dict[str, Any]) -> list[dict[str, Any]]:
+    for container in (detail, detail.get("item") if isinstance(detail.get("item"), dict) else {}):
+        values = _list_value(container, "skus", "sku_info_list", "sku_list", "variants")
+        if values:
+            return [value for value in values if isinstance(value, dict)]
+    return []
+
+
+def _sku_spec_name(sku: dict[str, Any]) -> str:
+    direct = _text(sku, "properties_name", "spec_name", "sku_name", "title", "name")
+    if direct:
+        return direct.replace(";", " / ")
+    specs = _list_value(sku, "sku_specs", "properties", "specs", "name_list")
+    parts = []
+    for spec in specs:
+        if not isinstance(spec, dict):
+            continue
+        name = _text(spec, "spec_name", "kname", "name")
+        value = _text(spec, "spec_value_name", "vname", "value")
+        parts.append(f"{name}：{value}" if name and value else value or name)
+    return " / ".join(part for part in parts if part) or "默认规格"
+
+
+def _start_sync_run(trigger: str) -> int:
+    now = _now()
+    with _session() as session:
+        row = YouzanProductSyncRunModel(
+            trigger=trigger,
+            status="running",
+            started_at=now,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row.id
+
+
+def _finish_sync_run(
+    run_id: int,
+    *,
+    result: dict[str, int] | None = None,
+    error: Exception | None = None,
+) -> None:
+    with _session() as session:
+        row = session.get(YouzanProductSyncRunModel, run_id)
+        if row is None:
+            return
+        row.finished_at = _now()
+        if error is None:
+            row.status = "success"
+            row.product_count = int((result or {}).get("product_count", 0))
+            row.sku_count = int((result or {}).get("sku_count", 0))
+            row.detail_error_count = int((result or {}).get("detail_error_count", 0))
+        else:
+            row.status = "failed"
+            row.error_message = str(error)[:1000]
+        session.commit()
+
+
+def _sync_is_due(interval_hours: int) -> bool:
+    with _session() as session:
+        latest = session.scalar(
+            select(YouzanProductSyncRunModel)
+            .where(YouzanProductSyncRunModel.status == "success")
+            .order_by(YouzanProductSyncRunModel.finished_at.desc())
+        )
+        return latest is None or latest.finished_at is None or _as_utc(latest.finished_at) <= _now() - timedelta(hours=interval_hours)
+
+
+async def _wait_or_stop(stop_event: asyncio.Event, seconds: float) -> bool:
+    try:
+        await asyncio.wait_for(stop_event.wait(), timeout=max(0, seconds))
+        return True
+    except TimeoutError:
+        return False
+
+
+def _serialize_product(row: YouzanProductModel, skus: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "item_id": row.item_id,
+        "title": row.title,
+        "image_url": row.image_url,
+        "status": row.status,
+        "price_cent": row.price_cent,
+        "stock": row.stock,
+        "h5_url": row.h5_url,
+        "page_url": row.page_url,
+        "sort_order": row.sort_order,
+        "internal_note": row.internal_note,
+        "youzan_updated_at": _isoformat(row.youzan_updated_at),
+        "last_synced_at": _isoformat(row.last_synced_at),
+        "skus": skus,
+        "sku_count": len(skus),
+    }
+
+
+def _serialize_sku(row: YouzanProductSkuModel) -> dict[str, Any]:
+    return {
+        "sku_id": row.sku_id,
+        "spec_name": row.spec_name,
+        "price_cent": row.price_cent,
+        "stock": row.stock,
+        "sku_code": row.sku_code,
+        "image_url": row.image_url,
+    }
+
+
+def _serialize_sync_run(row: YouzanProductSyncRunModel | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "trigger": row.trigger,
+        "status": row.status,
+        "product_count": row.product_count,
+        "sku_count": row.sku_count,
+        "detail_error_count": row.detail_error_count,
+        "error_message": row.error_message,
+        "started_at": _isoformat(row.started_at),
+        "finished_at": _isoformat(row.finished_at),
+    }
+
+
+def _list_value(data: dict[str, Any], *keys: str) -> list:
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _text(data: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
+def _integer(data: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+    return _as_utc(parsed)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _isoformat(value: datetime | None) -> str | None:
+    return _as_utc(value).isoformat() if value is not None else None

@@ -16,6 +16,7 @@ from app.routers import (
     admin_gate,
     admin_handoff_notification,
     admin_logs,
+    admin_products,
     admin_tags,
     admin_service_sop,
     admin_unpurchased_sop,
@@ -35,6 +36,7 @@ from app.routers import (
 from app.schemas.common import AppError, ErrorCode
 from app.services.message_risk_control_service import eyun_risk_control_worker
 from app.services.unpurchased_sop_service import unpurchased_sop_worker
+from app.services.youzan_product_sync_service import youzan_product_sync_worker
 from app.services.eyun_callback_service import video_storage_dir
 from app.routers.admin_unpurchased_sop import sop_media_storage_dir
 from app.utils.logger import configure_logging
@@ -57,6 +59,9 @@ async def lifespan(app: FastAPI):
     app.state.unpurchased_sop_task = asyncio.create_task(
         unpurchased_sop_worker(stop_event)
     )
+    app.state.youzan_product_sync_task = asyncio.create_task(
+        youzan_product_sync_worker(stop_event)
+    )
     async with sales_mcp.session_manager.run():
         try:
             yield
@@ -64,6 +69,7 @@ async def lifespan(app: FastAPI):
             stop_event.set()
             await app.state.eyun_risk_control_task
             await app.state.unpurchased_sop_task
+            await app.state.youzan_product_sync_task
 
 
 app = FastAPI(title=get_settings().app_name, lifespan=lifespan)
@@ -96,6 +102,7 @@ app.include_router(demo.router)
 app.include_router(demo_admin.router)
 app.include_router(demo_admin.profile_router)
 app.include_router(admin_logs.router)
+app.include_router(admin_products.router)
 app.include_router(admin_unpurchased_sop.router)
 app.include_router(admin_service_sop.router)
 app.include_router(wechat.router)

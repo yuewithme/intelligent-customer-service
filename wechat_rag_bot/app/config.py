@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     youzan_order_page_path: str = ""
     youzan_order_card_title: str = "查看我的订单"
     youzan_order_card_thumb_url: str = ""
+    youzan_product_sync_enabled: bool = True
+    youzan_product_sync_interval_hours: int = Field(default=24, ge=1, le=168)
+    youzan_product_sync_startup_delay_seconds: int = Field(default=30, ge=0, le=3600)
+    youzan_product_sync_page_size: int = Field(default=100, ge=1, le=300)
+    youzan_product_sync_detail_concurrency: int = Field(default=5, ge=1, le=20)
 
     qdrant_url: str = ""
     qdrant_api_key: str = ""
