@@ -715,4 +715,3 @@ async def send_eyun_link_card(
         logger.warning("Eyun sendUrl returned non-success response: %s", result)
         raise RuntimeError(f"Eyun sendUrl failed: {result}")
     return result
-
