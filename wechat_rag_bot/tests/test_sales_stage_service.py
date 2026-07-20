@@ -36,7 +36,7 @@ def test_ask_price_without_need_stays_in_discovery():
     assert result.reason == "price_before_need_discovery"
 
 
-def test_ask_price_after_solution_moves_to_price_discussed():
+def test_ask_price_after_solution_moves_to_trial_close():
     state = UserState(user_id="user_1", sales_stage="solution_recommended")
 
     result = decide_sales_stage(
@@ -45,11 +45,11 @@ def test_ask_price_after_solution_moves_to_price_discussed():
         tag_result=_tag("ask_price", labels=["product_interest:orchid_care"]),
     )
 
-    assert result.stage == "price_discussed"
+    assert result.stage == "trial_close"
     assert result.reason == "price_after_need_or_solution"
 
 
-def test_price_objection_after_price_moves_to_objection_handling():
+def test_price_objection_after_price_moves_to_closing():
     state = UserState(user_id="user_1", sales_stage="price_discussed")
 
     result = decide_sales_stage(
@@ -58,7 +58,7 @@ def test_price_objection_after_price_moves_to_objection_handling():
         tag_result=_tag("price_objection"),
     )
 
-    assert result.stage == "objection_handling"
+    assert result.stage == "closing"
     assert result.reason == "objection_intent"
 
 
@@ -71,7 +71,7 @@ def test_weak_intent_does_not_regress_order_stage():
         tag_result=_tag("care_question"),
     )
 
-    assert result.stage == "order_intent"
+    assert result.stage == "closing"
     assert result.reason == "keep_current_stage"
 
 
@@ -84,5 +84,5 @@ def test_greeting_does_not_regress_price_stage():
         tag_result=_tag("greeting"),
     )
 
-    assert result.stage == "price_discussed"
+    assert result.stage == "trial_close"
     assert result.reason == "keep_current_stage"

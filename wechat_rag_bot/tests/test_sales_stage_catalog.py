@@ -1,6 +1,5 @@
 from app.schemas.sales_flow import (
     CustomerSignal,
-    SalesAction,
     SalesInterruptionType,
     SalesStage,
 )
@@ -18,12 +17,14 @@ def test_catalog_defines_exactly_seven_ordered_stages_with_valid_actions():
     assert [item.sequence for item in SALES_STAGE_DEFINITIONS] == list(range(1, 8))
     assert len({item.sequence for item in SALES_STAGE_DEFINITIONS}) == 7
 
-    known_actions = set(SalesAction)
     for definition in SALES_STAGE_DEFINITIONS:
         assert definition.display_name.strip()
         assert definition.objective.strip()
         assert definition.allowed_actions
-        assert set(definition.allowed_actions) <= known_actions
+        assert isinstance(definition.allowed_actions, tuple)
+        assert all(
+            isinstance(group, tuple) for group in definition.required_slot_groups
+        )
         assert definition.prohibited_behaviors
         assert get_sales_stage_definition(definition.stage) == definition
 
@@ -45,7 +46,7 @@ def test_legacy_stage_values_normalize_to_the_new_contract():
         assert normalize_sales_stage_value(legacy_value) == stage.value
 
     order_intent = normalize_sales_stage_reference("order_intent")
-    assert order_intent.signals == [CustomerSignal.READY_TO_BUY]
+    assert order_intent.signals == (CustomerSignal.READY_TO_BUY,)
 
 
 def test_unknown_and_interruptions_are_not_main_sales_stages():
@@ -66,7 +67,7 @@ def test_unknown_and_interruptions_are_not_main_sales_stages():
     assert human_pending.interruption_type == SalesInterruptionType.HUMAN_PENDING
 
 
-def test_historical_display_values_are_readable_but_not_writable_catalog_values():
+def test_historical_display_values_do_not_enter_backend_stage_normalization():
     historical_values = {
         "interest",
         "knowledge_consulting",
@@ -74,7 +75,7 @@ def test_historical_display_values_are_readable_but_not_writable_catalog_values(
         "first_order_nurture",
     }
     for value in historical_values:
-        assert normalize_sales_stage_value(value) == SalesStage.NEED_DISCOVERY.value
+        assert normalize_sales_stage_value(value) == "unknown"
 
     writable_values = {
         item.name for item in SYSTEM_TAG_CATEGORIES["sales_stage"].values

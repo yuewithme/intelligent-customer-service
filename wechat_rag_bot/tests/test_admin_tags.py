@@ -1,7 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.config import get_settings
+from app.db.models import (
+    PromptBlockModel,
+    TagCatalogMetaModel,
+    TagDefinitionModel,
+    TagPromptBindingModel,
+)
 from app.main import app
 from app.services import (
     admin_tag_service,
@@ -184,6 +191,55 @@ def test_sales_stage_contract_cannot_be_changed_through_generic_tag_admin():
 
     assert created.status_code == 409
     assert deleted.status_code == 409
+
+
+def test_catalog_upgrade_removes_obsolete_stage_bindings_and_orphan_blocks():
+    client = TestClient(app)
+    assert client.get("/api/v1/admin/tags").status_code == 200
+
+    with tag_catalog._get_session() as session:
+        session.add(
+            TagDefinitionModel(
+                category_id="sales_stage",
+                value="stage:greeting",
+                position=99,
+            )
+        )
+        session.add(
+            PromptBlockModel(
+                block_id="legacy.sales_stage.greeting",
+                title="旧破冰话术",
+                content="legacy",
+                enabled=True,
+            )
+        )
+        session.add(
+            TagPromptBindingModel(
+                category_id="sales_stage",
+                tag_value="stage:greeting",
+                prompt_block_id="legacy.sales_stage.greeting",
+                priority=0,
+                enabled=True,
+            )
+        )
+        session.get(TagCatalogMetaModel, "seed_version").value = "3"
+        session.commit()
+
+    tag_catalog.invalidate_cache()
+    assert client.get("/api/v1/admin/tags").status_code == 200
+
+    with tag_catalog._get_session() as session:
+        assert session.scalar(
+            select(TagDefinitionModel.id).where(
+                TagDefinitionModel.value == "stage:greeting"
+            )
+        ) is None
+        assert session.scalar(
+            select(TagPromptBindingModel.id).where(
+                TagPromptBindingModel.tag_value == "stage:greeting"
+            )
+        ) is None
+        assert session.get(PromptBlockModel, "legacy.sales_stage.greeting") is None
 
 
 def test_new_system_tag_is_namespaced_and_added_to_llm_whitelist():

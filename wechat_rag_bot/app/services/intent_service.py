@@ -114,7 +114,7 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
             {
                 "route": "human",
                 "primary_intent": "refund_request",
-                "sales_stage": "human_pending",
+                "sales_stage": "unknown",
                 "confidence": 0.98,
                 "need_human": True,
                 "reason": "rule_refund",
@@ -125,7 +125,7 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
             {
                 "route": "human",
                 "primary_intent": "complaint",
-                "sales_stage": "human_pending",
+                "sales_stage": "unknown",
                 "confidence": 0.98,
                 "need_human": True,
                 "reason": "rule_complaint",
@@ -136,7 +136,7 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
             {
                 "route": "human",
                 "primary_intent": "human_request",
-                "sales_stage": "human_pending",
+                "sales_stage": "unknown",
                 "confidence": 0.98,
                 "need_human": True,
                 "reason": "rule_human_request",
@@ -169,7 +169,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": "order_query",
-                "sales_stage": "after_sale",
+                "sales_stage": "unknown",
                 "confidence": 0.9,
                 "need_template": True,
                 "reason": "soft_rule_order_query",
@@ -180,7 +180,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": "product_query",
-                "sales_stage": "order_intent",
+                "sales_stage": "closing",
                 "confidence": 0.86,
                 "need_template": True,
                 "reason": "soft_rule_product_query",
@@ -191,7 +191,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": "purchase_rejection",
-                "sales_stage": "objection_handling",
+                "sales_stage": "closing",
                 "confidence": 0.92,
                 "need_template": True,
                 "reason": "soft_rule_purchase_rejection",
@@ -202,7 +202,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": "ask_after_sale",
-                "sales_stage": "after_sale",
+                "sales_stage": "unknown",
                 "confidence": 0.92,
                 "need_template": True,
                 "reason": "soft_rule_shipping_damage",
@@ -213,7 +213,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": "order_intent",
-                "sales_stage": "order_intent",
+                "sales_stage": "closing",
                 "confidence": 0.9,
                 "need_template": True,
                 "reason": "soft_rule_order_information",
@@ -225,7 +225,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
                 "route": "template_then_rag",
                 "primary_intent": "price_objection",
                 "secondary_intents": ["care_question"],
-                "sales_stage": "objection_handling",
+                "sales_stage": "closing",
                 "confidence": 0.78,
                 "need_template": True,
                 "need_rag": True,
@@ -237,7 +237,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": price_intent,
-                "sales_stage": "objection_handling" if price_intent == "price_objection" else "need_discovery",
+                "sales_stage": "closing" if price_intent == "price_objection" else "need_discovery",
                 "confidence": 0.76,
                 "need_template": True,
                 "reason": "soft_rule_price",
@@ -259,7 +259,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": "payment_intent" if hit_any(text, ("付款", "支付")) else "order_intent",
-                "sales_stage": "order_intent",
+                "sales_stage": "closing",
                 "confidence": 0.74,
                 "need_template": True,
                 "reason": "soft_rule_order",
@@ -270,7 +270,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "rag_answer",
                 "primary_intent": "care_question",
-                "sales_stage": "pain_confirmed",
+                "sales_stage": "pain_discovery",
                 "confidence": 0.75,
                 "need_rag": True,
                 "reason": "soft_rule_care",
@@ -281,7 +281,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "rag_answer",
                 "primary_intent": _knowledge_primary_intent(text),
-                "sales_stage": "pain_confirmed",
+                "sales_stage": "pain_discovery",
                 "confidence": 0.72,
                 "need_rag": True,
                 "reason": "soft_rule_knowledge",
@@ -292,7 +292,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "template_reply",
                 "primary_intent": "ask_after_sale",
-                "sales_stage": "after_sale",
+                "sales_stage": "unknown",
                 "confidence": 0.72,
                 "need_template": True,
                 "reason": "soft_rule_after_sale",
@@ -303,7 +303,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             {
                 "route": "chitchat",
                 "primary_intent": "greeting",
-                "sales_stage": "greeting",
+                "sales_stage": "rapport",
                 "confidence": 0.76,
                 "reason": "soft_rule_greeting",
             }
@@ -357,7 +357,7 @@ async def classify_intent(
             {
                 "route": "template_reply",
                 "primary_intent": "order_query",
-                "sales_stage": "after_sale",
+                "sales_stage": "unknown",
                 "confidence": 0.99,
                 "need_template": True,
                 "reason": "pending_order_mobile",
@@ -370,7 +370,7 @@ async def classify_intent(
             {
                 "route": "template_reply",
                 "primary_intent": "order_intent",
-                "sales_stage": "order_intent",
+                "sales_stage": "closing",
                 "confidence": 0.98,
                 "need_template": True,
                 "slots": {"shipping_contact": shipping_contact},
@@ -757,33 +757,36 @@ detail 使用中性中文概括，不复述辱骂或攻击性原话；售后问�
 
 # sales_stage 判定规则
 
-## greeting
+`sales_stage` 只描述首单七阶段。售后、退款、投诉和人工介入不是销售阶段，
+此类消息输出 `sales_stage = unknown`，由后续服务记录中断并保留当前销售阶段。
+
+## rapport
 
 用户处于问候或寒暄阶段。
 
 ## need_discovery
 
-用户对产品产生兴趣，正在询价、了解优惠、了解物流或售后政策。
+正在判断客户是服务需求、产品需求还是复合需求。
 
-## objection_handling
+## pain_discovery
 
-用户表达犹豫、嫌贵、担心养不好、需要被解释或安抚。
+客户已经表达核心困难、期望结果或购买动机。
 
-## order_intent
+## solution_recommended
 
-用户有明确购买、下单、付款意向。
+已有足够依据，可以推荐产品或服务方案。
 
-## after_sale
+## value_built
 
-用户已经购买后，咨询物流、售后、退款、投诉、养护问题等。
+客户正在了解或认可苗质、服务和适配价值。
 
-## pain_confirmed
+## trial_close
 
-用户主要在咨询兰花知识或养护方法，未明显进入购买或售后流程。
+客户开始确认价格、规格、数量或购买方案。
 
-## human_pending
+## closing
 
-用户需要人工介入处理。
+客户有明确下单意向或提出需要解决的成交阻碍。
 
 ## unknown
 
@@ -875,7 +878,7 @@ detail 使用中性中文概括，不复述辱骂或攻击性原话；售后问�
   "route": "rag_answer",
   "primary_intent": "care_question",
   "secondary_intents": [],
-  "sales_stage": "pain_confirmed",
+  "sales_stage": "pain_discovery",
   "confidence": 0.86,
   "need_template": false,
   "need_rag": true,
@@ -911,7 +914,7 @@ detail 使用中性中文概括，不复述辱骂或攻击性原话；售后问�
   "route": "template_then_rag",
   "primary_intent": "price_objection",
   "secondary_intents": ["care_question"],
-  "sales_stage": "objection_handling",
+  "sales_stage": "closing",
   "confidence": 0.82,
   "need_template": true,
   "need_rag": true,
@@ -929,7 +932,7 @@ detail 使用中性中文概括，不复述辱骂或攻击性原话；售后问�
   "route": "human",
   "primary_intent": "refund_request",
   "secondary_intents": [],
-  "sales_stage": "human_pending",
+  "sales_stage": "unknown",
   "confidence": 0.95,
   "need_template": false,
   "need_rag": false,

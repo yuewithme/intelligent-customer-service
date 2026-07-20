@@ -218,7 +218,7 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
         "客户情况：浙江省；产品兴趣：兰花养护。\n"
         "当前诉求：兰花烂根，需要救治方案。\n"
         "成交阻碍：暂未发现明确阻碍。\n"
-        "跟进建议：基于明确痛点直接给出合适方案，减少重复追问。"
+        "跟进建议：确认客户最想解决的问题或期望结果。"
     )
 
 
@@ -259,7 +259,7 @@ async def test_profile_analysis_does_not_override_decided_sales_stage(monkeypatc
     await update_profile_after_chat(message, intent, reply)
 
     profile = (await get_profile_bundle("user_stage"))["profile"]
-    assert profile["current_stage"] == "order_intent"
+    assert profile["current_stage"] == "closing"
 
 
 @pytest.mark.asyncio
@@ -420,7 +420,7 @@ async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, 
         "客户情况：信息待补充；产品兴趣：兰花养护。\n"
         "当前诉求：兰花烂根、黄叶，担心养死，需要救治方案。\n"
         "成交阻碍：暂未发现明确阻碍。\n"
-        "跟进建议：基于明确痛点直接给出合适方案，减少重复追问。"
+        "跟进建议：确认客户最想解决的问题或期望结果。"
     )
 
 
@@ -507,7 +507,7 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
         "客户情况：广西省、100-200盆；产品兴趣：开花类兰花。\n"
         "当前诉求：广西气候下有100盆花，想获得适合当地环境的品种推荐。\n"
         "成交阻碍：暂未发现明确阻碍。\n"
-        "跟进建议：基于明确痛点直接给出合适方案，减少重复追问。"
+        "跟进建议：确认客户最想解决的问题或期望结果。"
     )
 
 

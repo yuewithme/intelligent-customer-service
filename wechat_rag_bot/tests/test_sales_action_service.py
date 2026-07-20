@@ -26,10 +26,10 @@ def test_discovery_asks_for_first_missing_sales_slot():
         intent=_intent(pain_point="root_rot"),
     )
 
-    assert decision.sales_action == "discover_need"
+    assert decision.sales_action == "discover_need_track"
     assert decision.question_slot == "plant_count"
     assert decision.required_slots == ["plant_count"]
-    assert decision.next_stage == "pain_confirmed"
+    assert decision.next_stage == "pain_discovery"
 
 
 def test_discovery_does_not_repeat_an_asked_slot():
@@ -99,7 +99,7 @@ async def test_state_update_persists_sales_slots_without_profile_analysis():
 
     assert state.metadata["active_opportunity"]["slots"]["budget"] == "100"
     assert state.metadata["active_opportunity"]["asked_slots"] == ["plant_count"]
-    assert "budget:100" in state.customer_tags
+    assert "budget:100" not in state.customer_tags
 
 
 def test_after_sale_disables_sales_progression():
@@ -170,7 +170,7 @@ def test_objection_intent_overrides_stage_default_action():
         ),
     )
 
-    assert decision.sales_action == "handle_objection"
+    assert decision.sales_action == "resolve_blocker"
     assert decision.customer_signal == "objection"
     assert decision.reason == "intent_priority"
 

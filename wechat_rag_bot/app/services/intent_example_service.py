@@ -8,7 +8,7 @@ _examples: list[dict] = [
         "route": "template_reply",
         "primary_intent": "price_objection",
         "secondary_intents": ["hesitation"],
-        "sales_stage": "objection_handling",
+        "sales_stage": "closing",
         "created_at": now_iso(),
     }
 ]

@@ -239,7 +239,7 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
     assert result["intent"]["sales_stage"] == "need_discovery"
     assert captured["state_update"]["sales_stage"] == "need_discovery"
     assert captured["profile_stage"] == "need_discovery"
-    assert captured["reply_sales_action"]["sales_action"] == "discover_need"
+    assert captured["reply_sales_action"]["sales_action"] == "discover_need_track"
     assert captured["reply_sales_action"]["question_slot"] == "pain_point"
     assert captured["profile_sales_action"] == captured["reply_sales_action"]
 
@@ -261,4 +261,4 @@ async def test_hydrate_user_state_restores_persisted_sales_stage(monkeypatch):
 
     await chat_orchestrator._hydrate_user_state_from_profile("user_001", state)
 
-    assert state.sales_stage == "price_discussed"
+    assert state.sales_stage == "trial_close"

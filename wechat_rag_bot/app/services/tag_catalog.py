@@ -6,13 +6,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import get_settings
 from app.db.models import (
     Base,
+    CustomerLevelPromptBindingModel,
+    PromptBlockModel,
     TagCatalogMetaModel,
     TagCategoryModel,
     TagDefinitionModel,
+    TagPromptBindingModel,
 )
 from app.schemas.tag import TagResult
 from app.services.sales_stage_catalog import (
-    LEGACY_RUNTIME_STAGE_VALUES,
     SALES_STAGE_VALUES,
     normalize_sales_stage_reference,
 )
@@ -233,6 +235,9 @@ _tables = [
     TagCategoryModel.__table__,
     TagDefinitionModel.__table__,
     TagCatalogMetaModel.__table__,
+    PromptBlockModel.__table__,
+    CustomerLevelPromptBindingModel.__table__,
+    TagPromptBindingModel.__table__,
 ]
 
 
@@ -337,12 +342,27 @@ def _sync_frozen_category(session: Session, category: TagCategory) -> None:
     existing_by_value = {row.value: row for row in existing_rows}
     obsolete_values = set(existing_by_value) - set(expected_values)
     if obsolete_values:
+        obsolete_block_ids = set(
+            session.scalars(
+                select(TagPromptBindingModel.prompt_block_id).where(
+                    TagPromptBindingModel.category_id == category.id,
+                    TagPromptBindingModel.tag_value.in_(obsolete_values),
+                )
+            ).all()
+        )
+        session.execute(
+            delete(TagPromptBindingModel).where(
+                TagPromptBindingModel.category_id == category.id,
+                TagPromptBindingModel.tag_value.in_(obsolete_values),
+            )
+        )
         session.execute(
             delete(TagDefinitionModel).where(
                 TagDefinitionModel.category_id == category.id,
                 TagDefinitionModel.value.in_(obsolete_values),
             )
         )
+        _delete_orphan_prompt_blocks(session, obsolete_block_ids)
 
     for position, value in enumerate(expected_values, start=1):
         row = existing_by_value.get(value)
@@ -356,6 +376,24 @@ def _sync_frozen_category(session: Session, category: TagCategory) -> None:
             )
         else:
             row.position = position
+
+
+def _delete_orphan_prompt_blocks(session: Session, block_ids: set[str]) -> None:
+    for block_id in block_ids:
+        tag_binding = session.scalar(
+            select(TagPromptBindingModel.id)
+            .where(TagPromptBindingModel.prompt_block_id == block_id)
+            .limit(1)
+        )
+        level_binding = session.scalar(
+            select(CustomerLevelPromptBindingModel.id)
+            .where(CustomerLevelPromptBindingModel.prompt_block_id == block_id)
+            .limit(1)
+        )
+        if tag_binding is None and level_binding is None:
+            session.execute(
+                delete(PromptBlockModel).where(PromptBlockModel.block_id == block_id)
+            )
 
 
 def _seed_missing_value(session: Session, category_id: str, value: str) -> None:
@@ -401,8 +439,6 @@ def system_tag_token(category_id: str, value: str | None) -> str:
         normalized = normalize_sales_stage_reference(raw_value)
         if normalized.stage is not None:
             value = normalized.stage.value
-        elif normalized.interruption_type is not None:
-            value = normalized.interruption_type.value
         elif raw_value == "unknown":
             value = raw_value
         else:
@@ -413,8 +449,7 @@ def system_tag_token(category_id: str, value: str | None) -> str:
 def system_tag_values(category_id: str) -> list[str]:
     """Return raw values for one system dimension in live catalog order."""
     if category_id == "sales_stage":
-        # Tasks 3-4 will switch the live decision/action chain to SALES_STAGE_VALUES.
-        return ["unknown", *LEGACY_RUNTIME_STAGE_VALUES]
+        return ["unknown", *SALES_STAGE_VALUES]
     category = get_tag_categories().get(category_id)
     prefix = SYSTEM_TAG_PREFIXES.get(category_id, "")
     if category is None or not prefix:
@@ -433,14 +468,8 @@ def normalize_system_value(
     fallback: str,
 ) -> str:
     if category_id == "sales_stage":
-        raw_value = value.strip() if isinstance(value, str) else ""
-        if raw_value.startswith("stage:"):
-            raw_value = raw_value.split(":", 1)[1].strip()
-        if raw_value == "unknown" or raw_value in SALES_STAGE_VALUES:
-            return raw_value
-        if raw_value in LEGACY_RUNTIME_STAGE_VALUES:
-            return raw_value
-        return fallback
+        normalized = normalize_sales_stage_reference(value)
+        return normalized.stage.value if normalized.stage is not None else fallback
     allowed = set(system_tag_values(category_id))
     return value.strip() if isinstance(value, str) and value.strip() in allowed else fallback
 
@@ -457,7 +486,6 @@ def is_allowed_system_tag(label: str, category_id: str | None = None) -> bool:
             if (
                 value == "unknown"
                 or normalized.stage is not None
-                or normalized.interruption_type is not None
             ):
                 return True
         category = get_tag_categories().get(current_id)
@@ -501,8 +529,6 @@ def filter_runtime_labels(labels: list[str]) -> list[str]:
             stage_reference = normalize_sales_stage_reference(raw_value)
             if stage_reference.stage is not None:
                 normalized = f"stage:{stage_reference.stage.value}"
-            elif stage_reference.interruption_type is not None:
-                normalized = f"stage:{stage_reference.interruption_type.value}"
             elif raw_value == "unknown":
                 normalized = "stage:unknown"
             else:

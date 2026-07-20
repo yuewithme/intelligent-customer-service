@@ -63,11 +63,11 @@ class SalesStageDefinition(BaseModel):
     display_name: str
     sequence: int = Field(ge=1)
     objective: str
-    entry_evidence_any: list[str] = Field(default_factory=list)
-    exit_evidence_any: list[str] = Field(default_factory=list)
-    allowed_actions: list[SalesAction] = Field(default_factory=list)
-    required_slot_groups: list[list[str]] = Field(default_factory=list)
-    prohibited_behaviors: list[str] = Field(default_factory=list)
+    entry_evidence_any: tuple[str, ...] = Field(default_factory=tuple)
+    exit_evidence_any: tuple[str, ...] = Field(default_factory=tuple)
+    allowed_actions: tuple[SalesAction, ...] = Field(default_factory=tuple)
+    required_slot_groups: tuple[tuple[str, ...], ...] = Field(default_factory=tuple)
+    prohibited_behaviors: tuple[str, ...] = Field(default_factory=tuple)
 
 
 class SalesStageEvidence(BaseModel):
@@ -91,11 +91,11 @@ class SalesInterruption(BaseModel):
 class SalesStageDecision(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    stage: SalesStage | None = None
+    stage: SalesStage
     previous_stage: SalesStage | None = None
     reason: str
-    evidence: list[SalesStageEvidence] = Field(default_factory=list)
-    signals: list[CustomerSignal] = Field(default_factory=list)
+    evidence: tuple[SalesStageEvidence, ...] = Field(default_factory=tuple)
+    signals: tuple[CustomerSignal, ...] = Field(default_factory=tuple)
     interruption: SalesInterruption | None = None
 
 
@@ -105,5 +105,5 @@ class SalesStageNormalization(BaseModel):
     original_value: str | None = None
     stage: SalesStage | None = None
     interruption_type: SalesInterruptionType | None = None
-    signals: list[CustomerSignal] = Field(default_factory=list)
+    signals: tuple[CustomerSignal, ...] = Field(default_factory=tuple)
     is_legacy: bool = False

@@ -5,7 +5,9 @@ from pydantic import BaseModel, Field
 
 from app.schemas.intent import IntentResult
 from app.schemas.reply import FinalReply
+from app.schemas.sales_flow import SalesStage
 from app.schemas.state import UserState
+from app.services.sales_stage_service import normalize_sales_stage
 
 
 DISCOVERY_SLOTS = ("pain_point", "plant_count")
@@ -49,7 +51,9 @@ def decide_sales_action(
         },
     }
     asked_slots = set(_string_list(opportunity.get("asked_slots")))
-    stage = intent.sales_stage or user_state.sales_stage
+    stage = normalize_sales_stage(intent.sales_stage)
+    if stage == "unknown":
+        stage = normalize_sales_stage(user_state.sales_stage)
 
     priority = _priority_action(intent.primary_intent, intent.need_human, intent.route)
     if priority:
@@ -62,21 +66,17 @@ def decide_sales_action(
             reason="intent_priority",
         )
 
-    if stage == "human_pending":
-        return _decision("转交人工继续处理", "handoff_to_human", known_slots)
-    if stage == "after_sale":
-        return _decision("优先解决客户售后问题", "provide_service", known_slots)
-    if stage == "order_intent":
-        return _decision("确认订单必要信息并推进成交", "close_order", known_slots)
-    if stage == "objection_handling":
-        return _decision("回应当前异议并确认客户是否接受", "handle_objection", known_slots)
-    if stage == "price_discussed":
-        return _decision("先回答当前问题，再确认客户的购买意向", "explain_value", known_slots)
-    if stage == "solution_recommended":
-        return _decision("说明方案价值并确认客户是否认可", "explain_value", known_slots)
-    if stage == "pain_confirmed":
-        return _decision("基于明确痛点推荐合适方案", "recommend_solution", known_slots)
-    if stage in {"unknown", "greeting"} and not known_slots:
+    if stage == SalesStage.CLOSING.value:
+        return _decision("针对当前阻碍推进真实下单", "resolve_blocker", known_slots)
+    if stage == SalesStage.TRIAL_CLOSE.value:
+        return _decision("给出可信方案并确认客户购买意愿", "trial_close", known_slots)
+    if stage == SalesStage.VALUE_BUILT.value:
+        return _decision("说明方案价值并确认客户是否认可", "build_value", known_slots)
+    if stage == SalesStage.SOLUTION_RECOMMENDED.value:
+        return _decision("基于客户信息推荐合适方案", "recommend_solution", known_slots)
+    if stage == SalesStage.PAIN_DISCOVERY.value:
+        return _decision("确认客户最想解决的问题", "discover_pain", known_slots)
+    if stage in {"unknown", SalesStage.RAPPORT.value} and not known_slots:
         return _decision("自然回应并了解客户来意", "build_rapport", known_slots)
 
     missing = [
@@ -92,10 +92,10 @@ def decide_sales_action(
     )
     return SalesActionDecision(
         reply_goal=goal,
-        sales_action="discover_need",
+        sales_action="discover_need_track",
         required_slots=[question_slot] if question_slot else [],
         question_slot=question_slot,
-        next_stage="pain_confirmed",
+        next_stage=SalesStage.PAIN_DISCOVERY.value,
         known_slots=known_slots,
         customer_signal="interested",
     )
@@ -160,7 +160,7 @@ def evolve_opportunity(
     opportunity["slots"] = {**_dict_value(opportunity.get("slots")), **known_slots}
     if isinstance(decision_blocker, dict):
         opportunity["decision_blocker"] = decision_blocker
-    opportunity["sales_stage"] = sales_stage
+    opportunity["sales_stage"] = normalize_sales_stage(sales_stage)
     opportunity["last_sales_action"] = sales_action.get("sales_action")
     opportunity["last_reply_goal"] = sales_action.get("reply_goal")
     opportunity["last_customer_signal"] = sales_action.get("customer_signal", "none")
@@ -209,11 +209,11 @@ def _priority_action(intent: str, need_human: bool, route: str):
     if intent in PURCHASED_INTENTS:
         return ("确认成交结果并完成服务交接", "close_order", "purchased")
     if intent in REJECTED_INTENTS:
-        return ("尊重客户决定并结束本次销售推进", "handle_objection", "rejected")
+        return ("尊重客户决定并结束本次销售推进", "resolve_blocker", "rejected")
     if intent in ORDER_INTENTS:
         return ("确认订单必要信息并推进成交", "close_order", "ready_to_buy")
     if intent in OBJECTION_INTENTS:
-        return ("回应当前异议并确认客户是否接受", "handle_objection", "objection")
+        return ("回应当前异议并确认客户是否接受", "resolve_blocker", "objection")
     return None
 
 

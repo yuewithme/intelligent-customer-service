@@ -563,23 +563,28 @@ def _render_profile_summary(profile: UserProfileModel) -> str:
         return ""
     action_advice = {
         "build_rapport": "自然回应并了解客户来意。",
-        "discover_need": "补充一个最关键的缺失信息，再推进下一步。",
+        "discover_need_track": "判断客户是服务需求、产品需求还是复合需求。",
+        "discover_pain": "确认客户最想解决的问题或期望结果。",
         "recommend_solution": "基于明确痛点直接给出合适方案，减少重复追问。",
-        "explain_value": "说明方案价值并确认客户是否认可。",
-        "handle_objection": "针对客户异议给出直接说明，避免重复询问。",
+        "build_value": "说明方案价值并确认客户是否认可。",
+        "trial_close": "给出可信方案并确认客户购买意愿。",
+        "resolve_blocker": "针对客户异议给出直接说明，避免重复询问。",
         "close_order": "确认规格、数量和收货信息，推进下单。",
         "provide_service": "优先解决售后问题，暂停销售推进。",
         "handoff_to_human": "优先由人工接管并解决当前问题，暂停销售推进。",
     }
-    advice = action_advice.get(opportunity.get("last_sales_action")) or {
-        "pain_confirmed": "基于明确痛点直接给出合适方案，减少重复追问。",
-        "solution_recommended": "说明方案价值并确认客户是否认可。",
-        "price_discussed": "先回应价格问题，再确认购买意向。",
-        "objection_handling": "针对客户异议给出直接说明，避免重复询问。",
-        "order_intent": "确认规格、数量和收货信息，推进下单。",
-        "after_sale": "优先解决售后问题，暂停销售推进。",
-        "human_pending": "优先由人工接管并解决当前问题，暂停销售推进。",
-    }.get(profile.current_stage, "补充一个最关键的缺失信息，再推进下一步。")
+    if profile.is_human_handoff:
+        advice = "优先由人工接管并解决当前问题，暂停销售推进。"
+    elif profile.last_intent in {"ask_after_sale", "refund_request", "complaint"}:
+        advice = "优先解决售后问题，暂停销售推进。"
+    else:
+        advice = action_advice.get(opportunity.get("last_sales_action")) or {
+            "pain_discovery": "确认客户最想解决的问题或期望结果。",
+            "solution_recommended": "基于客户信息推荐合适方案。",
+            "value_built": "说明方案价值并确认客户是否认可。",
+            "trial_close": "给出可信方案并确认客户购买意愿。",
+            "closing": "针对最后阻碍推进真实下单。",
+        }.get(profile.current_stage, "补充一个最关键的缺失信息，再推进下一步。")
     blocker = opportunity.get("decision_blocker")
     blocker_text = (
         blocker.get("detail")

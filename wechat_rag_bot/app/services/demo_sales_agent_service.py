@@ -73,7 +73,7 @@ async def open_demo_sales_conversation(
         "opening_image_url": settings.eyun_opening_image_url or None,
         "customer_id": customer_id,
         "conversation_id": session_id,
-        "sales_stage": "greeting",
+        "sales_stage": "rapport",
         "customer_tags": [],
         "product_interests": [],
         "next_action": "继续了解客户需求",

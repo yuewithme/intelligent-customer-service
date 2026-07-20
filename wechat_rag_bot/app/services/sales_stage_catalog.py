@@ -103,38 +103,16 @@ SALES_STAGE_VALUES = tuple(SALES_STAGE_BY_VALUE)
 
 LEGACY_STAGE_ALIASES: dict[str, SalesStage] = {
     "greeting": SalesStage.RAPPORT,
-    "need_discovery": SalesStage.NEED_DISCOVERY,
     "pain_confirmed": SalesStage.PAIN_DISCOVERY,
-    "solution_recommended": SalesStage.SOLUTION_RECOMMENDED,
     "price_discussed": SalesStage.TRIAL_CLOSE,
     "objection_handling": SalesStage.CLOSING,
     "order_intent": SalesStage.CLOSING,
-    # Older UI-only values remain readable but are never part of the writable catalog.
-    "interest": SalesStage.NEED_DISCOVERY,
-    "knowledge_consulting": SalesStage.NEED_DISCOVERY,
-    "care_support": SalesStage.NEED_DISCOVERY,
-    "first_order_nurture": SalesStage.NEED_DISCOVERY,
 }
 
 LEGACY_INTERRUPTION_ALIASES: dict[str, SalesInterruptionType] = {
     "after_sale": SalesInterruptionType.AFTER_SALE,
     "human_pending": SalesInterruptionType.HUMAN_PENDING,
 }
-
-# Existing decision/action services keep these values until Tasks 3-4 replace them.
-# They are accepted only by the compatibility adapter, not exposed in the new catalog.
-LEGACY_RUNTIME_STAGE_VALUES = (
-    "greeting",
-    "need_discovery",
-    "pain_confirmed",
-    "solution_recommended",
-    "price_discussed",
-    "objection_handling",
-    "order_intent",
-    "after_sale",
-    "human_pending",
-)
-
 
 def get_sales_stage_definitions() -> tuple[SalesStageDefinition, ...]:
     return SALES_STAGE_DEFINITIONS
@@ -180,7 +158,11 @@ def normalize_sales_stage_reference(
         )
 
     stage = LEGACY_STAGE_ALIASES.get(normalized_value)
-    signals = [CustomerSignal.READY_TO_BUY] if normalized_value == "order_intent" else []
+    signals = (
+        (CustomerSignal.READY_TO_BUY,)
+        if normalized_value == "order_intent"
+        else ()
+    )
     return SalesStageNormalization(
         original_value=original_value,
         stage=stage,
