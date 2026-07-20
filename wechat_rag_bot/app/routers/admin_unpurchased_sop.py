@@ -22,6 +22,7 @@ from app.services.unpurchased_sop_service import (
     update_unpurchased_sop,
     update_unpurchased_sop_step,
 )
+from app.services.link_card_metadata_service import enrich_sop_link_cards
 from app.utils.auth import require_api_key
 from app.utils.ids import generate_id
 
@@ -48,11 +49,13 @@ async def update_sop(request: UnpurchasedSopUpdateRequest) -> APIResponse:
 
 @router.post("/steps", response_model=APIResponse)
 async def create_step(request: UnpurchasedSopStepRequest) -> APIResponse:
+    await enrich_sop_link_cards(request)
     return APIResponse(code=0, message="success", data=create_unpurchased_sop_step(request))
 
 
 @router.put("/steps/{step_id}", response_model=APIResponse)
 async def update_step(step_id: int, request: UnpurchasedSopStepRequest) -> APIResponse:
+    await enrich_sop_link_cards(request)
     return APIResponse(
         code=0,
         message="success",
