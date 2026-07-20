@@ -26,7 +26,8 @@
         class="item"
         :class="{ active: item.group_key === activeKey }"
         type="button"
-        @click="$emit('select', item)"
+        @click="emit('select', item)"
+        @contextmenu.prevent="hideItem(item)"
       >
         <ElAvatar :size="36" :src="item.user_avatar_url || undefined">
           {{ avatarText(item) }}
@@ -49,8 +50,14 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
-import { getConversations, type ConversationItem, type ConversationStatus } from '@/api/admin/conversations'
+import {
+  getConversations,
+  hideConversation,
+  type ConversationItem,
+  type ConversationStatus
+} from '@/api/admin/conversations'
 import { isTestGate } from '@/utils/gate'
 import {
   groupConversationsByCustomer,
@@ -59,7 +66,10 @@ import {
 import { formatChinaTime } from '../time'
 
 defineProps<{ activeKey: string }>()
-defineEmits<{ select: [item: ConversationGroupItem] }>()
+const emit = defineEmits<{
+  select: [item: ConversationGroupItem]
+  hidden: [item: ConversationGroupItem]
+}>()
 
 const loading = ref(false)
 const status = ref('')
@@ -83,7 +93,9 @@ const load = async (options: { silent?: boolean } = {}) => {
       keyword: keyword.value || undefined,
       channel: isTestGate() ? undefined : 'wechat'
     })
-    items.value = groupConversationsByCustomer(data.items)
+    items.value = groupConversationsByCustomer(data.items, {
+      collapseTestData: isTestGate()
+    })
   })()
   try {
     await pendingLoad
@@ -91,6 +103,29 @@ const load = async (options: { silent?: boolean } = {}) => {
     pendingLoad = undefined
     if (!options.silent) {
       loading.value = false
+    }
+  }
+}
+
+const hideItem = async (item: ConversationGroupItem) => {
+  if (isTestGate()) return
+  try {
+    await ElMessageBox.confirm(
+      `隐藏“${displayName(item)}”后，该对话将不再显示，但聊天记录不会删除。`,
+      '隐藏对话',
+      {
+        confirmButtonText: '隐藏',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await Promise.all(item.conversation_ids.map((conversationId) => hideConversation(conversationId)))
+    emit('hidden', item)
+    await load({ silent: true })
+    ElMessage.success('对话已隐藏')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error('隐藏失败，请稍后重试')
     }
   }
 }

@@ -88,6 +88,11 @@ export const markConversationRead = (conversationId: string) =>
     url: `${conversationBase()}/${conversationPath(conversationId)}/read`
   })
 
+export const hideConversation = (conversationId: string) =>
+  request.post<ConversationItem>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/hide`
+  })
+
 export const resolveConversationMessageMedia = (messageId: number) =>
   request.post<ConversationMessage>({
     url: `/api/v1/admin/conversations/messages/${messageId}/resolve-media`

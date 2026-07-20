@@ -57,6 +57,65 @@ def test_admin_conversation_list_filters_by_channel(monkeypatch, tmp_path):
     assert data["items"][0]["user_id"] == "real_customer"
 
 
+def test_hidden_conversation_reappears_after_new_customer_message(monkeypatch, tmp_path):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="real_customer",
+            session_id="default",
+            content="first message",
+        )
+    )
+    client = TestClient(app)
+    conversation_id = "wechat:real_customer:default"
+
+    hidden = client.post(f"/api/v1/admin/conversations/{conversation_id}/hide")
+
+    assert hidden.status_code == 200
+    assert client.get("/api/v1/admin/conversations").json()["data"]["total"] == 0
+    assert client.get(
+        f"/api/v1/admin/conversations/{conversation_id}"
+    ).status_code == 200
+
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="real_customer",
+            session_id="default",
+            content="new message",
+        )
+    )
+
+    data = client.get("/api/v1/admin/conversations").json()["data"]
+    assert data["total"] == 1
+    assert data["items"][0]["last_message"] == "new message"
+
+
+def test_hidden_conversation_can_be_restored(monkeypatch, tmp_path):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="real_customer",
+            session_id="default",
+            content="hello",
+        )
+    )
+    client = TestClient(app)
+    conversation_id = "wechat:real_customer:default"
+
+    client.post(f"/api/v1/admin/conversations/{conversation_id}/hide")
+    restored = client.post(f"/api/v1/admin/conversations/{conversation_id}/unhide")
+
+    assert restored.status_code == 200
+    assert client.get("/api/v1/admin/conversations").json()["data"]["total"] == 1
+
+
 def test_admin_only_displays_configured_wechat_material_group(monkeypatch, tmp_path):
     import asyncio
 

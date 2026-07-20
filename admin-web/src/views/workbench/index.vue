@@ -5,6 +5,7 @@
       class="panel list"
       :active-key="selectedGroupKey"
       @select="selectConversation"
+      @hidden="handleHidden"
     />
     <MessagePanel
       ref="messagePanelRef"
@@ -63,6 +64,16 @@ const selectConversation = (item: ConversationGroupItem) => {
 
 const handleChanged = async () => {
   await syncWorkbench()
+}
+
+const handleHidden = (conversationIds: string[]) => {
+  if (!selectedIds.value.some((id) => conversationIds.includes(id))) return
+  selectedId.value = ''
+  selectedIds.value = []
+  selectedGroupKey.value = ''
+  selectedUnreadCount.value = 0
+  conversation.value = undefined
+  profile.value = undefined
 }
 
 const handleConversationLoaded = (loadedConversation: ConversationItem | undefined) => {

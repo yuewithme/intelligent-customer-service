@@ -12,12 +12,14 @@ from app.services.conversation_service import (
     claim_conversation,
     force_handoff,
     get_conversation_detail,
+    hide_conversation,
     list_conversations,
     mark_conversation_read,
     release_to_ai,
     reply_conversation,
     resolve_message_media,
     resolve_conversation,
+    unhide_conversation,
 )
 from app.utils.auth import require_admin_access
 
@@ -98,6 +100,18 @@ async def reply(conversation_id: str, request: ReplyRequest) -> APIResponse:
 @router.post("/{conversation_id:path}/read", response_model=APIResponse)
 async def mark_read(conversation_id: str) -> APIResponse:
     data = await mark_conversation_read(conversation_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/hide", response_model=APIResponse)
+async def hide(conversation_id: str) -> APIResponse:
+    data = await hide_conversation(conversation_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/unhide", response_model=APIResponse)
+async def unhide(conversation_id: str) -> APIResponse:
+    data = await unhide_conversation(conversation_id)
     return APIResponse(code=0, message="success", data=data)
 
 

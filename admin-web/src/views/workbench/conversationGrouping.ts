@@ -13,8 +13,27 @@ const byUpdatedDesc = (left: ConversationItem, right: ConversationItem) =>
   new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
 
 export const groupConversationsByCustomer = (
-  conversations: ConversationItem[]
+  conversations: ConversationItem[],
+  options: { collapseTestData?: boolean } = {}
 ): ConversationGroupItem[] => {
+  if (options.collapseTestData && conversations.length) {
+    const ordered = [...conversations].sort(byUpdatedDesc)
+    const latest = ordered[0]
+    return [
+      {
+        ...latest,
+        group_key: '__test_data__',
+        conversation_ids: ordered.map((item) => item.conversation_id),
+        grouped_count: ordered.length,
+        user_id: '__test_data__',
+        user_display_name: `测试数据（${ordered.length} 个会话）`,
+        user_avatar_url: null,
+        last_message: '全部测试会话已收纳到此组',
+        unread_count: ordered.reduce((total, item) => total + item.unread_count, 0)
+      }
+    ]
+  }
+
   const groups = new Map<string, ConversationItem[]>()
 
   for (const conversation of conversations) {
