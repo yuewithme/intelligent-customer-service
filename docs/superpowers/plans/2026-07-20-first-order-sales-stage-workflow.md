@@ -556,7 +556,7 @@ python -m pytest tests/test_talk_script.py tests/test_contracts.py -q
 **验证：**
 
 ```powershell
-python -m pytest tests/test_chat_orchestrator_reply_graph.py tests/test_user_profile_api.py tests/test_state_service.py -q
+python -m pytest tests/test_chat_orchestrator_reply_graph.py tests/test_user_profile_api.py tests/test_sales_action_service.py -q
 ```
 
 ### Task 7：提供销售流程与人工调整 API
