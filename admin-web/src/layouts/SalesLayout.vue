@@ -45,7 +45,11 @@ const currentTitle = computed(() => String(route.meta.title || '销售工作台'
 const testMode = isTestGate()
 
 const navigation = [
-  { title: '销售执行', items: [{ label: '销售工作台', to: '/workbench' }] },
+  { title: '销售执行', items: [
+    { label: '销售工作台', to: '/workbench' },
+    { label: '首单销售流程', to: '/sales-flow' },
+    { label: '销售话术', to: '/sales-scripts' }
+  ] },
   { title: '销售运营', items: [
     { label: '对话日志', to: '/operations/chat-logs' },
     { label: '人工接管', to: '/operations/handoff' },

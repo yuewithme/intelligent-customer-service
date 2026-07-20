@@ -18,6 +18,7 @@ from app.routers import (
     admin_handoff_notification,
     admin_logs,
     admin_products,
+    admin_sales_flow,
     admin_tags,
     admin_service_sop,
     admin_unpurchased_sop,
@@ -42,7 +43,7 @@ from app.services.eyun_callback_service import video_storage_dir
 from app.services.link_card_thumbnail_service import link_card_thumbnail_storage_dir
 from app.routers.admin_unpurchased_sop import sop_media_storage_dir
 from app.utils.logger import configure_logging
-from app.mcp_server import mcp_asgi_app, sales_mcp
+from app.mcp_server import mcp_asgi_app, run_sales_mcp_session_manager
 
 
 configure_logging()
@@ -64,7 +65,7 @@ async def lifespan(app: FastAPI):
     app.state.youzan_product_sync_task = asyncio.create_task(
         youzan_product_sync_worker(stop_event)
     )
-    async with sales_mcp.session_manager.run():
+    async with run_sales_mcp_session_manager():
         try:
             yield
         finally:
@@ -111,6 +112,7 @@ app.include_router(demo_admin.router)
 app.include_router(demo_admin.profile_router)
 app.include_router(admin_logs.router)
 app.include_router(admin_products.router)
+app.include_router(admin_sales_flow.router)
 app.include_router(admin_unpurchased_sop.router)
 app.include_router(admin_service_sop.router)
 app.include_router(wechat.router)

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -115,6 +116,18 @@ def test_import_excel_loads_valid_talk_script_library(talk_script_db, tmp_path):
     template = get_active_template_by_question_id("Q04_01_001")
     assert template is not None
     assert template.answer_default == "收到后先不要急着换盆。"
+
+
+def test_first_order_seed_is_repeatable_and_structured(talk_script_db):
+    from app.talk_script.first_order_sales_seed import ensure_first_order_sales_templates
+    from app.talk_script.repository import list_sales_templates
+
+    assert ensure_first_order_sales_templates() > 0
+    assert ensure_first_order_sales_templates() == 0
+    rows = list_sales_templates(sales_stage="closing")
+    assert rows
+    assert all(row.sales_action and row.branch_code for row in rows)
+    assert any(json.loads(row.required_fact_keys_json) for row in rows)
 
 
 def _seed_single_talk_script_question():

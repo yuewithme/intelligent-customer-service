@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from typing import Iterable
 
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -30,6 +30,7 @@ def get_session() -> Session:
     if factory is None:
         engine = create_engine(db_url)
         Base.metadata.create_all(engine, tables=_TABLES)
+        _ensure_template_library_columns(engine)
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[db_url] = factory
     return factory()
@@ -102,6 +103,51 @@ def get_active_template(template_id: str) -> TemplateLibraryModel | None:
                 TemplateLibraryModel.status == "active",
             )
         )
+
+
+def list_sales_templates(
+    *,
+    sales_stage: str | None = None,
+    sales_action: str | None = None,
+    branch_code: str | None = None,
+    status: str | None = "active",
+) -> list[TemplateLibraryModel]:
+    filters = [TemplateLibraryModel.sales_stage.is_not(None)]
+    if sales_stage:
+        filters.append(TemplateLibraryModel.sales_stage == sales_stage)
+    if sales_action:
+        filters.append(TemplateLibraryModel.sales_action == sales_action)
+    if branch_code:
+        filters.append(TemplateLibraryModel.branch_code == branch_code)
+    if status:
+        filters.append(TemplateLibraryModel.status == status)
+    with get_session() as session:
+        return list(
+            session.scalars(
+                select(TemplateLibraryModel)
+                .where(*filters)
+                .order_by(
+                    TemplateLibraryModel.priority.desc(),
+                    TemplateLibraryModel.template_id,
+                )
+            )
+        )
+
+
+def upsert_sales_templates(templates: Iterable[dict]) -> int:
+    count = 0
+    with get_session() as session:
+        for row in templates:
+            payload = _template_payload(row)
+            existing = session.get(TemplateLibraryModel, payload["template_id"])
+            if existing is None:
+                session.add(TemplateLibraryModel(**payload))
+            else:
+                for key, value in payload.items():
+                    setattr(existing, key, value)
+            count += 1
+        session.commit()
+    return count
 
 
 def has_sent_template_to_customer(customer_id: str, template_id: str) -> bool:
@@ -405,6 +451,14 @@ def _template_payload(row: dict) -> dict:
         "answer_goal": _optional(row.get("answer_goal")),
         "need_slot_filling": str(row.get("need_slot_filling") or "no").strip() or "no",
         "handoff_rule": _optional(row.get("handoff_rule")),
+        "sales_stage": _optional(row.get("sales_stage") or row.get("stage")),
+        "sales_action": _optional(row.get("sales_action")),
+        "branch_code": _optional(row.get("branch_code")),
+        "required_conditions_json": _json_list(row.get("required_conditions_json") or row.get("required_conditions")),
+        "exclude_conditions_json": _json_list(row.get("exclude_conditions_json") or row.get("exclude_conditions")),
+        "required_fact_keys_json": _json_list(row.get("required_fact_keys_json") or row.get("required_fact_keys")),
+        "variables_json": _json_list(row.get("variables_json") or row.get("variables")),
+        "priority": _int(row.get("priority")),
         "status": str(row.get("status") or "active").strip() or "active",
         "version": _optional(row.get("version")),
         "change_note": _optional(row.get("change_note")),
@@ -428,3 +482,37 @@ def _float(value, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _json_list(value) -> str:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return json.dumps(parsed, ensure_ascii=False)
+        except json.JSONDecodeError:
+            values = [item.strip() for item in value.split("|") if item.strip()]
+            return json.dumps(values, ensure_ascii=False)
+    if isinstance(value, (list, tuple)):
+        return json.dumps(list(value), ensure_ascii=False)
+    return "[]"
+
+
+def _ensure_template_library_columns(engine) -> None:
+    columns = {item["name"] for item in inspect(engine).get_columns("template_library")}
+    definitions = {
+        "sales_stage": "VARCHAR(64)",
+        "sales_action": "VARCHAR(64)",
+        "branch_code": "VARCHAR(128)",
+        "required_conditions_json": "TEXT DEFAULT '[]'",
+        "exclude_conditions_json": "TEXT DEFAULT '[]'",
+        "required_fact_keys_json": "TEXT DEFAULT '[]'",
+        "variables_json": "TEXT DEFAULT '[]'",
+        "priority": "INTEGER DEFAULT 0",
+    }
+    missing = [(name, definition) for name, definition in definitions.items() if name not in columns]
+    if not missing:
+        return
+    with engine.begin() as connection:
+        for name, definition in missing:
+            connection.execute(text(f"ALTER TABLE template_library ADD COLUMN {name} {definition}"))

@@ -1,9 +1,13 @@
+import json
+
 from app.config import get_settings
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
 from app.schemas.state import UserState
 from app.schemas.template import TemplateItem, TemplateReply
 from app.services.shipping_contact_service import extract_shipping_contact, mask_mobile
+from app.talk_script.first_order_sales_seed import ensure_first_order_sales_templates
+from app.talk_script.repository import list_sales_templates
 
 
 _templates: dict[str, TemplateItem] = {
@@ -82,9 +86,17 @@ async def search_templates(
     top_k: int = 5,
 ) -> list[dict]:
     settings = get_settings()
+    ensure_first_order_sales_templates()
+    database_templates = [
+        item
+        for row in list_sales_templates(sales_stage=intent.sales_stage)
+        if (item := _database_template(row)) is not None
+        and _structured_template_allowed(item, intent, user_state)
+    ]
     scored = []
     text = message.message.strip()
-    for template in _templates.values():
+    candidates = database_templates or list(_templates.values())
+    for template in candidates:
         if template.status != "active":
             continue
         if (
@@ -95,7 +107,7 @@ async def search_templates(
             continue
         if any(word and word in text for word in template.not_use_when):
             continue
-        intent_match = 1.0 if template.intent == intent.primary_intent else 0.0
+        intent_match = 1.0 if template.intent == intent.primary_intent or template.branch_code else 0.0
         stage_match = 1.0 if template.stage == intent.sales_stage else 0.5
         vector_score = _text_score(text, template)
         tag_match = _tag_score(user_state.customer_tags, template.customer_tags)
@@ -197,3 +209,75 @@ def _tag_score(user_tags: list[str], template_tags: list[str]) -> float:
     if not template_tags:
         return 0.5
     return len(set(user_tags) & set(template_tags)) / len(set(template_tags))
+
+
+def _database_template(row) -> TemplateItem | None:
+    try:
+        return TemplateItem(
+            template_id=row.template_id,
+            name=row.template_name,
+            intent=_first_condition(row.required_conditions_json) or "sales_conversation",
+            stage=row.sales_stage or "unknown",
+            sales_action=row.sales_action,
+            branch_code=row.branch_code,
+            content=row.answer_default,
+            variables=_json_values(row.variables_json),
+            required_conditions=_json_values(row.required_conditions_json),
+            exclude_conditions=_json_values(row.exclude_conditions_json),
+            required_fact_keys=_json_values(row.required_fact_keys_json),
+            next_action=row.sales_action,
+            priority=row.priority or 0,
+            status=row.status,
+            version=int(str(row.version or "1").lstrip("v") or 1),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _structured_template_allowed(
+    template: TemplateItem,
+    intent: IntentResult,
+    user_state: UserState,
+) -> bool:
+    action = user_state.metadata.get("sales_action")
+    action_name = action.get("sales_action") if isinstance(action, dict) else None
+    if template.sales_action and action_name and template.sales_action != action_name:
+        return False
+    context = set(intent.sales_signals)
+    context.add(intent.primary_intent)
+    blocker = intent.slots.get("decision_blocker")
+    if isinstance(blocker, dict) and blocker.get("type"):
+        context.add(f"decision_blocker:{blocker['type']}")
+    for key, value in intent.slots.items():
+        if value not in (None, "", []):
+            context.add(key)
+            context.add(f"{key}:{value}")
+    if template.required_conditions and not any(item in context for item in template.required_conditions):
+        return False
+    if any(item in context for item in template.exclude_conditions):
+        return False
+    facts = _available_fact_keys(user_state)
+    return all(key in facts for key in template.required_fact_keys)
+
+
+def _available_fact_keys(user_state: UserState) -> set[str]:
+    result: set[str] = set()
+    for source_name in ("business_facts", "tool_state", "commerce_facts"):
+        source = user_state.metadata.get(source_name)
+        if not isinstance(source, dict):
+            continue
+        result.update(key for key, value in source.items() if value not in (None, "", [], {}))
+    return result
+
+
+def _json_values(value: str | None) -> list[str]:
+    try:
+        parsed = json.loads(value or "[]")
+    except json.JSONDecodeError:
+        return []
+    return [str(item) for item in parsed if isinstance(item, (str, int, float))]
+
+
+def _first_condition(value: str | None) -> str | None:
+    values = _json_values(value)
+    return values[0].split(":", 1)[0] if values else None

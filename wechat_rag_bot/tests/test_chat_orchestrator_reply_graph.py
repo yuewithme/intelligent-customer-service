@@ -141,7 +141,8 @@ async def test_orchestrator_executes_the_single_planned_reply(monkeypatch):
         )
     )
 
-    assert result["answer"] == "planned answer"
+    assert result["answer"].startswith("planned answer")
+    assert result["answer"].count("？") == 1
     assert captured["plan"].decision_trace
     assert set(result) == {
         "answer",
@@ -240,7 +241,7 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
     assert captured["state_update"]["sales_stage"] == "need_discovery"
     assert captured["profile_stage"] == "need_discovery"
     assert captured["reply_sales_action"]["sales_action"] == "discover_need_track"
-    assert captured["reply_sales_action"]["question_slot"] == "pain_point"
+    assert captured["reply_sales_action"]["question_slot"] == "need_track"
     assert captured["profile_sales_action"] == captured["reply_sales_action"]
 
 

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from evaluation.run_evaluation import (
+    aggregate_sales_flow_metrics,
     aggregate_scores,
     append_jsonl,
     build_evaluation_metadata,
@@ -23,6 +24,32 @@ from evaluation.run_evaluation import (
     select_run_stages,
 )
 from evaluation.retry_evaluation import merge_by_id
+
+
+def test_sales_flow_metrics_include_stage_action_and_safety_rates():
+    items = [{
+        "id": "sales-1",
+        "expected_stage": "closing",
+        "expected_sales_action": "close_order",
+        "expected_action": "reply",
+        "tool_state": {"order_status": "unverified"},
+    }]
+    results = [{
+        "id": "sales-1",
+        "responses": [{
+            "sales_stage": "closing",
+            "sales_action": "close_order",
+            "answer": "我先核验订单状态。",
+            "need_human": False,
+        }],
+    }]
+
+    metrics = aggregate_sales_flow_metrics(items, results, [{"id": "sales-1", "violations": []}])
+
+    assert metrics["stage_accuracy"] == 1.0
+    assert metrics["action_accuracy"] == 1.0
+    assert metrics["wrong_deal_rate"] == 0.0
+    assert metrics["fact_hallucination_rate"] == 0.0
 
 
 def test_evaluation_default_timeout_allows_complex_reply_pipeline(monkeypatch):

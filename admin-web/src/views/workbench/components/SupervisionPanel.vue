@@ -91,6 +91,11 @@
           <dd>{{ updatedAtText }}</dd>
         </dl>
       </div>
+      <SalesOpportunityPanel
+        :user-id="conversation.user_id"
+        :operator-id="operatorId"
+        @changed="emit('changed')"
+      />
     </template>
   </aside>
 </template>
@@ -113,6 +118,7 @@ import { useUserStore } from '@/store/modules/user'
 import { intentText, riskLevelText, salesStageText, tagValueText } from '@/utils/tagDisplay'
 import { formatChinaTime } from '../time'
 import ReplyComposer from './ReplyComposer.vue'
+import SalesOpportunityPanel from './SalesOpportunityPanel.vue'
 
 const props = defineProps<{
   conversationId: string

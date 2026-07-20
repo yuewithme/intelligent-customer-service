@@ -1,4 +1,5 @@
 import secrets
+from contextlib import asynccontextmanager
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -156,3 +157,21 @@ class MCPBearerAuth:
 
 
 mcp_asgi_app = MCPBearerAuth(sales_mcp.streamable_http_app())
+
+
+@asynccontextmanager
+async def run_sales_mcp_session_manager():
+    """Run the MCP manager across repeatable application lifespans.
+
+    The upstream manager is one-shot, while tests and embedded deployments may
+    create the FastAPI lifespan more than once in the same process.
+    """
+    manager = sales_mcp.session_manager
+    if getattr(manager, "_has_started", False) and getattr(manager, "_task_group", None) is None:
+        manager._has_started = False
+    try:
+        async with manager.run():
+            yield
+    finally:
+        if getattr(manager, "_task_group", None) is None:
+            manager._has_started = False

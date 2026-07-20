@@ -386,9 +386,9 @@ class SalesStageDefinition(BaseModel):
 - 修改：`admin-web/src/utils/tagDisplay.ts`
 - 新增测试：`wechat_rag_bot/tests/test_sales_stage_catalog.py`
 
-- [ ] 定义七阶段枚举、中文名称、顺序、目标、证据和允许动作。
-- [ ] 定义非阶段的 `after_sale`、`human_pending` 中断类型。
-- [ ] 建立旧值映射：
+- [x] 定义七阶段枚举、中文名称、顺序、目标、证据和允许动作。
+- [x] 定义非阶段的 `after_sale`、`human_pending` 中断类型。
+- [x] 建立旧值映射：
 
 ```text
 unknown              -> rapport（仅新首单机会）或保持 unknown
@@ -403,9 +403,9 @@ after_sale           -> interruption.after_sale
 human_pending        -> interruption.human_pending
 ```
 
-- [ ] 明确 `first_order_nurture` 等历史展示值只用于兼容，不再允许新写入。
-- [ ] 测试目录中不存在重复顺序、未知动作或缺失中文名称。
-- [ ] 测试所有旧值都能稳定归一，不会抛异常。
+- [x] 明确 `first_order_nurture` 等历史展示值只用于兼容，不再允许新写入。
+- [x] 测试目录中不存在重复顺序、未知动作或缺失中文名称。
+- [x] 测试所有旧值都能稳定归一，不会抛异常。
 
 **验证：**
 
@@ -482,13 +482,13 @@ python -m pytest tests/test_sales_stage_service.py tests/test_first_order_sales_
 - 修改测试：`wechat_rag_bot/tests/test_sales_action_service.py`
 - 修改测试：`wechat_rag_bot/tests/test_rag_service.py`
 
-- [ ] 将默认动作扩展为 `build_rapport`、`discover_need_track`、`discover_pain`、`recommend_solution`、`build_value`、`trial_close`、`resolve_blocker`、`close_order`。
-- [ ] 依据阶段目录的槽位组计算“当前最关键缺失信息”。
-- [ ] 明确问题优先级：客户当前问题 > 安全信息 > 当前阶段唯一缺失槽位。
-- [ ] 已知槽位不再询问，`asked_slots` 中短期未回答的槽位不重复询问。
-- [ ] 模板回复与 RAG 回复都遵循一轮最多一个追问，不只约束模板路径。
-- [ ] 将阶段目标、动作、已知事实、唯一问题和禁止行为注入 prompt。
-- [ ] 避免直接把内部 JSON、枚举值和阶段推理发给客户。
+- [x] 将默认动作扩展为 `build_rapport`、`discover_need_track`、`discover_pain`、`recommend_solution`、`build_value`、`trial_close`、`resolve_blocker`、`close_order`。
+- [x] 依据阶段目录的槽位组计算“当前最关键缺失信息”。
+- [x] 明确问题优先级：客户当前问题 > 安全信息 > 当前阶段唯一缺失槽位。
+- [x] 已知槽位不再询问，`asked_slots` 中短期未回答的槽位不重复询问。
+- [x] 模板回复与 RAG 回复都遵循一轮最多一个追问，不只约束模板路径。
+- [x] 将阶段目标、动作、已知事实、唯一问题和禁止行为注入 prompt。
+- [x] 避免直接把内部 JSON、枚举值和阶段推理发给客户。
 
 **验证：**
 
@@ -509,24 +509,24 @@ python -m pytest tests/test_sales_action_service.py tests/test_rag_service.py te
 - 修改测试：`wechat_rag_bot/tests/test_talk_script.py`
 - 修改测试：`wechat_rag_bot/tests/test_contracts.py`
 
-- [ ] 为数据库话术增加：`sales_stage`、`sales_action`、`branch_code`、`required_conditions_json`、`exclude_conditions_json`、`required_fact_keys_json`、`variables_json`、`priority`。
-- [ ] 使用项目现有兼容建表/补列方式升级，不引入第二套迁移框架。
-- [ ] 将 Word SOP 中七阶段的主要分支录入数据库种子或可重复导入文件。
-- [ ] 每条话术标明客户信号、阻碍类型、必要事实和禁用条件。
-- [ ] 经营声明增加事实门：服务人数、苗质、无激素、全年服务、库存、价格、赠品和活动。
-- [ ] 对药剂名称和苗情判断设置安全边界，不使用固定话术给出确定诊断或危险配药建议。
-- [ ] 逐步移除 `template_service.py` 内存默认话术的主数据职责；保留最小故障兜底。
-- [ ] 话术未匹配时回到受约束的 LLM/RAG，不因普通销售场景直接转人工。
+- [x] 为数据库话术增加：`sales_stage`、`sales_action`、`branch_code`、`required_conditions_json`、`exclude_conditions_json`、`required_fact_keys_json`、`variables_json`、`priority`。
+- [x] 使用项目现有兼容建表/补列方式升级，不引入第二套迁移框架。
+- [x] 将 Word SOP 中七阶段的主要分支录入数据库种子或可重复导入文件。
+- [x] 每条话术标明客户信号、阻碍类型、必要事实和禁用条件。
+- [x] 经营声明增加事实门：服务人数、苗质、无激素、全年服务、库存、价格、赠品和活动。
+- [x] 对药剂名称和苗情判断设置安全边界，不使用固定话术给出确定诊断或危险配药建议。
+- [x] 逐步移除 `template_service.py` 内存默认话术的主数据职责；保留最小故障兜底。
+- [x] 话术未匹配时回到受约束的 LLM/RAG，不因普通销售场景直接转人工。
 
 **首批话术覆盖：**
 
-- [ ] 破冰欢迎与基础信息采集。
-- [ ] 服务/产品/复合需求识别。
-- [ ] 新手、养不好、黄叶焦尖、不开花、烂根病害、选错品种、无明显痛点。
-- [ ] 服务推荐、明确品种、偏好推荐、预算有限、产品+教学。
-- [ ] 服务价值、苗质价值、养不活顾虑、同行价格对比。
-- [ ] 直接试单、二选一、养护信心、订单方案确认。
-- [ ] 价格、信任、选择、考虑、比价、真实权益、付款临门动作。
+- [x] 破冰欢迎与基础信息采集。
+- [x] 服务/产品/复合需求识别。
+- [x] 新手、养不好、黄叶焦尖、不开花、烂根病害、选错品种、无明显痛点。
+- [x] 服务推荐、明确品种、偏好推荐、预算有限、产品+教学。
+- [x] 服务价值、苗质价值、养不活顾虑、同行价格对比。
+- [x] 直接试单、二选一、养护信心、订单方案确认。
+- [x] 价格、信任、选择、考虑、比价、真实权益、付款临门动作。
 
 **验证：**
 
@@ -545,13 +545,13 @@ python -m pytest tests/test_talk_script.py tests/test_contracts.py -q
 - 修改测试：`wechat_rag_bot/tests/test_chat_orchestrator_reply_graph.py`
 - 修改测试：`wechat_rag_bot/tests/test_user_profile_api.py`
 
-- [ ] 在统一回复计划生成前完成信号、阶段和动作决策。
-- [ ] 将阶段决策及证据写入回复 metadata，便于日志和后台解释。
-- [ ] 在 `state_service` 与 `user_profile_service` 中幂等合并槽位、信号和阶段。
-- [ ] 防止同步状态与持久化画像对同一机会重复推进。
-- [ ] 关闭机会后不再沿用旧 `asked_slots`、阻碍和推荐商品。
-- [ ] 新机会保留与用户长期画像相关的地区、经验和稳定偏好，但不继承旧交易阻碍。
-- [ ] 确保售后优先、人工静默接管和退款契约不变。
+- [x] 在统一回复计划生成前完成信号、阶段和动作决策。
+- [x] 将阶段决策及证据写入回复 metadata，便于日志和后台解释。
+- [x] 在 `state_service` 与 `user_profile_service` 中幂等合并槽位、信号和阶段。
+- [x] 防止同步状态与持久化画像对同一机会重复推进。
+- [x] 关闭机会后不再沿用旧 `asked_slots`、阻碍和推荐商品。
+- [x] 新机会保留与用户长期画像相关的地区、经验和稳定偏好，但不继承旧交易阻碍。
+- [x] 确保售后优先、人工静默接管和退款契约不变。
 
 **验证：**
 
@@ -569,13 +569,13 @@ python -m pytest tests/test_chat_orchestrator_reply_graph.py tests/test_user_pro
 - 新增测试：`wechat_rag_bot/tests/test_admin_sales_flow.py`
 - 修改测试：`wechat_rag_bot/tests/test_admin_conversations.py`
 
-- [ ] `GET /api/admin/sales-flow/stages`：返回七阶段定义和话术覆盖数。
-- [ ] `GET /api/admin/sales-flow/opportunities/{user_id}`：返回当前机会详情。
-- [ ] `PATCH /api/admin/sales-flow/opportunities/{user_id}/stage`：人工调整阶段，必须记录操作人和原因。
-- [ ] `POST /api/admin/sales-flow/opportunities/{user_id}/close`：人工标记 lost/expired；不得人工伪造支付成功。
-- [ ] 会话详情接口返回当前阶段、阶段目标、依据、缺失槽位、阻碍和下一步动作。
-- [ ] 所有人工调整写入操作日志和更新时间。
-- [ ] 测试非法阶段、缺失原因、已关闭机会、售后中断和越权修改。
+- [x] `GET /api/admin/sales-flow/stages`：返回七阶段定义和话术覆盖数。
+- [x] `GET /api/admin/sales-flow/opportunities/{user_id}`：返回当前机会详情。
+- [x] `PATCH /api/admin/sales-flow/opportunities/{user_id}/stage`：人工调整阶段，必须记录操作人和原因。
+- [x] `POST /api/admin/sales-flow/opportunities/{user_id}/close`：人工标记 lost/expired；不得人工伪造支付成功。
+- [x] 会话详情接口返回当前阶段、阶段目标、依据、缺失槽位、阻碍和下一步动作。
+- [x] 所有人工调整写入操作日志和更新时间。
+- [x] 测试非法阶段、缺失原因、已关闭机会、售后中断和越权修改。
 
 **验证：**
 
@@ -597,13 +597,13 @@ python -m pytest tests/test_admin_sales_flow.py tests/test_admin_conversations.p
 - 修改：`admin-web/src/api/user-profile/index.ts`
 - 测试：按现有前端测试能力补充组件测试；至少运行类型检查和构建。
 
-- [ ] 首单流程页按顺序展示七阶段、目标、进入条件、退出条件和话术覆盖数。
-- [ ] 销售话术页支持按阶段、动作、分支、状态筛选。
-- [ ] 工作台展示当前阶段、上一步、阶段依据和目标。
-- [ ] 展示已知信息、缺失信息、成交阻碍、推荐商品和下一步动作。
-- [ ] 支持人工调整阶段，但要求填写原因并二次确认。
-- [ ] `after_sale` 和 `human_pending` 显示为中断横幅，不伪装成主阶段节点。
-- [ ] 旧阶段值仍能显示友好中文。
+- [x] 首单流程页按顺序展示七阶段、目标、进入条件、退出条件和话术覆盖数。
+- [x] 销售话术页支持按阶段、动作、分支、状态筛选。
+- [x] 工作台展示当前阶段、上一步、阶段依据和目标。
+- [x] 展示已知信息、缺失信息、成交阻碍、推荐商品和下一步动作。
+- [x] 支持人工调整阶段，但要求填写原因并二次确认。
+- [x] `after_sale` 和 `human_pending` 显示为中断横幅，不伪装成主阶段节点。
+- [x] 旧阶段值仍能显示友好中文。
 
 **验证：**
 
@@ -623,14 +623,14 @@ pnpm build
 - 新增测试：`wechat_rag_bot/tests/test_sales_stage_migration.py`
 - 修改：`wechat_rag_bot/app/config.py`
 
-- [ ] 增加 `first_order_sales_flow_v2_enabled` 灰度开关，默认先在测试环境启用。
-- [ ] 读取旧阶段时动态归一，写入时只写新阶段。
-- [ ] 提供幂等迁移函数，批量迁移 `current_stage` 和 `active_opportunity_json`。
-- [ ] `order_intent` 迁移为 `closing + ready_to_buy`，不能迁移成 `won`。
-- [ ] `after_sale`、`human_pending` 迁移为中断结构，并尽可能保留原阶段作为恢复点。
-- [ ] 迁移前后输出数量统计，不记录客户敏感对话正文。
-- [ ] 灰度期间日志同时记录旧判定和新判定差异，但只执行开关选中的版本。
-- [ ] 回滚只切换读写逻辑，不删除新机会数据。
+- [x] 增加 `first_order_sales_flow_v2_enabled` 灰度开关，默认先在测试环境启用。
+- [x] 读取旧阶段时动态归一，写入时只写新阶段。
+- [x] 提供幂等迁移函数，批量迁移 `current_stage` 和 `active_opportunity_json`。
+- [x] `order_intent` 迁移为 `closing + ready_to_buy`，不能迁移成 `won`。
+- [x] `after_sale`、`human_pending` 迁移为中断结构，并尽可能保留原阶段作为恢复点。
+- [x] 迁移前后输出数量统计，不记录客户敏感对话正文。
+- [x] 灰度期间日志同时记录旧判定和新判定差异，但只执行开关选中的版本。
+- [x] 回滚只切换读写逻辑，不删除新机会数据。
 
 **验证：**
 
@@ -648,13 +648,13 @@ python -m pytest tests/test_sales_stage_migration.py tests/test_sales_stage_serv
 - 新增：`docs/evaluation/first_order_sales_flow/boundary.jsonl`
 - 修改：现有评测 runner，使结果包含阶段、动作和事实安全指标。
 
-- [ ] 为七阶段各建立正常、跳级、回环和信息不足样本。
-- [ ] 增加服务需求、产品需求、复合需求样本。
-- [ ] 增加价格、信任、养护风险、产品适配、选择困难和时机阻碍样本。
-- [ ] 增加付款口述与可信付款事实对照样本。
-- [ ] 增加售后、退款、投诉、人工和危险药剂边界样本。
-- [ ] 增加重复追问、无依据推荐、内部标签泄漏、虚假事实和虚假稀缺检测。
-- [ ] 记录阶段准确率、动作准确率、槽位重复询问率、事实幻觉率、错误成交率和人工接管准确率。
+- [x] 为七阶段各建立正常、跳级、回环和信息不足样本。
+- [x] 增加服务需求、产品需求、复合需求样本。
+- [x] 增加价格、信任、养护风险、产品适配、选择困难和时机阻碍样本。
+- [x] 增加付款口述与可信付款事实对照样本。
+- [x] 增加售后、退款、投诉、人工和危险药剂边界样本。
+- [x] 增加重复追问、无依据推荐、内部标签泄漏、虚假事实和虚假稀缺检测。
+- [x] 记录阶段准确率、动作准确率、槽位重复询问率、事实幻觉率、错误成交率和人工接管准确率。
 
 **上线门槛：**
 

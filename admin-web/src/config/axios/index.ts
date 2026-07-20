@@ -42,6 +42,7 @@ const unwrap = async <T>(promise: Promise<any>): Promise<T> => {
 export default {
   get: <T = unknown>(options: RequestOptions) => unwrap<T>(client.request({ ...options, method: 'GET' })),
   post: <T = unknown>(options: RequestOptions) => unwrap<T>(client.request({ ...options, method: 'POST' })),
+  patch: <T = unknown>(options: RequestOptions) => unwrap<T>(client.request({ ...options, method: 'PATCH' })),
   put: <T = unknown>(options: RequestOptions) => unwrap<T>(client.request({ ...options, method: 'PUT' })),
   delete: <T = unknown>(options: RequestOptions) => unwrap<T>(client.request({ ...options, method: 'DELETE' })),
   upload: <T = unknown>(options: RequestOptions) => unwrap<T>(client.request({ ...options, method: 'POST', headers: { ...options.headers, 'Content-Type': 'multipart/form-data' } }))

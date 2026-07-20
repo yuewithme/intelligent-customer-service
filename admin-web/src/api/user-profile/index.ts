@@ -23,6 +23,7 @@ export interface UserProfile {
   friend_added_at?: string | null
   created_at?: string | null
   updated_at?: string | null
+  active_opportunity?: Record<string, unknown>
 }
 
 export interface ProfileEvent {

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -208,6 +208,8 @@ async def test_admin_reply_records_eyun_message_id(monkeypatch, tmp_path):
     )
     conversation_id = "wechat:wxid_customer:default"
     await claim_conversation(conversation_id, "operator-1")
+    fixed_now = datetime(2026, 7, 18, tzinfo=timezone.utc)
+    monkeypatch.setattr(message_risk_control_service, "utcnow", lambda: fixed_now)
     await reply_conversation(conversation_id, "operator-1", "人工回复")
 
     detail = await get_conversation_detail(conversation_id)
@@ -219,7 +221,7 @@ async def test_admin_reply_records_eyun_message_id(monkeypatch, tmp_path):
     monkeypatch.setattr(
         message_risk_control_service,
         "utcnow",
-        lambda: datetime(2026, 7, 18, tzinfo=timezone.utc),
+        lambda: fixed_now + timedelta(days=1),
     )
     assert await message_risk_control_service.process_due_eyun_outbound_messages() == 1
 

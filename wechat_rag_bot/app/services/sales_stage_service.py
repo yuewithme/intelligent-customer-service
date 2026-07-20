@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,6 +21,7 @@ from app.services.sales_stage_catalog import normalize_sales_stage_reference
 
 
 STAGE_ORDER = {stage.value: position for position, stage in enumerate(SalesStage, start=1)}
+logger = logging.getLogger("wechat_rag_bot.sales_stage")
 AFTER_SALE_INTENTS = {"ask_after_sale", "refund_request", "complaint"}
 ENVIRONMENT_AND_FIT_SLOTS = {
     "region",
@@ -46,6 +48,44 @@ def decide_sales_stage(
     business_facts: BusinessFacts | None = None,
 ) -> SalesStageDecision:
     """Return the only authoritative first-order stage decision."""
+
+    decision = _decide_sales_stage_v2(
+        user_state=user_state,
+        intent=intent,
+        tag_result=tag_result,
+        signal_result=signal_result,
+        business_facts=business_facts,
+    )
+    legacy_stage = normalize_sales_stage(intent.sales_stage)
+    if legacy_stage == "unknown":
+        legacy_stage = _current_stage(user_state, _active_opportunity(user_state)).value
+    if legacy_stage != decision.stage.value:
+        logger.info(
+            "sales_stage_shadow_diff legacy=%s v2=%s reason=%s enabled=%s",
+            legacy_stage,
+            decision.stage.value,
+            decision.reason,
+            get_settings().first_order_sales_flow_v2_enabled,
+        )
+    if get_settings().first_order_sales_flow_v2_enabled:
+        return decision
+    return decision.model_copy(
+        update={
+            "stage": SalesStage(legacy_stage),
+            "reason": "legacy_gray_selected",
+            "transition_type": "keep",
+        }
+    )
+
+
+def _decide_sales_stage_v2(
+    *,
+    user_state: UserState,
+    intent: IntentResult,
+    tag_result: TagResult,
+    signal_result: SalesSignalResult | None = None,
+    business_facts: BusinessFacts | None = None,
+) -> SalesStageDecision:
 
     normalized = signal_result or normalize_sales_signals(
         user_state=user_state,
@@ -390,3 +430,4 @@ def _starts_new_opportunity(signals: set[CustomerSignal]) -> bool:
             CustomerSignal.READY_TO_BUY,
         }
     )
+from app.config import get_settings

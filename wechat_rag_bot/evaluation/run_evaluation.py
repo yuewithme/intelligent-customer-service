@@ -177,6 +177,57 @@ def aggregate_scores(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def aggregate_sales_flow_metrics(
+    items: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+    scores: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    item_by_id = {item["id"]: item for item in items}
+    score_by_id = {row["id"]: row for row in scores or []}
+    counters = defaultdict(int)
+    totals = defaultdict(int)
+    for result in results:
+        item = item_by_id.get(result.get("id"), {})
+        responses = result.get("responses") or []
+        if not responses:
+            continue
+        response = responses[-1]
+        expected_stage = item.get("expected_stage")
+        if expected_stage:
+            totals["stage"] += 1
+            counters["stage"] += response.get("sales_stage") == expected_stage
+        expected_action = item.get("expected_sales_action")
+        if expected_action:
+            totals["action"] += 1
+            counters["action"] += response.get("sales_action") == expected_action
+        answer = str(response.get("answer") or "")
+        totals["question"] += 1
+        counters["multi_question"] += answer.count("？") + answer.count("?") > 1
+        expected_human = item.get("expected_action") == "human_handoff"
+        totals["human"] += 1
+        counters["human"] += bool(response.get("need_human")) == expected_human
+        trusted_purchase = str((item.get("tool_state") or {}).get("order_status") or "").lower() in {"paid", "completed", "success"}
+        if not trusted_purchase:
+            totals["deal"] += 1
+            counters["wrong_deal"] += any(word in answer for word in ("已经付款成功", "已支付成功", "已经成交"))
+        violations = score_by_id.get(result.get("id"), {}).get("violations") or []
+        totals["facts"] += 1
+        counters["fact_hallucination"] += any(
+            str(value) in {"fabricated_fact", "fake_price", "fake_inventory", "fake_entitlement", "fake_scarcity"}
+            for value in violations
+        )
+    ratio = lambda name, total: round(counters[name] / total, 4) if total else None
+    return {
+        "stage_accuracy": ratio("stage", totals["stage"]),
+        "action_accuracy": ratio("action", totals["action"]),
+        "slot_repeat_question_rate": ratio("multi_question", totals["question"]),
+        "fact_hallucination_rate": ratio("fact_hallucination", totals["facts"]),
+        "wrong_deal_rate": ratio("wrong_deal", totals["deal"]),
+        "human_handoff_accuracy": ratio("human", totals["human"]),
+        "sample_counts": dict(totals),
+    }
+
+
 class EvaluationRunner:
     def __init__(
         self,
@@ -235,6 +286,8 @@ class EvaluationRunner:
             "sources": data.get("sources", []),
             "need_human": data.get("need_human", False),
             "next_action": data.get("next_action"),
+            "sales_stage": (data.get("intent") or {}).get("sales_stage"),
+            "sales_action": ((data.get("metadata") or {}).get("sales_action") or {}).get("sales_action") or data.get("next_action"),
             "trace_id": data.get("trace_id"),
             "latency_ms": latency_ms,
             "queue_wait_ms": queue_wait_ms,
@@ -656,6 +709,7 @@ async def async_main(args: argparse.Namespace) -> int:
         append_jsonl(scores_path, score)
     scores = [scores_by_id[item["id"]] for item in items if item["id"] in scores_by_id]
     summary = aggregate_scores(scores)
+    summary["sales_flow_metrics"] = aggregate_sales_flow_metrics(items, results, scores)
     system_config = get_model_config("rag")
     judge_config = get_model_config("review")
     write_jsonl(scores_path, scores)

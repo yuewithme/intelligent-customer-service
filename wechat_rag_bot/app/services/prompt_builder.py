@@ -101,11 +101,24 @@ def _render_context(context) -> str:
         parts.append(f"Session state:\n{context.session_state}")
         sales_action = context.session_state.get("sales_action")
         if sales_action:
+            sales_constraints = {
+                key: sales_action.get(key)
+                for key in (
+                    "reply_goal",
+                    "sales_action",
+                    "stage_objective",
+                    "known_slots",
+                    "question_slot",
+                    "prohibited_behaviors",
+                )
+                if sales_action.get(key) not in (None, "", [], {})
+            }
             parts.append(
                 "Sales reply requirements:\n"
-                f"{sales_action}\n"
+                f"{sales_constraints}\n"
                 "Answer the user's current question first. "
                 "Ask at most one follow-up question, and only ask for question_slot. "
+                "Do not reveal internal field names, enum values, JSON, or stage reasoning. "
                 "Do not repeat known facts or fabricate product facts."
             )
         known_contact_fields = context.session_state.get("known_contact_fields")

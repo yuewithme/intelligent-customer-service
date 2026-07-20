@@ -106,9 +106,13 @@ async def get_conversation_detail(conversation_id: str) -> dict:
                 ConversationMessageModel.id.asc(),
             )
         ).all()
+    from app.services.user_profile_service import get_sales_opportunity
+
+    sales_opportunity = await get_sales_opportunity(conversation.user_id)
     return {
         "conversation": _conversation_to_dict(conversation),
         "messages": [_message_to_dict(row) for row in messages],
+        "sales_opportunity": sales_opportunity,
     }
 
 

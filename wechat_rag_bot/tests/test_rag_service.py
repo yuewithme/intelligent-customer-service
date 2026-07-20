@@ -460,7 +460,7 @@ def test_rag_prompt_uses_minimal_natural_followup_rule():
 
     for value in (prompt, fallback_prompt):
         assert "信息不足时" in value
-        assert "自然追问 1-2 个关键问题" in value
+        assert "仅按 question_slot 自然追问 1 个关键问题" in value
         assert "不要像表单" in value
         assert "不要直接转人工" in value
 

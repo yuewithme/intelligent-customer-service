@@ -23,12 +23,12 @@ def _intent(**slots) -> IntentResult:
 def test_discovery_asks_for_first_missing_sales_slot():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
-        intent=_intent(pain_point="root_rot"),
+        intent=_intent(),
     )
 
     assert decision.sales_action == "discover_need_track"
-    assert decision.question_slot == "plant_count"
-    assert decision.required_slots == ["plant_count"]
+    assert decision.question_slot == "need_track"
+    assert decision.required_slots == ["need_track"]
     assert decision.next_stage == "pain_discovery"
 
 
@@ -39,8 +39,8 @@ def test_discovery_does_not_repeat_an_asked_slot():
         metadata={
             "profile": {
                 "active_opportunity": {
-                    "slots": {"pain_point": "root_rot"},
-                    "asked_slots": ["plant_count"],
+                    "slots": {},
+                    "asked_slots": ["need_track"],
                 }
             }
         },
@@ -58,8 +58,8 @@ def test_sales_action_reads_synchronous_active_opportunity():
         sales_stage="need_discovery",
         metadata={
             "active_opportunity": {
-                "slots": {"pain_point": "root_rot", "budget": "100"},
-                "asked_slots": ["plant_count"],
+                "slots": {"budget": "100"},
+                "asked_slots": ["need_track"],
             }
         },
     )
@@ -121,7 +121,7 @@ def test_after_sale_disables_sales_progression():
 def test_template_reply_executes_single_sales_question():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
-        intent=_intent(pain_point="root_rot"),
+        intent=_intent(),
     )
     reply = FinalReply(
         answer="这款目前是199元。",
@@ -132,16 +132,16 @@ def test_template_reply_executes_single_sales_question():
     result = apply_sales_action(reply, decision)
 
     assert result.answer == (
-        "这款目前是199元。具体用量要结合您的实际使用数量判断，"
-        "您大概有多少盆需要使用？"
+        "这款目前是199元。为了更准确地判断，"
+        "您这次更需要养护指导、选购产品，还是两者都需要？"
     )
     assert result.answer_segments == [
         "这款目前是199元。",
-        "具体用量要结合您的实际使用数量判断，您大概有多少盆需要使用？",
+        "为了更准确地判断，您这次更需要养护指导、选购产品，还是两者都需要？",
     ]
 
 
-def test_template_reply_does_not_append_generic_pain_point_question():
+def test_template_reply_appends_only_the_catalog_question_slot():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
         intent=_intent(),
@@ -154,9 +154,9 @@ def test_template_reply_does_not_append_generic_pain_point_question():
 
     result = apply_sales_action(reply, decision)
 
-    assert decision.question_slot == "pain_point"
-    assert result.answer == "好的，我先按您说的情况处理。"
-    assert "最想解决" not in result.answer
+    assert decision.question_slot == "need_track"
+    assert result.answer.count("？") == 1
+    assert "养护指导、选购产品" in result.answer
 
 
 def test_objection_intent_overrides_stage_default_action():

@@ -14,6 +14,10 @@ from app.db.models import (
 )
 from app.services.llm_service import generate_json
 from app.services.sales_action_service import evolve_opportunity
+from app.services.sales_stage_catalog import (
+    get_sales_stage_definition,
+    normalize_sales_stage_reference,
+)
 from app.services.tag_catalog import (
     get_profile_tag_categories,
     get_tag_categories,
@@ -126,6 +130,110 @@ async def patch_user_profile(user_id: str, updates: dict) -> dict:
             )
         session.commit()
         return _profile_to_dict(profile)
+
+
+async def get_sales_opportunity(user_id: str) -> dict:
+    bundle = await get_profile_bundle(user_id)
+    return _sales_opportunity_view(bundle["profile"])
+
+
+async def adjust_sales_opportunity_stage(
+    user_id: str,
+    *,
+    stage: str,
+    reason: str,
+    operator_id: str,
+) -> dict:
+    definition = get_sales_stage_definition(stage)
+    if definition is None:
+        raise ValueError("非法销售阶段")
+    if not reason.strip() or not operator_id.strip():
+        raise ValueError("操作人和调整原因不能为空")
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        before = _profile_to_dict(profile)
+        opportunity = _json_loads(profile.active_opportunity_json, {})
+        if not opportunity or opportunity.get("status") != "active":
+            raise ValueError("仅允许调整进行中的销售机会")
+        if isinstance(opportunity.get("interruption"), dict):
+            raise ValueError("销售机会处于中断状态，请先处理售后或人工接管")
+        previous_stage = opportunity.get("current_stage") or profile.current_stage
+        opportunity.update(
+            {
+                "previous_stage": normalize_system_value("sales_stage", previous_stage, fallback="rapport"),
+                "current_stage": definition.stage.value,
+                "sales_stage": definition.stage.value,
+                "stage_reason": f"manual:{reason.strip()}",
+                "transition_type": "manual",
+                "last_active_at": _now().isoformat(),
+                "manual_adjustment": {
+                    "operator_id": operator_id.strip(),
+                    "reason": reason.strip(),
+                    "updated_at": _now().isoformat(),
+                },
+            }
+        )
+        profile.current_stage = definition.stage.value
+        profile.active_opportunity_json = _json_dumps(opportunity)
+        profile.updated_at = _now()
+        after = _profile_to_dict(profile)
+        _add_event(
+            session,
+            profile,
+            "sales_stage_manually_adjusted",
+            before,
+            after,
+            f"operator={operator_id.strip()}; reason={reason.strip()}",
+            None,
+        )
+        session.commit()
+        return _sales_opportunity_view(_profile_to_dict(profile))
+
+
+async def close_sales_opportunity(
+    user_id: str,
+    *,
+    status: str,
+    reason: str,
+    operator_id: str,
+) -> dict:
+    if status not in {"lost", "expired"}:
+        raise ValueError("人工关闭只允许 lost 或 expired，不能伪造成交")
+    if not reason.strip() or not operator_id.strip():
+        raise ValueError("操作人和关闭原因不能为空")
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        before = _profile_to_dict(profile)
+        opportunity = _json_loads(profile.active_opportunity_json, {})
+        if not opportunity or opportunity.get("status") != "active":
+            raise ValueError("仅允许关闭进行中的销售机会")
+        now = _now()
+        opportunity.update(
+            {
+                "status": status,
+                "close_reason": reason.strip(),
+                "closed_at": now.isoformat(),
+                "last_active_at": now.isoformat(),
+                "asked_slots": [],
+                "recommended_product_ids": [],
+                "manual_close": {"operator_id": operator_id.strip(), "reason": reason.strip()},
+            }
+        )
+        opportunity.pop("decision_blocker", None)
+        profile.active_opportunity_json = _json_dumps(opportunity)
+        profile.updated_at = now
+        after = _profile_to_dict(profile)
+        _add_event(
+            session,
+            profile,
+            "sales_opportunity_manually_closed",
+            before,
+            after,
+            f"operator={operator_id.strip()}; status={status}; reason={reason.strip()}",
+            None,
+        )
+        session.commit()
+        return _sales_opportunity_view(_profile_to_dict(profile))
 
 
 async def add_verified_customer_tag(
@@ -1012,6 +1120,44 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "friend_added_at": _datetime_to_iso(profile.friend_added_at),
         "created_at": _datetime_to_iso(profile.created_at),
         "updated_at": _datetime_to_iso(profile.updated_at),
+    }
+
+
+def _sales_opportunity_view(profile: dict) -> dict:
+    opportunity = profile.get("active_opportunity")
+    opportunity = dict(opportunity) if isinstance(opportunity, dict) else {}
+    stage = opportunity.get("current_stage") or profile.get("current_stage")
+    normalized_stage = normalize_sales_stage_reference(stage).stage
+    stage = normalized_stage.value if normalized_stage else stage
+    definition = get_sales_stage_definition(stage)
+    slots = opportunity.get("slots") if isinstance(opportunity.get("slots"), dict) else {}
+    missing_slots: list[str] = []
+    if definition and definition.required_slot_groups:
+        groups = [
+            [slot for slot in group if slots.get(slot) in (None, "", [])]
+            for group in definition.required_slot_groups
+        ]
+        if groups and not any(not group for group in groups):
+            missing_slots = min(groups, key=len)
+    return {
+        "user_id": profile.get("user_id"),
+        "status": opportunity.get("status"),
+        "current_stage": definition.stage.value if definition else stage,
+        "previous_stage": opportunity.get("previous_stage"),
+        "stage_display_name": definition.display_name if definition else "未知阶段",
+        "stage_objective": definition.objective if definition else None,
+        "stage_reason": opportunity.get("stage_reason"),
+        "stage_evidence": opportunity.get("stage_evidence", []),
+        "known_slots": slots,
+        "missing_slots": missing_slots,
+        "asked_slots": opportunity.get("asked_slots", []),
+        "decision_blocker": opportunity.get("decision_blocker"),
+        "recommended_product_ids": opportunity.get("recommended_product_ids", []),
+        "next_action": opportunity.get("last_sales_action"),
+        "reply_goal": opportunity.get("last_reply_goal"),
+        "interruption": opportunity.get("interruption"),
+        "updated_at": profile.get("updated_at"),
+        "opportunity": opportunity,
     }
 
 

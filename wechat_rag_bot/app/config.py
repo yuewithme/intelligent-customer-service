@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -86,6 +86,18 @@ class Settings(BaseSettings):
         default=15.0, ge=0, alias="EYUN_CONTACT_REFRESH_DELAY_SECONDS"
     )
     evaluation_mode: bool = Field(default=False, alias="EVALUATION_MODE")
+    first_order_sales_flow_v2_enabled: bool | None = Field(
+        default=None, alias="FIRST_ORDER_SALES_FLOW_V2_ENABLED"
+    )
+
+    @model_validator(mode="after")
+    def default_sales_flow_v2_by_environment(self):
+        if self.first_order_sales_flow_v2_enabled is None:
+            self.first_order_sales_flow_v2_enabled = self.app_env.lower() not in {
+                "prod",
+                "production",
+            }
+        return self
 
     youzan_enabled: bool = False
     youzan_base_url: str = "https://open.youzanyun.com"

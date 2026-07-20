@@ -20,6 +20,20 @@ class CandidateQuestion(BaseModel):
     priority: int = 0
 
 
+class SalesTalkScript(BaseModel):
+    template_id: str
+    sales_stage: str
+    sales_action: str
+    branch_code: str
+    answer: str
+    required_conditions: list[str] = Field(default_factory=list)
+    exclude_conditions: list[str] = Field(default_factory=list)
+    required_fact_keys: list[str] = Field(default_factory=list)
+    variables: list[str] = Field(default_factory=list)
+    priority: int = 0
+    status: str = "active"
+
+
 class ClassifierDecision(BaseModel):
     matched: bool
     question_id: str | None = None
