@@ -6,7 +6,17 @@ import unicodedata
 from typing import Any
 
 
-ORCHID_MATERIAL_TEXT = "亲，这是我们萧岚苑陪伴养兰服务的资料，您可以查收一下"
+ORCHID_MATERIAL_TEXT = (
+    "直播间展示的是图文版资料， 我们以电子档形式给您发放了，请及时参考，"
+    "48小时链接会失效哦~\n"
+    "我们在浙江，品类比较丰富，春蕙兰建兰墨兰等传统品种都在种植，"
+    "如果以后您有喜欢的品种可以考虑下我们家，结缘任意一株兰草都可享受"
+    "陪伴养兰手把手指导服务，资料-百节视频-一对一指导都是长期给会员开放权限的"
+)
+ORCHID_MATERIAL_IMAGE_URL = (
+    "http://124.160.45.66:21873/static/orchid-material/"
+    "companion-service-video-links.png"
+)
 ORCHID_MATERIAL_CARD = {
     "note_id": "24482256",
     "note_alias": "0Ja8r3cajo",
@@ -78,11 +88,16 @@ def orchid_material_chat_result(content: str) -> dict[str, Any] | None:
         "answer": ORCHID_MATERIAL_TEXT,
         "answer_segments": [ORCHID_MATERIAL_TEXT],
         "outbound_messages": [
-            {"type": "text", "content": ORCHID_MATERIAL_TEXT},
             {
                 "type": "link_card",
                 "content": json.dumps(card_payload, ensure_ascii=False),
             },
+            {
+                "type": "text",
+                "content": ORCHID_MATERIAL_TEXT,
+                "split": False,
+            },
+            {"type": "image", "content": ORCHID_MATERIAL_IMAGE_URL},
         ],
         "reply_type": "fixed_resource",
         "route": "orchid_material_delivery",

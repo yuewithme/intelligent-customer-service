@@ -1027,6 +1027,11 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
                     if message.get("material_id")
                     else {}
                 ),
+                **(
+                    {"split": False}
+                    if message.get("split") is False
+                    else {}
+                ),
             }
             for message in messages
             if isinstance(message, dict)
@@ -1037,7 +1042,8 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
         if valid:
             formatted: list[dict[str, str]] = []
             for message in valid:
-                if message["type"] != "text":
+                if message["type"] != "text" or message.get("split") is False:
+                    message.pop("split", None)
                     formatted.append(message)
                     continue
                 formatted.extend(

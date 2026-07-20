@@ -2,6 +2,7 @@ import json
 
 from app.services.orchid_material_service import (
     ORCHID_MATERIAL_CARD,
+    ORCHID_MATERIAL_IMAGE_URL,
     ORCHID_MATERIAL_TEXT,
     is_orchid_material_request,
     orchid_material_chat_result,
@@ -34,10 +35,11 @@ def test_orchid_material_reply_uses_fixed_youzan_card():
     assert result["answer"] == ORCHID_MATERIAL_TEXT
     assert result["route"] == "orchid_material_delivery"
     assert [message["type"] for message in result["outbound_messages"]] == [
-        "text",
         "link_card",
+        "text",
+        "image",
     ]
-    card = json.loads(result["outbound_messages"][1]["content"])
+    card = json.loads(result["outbound_messages"][0]["content"])
     assert card == {
         "title": "萧岚苑陪伴养兰资料",
         "url": (
@@ -46,6 +48,15 @@ def test_orchid_material_reply_uses_fixed_youzan_card():
         ),
         "description": ORCHID_MATERIAL_CARD["description"],
         "thumb_url": ORCHID_MATERIAL_CARD["thumb_url"],
+    }
+    assert result["outbound_messages"][1] == {
+        "type": "text",
+        "content": ORCHID_MATERIAL_TEXT,
+        "split": False,
+    }
+    assert result["outbound_messages"][2] == {
+        "type": "image",
+        "content": ORCHID_MATERIAL_IMAGE_URL,
     }
 
 

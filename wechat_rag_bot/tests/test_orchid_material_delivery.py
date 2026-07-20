@@ -33,10 +33,17 @@ def test_outbound_messages_keep_fixed_link_card_payload():
 
     assert result is not None
     messages = _outbound_messages(result)
-    assert [message["type"] for message in messages] == ["text", "link_card"]
-    assert json.loads(messages[1]["content"])["url"].endswith(
+    assert [message["type"] for message in messages] == [
+        "link_card",
+        "text",
+        "image",
+    ]
+    assert json.loads(messages[0]["content"])["url"].endswith(
         "noteAlias=0Ja8r3cajo"
     )
+    assert messages[1]["content"].startswith("直播间展示的是图文版资料")
+    assert messages[1]["content"].count("\n") == 1
+    assert messages[2]["content"].endswith("companion-service-video-links.png")
 
 
 @pytest.mark.asyncio
@@ -106,12 +113,12 @@ async def test_process_batch_sends_fixed_material_without_calling_ai(monkeypatch
     await _process_inbound_batch(batch_id)
 
     assert [row.get("message_type", "text") for row in queued] == [
-        "text",
         "link_card",
+        "text",
+        "image",
     ]
-    assert queued[0]["content"] == (
-        "亲，这是我们萧岚苑陪伴养兰服务的资料，您可以查收一下"
-    )
-    assert json.loads(queued[1]["content"])["url"].endswith(
+    assert json.loads(queued[0]["content"])["url"].endswith(
         "noteAlias=0Ja8r3cajo"
     )
+    assert queued[1]["content"].startswith("直播间展示的是图文版资料")
+    assert queued[2]["content"].endswith("companion-service-video-links.png")
