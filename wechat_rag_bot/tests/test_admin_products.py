@@ -323,7 +323,7 @@ async def test_legacy_aliases_are_backfilled_once_into_new_catalog(monkeypatch, 
         )
         connection.execute(
             "INSERT INTO orchid_varieties VALUES (?, ?, ?)",
-            ("建兰皇帝", "皇帝梅", "皇帝梅，帝王梅"),
+            ("建兰皇帝", "皇帝梅", "皇帝梅，帝王梅，无，部分文献称“皇帝兰”"),
         )
 
     reset_product_store_for_tests()

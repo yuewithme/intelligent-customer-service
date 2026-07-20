@@ -173,11 +173,17 @@ def _ensure_product_knowledge_aliases(engine) -> None:
 
 
 def _alias_values(value: str | None) -> list[str]:
-    return [
-        item.strip()
-        for item in re.split(r"[\s,，、;；/|]+", str(value or ""))
-        if item.strip()
-    ]
+    aliases = []
+    for item in re.split(r"[\s,，、;；/|]+|或", str(value or "")):
+        alias = item.strip().strip("‘’“”\"'")
+        if not alias or alias in {"无", "暂无", "未知", "不详", "待补充", "无别名"}:
+            continue
+        if any(marker in alias for marker in ("文献", "资料", "别名", "待补", "未确认")):
+            continue
+        if len(alias) > 32:
+            continue
+        aliases.append(alias)
+    return aliases
 
 
 def _normalize_product_name(value: str | None) -> str:
