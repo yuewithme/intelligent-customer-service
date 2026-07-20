@@ -77,13 +77,24 @@ def is_orchid_material_request(content: str) -> bool:
         return False
     if any(value in normalized for value in _DIRECT_TRIGGERS):
         return True
-    has_resource = "资料" in normalized
+    has_resource = any(value in normalized for value in ("资料", "教程"))
     has_request = any(
         value in normalized
-        for value in ("发我", "发一下", "给我", "想要", "需要", "领取", "看看")
+        for value in (
+            "发我",
+            "发一下",
+            "给我",
+            "想要",
+            "需要",
+            "领取",
+            "怎么领",
+            "获取",
+            "看看",
+        )
     )
     has_orchid_context = any(
-        value in normalized for value in ("养兰", "兰花", "养护", "萧岚苑")
+        value in normalized
+        for value in ("养兰", "兰花", "养护", "萧岚苑", "直播间", "视频")
     )
     return has_resource and has_request and has_orchid_context
 

@@ -121,7 +121,17 @@ def test_material_video_issue_context_requires_a_sent_material():
 
 
 @pytest.mark.asyncio
-async def test_process_batch_sends_fixed_material_without_calling_ai(monkeypatch):
+@pytest.mark.parametrize(
+    "content",
+    [
+        "麻烦发一下养兰资料",
+        "养护教程发一下",
+        "直播间说有师傅教，有视频资料免费领取",
+    ],
+)
+async def test_process_batch_sends_fixed_material_without_calling_ai(
+    monkeypatch, content
+):
     from app.services.message_risk_control_service import (
         _get_session,
         _process_inbound_batch,
@@ -173,7 +183,7 @@ async def test_process_batch_sends_fixed_material_without_calling_ai(monkeypatch
             from_group=None,
             account="acct",
             message_type="60001",
-            content="麻烦发一下养兰资料",
+            content=content,
             message_count=1,
             status="processing",
             due_at=now,

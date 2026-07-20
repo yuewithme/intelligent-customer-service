@@ -17,6 +17,8 @@ def test_orchid_material_keywords_and_negations():
         "养兰资料",
         "麻烦把养兰的资料发我一下",
         "我想要一份兰花养护资料",
+        "养护教程发一下",
+        "直播间说有师傅教，有视频资料免费领取",
     ):
         assert is_orchid_material_request(content) is True
 
@@ -25,6 +27,8 @@ def test_orchid_material_keywords_and_negations():
         "不用发资料了",
         "我不需要养兰资料",
         "兰花怎么浇水",
+        "养护教程写得很清楚",
+        "视频资料很好看",
     ):
         assert is_orchid_material_request(content) is False
 
