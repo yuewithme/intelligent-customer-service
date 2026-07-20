@@ -22,10 +22,15 @@ def _state() -> UserState:
     return UserState(user_id="eval_user", session_id="eval_session")
 
 
-def _intent(route: str, primary_intent: str) -> IntentResult:
+def _intent(
+    route: str,
+    primary_intent: str,
+    sales_stage: str = "unknown",
+) -> IntentResult:
     return IntentResult(
         route=route,
         primary_intent=primary_intent,
+        sales_stage=sales_stage,
         confidence=0.9,
         reason="eval_case",
     )
@@ -84,7 +89,7 @@ async def test_recommend_short_sentence_asks_sales_qualifying_question(monkeypat
 
     reply = await reply_workflow_graph.execute_reply_plan(
         plan=_plan("template_reply"),
-        intent=_intent("template_reply", "order_intent"),
+        intent=_intent("template_reply", "order_intent", "need_discovery"),
         message=_message("recommend one"),
         user_state=_state(),
         stage_latencies={},

@@ -50,6 +50,7 @@ async def match_talk_script(
     session_id: str | None = None,
     recent_messages: list[str] | None = None,
     customer_tags: dict | None = None,
+    sales_stage: str | None = None,
     classifier: Classifier | None = None,
 ) -> TalkScriptMatchResult:
     normalized_message = normalize_message(current_message)
@@ -207,6 +208,30 @@ async def match_talk_script(
             current_message,
             normalized_message,
             match_reason=decision.reason,
+        )
+        return result
+
+    if (
+        sales_stage
+        and template.sales_stage
+        and template.sales_stage != sales_stage
+    ):
+        result = _pass_through(
+            scene_id=scene_id,
+            candidate_question_ids=candidate_ids,
+            reason="sales_stage_template_mismatch",
+            confidence=decision.confidence,
+        )
+        result.question_id = question.question_id
+        result.template_id = template.template_id
+        _record_result(
+            result,
+            trace_id,
+            customer_id,
+            session_id,
+            current_message,
+            normalized_message,
+            match_reason="sales_stage_template_mismatch",
         )
         return result
 

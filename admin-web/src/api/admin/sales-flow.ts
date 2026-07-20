@@ -8,6 +8,8 @@ export interface SalesStageDefinition {
   entry_evidence_any: string[]
   exit_evidence_any: string[]
   allowed_actions: string[]
+  allowed_knowledge_sources: string[]
+  conditional_knowledge_sources: string[]
   required_slot_groups: string[][]
   prohibited_behaviors: string[]
   script_coverage: number

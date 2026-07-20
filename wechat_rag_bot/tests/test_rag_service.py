@@ -48,6 +48,48 @@ def test_product_recommendation_retrieval_keeps_product_copy_only():
     assert rag_service.select_product_recommendation_docs(docs) == [docs[0], docs[2]]
 
 
+def test_product_catalog_docs_only_include_fields_released_for_the_stage():
+    products = [
+        {
+            "item_id": "1001",
+            "title": "小国魂",
+            "price_cent": 2990,
+            "stock": 8,
+            "knowledge": {
+                "product_name": "小国魂",
+                "flower_color": "红色",
+                "highlighted_features": "稀有卖点",
+                "sales_copy": "立即下单话术",
+            },
+        }
+    ]
+
+    catalog_doc = rag_service._catalog_product_docs(products, {"product_catalog"})[0]
+    value_doc = rag_service._catalog_product_docs(
+        products, {"product_catalog", "product_value"}
+    )[0]
+
+    assert "小国魂" in catalog_doc["text"]
+    assert "红色" in catalog_doc["text"]
+    assert "稀有卖点" not in catalog_doc["text"]
+    assert "立即下单话术" not in catalog_doc["text"]
+    assert "29.90" not in catalog_doc["text"]
+    assert "当前库存" not in catalog_doc["text"]
+    assert "稀有卖点" in value_doc["text"]
+    assert "29.90" not in value_doc["text"]
+
+
+def test_stage_source_filter_blocks_product_and_promotion_rows_from_care_only_access():
+    docs = [
+        {"source_table": "orchid_common_knowledge", "text": "养护"},
+        {"source_table": "youzan_product_knowledge", "text": "商品"},
+        {"source_table": "orchid_sales_copy", "text": "塑品"},
+        {"source_table": "activities", "text": "活动"},
+    ]
+
+    assert rag_service.select_stage_allowed_docs(docs, {"care_safe"}) == [docs[0]]
+
+
 def test_product_recommendation_retrieval_question_includes_recent_context():
     context = ContextPackage(
         recent_turns=[

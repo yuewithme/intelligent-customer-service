@@ -51,6 +51,19 @@ PRODUCT_SOURCE_TABLES = {
     "orchid_products",
     "orchid_sales_copy",
 }
+PRODUCT_CATALOG_SOURCE_TABLES = {
+    "youzan_products",
+    "youzan_product_knowledge",
+    "orchid_varieties",
+    "orchid_variety_traits",
+    "orchid_products",
+}
+PRODUCT_VALUE_SOURCE_TABLES = {
+    "orchid_value_points",
+    "orchid_sales_copy",
+}
+SKU_SOURCE_TABLES = {"youzan_product_skus", "orchid_skus"}
+PROMOTION_SOURCE_TABLES = {"activities", "activity_library", "promotions"}
 LEGACY_ORCHID_COMMON_TABLE = "orchid_common_knowledge"
 
 
@@ -183,12 +196,20 @@ def _is_legacy_product_doc(doc: dict[str, Any]) -> bool:
     return source_table.startswith("orchid_") and source_table != LEGACY_ORCHID_COMMON_TABLE
 
 
-def _catalog_product_docs(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _catalog_product_docs(
+    products: list[dict[str, Any]],
+    allowed_source_groups: set[str] | None = None,
+) -> list[dict[str, Any]]:
     docs = []
+    allowed = (
+        {"product_catalog", "product_value", "sku_facts"}
+        if allowed_source_groups is None
+        else allowed_source_groups
+    )
     for product in products:
         knowledge = product.get("knowledge")
         knowledge = knowledge if isinstance(knowledge, dict) else {}
-        values = (
+        catalog_values = (
             ("产品名称", knowledge.get("product_name") or product.get("title")),
             ("产品别名", knowledge.get("aliases")),
             ("所属类别", knowledge.get("category")),
@@ -199,11 +220,22 @@ def _catalog_product_docs(products: list[dict[str, Any]]) -> list[dict[str, Any]
             ("适合养护场景", knowledge.get("care_scenes")),
             ("花期", knowledge.get("bloom_period")),
             ("适合人群", knowledge.get("audience_tag")),
+        )
+        value_values = (
             ("突出特征", knowledge.get("highlighted_features")),
             ("塑品话术", knowledge.get("sales_copy")),
+        )
+        sku_values = (
             ("当前售价", _price_text(product.get("price_cent"))),
             ("当前库存", product.get("stock")),
         )
+        values = (
+            *(catalog_values if "product_catalog" in allowed else ()),
+            *(value_values if "product_value" in allowed else ()),
+            *(sku_values if "sku_facts" in allowed else ()),
+        )
+        if not values:
+            continue
         item_id = str(product.get("item_id") or "").strip()
         docs.append(
             {
@@ -225,6 +257,9 @@ def _catalog_product_docs(products: list[dict[str, Any]]) -> list[dict[str, Any]
                 "source_table": "youzan_product_knowledge",
                 "entity_type": "catalog_product",
                 "item_id": item_id,
+                "source_groups": sorted(
+                    allowed & {"product_catalog", "product_value", "sku_facts"}
+                ),
             }
         )
     return docs
@@ -245,6 +280,41 @@ def _is_sales_doc(doc: dict[str, Any]) -> bool:
         or doc.get("entity_type") == "sales_copy"
         or section.endswith("话术")
     )
+
+
+def select_stage_allowed_docs(
+    docs: list[dict[str, Any]],
+    allowed_source_groups: set[str] | None,
+) -> list[dict[str, Any]]:
+    if allowed_source_groups is None:
+        return docs
+    selected = []
+    for doc in docs:
+        source_groups = doc.get("source_groups")
+        if (
+            isinstance(source_groups, list)
+            and set(source_groups) & allowed_source_groups
+        ):
+            selected.append(doc)
+            continue
+        if _doc_source_group(doc) in allowed_source_groups:
+            selected.append(doc)
+    return selected
+
+
+def _doc_source_group(doc: dict[str, Any]) -> str:
+    source_table = str(doc.get("source_table") or "").strip()
+    if source_table in PRODUCT_VALUE_SOURCE_TABLES or _is_sales_doc(doc):
+        return "product_value"
+    if source_table in PRODUCT_CATALOG_SOURCE_TABLES:
+        return "product_catalog"
+    if source_table in SKU_SOURCE_TABLES:
+        return "sku_facts"
+    if source_table in PROMOTION_SOURCE_TABLES:
+        return "promotion"
+    if source_table in {"service_sops", "unpurchased_sops"}:
+        return "service_sop"
+    return "care_safe"
 
 
 def _requires_care_only_docs(
@@ -381,11 +451,17 @@ async def rag_chat(
         )
         knowledge_base_ids = policy.knowledge_base_ids if policy else []
         search_kb_ids = knowledge_base_ids or _default_search_kb_ids(kb_id)
+        allowed_source_groups = (
+            set(policy.retrieval_policy.get("allowed_source_groups", []))
+            if policy and "allowed_source_groups" in policy.retrieval_policy
+            else None
+        )
         candidates = []
         stage_started = time.perf_counter()
         if policy and policy.retrieval_policy.get("mode") == "product_recommendation":
             candidates = _catalog_product_docs(
-                search_catalog_products(retrieval_question, limit=settings.rag_top_k)
+                search_catalog_products(retrieval_question, limit=settings.rag_top_k),
+                allowed_source_groups,
             )
         else:
             for search_kb_id in search_kb_ids:
@@ -415,6 +491,10 @@ async def rag_chat(
             filtered_candidates = select_care_docs(candidates)
         else:
             filtered_candidates = _select_non_sales_docs(candidates)
+        filtered_candidates = select_stage_allowed_docs(
+            filtered_candidates,
+            allowed_source_groups,
+        )
         docs = await rerank_service.rerank(
             retrieval_question, filtered_candidates, settings.rag_top_n
         )

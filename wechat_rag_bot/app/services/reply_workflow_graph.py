@@ -50,6 +50,7 @@ async def talk_script_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
         session_id=message.session_id,
         recent_messages=[],
         customer_tags={"tags": user_state.customer_tags},
+        sales_stage=state["intent"].sales_stage,
     )
     stage_latencies["talk_script_ms"] = _elapsed_ms(stage_started)
     if talk_script.status == "matched":

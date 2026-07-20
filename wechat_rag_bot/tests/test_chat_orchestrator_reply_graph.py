@@ -70,7 +70,8 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
         del intent, user_state, message
         return PolicyDecision(route="rag_answer", reason="test_policy")
 
-    async def build_business_context(message):
+    async def build_business_context(message, **kwargs):
+        del kwargs
         assert message.trace_id == "trace_001"
         return BusinessFacts()
 
@@ -285,8 +286,8 @@ async def test_orchestrator_uses_trusted_payment_facts_before_stage_decision(mon
             confidence=0.9,
         )
 
-    async def build_business_context(message):
-        del message
+    async def build_business_context(message, **kwargs):
+        del message, kwargs
         return BusinessFacts(tool_state={"payment_status": "paid"})
 
     async def update_user_state(user_id, session_id, intent, reply):

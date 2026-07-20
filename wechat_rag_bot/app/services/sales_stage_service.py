@@ -271,12 +271,24 @@ def _controlled_loop(
         for key in incoming
         if key not in old_slots or old_slots.get(key) != normalized.slots.get(key)
     }
-    if current_stage is SalesStage.CLOSING and normalized.slots.get("blocker_resolved") is True:
-        return SalesStage.TRIAL_CLOSE, "blocker_resolved"
     if "pain_point" in changed:
         return SalesStage.PAIN_DISCOVERY, "new_core_pain"
     if changed & ENVIRONMENT_AND_FIT_SLOTS:
         return SalesStage.SOLUTION_RECOMMENDED, "recommendation_context_changed"
+    if current_stage is SalesStage.TRIAL_CLOSE and CustomerSignal.OBJECTION in set(
+        normalized.signals
+    ):
+        blocker = normalized.slots.get("decision_blocker")
+        blocker_type = blocker.get("type") if isinstance(blocker, dict) else None
+        if blocker_type in {"choice", "product_fit"}:
+            return SalesStage.SOLUTION_RECOMMENDED, "recommendation_blocker"
+        if blocker_type != "timing":
+            return SalesStage.VALUE_BUILT, "customer_value_concern"
+    if (
+        current_stage is SalesStage.CLOSING
+        and normalized.slots.get("blocker_resolved") is True
+    ):
+        return SalesStage.TRIAL_CLOSE, "blocker_resolved"
     return None
 
 

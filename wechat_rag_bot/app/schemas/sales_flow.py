@@ -57,6 +57,18 @@ class SalesAction(str, Enum):
     CLOSE_ORDER = "close_order"
 
 
+class SalesKnowledgeSource(str, Enum):
+    CUSTOMER_CONTEXT = "customer_context"
+    CARE_SAFE = "care_safe"
+    STAGE_SCRIPT = "stage_script"
+    PRODUCT_CATALOG = "product_catalog"
+    PRODUCT_VALUE = "product_value"
+    SKU_FACTS = "sku_facts"
+    PROMOTION = "promotion"
+    ORDER_FACTS = "order_facts"
+    SERVICE_SOP = "service_sop"
+
+
 class SalesStageDefinition(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -67,6 +79,12 @@ class SalesStageDefinition(BaseModel):
     entry_evidence_any: tuple[str, ...] = Field(default_factory=tuple)
     exit_evidence_any: tuple[str, ...] = Field(default_factory=tuple)
     allowed_actions: tuple[SalesAction, ...] = Field(default_factory=tuple)
+    allowed_knowledge_sources: tuple[SalesKnowledgeSource, ...] = Field(
+        default_factory=tuple
+    )
+    conditional_knowledge_sources: tuple[SalesKnowledgeSource, ...] = Field(
+        default_factory=tuple
+    )
     required_slot_groups: tuple[tuple[str, ...], ...] = Field(default_factory=tuple)
     prohibited_behaviors: tuple[str, ...] = Field(default_factory=tuple)
 

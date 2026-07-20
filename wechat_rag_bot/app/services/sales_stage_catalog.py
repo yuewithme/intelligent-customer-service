@@ -2,9 +2,17 @@ from app.schemas.sales_flow import (
     CustomerSignal,
     SalesAction,
     SalesInterruptionType,
+    SalesKnowledgeSource,
     SalesStage,
     SalesStageDefinition,
     SalesStageNormalization,
+)
+
+
+COMMON_KNOWLEDGE_SOURCES = (
+    SalesKnowledgeSource.CUSTOMER_CONTEXT,
+    SalesKnowledgeSource.CARE_SAFE,
+    SalesKnowledgeSource.STAGE_SCRIPT,
 )
 
 
@@ -17,6 +25,8 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
         entry_evidence_any=["new_first_order_opportunity", "responded"],
         exit_evidence_any=["responded", "service_need", "product_need", "combined_need"],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.BUILD_RAPPORT],
+        allowed_knowledge_sources=COMMON_KNOWLEDGE_SOURCES,
+        conditional_knowledge_sources=[SalesKnowledgeSource.PRODUCT_CATALOG],
         required_slot_groups=[],
         prohibited_behaviors=["连续抛出多个问题", "未了解来意就立即硬推产品"],
     ),
@@ -28,6 +38,8 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
         entry_evidence_any=["responded", "service_need", "product_need", "combined_need", "price_interest"],
         exit_evidence_any=["need_track", "service_need", "product_need", "combined_need"],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.DISCOVER_NEED_TRACK],
+        allowed_knowledge_sources=COMMON_KNOWLEDGE_SOURCES,
+        conditional_knowledge_sources=[SalesKnowledgeSource.PRODUCT_CATALOG],
         required_slot_groups=[["need_track"], ["desired_outcome"], ["pain_point"]],
         prohibited_behaviors=["未回答客户当前问题就开始问卷", "重复询问已经明确的需求"],
     ),
@@ -39,6 +51,8 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
         entry_evidence_any=["pain_revealed", "desired_outcome", "product_need", "combined_need"],
         exit_evidence_any=["pain_point", "desired_outcome", "selected_product_id"],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.DISCOVER_PAIN],
+        allowed_knowledge_sources=COMMON_KNOWLEDGE_SOURCES,
+        conditional_knowledge_sources=[SalesKnowledgeSource.PRODUCT_CATALOG],
         required_slot_groups=[["pain_point"], ["desired_outcome"], ["selected_product_id"]],
         prohibited_behaviors=["夸大客户损失", "在证据不足时给出确定性诊断"],
     ),
@@ -50,6 +64,11 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
         entry_evidence_any=["recommendation_ready", "selected_product_id", "preference_revealed"],
         exit_evidence_any=["recommendation_engaged", "selected_product_id", "price_interest"],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.RECOMMEND_SOLUTION],
+        allowed_knowledge_sources=[
+            *COMMON_KNOWLEDGE_SOURCES,
+            SalesKnowledgeSource.PRODUCT_CATALOG,
+        ],
+        conditional_knowledge_sources=[SalesKnowledgeSource.SKU_FACTS],
         required_slot_groups=[
             ["need_track", "region", "budget"],
             ["need_track", "placement", "color_preference"],
@@ -65,6 +84,12 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
         entry_evidence_any=["recommendation_engaged", "selected_product_id"],
         exit_evidence_any=["value_acknowledged", "price_interest", "ready_to_buy"],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.BUILD_VALUE],
+        allowed_knowledge_sources=[
+            *COMMON_KNOWLEDGE_SOURCES,
+            SalesKnowledgeSource.PRODUCT_CATALOG,
+            SalesKnowledgeSource.PRODUCT_VALUE,
+        ],
+        conditional_knowledge_sources=[SalesKnowledgeSource.SKU_FACTS],
         required_slot_groups=[["selected_product_id"], ["selected_sku_id"]],
         prohibited_behaviors=["编造销量或苗质", "承诺无法核实的服务权益"],
     ),
@@ -76,6 +101,16 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
         entry_evidence_any=["price_interest", "value_acknowledged", "ready_to_buy"],
         exit_evidence_any=["ready_to_buy", "objection", "purchase_rejected"],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.TRIAL_CLOSE],
+        allowed_knowledge_sources=[
+            *COMMON_KNOWLEDGE_SOURCES,
+            SalesKnowledgeSource.PRODUCT_CATALOG,
+            SalesKnowledgeSource.PRODUCT_VALUE,
+            SalesKnowledgeSource.SKU_FACTS,
+        ],
+        conditional_knowledge_sources=[
+            SalesKnowledgeSource.PROMOTION,
+            SalesKnowledgeSource.ORDER_FACTS,
+        ],
         required_slot_groups=[["selected_sku_id", "quantity"], ["selected_product_id", "quantity"]],
         prohibited_behaviors=["没有可信价格事实就报价", "客户未确认方案时假设其已同意购买"],
     ),
@@ -90,6 +125,14 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
             SalesAction.ANSWER_CURRENT_QUESTION,
             SalesAction.RESOLVE_BLOCKER,
             SalesAction.CLOSE_ORDER,
+        ],
+        allowed_knowledge_sources=[
+            *COMMON_KNOWLEDGE_SOURCES,
+            SalesKnowledgeSource.PRODUCT_CATALOG,
+            SalesKnowledgeSource.PRODUCT_VALUE,
+            SalesKnowledgeSource.SKU_FACTS,
+            SalesKnowledgeSource.PROMOTION,
+            SalesKnowledgeSource.ORDER_FACTS,
         ],
         required_slot_groups=[["decision_blocker"], ["selected_sku_id", "quantity"]],
         prohibited_behaviors=["制造虚假稀缺", "重复施压", "没有可信订单事实就宣称已经成交"],

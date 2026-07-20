@@ -43,7 +43,7 @@ _templates: dict[str, TemplateItem] = {
         template_id="tpl_purchase_rejection_default",
         name="客户暂不考虑产品",
         intent="purchase_rejection",
-        stage="closing",
+        stage="unknown",
         trigger_examples=["不要再给我推荐产品了", "先不买", "不用推荐"],
         content="明白，那我们先不聊产品，您按自己的节奏考虑就好。",
         priority=100,
@@ -95,7 +95,11 @@ async def search_templates(
     ]
     scored = []
     text = message.message.strip()
-    candidates = database_templates or list(_templates.values())
+    candidates = database_templates or [
+        template
+        for template in _templates.values()
+        if template.stage in {"unknown", intent.sales_stage}
+    ]
     for template in candidates:
         if template.status != "active":
             continue

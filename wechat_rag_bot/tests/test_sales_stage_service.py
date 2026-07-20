@@ -49,7 +49,7 @@ def test_ask_price_after_solution_moves_to_trial_close():
     assert result.reason == "price_after_need_or_solution"
 
 
-def test_price_objection_after_price_moves_to_closing():
+def test_trial_close_objection_loops_back_to_value_building():
     state = UserState(user_id="user_1", sales_stage="price_discussed")
 
     result = decide_sales_stage(
@@ -58,8 +58,25 @@ def test_price_objection_after_price_moves_to_closing():
         tag_result=_tag("price_objection"),
     )
 
-    assert result.stage == "closing"
-    assert result.reason == "objection_intent"
+    assert result.stage == "value_built"
+    assert result.reason == "customer_value_concern"
+    assert result.transition_type == "loop"
+
+
+def test_trial_close_choice_blocker_loops_back_to_solution():
+    state = UserState(user_id="user_1", sales_stage="trial_close")
+    intent = _intent("hesitation", sales_stage="trial_close").model_copy(
+        update={"slots": {"decision_blocker": {"type": "choice", "detail": "不知道选哪个"}}}
+    )
+
+    result = decide_sales_stage(
+        user_state=state,
+        intent=intent,
+        tag_result=_tag("hesitation"),
+    )
+
+    assert result.stage == "solution_recommended"
+    assert result.reason == "recommendation_blocker"
 
 
 def test_weak_intent_does_not_regress_order_stage():

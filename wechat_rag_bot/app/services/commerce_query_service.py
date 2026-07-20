@@ -1,5 +1,6 @@
 import logging
 import re
+from collections.abc import Collection
 
 from app.config import get_settings
 from app.integrations.youzan.client import YouzanClient
@@ -11,6 +12,19 @@ from app.services.product_knowledge_service import search_catalog_products
 
 MOBILE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
 logger = logging.getLogger("wechat_rag_bot.commerce_query")
+CATALOG_KNOWLEDGE_FIELDS = {
+    "product_name",
+    "aliases",
+    "category",
+    "flower_color",
+    "fragrance",
+    "flowering_status",
+    "care_scenes",
+    "bloom_period",
+    "audience_tag",
+}
+VALUE_KNOWLEDGE_FIELDS = {"highlighted_features", "sales_copy"}
+SKU_KNOWLEDGE_FIELDS = {"price_budget", "market_price"}
 
 
 async def build_commerce_context(
@@ -23,10 +37,15 @@ async def build_commerce_context(
     mini_program_base: dict | None = None,
     order_card: dict | None = None,
     identity_store=None,
+    allowed_source_groups: Collection[str] | None = None,
 ) -> BusinessFacts:
     commerce_type = _commerce_type(intent.primary_intent)
     if not commerce_type:
         return BusinessFacts()
+    if allowed_source_groups is not None:
+        required_source = "product_catalog" if commerce_type == "product" else "order_facts"
+        if required_source not in allowed_source_groups:
+            return BusinessFacts()
 
     settings = get_settings()
     if commerce_type != "product" and order_service is None:
@@ -73,6 +92,11 @@ async def build_commerce_context(
                 product_data = [product.model_dump() for product in products]
             else:
                 product_data = search_catalog_products(keyword, limit=3)
+            if allowed_source_groups is not None:
+                product_data = _restrict_product_data(
+                    product_data,
+                    set(allowed_source_groups),
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Local product catalog query failed: %s", type(exc).__name__)
             return BusinessFacts(
@@ -189,6 +213,40 @@ def _commerce_type(primary_intent: str) -> str:
     if primary_intent == "order_query":
         return "order"
     return ""
+
+
+def _restrict_product_data(
+    products: list[dict],
+    allowed_source_groups: set[str],
+) -> list[dict]:
+    allowed_knowledge_fields = set(CATALOG_KNOWLEDGE_FIELDS)
+    if "product_value" in allowed_source_groups:
+        allowed_knowledge_fields.update(VALUE_KNOWLEDGE_FIELDS)
+    if "sku_facts" in allowed_source_groups:
+        allowed_knowledge_fields.update(SKU_KNOWLEDGE_FIELDS)
+
+    result = []
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        restricted = {
+            key: value
+            for key, value in product.items()
+            if key in {"item_id", "title", "alias", "image_url", "knowledge"}
+        }
+        knowledge = product.get("knowledge")
+        if isinstance(knowledge, dict):
+            restricted["knowledge"] = {
+                key: value
+                for key, value in knowledge.items()
+                if key in allowed_knowledge_fields
+            }
+        if "sku_facts" in allowed_source_groups:
+            for key in ("price_cent", "stock", "page_path", "h5_url", "skus"):
+                if key in product:
+                    restricted[key] = product[key]
+        result.append(restricted)
+    return result
 
 
 def _mobile_from(text: str) -> str:

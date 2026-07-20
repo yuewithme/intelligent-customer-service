@@ -49,6 +49,68 @@ def test_product_keyword_reuses_previous_customer_product_request():
 
 
 @pytest.mark.asyncio
+async def test_stage_allowlist_blocks_product_database_query():
+    from app.services.commerce_query_service import build_commerce_context
+
+    class ForbiddenProductService:
+        async def search(self, keyword, *, limit):
+            del keyword, limit
+            raise AssertionError("product database must not be queried in this stage")
+
+    facts = await build_commerce_context(
+        _message("看看小国魂"),
+        UserState(user_id="wxid-customer"),
+        _intent("product_query"),
+        product_service=ForbiddenProductService(),
+        allowed_source_groups={"customer_context", "care_safe", "stage_script"},
+    )
+
+    assert facts == BusinessFacts()
+
+
+@pytest.mark.asyncio
+async def test_early_product_access_strips_value_price_stock_and_purchase_links():
+    from app.services.commerce_query_service import build_commerce_context
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            del keyword, limit
+            return [
+                YouzanProduct(
+                    item_id="1001",
+                    title="小国魂",
+                    alias="逸红双娇",
+                    price_cent=2990,
+                    stock=8,
+                    image_url="https://example.com/product.jpg",
+                    page_path="pages/goods/detail?id=1001",
+                    h5_url="https://example.com/buy/1001",
+                )
+            ]
+
+    facts = await build_commerce_context(
+        _message("看看小国魂"),
+        UserState(user_id="wxid-customer"),
+        _intent("product_query"),
+        product_service=FakeProductService(),
+        allowed_source_groups={
+            "customer_context",
+            "care_safe",
+            "stage_script",
+            "product_catalog",
+        },
+    )
+
+    product = facts.tool_state["products"][0]
+    assert product["title"] == "小国魂"
+    assert "price_cent" not in product
+    assert "stock" not in product
+    assert "page_path" not in product
+    assert "h5_url" not in product
+    assert "mini_program" not in facts.tool_state
+
+
+@pytest.mark.asyncio
 async def test_order_query_without_mobile_asks_for_mobile_and_marks_pending():
     from app.services.commerce_query_service import build_commerce_context
 

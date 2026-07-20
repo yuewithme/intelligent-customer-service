@@ -12,6 +12,8 @@
             <dt>进入条件</dt><dd>{{ join(stage.entry_evidence_any) }}</dd>
             <dt>退出条件</dt><dd>{{ join(stage.exit_evidence_any) }}</dd>
             <dt>允许动作</dt><dd>{{ join(stage.allowed_actions) }}</dd>
+            <dt>可查数据源</dt><dd>{{ join(stage.allowed_knowledge_sources) }}</dd>
+            <dt>按需数据源</dt><dd>{{ join(stage.conditional_knowledge_sources) }}</dd>
             <dt>禁止行为</dt><dd>{{ join(stage.prohibited_behaviors) }}</dd>
           </dl>
         </div>
@@ -39,5 +41,5 @@ onMounted(async () => {
 .stage-list { display: grid; gap: 14px; } article { display: flex; gap: 16px; padding: 20px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; }
 .sequence { display: grid; flex: 0 0 36px; height: 36px; place-items: center; color: #fff; font-weight: 700; background: #238264; border-radius: 50%; }
 .content { flex: 1; } .title { display: flex; justify-content: space-between; } .content > p { margin: 8px 0 14px; color: #374151; }
-dl { display: grid; grid-template-columns: 76px 1fr; gap: 8px; margin: 0; font-size: 13px; } dt { color: #6b7280; } dd { margin: 0; }
+dl { display: grid; grid-template-columns: 88px 1fr; gap: 8px; margin: 0; font-size: 13px; } dt { color: #6b7280; } dd { margin: 0; }
 </style>

@@ -175,6 +175,26 @@ def test_objection_intent_overrides_stage_default_action():
     assert decision.reason == "intent_priority"
 
 
+def test_trial_close_value_concern_uses_value_action_instead_of_closing_action():
+    decision = decide_sales_action(
+        user_state=UserState(user_id="user_1", sales_stage="trial_close"),
+        intent=IntentResult(
+            route="template_reply",
+            primary_intent="price_objection",
+            sales_stage="value_built",
+            confidence=0.9,
+            slots={
+                "sales_stage_reason": "customer_value_concern",
+                "decision_blocker": {"type": "price", "detail": "觉得偏贵"},
+            },
+        ),
+    )
+
+    assert decision.sales_action == "build_value"
+    assert decision.customer_signal == "objection"
+    assert decision.reason == "controlled_loop"
+
+
 def test_order_intent_overrides_discovery_stage():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),

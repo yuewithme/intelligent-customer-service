@@ -24,6 +24,10 @@ from app.services.reply_planner import resolve_reply_plan
 from app.services.reply_workflow_graph import execute_reply_plan
 from app.services.rule_guard_service import check_rules
 from app.services.sales_action_service import apply_sales_action, decide_sales_action
+from app.services.sales_stage_knowledge_policy import (
+    allowed_knowledge_sources,
+    apply_stage_knowledge_policy,
+)
 from app.services.sales_signal_service import normalize_sales_signals
 from app.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
 from app.services.shipping_contact_service import extract_shipping_contact
@@ -108,9 +112,33 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_state=user_state,
             intent=intent,
         )
-        facts = await build_commerce_context(message, user_state, intent)
+        preliminary_signals = normalize_sales_signals(
+            message=message,
+            user_state=user_state,
+            intent=intent,
+            tag_result=tag_result,
+        )
+        preliminary_decision = decide_sales_stage(
+            user_state=user_state,
+            intent=intent,
+            tag_result=tag_result,
+            signal_result=preliminary_signals,
+        )
+        source_allowlist = allowed_knowledge_sources(
+            preliminary_decision.stage,
+            intent,
+        )
+        facts = await build_commerce_context(
+            message,
+            user_state,
+            intent,
+            allowed_source_groups=source_allowlist,
+        )
         if not facts.available:
-            facts = await build_business_context(message)
+            facts = await build_business_context(
+                message,
+                allowed_source_groups=source_allowlist,
+            )
         sales_signals = normalize_sales_signals(
             message=message,
             user_state=user_state,
@@ -142,6 +170,11 @@ async def handle_chat(request: ChatRequest) -> dict:
             base=decision,
             tagged=rich_decision,
             facts=facts,
+        )
+        plan = apply_stage_knowledge_policy(
+            plan,
+            stage=sales_stage_decision.stage,
+            intent=normalized_intent,
         )
         stage_latencies["tag_policy_ms"] = _elapsed_ms(stage_started)
 

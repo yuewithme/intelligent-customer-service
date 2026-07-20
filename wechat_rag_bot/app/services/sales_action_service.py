@@ -66,6 +66,24 @@ def decide_sales_action(
     if stage == "unknown":
         stage = normalize_sales_stage(user_state.sales_stage)
 
+    loop_reason = str(intent.slots.get("sales_stage_reason") or "")
+    if loop_reason == "customer_value_concern" and stage == SalesStage.VALUE_BUILT.value:
+        return _decision(
+            "回到方案价值、信任或养护风险，解决客户当前顾虑",
+            "build_value",
+            known_slots,
+            customer_signal="objection",
+            reason="controlled_loop",
+        )
+    if loop_reason in {"recommendation_blocker", "recommendation_context_changed"}:
+        return _decision(
+            "重新核对客户条件并调整推荐方案",
+            "recommend_solution",
+            known_slots,
+            customer_signal="objection",
+            reason="controlled_loop",
+        )
+
     priority = _priority_action(
         intent.primary_intent,
         intent.need_human,

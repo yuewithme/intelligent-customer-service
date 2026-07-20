@@ -21,6 +21,10 @@ def test_catalog_defines_exactly_seven_ordered_stages_with_valid_actions():
         assert definition.display_name.strip()
         assert definition.objective.strip()
         assert definition.allowed_actions
+        assert definition.allowed_knowledge_sources
+        assert "care_safe" in definition.allowed_knowledge_sources
+        assert "customer_context" in definition.allowed_knowledge_sources
+        assert "stage_script" in definition.allowed_knowledge_sources
         assert isinstance(definition.allowed_actions, tuple)
         assert all(
             isinstance(group, tuple) for group in definition.required_slot_groups

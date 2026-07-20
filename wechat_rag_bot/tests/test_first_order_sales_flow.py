@@ -71,7 +71,16 @@ def test_seven_stage_happy_path_is_evidence_driven():
         ),
         (_signals(CustomerSignal.RECOMMENDATION_ENGAGED), SalesStage.VALUE_BUILT),
         (_signals(CustomerSignal.PRICE_INTEREST), SalesStage.TRIAL_CLOSE),
-        (_signals(CustomerSignal.OBJECTION), SalesStage.CLOSING),
+        (_signals(CustomerSignal.OBJECTION), SalesStage.VALUE_BUILT),
+        (
+            _signals(
+                CustomerSignal.VALUE_ACKNOWLEDGED,
+                slots={"selected_product_id": "product_1"},
+                incoming=["value_acknowledged"],
+            ),
+            SalesStage.TRIAL_CLOSE,
+        ),
+        (_signals(CustomerSignal.READY_TO_BUY), SalesStage.CLOSING),
     ]
 
     for signals, expected in cases:
@@ -83,6 +92,8 @@ def test_seven_stage_happy_path_is_evidence_driven():
         SalesStage.NEED_DISCOVERY,
         SalesStage.PAIN_DISCOVERY,
         SalesStage.SOLUTION_RECOMMENDED,
+        SalesStage.VALUE_BUILT,
+        SalesStage.TRIAL_CLOSE,
         SalesStage.VALUE_BUILT,
         SalesStage.TRIAL_CLOSE,
         SalesStage.CLOSING,
