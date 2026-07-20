@@ -45,7 +45,7 @@ async def list_conversations(
     page = max(page, 1)
     page_size = max(min(page_size, 200), 1)
     with _get_session() as session:
-        filters = []
+        filters = [ConversationModel.hidden_at.is_(None)]
         if status:
             filters.append(ConversationModel.status == status)
         if owner_id:
@@ -214,6 +214,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 conversation.user_avatar_url = avatar_url
 
         conversation.status = status
+        conversation.hidden_at = None
         conversation.owner_id = None
         conversation.last_message = message.message
         conversation.last_route = result.get("route")
@@ -419,6 +420,7 @@ async def record_customer_message(
                 conversation.user_avatar_url = avatar_url
 
         conversation.status = status
+        conversation.hidden_at = None
         conversation.owner_id = None
         conversation.last_message = content
         conversation.last_route = route
@@ -799,6 +801,26 @@ async def mark_conversation_read(conversation_id: str) -> dict:
         result = _conversation_to_dict(conversation)
     if changed:
         _publish_change(conversation_id, "read")
+    return result
+
+
+async def hide_conversation(conversation_id: str) -> dict:
+    with _get_session() as session:
+        conversation = _get_conversation_or_error(session, conversation_id)
+        conversation.hidden_at = _now()
+        session.commit()
+        result = _conversation_to_dict(conversation)
+    _publish_change(conversation_id, "hidden")
+    return result
+
+
+async def unhide_conversation(conversation_id: str) -> dict:
+    with _get_session() as session:
+        conversation = _get_conversation_or_error(session, conversation_id)
+        conversation.hidden_at = None
+        session.commit()
+        result = _conversation_to_dict(conversation)
+    _publish_change(conversation_id, "unhidden")
     return result
 
 
@@ -1209,6 +1231,8 @@ def _ensure_conversation_columns(factory: sessionmaker) -> None:
             session.execute(text("ALTER TABLE conversations ADD COLUMN user_display_name VARCHAR(256)"))
         if "user_avatar_url" not in columns:
             session.execute(text("ALTER TABLE conversations ADD COLUMN user_avatar_url TEXT"))
+        if "hidden_at" not in columns:
+            session.execute(text("ALTER TABLE conversations ADD COLUMN hidden_at DATETIME"))
         message_columns = {
             column["name"]
             for column in inspect(bind).get_columns("conversation_messages")
