@@ -31,7 +31,7 @@ class FakeYouzanClient:
         del version
         if method == "youzan.items.onsale.get":
             return {
-                "count": 3,
+                "count": 4,
                 "items": [
                     {
                         "item_id": 1001,
@@ -54,6 +54,12 @@ class FakeYouzanClient:
                         "price": 3990,
                         "quantity": 12,
                     },
+                    {
+                        "item_id": 1005,
+                        "title": "兰花售后养护服务大礼包",
+                        "price": 100,
+                        "quantity": 99,
+                    },
                 ],
             }
         if method == "youzan.items.inventory.get":
@@ -70,6 +76,16 @@ class FakeYouzanClient:
                     ],
                 }
             return {"count": 0, "items": []}
+        if str(params["item_id"]) == "1005":
+            return {
+                "item": {
+                    "item_id": 1005,
+                    "title": "兰花售后养护服务大礼包",
+                    "price": 100,
+                    "quantity": 99,
+                    "skus": [],
+                }
+            }
         if str(params["item_id"]) == "1004":
             return {
                 "item": {
@@ -129,7 +145,7 @@ async def test_sync_persists_products_skus_and_keeps_manual_sort(monkeypatch, tm
     )
     data = list_products(sort_by="manual")
 
-    assert first["product_count"] == 4
+    assert first["product_count"] == 5
     assert first["sku_count"] == 1
     assert second["trigger"] == "scheduled"
     assert {item["item_id"] for item in data["items"]} == {
@@ -137,6 +153,7 @@ async def test_sync_persists_products_skus_and_keeps_manual_sort(monkeypatch, tm
         "1002",
         "1003",
         "1004",
+        "1005",
     }
     product = next(item for item in data["items"] if item["item_id"] == "1001")
     assert product["title"] == "建兰皇帝（新）"
