@@ -56,7 +56,7 @@ try {
         $healthy = $false
         for ($attempt = 1; $attempt -le 12; $attempt++) {
             try {
-                $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:21873/health" -TimeoutSec 5
+                $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1/health" -TimeoutSec 5
                 if ($response.StatusCode -eq 200) {
                     $healthy = $true
                     break

@@ -217,18 +217,18 @@ def _has_contact_display(metadata: dict[str, Any]) -> bool:
 
 def _eyun_non_text_label(message_type: str) -> str:
     return {
-        "002": "[鍥剧墖]",
-        "003": "[瑙嗛]",
-        "004": "[璇煶]",
-        "005": "[鍚嶇墖]",
-        "006": "[琛ㄦ儏]",
-        "007": "[閾炬帴]",
-        "008": "[鏂囦欢]",
-        "009": "[鏂囦欢]",
-        "010": "[灏忕▼搴廬",
-        "011": "[鑱婂ぉ璁板綍]",
-        "020": "[浣嶇疆]",
-    }.get(message_type[-3:], "[闈炴枃鏈秷鎭痌")
+        "002": "[图片]",
+        "003": "[视频]",
+        "004": "[语音]",
+        "005": "[名片]",
+        "006": "[表情]",
+        "007": "[链接]",
+        "008": "[文件]",
+        "009": "[文件]",
+        "010": "[小程序]",
+        "011": "[聊天记录]",
+        "020": "[位置]",
+    }.get(message_type[-3:], "[非文本消息]")
 
 
 def _message_type_in_range(payload: dict[str, Any], start: int, end: int) -> bool:
@@ -260,7 +260,7 @@ def _eyun_provider_message_id(data: dict[str, Any]) -> str | None:
 
 def _eyun_display_content(payload: dict[str, Any]) -> str:
     if is_eyun_text_message(payload):
-        return str((payload.get("data") or {}).get("content") or "").strip() or "[绌烘秷鎭痌"
+        return str((payload.get("data") or {}).get("content") or "").strip() or "[空消息]"
     return _eyun_non_text_label(str(payload.get("messageType", "")))
 
 
@@ -680,8 +680,8 @@ async def send_eyun_link_card(
     if not base_url or not authorization or not w_id:
         raise RuntimeError("Eyun configuration is incomplete")
     url = str(card.get("url") or "").strip()
-    title = str(card.get("title") or "").strip() or "鏌ョ湅璇︽儏"
-    description = str(card.get("description") or "").strip() or "鐐瑰嚮鏌ョ湅璇︽儏"
+    title = str(card.get("title") or "").strip() or "查看详情"
+    description = str(card.get("description") or "").strip() or "点击查看详情"
     thumb_url = str(card.get("thumb_url") or "").strip()
     if not thumb_url:
         thumb_url = settings.eyun_link_card_default_thumb_url.strip()
