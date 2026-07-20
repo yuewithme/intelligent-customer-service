@@ -139,6 +139,34 @@ async def test_clear_soft_rule_bypasses_llm(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_product_preference_followup_keeps_recommendation_context():
+    from app.services.policy_service import decide_route
+
+    state = UserState(
+        user_id="user_intent",
+        metadata={
+            "recent_turns": [
+                {"role": "user", "content": "国兰有什么推荐的"},
+                {
+                    "role": "assistant",
+                    "content": "推荐小国魂和蕙兰。您更看重好养，还是花香？",
+                },
+            ]
+        },
+    )
+
+    message = _message("我想找好养活的，我不是很懂这个怎么养")
+    intent = await classify_intent(message, state)
+    decision = await decide_route(intent, state, message)
+
+    assert intent.route == "rag_answer"
+    assert intent.primary_intent == "knowledge_question"
+    assert intent.slots["conversation_topic"] == "product_recommendation"
+    assert intent.reason == "contextual_product_preference"
+    assert decision.retrieval_policy == {"mode": "product_recommendation"}
+
+
+@pytest.mark.asyncio
 async def test_hard_rules_bypass_llm_when_llm_intent_is_enabled(monkeypatch):
     from app.config import get_settings
     from app.services import intent_service

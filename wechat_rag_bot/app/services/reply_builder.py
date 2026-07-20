@@ -49,9 +49,15 @@ def build_template_then_rag_reply(
     )
 
 
-def build_clarify_reply(intent: IntentResult) -> FinalReply:
-    if intent.primary_intent in {"care_question", "knowledge_question"}:
-        answer = "我先帮您缩小排查范围。现在主要是黄叶、烂根、黑斑，还是不开花？"
+def build_clarify_reply(intent: IntentResult, message: str = "") -> FinalReply:
+    if intent.slots.get("conversation_topic") == "product_recommendation" or any(
+        marker in message for marker in ("想找", "想要", "好养", "养活", "易活", "性价比")
+    ):
+        answer = "明白，您更看重好养活。您是想在刚才推荐的品种里选，还是让我重新按新手好养给您筛选？"
+    elif intent.primary_intent == "care_question":
+        answer = "我先帮您缩小范围。您是想了解浇水、光照、植料，还是兰花已经出现黄叶、烂根等情况？"
+    elif intent.primary_intent == "knowledge_question":
+        answer = "我先确认一下，您想了解的是具体品种、花香花期，还是日常养护方法？"
     elif intent.primary_intent in {"order_intent", "ask_price", "price_objection"}:
         answer = "可以的，我先按您的情况帮您缩小范围。您更看重好养、花香，还是预算合适？"
     else:

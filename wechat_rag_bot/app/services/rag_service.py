@@ -160,6 +160,18 @@ def _select_non_sales_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [doc for doc in docs if not _is_sales_doc(doc)]
 
 
+def select_product_recommendation_docs(
+    docs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    selected = []
+    for doc in docs:
+        section = str(doc.get("section") or "").strip().upper()
+        if section.startswith(SALES_SECTION_PREFIXES):
+            continue
+        selected.append(doc)
+    return selected
+
+
 def _is_sales_doc(doc: dict[str, Any]) -> bool:
     section = str(doc.get("section") or "").strip()
     return bool(
@@ -196,6 +208,30 @@ def _context(docs: list[dict[str, Any]]) -> str:
             f"{doc.get('text', '')}"
         )
     return "\n\n".join(blocks)
+
+
+def build_retrieval_question(
+    question: str,
+    context: ContextPackage | None,
+    policy: PolicyDecision | None,
+) -> str:
+    if (
+        policy is None
+        or policy.retrieval_policy.get("mode") != "product_recommendation"
+        or context is None
+    ):
+        return question.strip()
+    previous = []
+    for turn in context.recent_turns[-4:]:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role") or "").strip()
+        content = str(turn.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            previous.append(f"{role}: {content[:300]}")
+    if not previous:
+        return question.strip()
+    return "\n".join([*previous, f"user: {question.strip()}"])
 
 
 async def build_rag_prompt(
@@ -272,8 +308,9 @@ async def rag_chat(
                 "stage_latencies": stage_latencies,
             }
 
+        retrieval_question = build_retrieval_question(message, context, policy)
         stage_started = time.perf_counter()
-        vector = await embedding_service.embed_text(message.strip())
+        vector = await embedding_service.embed_text(retrieval_question)
         stage_latencies["embedding_ms"] = round(
             (time.perf_counter() - stage_started) * 1000
         )
@@ -302,13 +339,14 @@ async def rag_chat(
             (time.perf_counter() - stage_started) * 1000
         )
         stage_started = time.perf_counter()
-        filtered_candidates = (
-            select_care_docs(candidates)
-            if _requires_care_only_docs(message, policy)
-            else _select_non_sales_docs(candidates)
-        )
+        if policy and policy.retrieval_policy.get("mode") == "product_recommendation":
+            filtered_candidates = select_product_recommendation_docs(candidates)
+        elif _requires_care_only_docs(message, policy):
+            filtered_candidates = select_care_docs(candidates)
+        else:
+            filtered_candidates = _select_non_sales_docs(candidates)
         docs = await rerank_service.rerank(
-            message.strip(), filtered_candidates, settings.rag_top_n
+            retrieval_question, filtered_candidates, settings.rag_top_n
         )
         stage_latencies["rerank_ms"] = round(
             (time.perf_counter() - stage_started) * 1000

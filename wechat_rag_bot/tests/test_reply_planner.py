@@ -59,6 +59,27 @@ def test_specific_tag_policy_overrides_base_policy_once():
     assert plan.knowledge_base_ids == ["kb_orchid_basic"]
 
 
+def test_tag_policy_keeps_contextual_retrieval_mode_from_base_policy():
+    plan = resolve_reply_plan(
+        base=_decision(
+            "rag_answer",
+            "knowledge_intent",
+            retrieval_policy={"mode": "product_recommendation"},
+        ),
+        tagged=_decision(
+            "rag_answer",
+            "advanced_customer_level_professional_rag",
+            retrieval_policy={"focus": ["constraints"]},
+        ),
+        facts=BusinessFacts(),
+    )
+
+    assert plan.retrieval_policy == {
+        "mode": "product_recommendation",
+        "focus": ["constraints"],
+    }
+
+
 def test_business_facts_are_attached_without_overriding_a_human_route():
     plan = resolve_reply_plan(
         base=_decision("human", "human_required", next_action="human_handoff"),

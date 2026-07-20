@@ -79,7 +79,14 @@ async def decide_route(
     ):
         return PolicyDecision(route="template_then_rag", reason="mixed_sales_knowledge")
     if intent.primary_intent in KNOWLEDGE_INTENTS:
-        return PolicyDecision(route="rag_answer", reason="knowledge_intent")
+        retrieval_policy = {}
+        if intent.slots.get("conversation_topic") == "product_recommendation":
+            retrieval_policy = {"mode": "product_recommendation"}
+        return PolicyDecision(
+            route="rag_answer",
+            reason="knowledge_intent",
+            retrieval_policy=retrieval_policy,
+        )
     if intent.primary_intent in TEMPLATE_INTENTS:
         return PolicyDecision(route="template_reply", reason="template_intent")
     return PolicyDecision(route=intent.route, reason="intent_route")

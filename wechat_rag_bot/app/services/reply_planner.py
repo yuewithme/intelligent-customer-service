@@ -62,7 +62,10 @@ def resolve_reply_plan(
         template_ids=list(selected.template_ids),
         prompt_block_ids=list(selected.prompt_block_ids),
         context_policy=dict(selected.context_policy),
-        retrieval_policy=dict(selected.retrieval_policy),
+        retrieval_policy={
+            **base.retrieval_policy,
+            **selected.retrieval_policy,
+        },
         business_facts=facts,
         decision_trace=trace,
     )

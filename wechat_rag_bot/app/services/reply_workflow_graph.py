@@ -102,7 +102,7 @@ async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     if reply is not None:
         return {"reply": reply}
     stage_latencies["rag_ms"] = 0
-    return {"reply": build_clarify_reply(state["intent"])}
+    return {"reply": build_clarify_reply(state["intent"], state["message"].message)}
 
 
 def _policy_from_plan(plan: ReplyPlan) -> PolicyDecision:
@@ -134,7 +134,7 @@ async def rag_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
     stage_latencies.setdefault("template_ms", 0)
     if _is_rag_no_answer(rag_result):
-        return {"reply": build_clarify_reply(state["intent"])}
+        return {"reply": build_clarify_reply(state["intent"], state["message"].message)}
     return {"reply": build_rag_reply(rag_result, state["intent"])}
 
 
@@ -217,7 +217,7 @@ def unsupported_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
 def clarify_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     state["stage_latencies"].setdefault("template_ms", 0)
     state["stage_latencies"].setdefault("rag_ms", 0)
-    return {"reply": build_clarify_reply(state["intent"])}
+    return {"reply": build_clarify_reply(state["intent"], state["message"].message)}
 
 
 def _after_talk_script(state: ReplyWorkflowState) -> str:

@@ -38,6 +38,39 @@ def test_care_retrieval_excludes_sales_sections():
     assert rag_service.select_care_docs(docs) == [docs[0], docs[6]]
 
 
+def test_product_recommendation_retrieval_keeps_product_copy_only():
+    docs = [
+        {"section": "小国魂 - 养护难度话术", "text": "皮实好养"},
+        {"section": "CHUNK SCRIPT-0001｜催单", "text": "立即下单"},
+        {"section": "小国魂 - 产品基础信息", "text": "适合新手"},
+    ]
+
+    assert rag_service.select_product_recommendation_docs(docs) == [docs[0], docs[2]]
+
+
+def test_product_recommendation_retrieval_question_includes_recent_context():
+    context = ContextPackage(
+        recent_turns=[
+            {"role": "user", "content": "国兰有什么推荐的"},
+            {"role": "assistant", "content": "推荐小国魂和蕙兰。"},
+        ]
+    )
+    policy = PolicyDecision(
+        route="rag_answer",
+        retrieval_policy={"mode": "product_recommendation"},
+    )
+
+    question = rag_service.build_retrieval_question(
+        "我想找好养活的",
+        context,
+        policy,
+    )
+
+    assert "国兰有什么推荐的" in question
+    assert "推荐小国魂和蕙兰" in question
+    assert question.endswith("user: 我想找好养活的")
+
+
 @pytest.mark.asyncio
 async def test_rag_chat_orchestrates_services(monkeypatch):
     from app.config import get_settings

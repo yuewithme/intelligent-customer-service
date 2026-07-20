@@ -82,6 +82,30 @@ PRODUCT_QUERY_WORDS = (
 MOBILE_ONLY_PATTERN = re.compile(r"^1[3-9]\d{9}$")
 PLANT_COUNT_PATTERN = re.compile(r"(?:养了|養了|养|養|有)?[^\d]{0,6}\d{1,5}\s*(?:盆|棵|株)")
 ORCHID_VARIETY_WORDS = ("建兰", "春兰", "蕙兰", "墨兰", "寒兰", "春剑", "莲瓣兰")
+PRODUCT_RECOMMENDATION_CONTEXT_WORDS = (
+    "推荐",
+    "品种",
+    "哪款",
+    "哪种",
+    "性价比",
+    "好养",
+    "易活",
+    "花香",
+    "香味",
+)
+PRODUCT_PREFERENCE_WORDS = (
+    "想找",
+    "想要",
+    "更看重",
+    "好养",
+    "养活",
+    "易活",
+    "新手",
+    "性价比",
+    "花香",
+    "香味",
+    "便宜",
+)
 
 
 def normalize_intent_text(text: str) -> str:
@@ -385,6 +409,13 @@ async def classify_intent(
     if opening_followup is not None:
         return opening_followup
 
+    recommendation_followup = classify_product_recommendation_followup(
+        message.message,
+        user_state.metadata.get("recent_turns", []),
+    )
+    if recommendation_followup is not None:
+        return recommendation_followup
+
     settings = get_settings()
     llm_enabled = bool(getattr(settings, "intent_llm_enabled", False))
     confidence_threshold = getattr(settings, "intent_confidence_threshold", 0.6)
@@ -511,6 +542,35 @@ def classify_opening_followup(
         sales_stage="need_discovery",
         confidence=0.98,
         reason="opening_profile_answer",
+    )
+
+
+def classify_product_recommendation_followup(
+    text: str, recent_turns: list[dict] | None
+) -> IntentResult | None:
+    recent_turns = recent_turns if isinstance(recent_turns, list) else []
+    normalized = normalize_intent_text(text)
+    if not hit_any(normalized, PRODUCT_PREFERENCE_WORDS):
+        return None
+    has_recommendation_context = any(
+        isinstance(turn, dict)
+        and turn.get("role") == "assistant"
+        and hit_any(
+            normalize_intent_text(str(turn.get("content") or "")),
+            PRODUCT_RECOMMENDATION_CONTEXT_WORDS,
+        )
+        for turn in recent_turns[-4:]
+    )
+    if not has_recommendation_context:
+        return None
+    return IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        sales_stage="need_discovery",
+        confidence=0.9,
+        need_rag=True,
+        slots={"conversation_topic": "product_recommendation"},
+        reason="contextual_product_preference",
     )
 
 

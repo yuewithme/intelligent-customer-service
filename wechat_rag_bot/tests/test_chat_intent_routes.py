@@ -28,6 +28,24 @@ def test_rag_no_answer_detection_keeps_llm_fallback_without_sources():
     assert _is_rag_no_answer({"answer": "知识库中没有找到明确答案。", "sources": []}) is True
 
 
+def test_product_recommendation_no_answer_does_not_switch_to_disease_triage():
+    from app.schemas.intent import IntentResult
+    from app.services.reply_builder import build_clarify_reply
+
+    reply = build_clarify_reply(
+        IntentResult(
+            route="rag_answer",
+            primary_intent="knowledge_question",
+            confidence=0.9,
+            slots={"conversation_topic": "product_recommendation"},
+        ),
+        "我想找好养活的，我不是很懂这个怎么养",
+    )
+
+    assert "刚才推荐的品种" in reply.answer
+    assert not any(word in reply.answer for word in ("黄叶", "烂根", "黑斑", "不开花"))
+
+
 def test_unclear_input_stays_in_clarify_route():
     data = _chat("乱七八糟不明确输入", "intent_route_clarify")
 
