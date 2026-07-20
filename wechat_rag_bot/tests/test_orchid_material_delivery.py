@@ -43,7 +43,10 @@ def test_outbound_messages_keep_fixed_link_card_payload():
     )
     assert messages[1]["content"].startswith("直播间展示的是图文版资料")
     assert messages[1]["content"].count("\n") == 1
-    assert messages[2]["content"].endswith("companion-service-video-links.png")
+    assert messages[2]["content"] == (
+        "http://150.158.52.233/static/orchid-material/"
+        "companion-service-video-links.png"
+    )
 
 
 @pytest.mark.asyncio

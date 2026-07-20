@@ -14,7 +14,7 @@ ORCHID_MATERIAL_TEXT = (
     "陪伴养兰手把手指导服务，资料-百节视频-一对一指导都是长期给会员开放权限的"
 )
 ORCHID_MATERIAL_IMAGE_URL = (
-    "http://124.160.45.66:21873/static/orchid-material/"
+    "http://150.158.52.233/static/orchid-material/"
     "companion-service-video-links.png"
 )
 ORCHID_MATERIAL_CARD = {
