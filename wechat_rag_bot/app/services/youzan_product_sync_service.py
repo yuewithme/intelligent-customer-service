@@ -58,6 +58,18 @@ _NON_FLOWER_TITLE_KEYWORDS = (
     "盲盒",
     "兰画",
 )
+_NON_FLOWER_PRODUCT_KEYWORDS = (
+    "植料",
+    "紫砂盆",
+    "肥料",
+    "营养液",
+    "兰架",
+    "喷壶",
+    "剪刀",
+    "杀菌剂",
+    "铺面石",
+    "陶粒",
+)
 
 
 @lru_cache
@@ -221,6 +233,7 @@ def _catalog_filters() -> list[Any]:
         title.is_not(None),
         func.length(func.trim(title)) > 0,
         or_(no_generic_markers, has_specific_bracketed_name),
+        *(~title.ilike(f"%{keyword}%") for keyword in _NON_FLOWER_PRODUCT_KEYWORDS),
     ]
     return filters
 
