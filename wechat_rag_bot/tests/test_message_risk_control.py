@@ -467,10 +467,6 @@ async def test_process_batch_staggers_split_replies(monkeypatch):
         queued.append(kwargs)
         return kwargs
 
-    async def fake_contact_snapshot(**kwargs):
-        del kwargs
-        return {}
-
     monkeypatch.setattr("app.services.message_risk_control_service.utcnow", lambda: now)
     monkeypatch.setattr(
         "app.services.message_risk_control_service.random_reply_delay_seconds",
@@ -480,13 +476,14 @@ async def test_process_batch_staggers_split_replies(monkeypatch):
     monkeypatch.setattr(
         "app.services.message_risk_control_service.random_outbound_spacing_seconds",
         lambda: next(spacings),
+        raising=False,
     )
     monkeypatch.setattr(
         "app.services.message_risk_control_service.handle_chat", fake_handle_chat
     )
     monkeypatch.setattr(
         "app.services.message_risk_control_service.get_eyun_contact_snapshot",
-        fake_contact_snapshot,
+        lambda **kwargs: _async_value({}),
     )
     monkeypatch.setattr(
         "app.services.message_risk_control_service.is_first_eyun_inbound_message",
@@ -564,6 +561,10 @@ def test_outbound_text_messages_are_plain_short_messages():
         {"type": "text", "content": "第一步：剪掉烂根。然后放通风处晾干。"},
         {"type": "image", "content": "https://example.com/a.jpg"},
     ]
+
+
+async def _async_value(value):
+    return value
 
 
 @pytest.mark.asyncio
