@@ -30,6 +30,7 @@ logger = logging.getLogger("wechat_rag_bot.eyun_callback")
 EYUN_TEST_CALLBACK = "00000"
 EYUN_PRIVATE_TEXT = "60001"
 EYUN_PRIVATE_IMAGE = "60002"
+EYUN_PRIVATE_OTHER = "60999"
 EYUN_GROUP_TEXT = "80001"
 
 
@@ -78,10 +79,27 @@ def is_eyun_private_text_message(payload: dict[str, Any]) -> bool:
 
 
 def is_eyun_private_image_message(payload: dict[str, Any]) -> bool:
-    return str(payload.get("messageType", "")) == EYUN_PRIVATE_IMAGE
+    return _eyun_image_detection(payload) is not None
+
+
+def normalize_eyun_private_image_payload(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    detection = _eyun_image_detection(payload)
+    message_type = str(payload.get("messageType", ""))
+    if detection is None or message_type == EYUN_PRIVATE_IMAGE:
+        return payload
+    return {
+        **payload,
+        "messageType": EYUN_PRIVATE_IMAGE,
+        "_eyun_original_message_type": message_type,
+        "_eyun_image_detection": detection,
+        "data": dict(payload.get("data") or {}),
+    }
 
 
 async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = normalize_eyun_private_image_payload(payload)
     message_type = str(payload.get("messageType", ""))
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     if is_eyun_group_payload(payload):
@@ -140,6 +158,17 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             },
         )
     is_private_image = is_eyun_private_image_message(payload)
+    if is_private_image:
+        logger.info(
+            "Eyun image callback accepted messageType=%s originalMessageType=%s "
+            "messageId=%s fromUser=%s hasThumbnail=%s detection=%s",
+            message_type,
+            str(payload.get("_eyun_original_message_type") or message_type),
+            _eyun_message_id(data),
+            user_id,
+            bool(str(data.get("img") or "").strip()),
+            str(payload.get("_eyun_image_detection") or "message_type"),
+        )
     await record_customer_message(
         channel="wechat",
         user_id=user_id,
@@ -302,6 +331,13 @@ async def _eyun_workbench_metadata(
         "provider_msg_id": _eyun_provider_message_id(data),
         "skip_customer_record": True,
     }
+    if payload.get("_eyun_original_message_type"):
+        metadata["original_message_type"] = str(
+            payload["_eyun_original_message_type"]
+        )
+        metadata["image_detection"] = str(
+            payload.get("_eyun_image_detection") or ""
+        )
     metadata.update(await get_eyun_contact_snapshot(w_id=w_id, wc_id=user_id))
     media = await _eyun_media_metadata(message_type, data, w_id=w_id)
     if media:
@@ -378,6 +414,32 @@ def _xml_media_metadata(content: str) -> dict[str, str]:
             if candidate.startswith(("http://", "https://")):
                 result.setdefault("url", candidate)
     return result
+
+
+def _eyun_image_detection(payload: dict[str, Any]) -> str | None:
+    message_type = str(payload.get("messageType", ""))
+    if message_type == EYUN_PRIVATE_IMAGE:
+        return "message_type"
+    if message_type != EYUN_PRIVATE_OTHER:
+        return None
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    if str(data.get("img") or "").strip():
+        return "data.img"
+
+    content = str(data.get("content") or "").strip()
+    if not content.startswith("<"):
+        return None
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError:
+        return None
+    if any(
+        element.tag.rsplit("}", 1)[-1].lower() == "img"
+        for element in root.iter()
+    ):
+        return "data.content.img"
+    return None
 
 
 def _first_text(data: dict[str, Any], keys: tuple[str, ...]) -> str | None:

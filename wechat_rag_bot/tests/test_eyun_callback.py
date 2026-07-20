@@ -201,6 +201,72 @@ def test_private_image_callback_enters_recognition_batch(monkeypatch, tmp_path):
     assert enqueued[0]["data"]["_image_url"] == "https://cdn.example.com/image.jpg"
 
 
+def test_image_like_private_other_callback_is_normalized_for_recognition(
+    monkeypatch, tmp_path
+):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    recorded = []
+    enqueued = []
+
+    async def fake_ensure(user_id, **kwargs):
+        return {"user_id": user_id}
+
+    async def fake_record(**kwargs):
+        recorded.append(kwargs)
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_fetch_image_url(**kwargs):
+        return "https://cdn.example.com/nonstandard-image.jpg"
+
+    async def fake_enqueue_inbound(payload):
+        enqueued.append(payload)
+        return {"batch_key": "wid:wxid_customer"}
+
+    monkeypatch.setattr(
+        eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
+    )
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
+    monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(
+        eyun_callback_service, "fetch_eyun_image_url", fake_fetch_image_url
+    )
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue_inbound)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "account": "sales_a",
+            "messageType": "60999",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": "<msg><img md5=\"abc\" /></msg>",
+                "newMsgId": 104,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert recorded[0]["status"] == "ai_waiting"
+    assert recorded[0]["route"] == "inbound_image"
+    assert recorded[0]["metadata"]["original_message_type"] == "60999"
+    assert recorded[0]["metadata"]["image_detection"] == "data.content.img"
+    assert len(enqueued) == 1
+    assert enqueued[0]["messageType"] == "60002"
+    assert enqueued[0]["_eyun_original_message_type"] == "60999"
+    assert (
+        enqueued[0]["data"]["_image_url"]
+        == "https://cdn.example.com/nonstandard-image.jpg"
+    )
+
+
 def test_private_image_callback_never_sends_immediate_fallback(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 
