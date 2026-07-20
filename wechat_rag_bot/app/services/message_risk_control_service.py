@@ -35,7 +35,10 @@ from app.services.conversation_service import (
 )
 from app.services.customer_reply_formatter import split_customer_messages
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
-from app.services.orchid_material_service import orchid_material_chat_result
+from app.services.orchid_material_service import (
+    orchid_material_chat_result,
+    orchid_material_video_issue_chat_result,
+)
 from app.services.user_profile_service import (
     add_verified_customer_tag,
     append_conversation_memory,
@@ -684,6 +687,12 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         customer_snapshot = _latest_customer_snapshot(session, batch_data["batch_key"])
         is_first_inbound = is_first_eyun_inbound_message(session, batch_data["batch_key"])
+        has_sent_orchid_material = _has_sent_orchid_material(
+            session,
+            user_id=batch_data["from_user"] or batch_data["target_wc_id"],
+            session_id=batch_data["from_group"],
+            before=batch_data["created_at"],
+        )
 
     try:
         if batch_data["from_group"]:
@@ -720,8 +729,13 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         customer_snapshot.update(contact_snapshot)
 
+        video_issue_result = orchid_material_video_issue_chat_result(
+            batch_data["content"]
+        )
         material_result = orchid_material_chat_result(batch_data["content"])
-        if material_result is not None:
+        if has_sent_orchid_material and video_issue_result is not None:
+            chat_result = video_issue_result
+        elif material_result is not None:
             chat_result = material_result
         elif all_images_failed:
             is_first_failure = await reserve_eyun_image_description_prompt(
@@ -835,6 +849,27 @@ def _batch_inbound_payloads(
         if isinstance(payload, dict):
             payloads.append(payload)
     return payloads
+
+
+def _has_sent_orchid_material(
+    session: Session,
+    *,
+    user_id: str,
+    session_id: str | None,
+    before: datetime,
+) -> bool:
+    conversation_id = make_conversation_id("wechat", user_id, session_id)
+    return session.scalar(
+        select(ConversationMessageModel.id)
+        .where(
+            ConversationMessageModel.conversation_id == conversation_id,
+            ConversationMessageModel.sender_type.in_(("ai", "human")),
+            ConversationMessageModel.route == "orchid_material_delivery",
+            ConversationMessageModel.delivery_status == "sent",
+            ConversationMessageModel.created_at < before,
+        )
+        .limit(1)
+    ) is not None
 
 
 async def _prepare_inbound_content(

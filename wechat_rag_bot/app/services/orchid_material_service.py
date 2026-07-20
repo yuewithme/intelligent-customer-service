@@ -17,6 +17,10 @@ ORCHID_MATERIAL_IMAGE_URL = (
     "http://150.158.52.233/static/orchid-material/"
     "companion-service-video-links.png"
 )
+ORCHID_MATERIAL_VIDEO_ISSUE_REPLY = (
+    "我们的视频是购买过我们产品的客户才能观看的。请问您是在抖音上购买的吗？"
+    "麻烦您发送一下订单截图，我先帮您核实购买记录。"
+)
 ORCHID_MATERIAL_CARD = {
     "note_id": "24482256",
     "note_alias": "0Ja8r3cajo",
@@ -49,6 +53,13 @@ _NEGATIVE_TRIGGERS = (
     "不需要资料",
     "无需资料",
     "不要养兰资料",
+)
+
+_VIDEO_ISSUE_PATTERNS = (
+    r"(?:资料里|资料内|资料中的|你们的|发的|里面的)?.{0,6}"
+    r"(?:视频|课程).{0,8}(?:打不开|打不了|无法打开|不能打开|看不了|无法播放|不能播放|播放不了|点不开|失效)",
+    r"(?:打不开|打不了|无法打开|不能打开|看不了|无法播放|不能播放|播放不了|点不开|失效).{0,8}"
+    r"(?:资料里|资料内|资料中的|你们的|发的|里面的)?.{0,6}(?:视频|课程)",
 )
 
 
@@ -105,6 +116,33 @@ def orchid_material_chat_result(content: str) -> dict[str, Any] | None:
             "resource_type": "orchid_material",
             "youzan_note_id": ORCHID_MATERIAL_CARD["note_id"],
         },
+    }
+
+
+def is_orchid_material_video_issue(content: str) -> bool:
+    normalized = _normalize(content)
+    return bool(normalized) and any(
+        re.search(pattern, normalized) is not None
+        for pattern in _VIDEO_ISSUE_PATTERNS
+    )
+
+
+def orchid_material_video_issue_chat_result(content: str) -> dict[str, Any] | None:
+    if not is_orchid_material_video_issue(content):
+        return None
+    return {
+        "answer": ORCHID_MATERIAL_VIDEO_ISSUE_REPLY,
+        "answer_segments": [ORCHID_MATERIAL_VIDEO_ISSUE_REPLY],
+        "outbound_messages": [
+            {
+                "type": "text",
+                "content": ORCHID_MATERIAL_VIDEO_ISSUE_REPLY,
+                "split": False,
+            }
+        ],
+        "reply_type": "fixed_text",
+        "route": "orchid_material_video_issue",
+        "metadata": {"resource_type": "orchid_material"},
     }
 
 
