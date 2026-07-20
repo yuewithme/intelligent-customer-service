@@ -6,12 +6,13 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import asc, create_engine, delete, desc, func, or_, select
+from sqlalchemy import asc, create_engine, delete, desc, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.db.models import (
     Base,
+    YouzanProductKnowledgeModel,
     YouzanProductModel,
     YouzanProductSkuModel,
     YouzanProductSyncRunModel,
@@ -24,6 +25,7 @@ _TABLES = [
     YouzanProductModel.__table__,
     YouzanProductSkuModel.__table__,
     YouzanProductSyncRunModel.__table__,
+    YouzanProductKnowledgeModel.__table__,
 ]
 _STATUS_PRIORITY = {"missing": 0, "off_shelf": 1, "sold_out": 2, "on_sale": 3}
 
@@ -32,6 +34,13 @@ _STATUS_PRIORITY = {"missing": 0, "off_shelf": 1, "sold_out": 2, "on_sale": 3}
 def _session_factory(database_url: str):
     engine = create_engine(database_url)
     Base.metadata.create_all(engine, tables=_TABLES)
+    if "alias" not in {
+        column["name"] for column in inspect(engine).get_columns("youzan_products")
+    }:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE youzan_products ADD COLUMN alias VARCHAR(128)")
+            )
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -51,11 +60,20 @@ def list_products(
     status: str | None = None,
     sort_by: str = "manual",
     sort_direction: str = "asc",
+    knowledge_only: bool = True,
 ) -> dict[str, Any]:
     with _session() as session:
         query = select(YouzanProductModel)
         count_query = select(func.count()).select_from(YouzanProductModel)
         filters = []
+        if knowledge_only:
+            filters.append(
+                YouzanProductModel.item_id.in_(
+                    select(YouzanProductKnowledgeModel.item_id).where(
+                        YouzanProductKnowledgeModel.item_id.is_not(None)
+                    )
+                )
+            )
         if keyword and keyword.strip():
             value = f"%{keyword.strip()}%"
             filters.append(
@@ -194,6 +212,9 @@ async def sync_youzan_products(
 
         detail_results = await _fetch_details(client, list(merged))
         result = _persist_sync(merged, detail_results)
+        from app.services.product_knowledge_service import auto_link_knowledge_records
+
+        result["knowledge_linked_count"] = auto_link_knowledge_records()
         result["detail_error_count"] = sum(
             1 for value in detail_results.values() if isinstance(value, Exception)
         )
@@ -302,6 +323,7 @@ def _persist_sync(
             detail = detail_results.get(item_id)
             source = {**item, **(detail if isinstance(detail, dict) else {})}
             row.title = _text(source, "title", "name") or row.title
+            row.alias = _text(source, "alias", "handle") or row.alias
             row.image_url = _text(source, "image", "pic_url", "image_url") or None
             row.status = item["_status"]
             row.price_cent = _integer(source, "price", "price_cent")
@@ -418,6 +440,7 @@ async def _wait_or_stop(stop_event: asyncio.Event, seconds: float) -> bool:
 def _serialize_product(row: YouzanProductModel, skus: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "item_id": row.item_id,
+        "alias": row.alias,
         "title": row.title,
         "image_url": row.image_url,
         "status": row.status,

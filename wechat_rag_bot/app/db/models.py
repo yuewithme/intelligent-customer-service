@@ -23,6 +23,7 @@ class YouzanProductModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     item_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    alias: Mapped[str | None] = mapped_column(String(128), nullable=True)
     title: Mapped[str] = mapped_column(String(512), index=True)
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), index=True)
@@ -69,6 +70,29 @@ class YouzanProductSyncRunModel(Base):
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), index=True, nullable=True
     )
+
+
+class YouzanProductKnowledgeModel(Base):
+    __tablename__ = "youzan_product_knowledge"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[str | None] = mapped_column(
+        String(128), unique=True, index=True, nullable=True
+    )
+    product_name: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    category: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    flower_color: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    fragrance: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    flowering_status: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    price_budget: Mapped[str | None] = mapped_column(Text, nullable=True)
+    care_scenes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bloom_period: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    audience_tag: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    market_price: Mapped[str | None] = mapped_column(Text, nullable=True)
+    highlighted_features: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sales_copy: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class ChatLogModel(Base):
@@ -244,6 +268,9 @@ class ConversationModel(Base):
     handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     handoff_ticket_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     unread_count: Mapped[int] = mapped_column(Integer, default=0)
+    hidden_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 

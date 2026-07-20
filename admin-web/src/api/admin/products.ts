@@ -26,6 +26,45 @@ export interface ProductItem {
   skus: ProductSku[]
 }
 
+export interface ProductOption {
+  item_id: string
+  title: string
+  status: ProductItem['status']
+  image_url?: string | null
+  linked: boolean
+}
+
+export interface ProductKnowledgePayload {
+  item_id?: string | null
+  product_name: string
+  category: string
+  flower_color: string
+  fragrance: string
+  flowering_status: string
+  price_budget: string
+  care_scenes: string
+  bloom_period: string
+  audience_tag: string
+  market_price: string
+  highlighted_features: string
+  sales_copy: string
+}
+
+export interface ProductKnowledgeItem extends ProductKnowledgePayload {
+  id: number
+  linked_product?: Pick<ProductOption, 'item_id' | 'title' | 'status' | 'image_url'> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductKnowledgeListResponse {
+  items: ProductKnowledgeItem[]
+  total: number
+  page: number
+  page_size: number
+  linked_count: number
+}
+
 export interface ProductSyncRun {
   id: number
   trigger: 'manual' | 'scheduled'
@@ -58,6 +97,36 @@ export const getProducts = (params: {
 export const syncProducts = () =>
   request.post<{ product_count: number; sku_count: number; detail_error_count: number }>({
     url: '/api/v1/admin/products/sync'
+  })
+
+export const getProductOptions = () =>
+  request.get<ProductOption[]>({ url: '/api/v1/admin/products/options' })
+
+export const getProductKnowledge = (params: {
+  page: number
+  page_size: number
+  keyword?: string
+  linked?: boolean
+}) => request.get<ProductKnowledgeListResponse>({
+  url: '/api/v1/admin/products/knowledge',
+  params
+})
+
+export const createProductKnowledge = (data: ProductKnowledgePayload) =>
+  request.post<ProductKnowledgeItem>({
+    url: '/api/v1/admin/products/knowledge',
+    data
+  })
+
+export const updateProductKnowledge = (id: number, data: ProductKnowledgePayload) =>
+  request.put<ProductKnowledgeItem>({
+    url: `/api/v1/admin/products/knowledge/${id}`,
+    data
+  })
+
+export const deleteProductKnowledge = (id: number) =>
+  request.delete<{ deleted: boolean }>({
+    url: `/api/v1/admin/products/knowledge/${id}`
   })
 
 export const updateProductSort = (itemId: string, sortOrder: number) =>

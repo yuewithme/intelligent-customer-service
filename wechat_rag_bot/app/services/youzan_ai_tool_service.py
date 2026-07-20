@@ -16,6 +16,11 @@ from app.services.youzan_order_service import (
     YouzanOrderService,
 )
 from app.services.youzan_product_service import YouzanProductService
+from app.services.product_knowledge_service import (
+    get_catalog_product,
+    list_catalog_products,
+    search_catalog_products,
+)
 
 
 logger = logging.getLogger("wechat_rag_bot.youzan_ai_tools")
@@ -98,8 +103,8 @@ class YouzanAIToolService:
             )
 
         async def operation() -> tuple[dict[str, Any], int]:
-            products = await self.product_service.search(keyword, limit=limit)
-            return {"products": [item.model_dump() for item in products]}, len(products)
+            products = search_catalog_products(keyword, limit=limit)
+            return {"products": products}, len(products)
 
         return await self._execute(
             "youzan_search_products",
@@ -117,8 +122,8 @@ class YouzanAIToolService:
             )
 
         async def operation() -> tuple[dict[str, Any], int]:
-            product = await self.product_service.get(item_id)
-            return {"product": product.model_dump()}, 1
+            product = get_catalog_product(item_id)
+            return {"product": product}, int(product is not None)
 
         return await self._execute(
             "youzan_get_product",
@@ -135,8 +140,8 @@ class YouzanAIToolService:
             )
 
         async def operation() -> tuple[dict[str, Any], int]:
-            products = await self.product_service.list_inventory(limit=limit)
-            return {"products": [item.model_dump() for item in products]}, len(products)
+            products = list_catalog_products(limit=limit)
+            return {"products": products}, len(products)
 
         return await self._execute(
             "youzan_list_inventory",

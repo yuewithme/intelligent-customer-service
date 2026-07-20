@@ -281,6 +281,9 @@ async def test_commerce_renderer_returns_text_and_mini_program_message():
                     "title": "白色大花蝴蝶兰",
                     "price_cent": 29900,
                     "stock": 8,
+                    "knowledge": {
+                        "highlighted_features": "花朵大、花期长，适合客厅养护",
+                    },
                 }
             ],
             "mini_program": {
@@ -298,6 +301,7 @@ async def test_commerce_renderer_returns_text_and_mini_program_message():
     reply = await render_business_reply(_message("发我链接"), facts)
 
     assert "299" in reply.answer
+    assert "花期长" in reply.answer
     assert reply.outbound_messages[0].type == "text"
     assert reply.outbound_messages[1].type == "mini_program"
     assert json.loads(reply.outbound_messages[1].content)["app_id"] == "wx123"

@@ -123,7 +123,36 @@ async def test_order_detail_requires_order_to_belong_to_bound_customer():
 
 
 @pytest.mark.asyncio
-async def test_product_tool_returns_trace_and_read_only_marker():
+async def test_product_tool_returns_trace_and_read_only_marker(monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+
+    from app.config import get_settings
+    from app.db.models import YouzanProductModel
+    from app.services.product_knowledge_service import import_product_knowledge
+    from app.services.youzan_product_sync_service import _session, reset_product_store_for_tests
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{(tmp_path / 'ai-products.db').as_posix()}")
+    get_settings.cache_clear()
+    reset_product_store_for_tests()
+    now = datetime.now(timezone.utc)
+    with _session() as session:
+        session.add(
+            YouzanProductModel(
+                item_id="1",
+                title="建兰皇帝",
+                status="on_sale",
+                stock=8,
+                sort_order=0,
+                last_synced_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+    import_product_knowledge(
+        [{"product_name": "建兰皇帝", "highlighted_features": "香味浓郁"}]
+    )
+
     result = await _service().search_products(keyword="建兰", limit=3)
 
     assert result["ok"] is True
@@ -131,6 +160,7 @@ async def test_product_tool_returns_trace_and_read_only_marker():
     assert result["tool"] == "youzan_search_products"
     assert result["trace_id"]
     assert result["data"]["products"][0]["stock"] == 8
+    assert result["data"]["products"][0]["knowledge"]["highlighted_features"] == "香味浓郁"
 
 
 def test_identity_schema_migration_adds_full_mobile_column(tmp_path):

@@ -95,7 +95,11 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
                 next_step = f"。购买链接：{first['h5_url']}"
             else:
                 next_step = "。如果需要下单，我再帮您确认购买入口。"
-            answer = f"给您找到这款“{first.get('title') or '商品'}”{price_text}{next_step}"
+            knowledge_text = _product_knowledge_text(first)
+            answer = (
+                f"给您找到这款“{first.get('title') or '商品'}”{price_text}"
+                f"{knowledge_text}{next_step}"
+            )
         return _commerce_final_reply(answer, state)
 
     if status == "missing_mobile":
@@ -121,6 +125,28 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
     else:
         lines.append("以上为有赞最新查询结果。")
     return _commerce_final_reply("\n".join(lines), state)
+
+
+def _product_knowledge_text(product: dict) -> str:
+    knowledge = product.get("knowledge")
+    if not isinstance(knowledge, dict):
+        return ""
+    features = str(knowledge.get("highlighted_features") or "").strip()
+    if features:
+        return f"。特点：{features[:180]}"
+    details = []
+    for label, key in (
+        ("花色", "flower_color"),
+        ("香味", "fragrance"),
+        ("花期", "bloom_period"),
+        ("适合", "care_scenes"),
+    ):
+        value = str(knowledge.get(key) or "").strip()
+        if value:
+            details.append(f"{label}{value}")
+        if len(details) == 3:
+            break
+    return f"。{'，'.join(details)}" if details else ""
 
 
 def _commerce_final_reply(answer: str, state: dict) -> FinalReply:

@@ -6,7 +6,7 @@ from app.integrations.youzan.client import YouzanClient
 from app.schemas.reply_plan import BusinessFacts
 from app.services.youzan_identity_store import YouzanIdentityStore
 from app.services.youzan_order_service import YouzanOrderService
-from app.services.youzan_product_service import YouzanProductService
+from app.services.product_knowledge_service import search_catalog_products
 
 
 MOBILE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
@@ -29,25 +29,12 @@ async def build_commerce_context(
         return BusinessFacts()
 
     settings = get_settings()
-    if product_service is None and order_service is None:
+    if commerce_type != "product" and order_service is None:
         if not settings.youzan_enabled or not settings.youzan_access_token.strip():
             return BusinessFacts()
         client = YouzanClient(
             access_token=settings.youzan_access_token,
             base_url=settings.youzan_base_url,
-        )
-        product_service = YouzanProductService(
-            client,
-            method=settings.youzan_product_search_method,
-            version=settings.youzan_product_search_version,
-            page_path_template=settings.youzan_product_page_path_template,
-            h5_url_template=settings.youzan_product_h5_url_template,
-            kdt_id=settings.youzan_kdt_id,
-            detail_enabled=settings.youzan_product_detail_enabled,
-            detail_method=settings.youzan_product_detail_method,
-            detail_version=settings.youzan_product_detail_version,
-            inventory_method=settings.youzan_inventory_method,
-            inventory_version=settings.youzan_inventory_version,
         )
         order_service = YouzanOrderService(
             client,
@@ -68,8 +55,6 @@ async def build_commerce_context(
 
     base_card = mini_program_base or _mini_program_base(settings)
     if commerce_type == "product":
-        if product_service is None:
-            return BusinessFacts()
         keyword = _product_keyword(
             message.message,
             intent.slots,
@@ -83,23 +68,27 @@ async def build_commerce_context(
                 }
             )
         try:
-            products = await product_service.search(keyword, limit=3)
+            if product_service is not None:
+                products = await product_service.search(keyword, limit=3)
+                product_data = [product.model_dump() for product in products]
+            else:
+                product_data = search_catalog_products(keyword, limit=3)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Youzan product query failed: %s", type(exc).__name__)
+            logger.warning("Local product catalog query failed: %s", type(exc).__name__)
             return BusinessFacts(
                 tool_state={"commerce_type": "product", "status": "unavailable"}
             )
         tool_state = {
             "commerce_type": "product",
-            "status": "found" if products else "not_found",
-            "products": [product.model_dump() for product in products],
+            "status": "found" if product_data else "not_found",
+            "products": product_data,
         }
-        if products and products[0].page_path:
+        if product_data and product_data[0].get("page_path"):
             tool_state["mini_program"] = {
                 **base_card,
-                "page_path": products[0].page_path,
-                "thumb_url": products[0].image_url,
-                "title": products[0].title,
+                "page_path": product_data[0]["page_path"],
+                "thumb_url": product_data[0].get("image_url", ""),
+                "title": product_data[0].get("title", ""),
             }
         return BusinessFacts(tool_state=tool_state)
 

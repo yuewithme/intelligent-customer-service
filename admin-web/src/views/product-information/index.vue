@@ -1,9 +1,11 @@
 <template>
   <ContentWrap>
+    <ElTabs v-model="activeTab">
+      <ElTabPane label="已关联商品" name="products">
     <div class="page-head">
       <div>
         <h1>产品信息</h1>
-        <p>每天自动同步有赞商品、价格、库存与规格；人工排序不会被同步覆盖。</p>
+        <p>只展示已有产品知识的有赞商品；每天自动同步价格、库存与规格，人工排序不会被覆盖。</p>
       </div>
       <ElButton type="primary" :loading="syncing" @click="runSync">立即同步有赞</ElButton>
     </div>
@@ -129,12 +131,18 @@
         @change="loadProducts"
       />
     </div>
+      </ElTabPane>
+      <ElTabPane label="产品知识库" name="knowledge">
+        <KnowledgeTab />
+      </ElTabPane>
+    </ElTabs>
   </ContentWrap>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import KnowledgeTab from './KnowledgeTab.vue'
 import {
   getProducts,
   syncProducts,
@@ -145,6 +153,7 @@ import {
 } from '@/api/admin/products'
 
 const items = ref<ProductItem[]>([])
+const activeTab = ref('products')
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(50)
