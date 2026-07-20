@@ -27,7 +27,7 @@ services:
     depends_on:
       - api
     ports:
-      - "80:80"
+      - "21873:80"
     volumes:
       - ./admin-web/nginx.conf:/etc/nginx/templates/default.conf.template:ro
     restart: unless-stopped
