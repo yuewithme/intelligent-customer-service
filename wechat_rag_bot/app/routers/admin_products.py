@@ -54,6 +54,7 @@ async def products(
             knowledge_linked=knowledge_linked,
             sort_by=sort_by,
             sort_direction=sort_direction,
+            catalog_only=True,
         ),
     )
 

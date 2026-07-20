@@ -31,7 +31,7 @@ class FakeYouzanClient:
         del version
         if method == "youzan.items.onsale.get":
             return {
-                "count": 1,
+                "count": 2,
                 "items": [
                     {
                         "item_id": 1001,
@@ -41,7 +41,13 @@ class FakeYouzanClient:
                         "image": "https://cdn.example.com/1001.jpg",
                         "detail_url": "https://h5.youzan.com/goods/1001",
                         "update_time": "2026-07-20 08:30:00",
-                    }
+                    },
+                    {
+                        "item_id": 1003,
+                        "title": "兰悦会员专属链接【会员专用】",
+                        "price": 2880,
+                        "quantity": 90,
+                    },
                 ],
             }
         if method == "youzan.items.inventory.get":
@@ -58,6 +64,16 @@ class FakeYouzanClient:
                     ],
                 }
             return {"count": 0, "items": []}
+        if str(params["item_id"]) == "1003":
+            return {
+                "item": {
+                    "item_id": 1003,
+                    "title": "兰悦会员专属链接【会员专用】",
+                    "price": 2880,
+                    "quantity": 90,
+                    "skus": [],
+                }
+            }
         if str(params["item_id"]) == "1001":
             return {
                 "item": {
@@ -97,10 +113,10 @@ async def test_sync_persists_products_skus_and_keeps_manual_sort(monkeypatch, tm
     )
     data = list_products(sort_by="manual")
 
-    assert first["product_count"] == 2
+    assert first["product_count"] == 3
     assert first["sku_count"] == 1
     assert second["trigger"] == "scheduled"
-    assert [item["item_id"] for item in data["items"]] == ["1002", "1001"]
+    assert {item["item_id"] for item in data["items"]} == {"1001", "1002", "1003"}
     product = next(item for item in data["items"] if item["item_id"] == "1001")
     assert product["title"] == "建兰皇帝（新）"
     assert product["sort_order"] == 20
@@ -134,7 +150,7 @@ async def test_product_admin_api_lists_and_updates_sort(monkeypatch, tmp_path):
 
     hidden_data = hidden.json()["data"]
     assert hidden_data["total"] == 1
-    assert hidden_data["product_total"] == 2
+    assert hidden_data["product_total"] == 1
     assert hidden_data["knowledge_linked_count"] == 0
     assert hidden_data["items"][0]["has_knowledge"] is False
     assert imported.status_code == 200
@@ -145,13 +161,12 @@ async def test_product_admin_api_lists_and_updates_sort(monkeypatch, tmp_path):
     assert updated.status_code == 200
     assert updated.json()["data"]["sort_order"] == 7
 
-    unlinked = client.get(
+    hidden_sold_out = client.get(
         "/api/v1/admin/products",
         params={"status": "sold_out", "knowledge_linked": "false"},
     )
-    assert unlinked.status_code == 200
-    assert unlinked.json()["data"]["total"] == 1
-    assert unlinked.json()["data"]["items"][0]["item_id"] == "1002"
+    assert hidden_sold_out.status_code == 200
+    assert hidden_sold_out.json()["data"]["total"] == 0
 
 
 @pytest.mark.asyncio

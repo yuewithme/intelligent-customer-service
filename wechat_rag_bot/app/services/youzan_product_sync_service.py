@@ -6,7 +6,18 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import asc, create_engine, delete, desc, func, inspect, or_, select, text
+from sqlalchemy import (
+    and_,
+    asc,
+    create_engine,
+    delete,
+    desc,
+    func,
+    inspect,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -28,6 +39,25 @@ _TABLES = [
     YouzanProductKnowledgeModel.__table__,
 ]
 _STATUS_PRIORITY = {"missing": 0, "off_shelf": 1, "sold_out": 2, "on_sale": 3}
+_NON_FLOWER_TITLE_KEYWORDS = (
+    "会员",
+    "专属",
+    "链接",
+    "一物一拍",
+    "私域",
+    "拍卖",
+    "竞拍",
+    "补差",
+    "差价",
+    "运费",
+    "测试",
+    "勿拍",
+    "不发货",
+    "赠品",
+    "福袋",
+    "盲盒",
+    "兰画",
+)
 
 
 @lru_cache
@@ -62,6 +92,7 @@ def list_products(
     sort_direction: str = "asc",
     knowledge_linked: bool | None = None,
     knowledge_only: bool = False,
+    catalog_only: bool = False,
 ) -> dict[str, Any]:
     with _session() as session:
         query = select(YouzanProductModel)
@@ -70,6 +101,8 @@ def list_products(
         knowledge_item_ids = select(YouzanProductKnowledgeModel.item_id).where(
             YouzanProductKnowledgeModel.item_id.is_not(None)
         )
+        catalog_filters = _catalog_filters() if catalog_only else []
+        filters.extend(catalog_filters)
         if knowledge_only or knowledge_linked is True:
             filters.append(
                 YouzanProductModel.item_id.in_(knowledge_item_ids)
@@ -146,13 +179,21 @@ def list_products(
             ],
             "total": int(session.scalar(count_query) or 0),
             "product_total": int(
-                session.scalar(select(func.count()).select_from(YouzanProductModel)) or 0
+                session.scalar(
+                    select(func.count())
+                    .select_from(YouzanProductModel)
+                    .where(*catalog_filters)
+                )
+                or 0
             ),
             "knowledge_linked_count": int(
                 session.scalar(
                     select(func.count())
                     .select_from(YouzanProductModel)
-                    .where(YouzanProductModel.item_id.in_(knowledge_item_ids))
+                    .where(
+                        *catalog_filters,
+                        YouzanProductModel.item_id.in_(knowledge_item_ids),
+                    )
                 )
                 or 0
             ),
@@ -160,6 +201,28 @@ def list_products(
             "page_size": page_size,
             "last_sync": _serialize_sync_run(last_run),
         }
+
+
+def _catalog_filters() -> list[Any]:
+    title = YouzanProductModel.title
+    no_generic_markers = and_(
+        *(~title.ilike(f"%{keyword}%") for keyword in _NON_FLOWER_TITLE_KEYWORDS)
+    )
+    has_specific_bracketed_name = and_(
+        title.ilike("%【%】%"),
+        ~title.ilike("%【%会员%】%"),
+        ~title.ilike("%【%专用%】%"),
+        ~title.ilike("%【%链接%】%"),
+        ~title.ilike("%【%一物一拍%】%"),
+    )
+    filters: list[Any] = [
+        YouzanProductModel.status == "on_sale",
+        YouzanProductModel.stock > 0,
+        title.is_not(None),
+        func.length(func.trim(title)) > 0,
+        or_(no_generic_markers, has_specific_bracketed_name),
+    ]
+    return filters
 
 
 def update_product_sort(item_id: str, sort_order: int) -> dict[str, Any]:

@@ -5,13 +5,13 @@
     <div class="page-head">
       <div>
         <h1>产品信息</h1>
-        <p>完整展示有赞商品；每天自动同步一次，待补充知识的商品可在这里直接新增并关联。</p>
+        <p>仅展示有赞中在售、有库存且名称为具体花品的商品；每天自动同步一次。</p>
       </div>
       <ElButton type="primary" :loading="syncing" @click="runSync">立即同步有赞</ElButton>
     </div>
 
     <div class="sync-state">
-      <span>商品总数 <strong>{{ productTotal }}</strong></span>
+      <span>符合条件商品 <strong>{{ productTotal }}</strong></span>
       <span>已关联知识 <strong>{{ knowledgeLinkedCount }}</strong></span>
       <span>待补充知识 <strong>{{ Math.max(0, productTotal - knowledgeLinkedCount) }}</strong></span>
       <span>最近同步 <strong>{{ lastSyncText }}</strong></span>
@@ -29,12 +29,6 @@
         @keyup.enter="applyFilters"
         @clear="applyFilters"
       />
-      <ElSelect v-model="status" clearable placeholder="全部状态" @change="applyFilters">
-        <ElOption label="出售中" value="on_sale" />
-        <ElOption label="已下架" value="off_shelf" />
-        <ElOption label="已售罄" value="sold_out" />
-        <ElOption label="有赞中已不存在" value="missing" />
-      </ElSelect>
       <ElSelect v-model="knowledgeFilter" clearable placeholder="全部知识状态" @change="applyFilters">
         <ElOption label="已关联知识" value="true" />
         <ElOption label="待补充知识" value="false" />
@@ -161,7 +155,6 @@ const knowledgeLinkedCount = ref(0)
 const page = ref(1)
 const pageSize = ref(50)
 const keyword = ref('')
-const status = ref('')
 const knowledgeFilter = ref('')
 const sortBy = ref('updated_at')
 const sortDirection = ref('desc')
@@ -185,7 +178,6 @@ const loadProducts = async () => {
       page: page.value,
       page_size: pageSize.value,
       keyword: keyword.value.trim() || undefined,
-      status: status.value || undefined,
       knowledge_linked: knowledgeFilter.value ? knowledgeFilter.value === 'true' : undefined,
       sort_by: sortBy.value,
       sort_direction: sortDirection.value
@@ -246,7 +238,7 @@ onMounted(loadProducts)
 .sync-state span { color: #64756f; }
 .sync-state strong { margin-left: 5px; color: #173d32; }
 .sync-state .warning { color: #b26a00; }
-.toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) 145px 145px 145px 110px auto; gap: 10px; margin-bottom: 16px; }
+.toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) 145px 145px 110px auto; gap: 10px; margin-bottom: 16px; }
 .product-table { width: 100%; border-radius: 10px; }
 .product-cell { display: flex; align-items: center; gap: 12px; }
 .product-cell .el-image { flex: 0 0 auto; width: 58px; height: 58px; background: #eef3f1; border-radius: 8px; }
