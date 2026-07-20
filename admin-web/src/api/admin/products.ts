@@ -24,6 +24,9 @@ export interface ProductItem {
   last_synced_at: string
   sku_count: number
   skus: ProductSku[]
+  has_knowledge: boolean
+  knowledge_id?: number | null
+  knowledge_name?: string | null
 }
 
 export interface ProductOption {
@@ -80,6 +83,8 @@ export interface ProductSyncRun {
 export interface ProductListResponse {
   items: ProductItem[]
   total: number
+  product_total: number
+  knowledge_linked_count: number
   page: number
   page_size: number
   last_sync?: ProductSyncRun | null
@@ -90,6 +95,7 @@ export const getProducts = (params: {
   page_size: number
   keyword?: string
   status?: string
+  knowledge_linked?: boolean
   sort_by: string
   sort_direction: string
 }) => request.get<ProductListResponse>({ url: '/api/v1/admin/products', params })

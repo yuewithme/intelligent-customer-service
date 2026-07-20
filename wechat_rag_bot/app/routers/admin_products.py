@@ -37,6 +37,7 @@ async def products(
     page_size: int = Query(default=50, ge=1, le=200),
     keyword: str | None = None,
     status: str | None = None,
+    knowledge_linked: bool | None = None,
     sort_by: str = Query(
         default="manual", pattern="^(manual|title|price|stock|updated_at)$"
     ),
@@ -50,6 +51,7 @@ async def products(
             page_size=page_size,
             keyword=keyword,
             status=status,
+            knowledge_linked=knowledge_linked,
             sort_by=sort_by,
             sort_direction=sort_direction,
         ),

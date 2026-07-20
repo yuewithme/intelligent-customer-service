@@ -60,20 +60,22 @@ def list_products(
     status: str | None = None,
     sort_by: str = "manual",
     sort_direction: str = "asc",
-    knowledge_only: bool = True,
+    knowledge_linked: bool | None = None,
+    knowledge_only: bool = False,
 ) -> dict[str, Any]:
     with _session() as session:
         query = select(YouzanProductModel)
         count_query = select(func.count()).select_from(YouzanProductModel)
         filters = []
-        if knowledge_only:
+        knowledge_item_ids = select(YouzanProductKnowledgeModel.item_id).where(
+            YouzanProductKnowledgeModel.item_id.is_not(None)
+        )
+        if knowledge_only or knowledge_linked is True:
             filters.append(
-                YouzanProductModel.item_id.in_(
-                    select(YouzanProductKnowledgeModel.item_id).where(
-                        YouzanProductKnowledgeModel.item_id.is_not(None)
-                    )
-                )
+                YouzanProductModel.item_id.in_(knowledge_item_ids)
             )
+        elif knowledge_linked is False:
+            filters.append(YouzanProductModel.item_id.not_in(knowledge_item_ids))
         if keyword and keyword.strip():
             value = f"%{keyword.strip()}%"
             filters.append(
@@ -119,6 +121,15 @@ def list_products(
         skus_by_item: dict[str, list[dict[str, Any]]] = {}
         for sku in sku_rows:
             skus_by_item.setdefault(sku.item_id, []).append(_serialize_sku(sku))
+        knowledge_by_item = {
+            row.item_id: row
+            for row in session.scalars(
+                select(YouzanProductKnowledgeModel).where(
+                    YouzanProductKnowledgeModel.item_id.in_(item_ids)
+                )
+            )
+            if row.item_id
+        } if item_ids else {}
         last_run = session.scalar(
             select(YouzanProductSyncRunModel).order_by(
                 YouzanProductSyncRunModel.id.desc()
@@ -126,10 +137,25 @@ def list_products(
         )
         return {
             "items": [
-                _serialize_product(row, skus_by_item.get(row.item_id, []))
+                _serialize_product(
+                    row,
+                    skus_by_item.get(row.item_id, []),
+                    knowledge_by_item.get(row.item_id),
+                )
                 for row in rows
             ],
             "total": int(session.scalar(count_query) or 0),
+            "product_total": int(
+                session.scalar(select(func.count()).select_from(YouzanProductModel)) or 0
+            ),
+            "knowledge_linked_count": int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(YouzanProductModel)
+                    .where(YouzanProductModel.item_id.in_(knowledge_item_ids))
+                )
+                or 0
+            ),
             "page": page,
             "page_size": page_size,
             "last_sync": _serialize_sync_run(last_run),
@@ -437,7 +463,11 @@ async def _wait_or_stop(stop_event: asyncio.Event, seconds: float) -> bool:
         return False
 
 
-def _serialize_product(row: YouzanProductModel, skus: list[dict[str, Any]]) -> dict[str, Any]:
+def _serialize_product(
+    row: YouzanProductModel,
+    skus: list[dict[str, Any]],
+    knowledge: YouzanProductKnowledgeModel | None = None,
+) -> dict[str, Any]:
     return {
         "item_id": row.item_id,
         "alias": row.alias,
@@ -454,6 +484,9 @@ def _serialize_product(row: YouzanProductModel, skus: list[dict[str, Any]]) -> d
         "last_synced_at": _isoformat(row.last_synced_at),
         "skus": skus,
         "sku_count": len(skus),
+        "has_knowledge": knowledge is not None,
+        "knowledge_id": knowledge.id if knowledge is not None else None,
+        "knowledge_name": knowledge.product_name if knowledge is not None else None,
     }
 
 

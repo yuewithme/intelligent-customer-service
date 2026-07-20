@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>产品知识库</h2>
-        <p>AI 商品问答直接读取这里；关联有赞商品后，该商品才会出现在“已关联商品”中。</p>
+        <p>AI 商品问答直接读取这里；新增知识会优先按产品名称自动关联有赞商品。</p>
       </div>
       <ElButton type="primary" @click="openCreate">新增产品知识</ElButton>
     </div>
@@ -115,6 +115,8 @@ import {
   type ProductOption
 } from '@/api/admin/products'
 
+const emit = defineEmits<{ saved: [] }>()
+
 type KnowledgeTextKey = Exclude<keyof ProductKnowledgePayload, 'item_id' | 'product_name'>
 const emptyForm = (): ProductKnowledgePayload => ({
   item_id: null,
@@ -192,6 +194,17 @@ const openCreate = async () => {
   dialogVisible.value = true
 }
 
+const openCreateForProduct = async (product: { item_id: string; title: string }) => {
+  editingId.value = null
+  originalItemId.value = null
+  resetForm({
+    item_id: product.item_id,
+    product_name: product.title.slice(0, 256)
+  })
+  await loadOptions()
+  dialogVisible.value = true
+}
+
 const openEdit = async (item: ProductKnowledgeItem) => {
   editingId.value = item.id
   originalItemId.value = item.item_id || null
@@ -213,6 +226,7 @@ const save = async () => {
     ElMessage.success('产品知识已保存')
     dialogVisible.value = false
     await loadKnowledge()
+    emit('saved')
   } finally {
     saving.value = false
   }
@@ -225,6 +239,8 @@ const remove = async (item: ProductKnowledgeItem) => {
 }
 
 onMounted(loadKnowledge)
+
+defineExpose({ openCreateForProduct })
 </script>
 
 <style scoped>

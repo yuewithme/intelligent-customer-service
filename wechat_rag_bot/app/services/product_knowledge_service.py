@@ -128,6 +128,9 @@ def create_product_knowledge(payload: dict[str, Any]) -> dict[str, Any]:
         )
         _apply_payload(row, payload)
         session.add(row)
+        session.flush()
+        if row.item_id is None:
+            _auto_link(session)
         session.commit()
         session.refresh(row)
         product = session.scalar(

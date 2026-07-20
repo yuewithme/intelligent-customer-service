@@ -132,13 +132,53 @@ async def test_product_admin_api_lists_and_updates_sort(monkeypatch, tmp_path):
     response = client.get("/api/v1/admin/products", params={"status": "on_sale"})
     updated = client.put("/api/v1/admin/products/1001/sort", json={"sort_order": 7})
 
-    assert hidden.json()["data"]["total"] == 0
+    hidden_data = hidden.json()["data"]
+    assert hidden_data["total"] == 1
+    assert hidden_data["product_total"] == 2
+    assert hidden_data["knowledge_linked_count"] == 0
+    assert hidden_data["items"][0]["has_knowledge"] is False
     assert imported.status_code == 200
     assert imported.json()["data"]["newly_linked_count"] == 1
     assert response.status_code == 200
     assert response.json()["data"]["total"] == 1
+    assert response.json()["data"]["items"][0]["has_knowledge"] is True
     assert updated.status_code == 200
     assert updated.json()["data"]["sort_order"] == 7
+
+    unlinked = client.get(
+        "/api/v1/admin/products",
+        params={"status": "sold_out", "knowledge_linked": "false"},
+    )
+    assert unlinked.status_code == 200
+    assert unlinked.json()["data"]["total"] == 1
+    assert unlinked.json()["data"]["items"][0]["item_id"] == "1002"
+
+
+@pytest.mark.asyncio
+async def test_creating_knowledge_auto_links_matching_product(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    youzan = FakeYouzanClient()
+    await sync_youzan_products(client=youzan)
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/v1/admin/products/knowledge",
+        json={
+            "product_name": youzan.title,
+            "category": "建兰",
+            "highlighted_features": "花香清幽",
+        },
+    )
+
+    assert created.status_code == 200
+    assert created.json()["data"]["item_id"] == "1001"
+    linked = client.get(
+        "/api/v1/admin/products",
+        params={"knowledge_linked": "true"},
+    )
+    assert linked.status_code == 200
+    assert linked.json()["data"]["total"] == 1
+    assert linked.json()["data"]["items"][0]["has_knowledge"] is True
 
 
 @pytest.mark.asyncio

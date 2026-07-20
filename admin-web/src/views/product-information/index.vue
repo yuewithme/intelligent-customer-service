@@ -1,17 +1,19 @@
 <template>
   <ContentWrap>
     <ElTabs v-model="activeTab">
-      <ElTabPane label="已关联商品" name="products">
+      <ElTabPane label="全部商品" name="products">
     <div class="page-head">
       <div>
         <h1>产品信息</h1>
-        <p>只展示已有产品知识的有赞商品；每天自动同步价格、库存与规格，人工排序不会被覆盖。</p>
+        <p>完整展示有赞商品；每天自动同步一次，待补充知识的商品可在这里直接新增并关联。</p>
       </div>
       <ElButton type="primary" :loading="syncing" @click="runSync">立即同步有赞</ElButton>
     </div>
 
     <div class="sync-state">
-      <span>商品总数 <strong>{{ total }}</strong></span>
+      <span>商品总数 <strong>{{ productTotal }}</strong></span>
+      <span>已关联知识 <strong>{{ knowledgeLinkedCount }}</strong></span>
+      <span>待补充知识 <strong>{{ Math.max(0, productTotal - knowledgeLinkedCount) }}</strong></span>
       <span>最近同步 <strong>{{ lastSyncText }}</strong></span>
       <ElTag v-if="lastSync" :type="syncTagType">{{ syncStatusText }}</ElTag>
       <span v-if="lastSync?.detail_error_count" class="warning">
@@ -33,8 +35,11 @@
         <ElOption label="已售罄" value="sold_out" />
         <ElOption label="有赞中已不存在" value="missing" />
       </ElSelect>
+      <ElSelect v-model="knowledgeFilter" clearable placeholder="全部知识状态" @change="applyFilters">
+        <ElOption label="已关联知识" value="true" />
+        <ElOption label="待补充知识" value="false" />
+      </ElSelect>
       <ElSelect v-model="sortBy" @change="applyFilters">
-        <ElOption label="人工排序" value="manual" />
         <ElOption label="商品名称" value="title" />
         <ElOption label="价格" value="price" />
         <ElOption label="库存" value="stock" />
@@ -89,15 +94,10 @@
       <ElTableColumn label="规格" width="90">
         <template #default="scope">{{ scope.row.sku_count }} 个</template>
       </ElTableColumn>
-      <ElTableColumn label="排序" width="150">
+      <ElTableColumn label="产品知识" width="130">
         <template #default="scope">
-          <ElInputNumber
-            v-model="scope.row.sort_order"
-            :min="-1000000"
-            :max="1000000"
-            controls-position="right"
-            @change="saveSort(scope.row)"
-          />
+          <ElTag v-if="scope.row.has_knowledge" type="success">已关联</ElTag>
+          <ElTag v-else type="warning">待补充</ElTag>
         </template>
       </ElTableColumn>
       <ElTableColumn label="内部备注" min-width="190">
@@ -113,10 +113,12 @@
       <ElTableColumn label="更新时间" width="170">
         <template #default="scope">{{ formatTime(scope.row.youzan_updated_at || scope.row.last_synced_at) }}</template>
       </ElTableColumn>
-      <ElTableColumn label="操作" width="90" fixed="right">
+      <ElTableColumn label="操作" width="180" fixed="right">
         <template #default="scope">
+          <ElButton v-if="!scope.row.has_knowledge" link type="warning" @click="openKnowledge(scope.row)">
+            补充知识
+          </ElButton>
           <ElLink v-if="scope.row.h5_url" :href="scope.row.h5_url" target="_blank" type="primary">查看商品</ElLink>
-          <span v-else>-</span>
         </template>
       </ElTableColumn>
     </ElTable>
@@ -133,21 +135,20 @@
     </div>
       </ElTabPane>
       <ElTabPane label="产品知识库" name="knowledge">
-        <KnowledgeTab />
+        <KnowledgeTab ref="knowledgeTab" @saved="loadProducts" />
       </ElTabPane>
     </ElTabs>
   </ContentWrap>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import KnowledgeTab from './KnowledgeTab.vue'
 import {
   getProducts,
   syncProducts,
   updateProductNote,
-  updateProductSort,
   type ProductItem,
   type ProductSyncRun
 } from '@/api/admin/products'
@@ -155,15 +156,19 @@ import {
 const items = ref<ProductItem[]>([])
 const activeTab = ref('products')
 const total = ref(0)
+const productTotal = ref(0)
+const knowledgeLinkedCount = ref(0)
 const page = ref(1)
 const pageSize = ref(50)
 const keyword = ref('')
 const status = ref('')
-const sortBy = ref('manual')
-const sortDirection = ref('asc')
+const knowledgeFilter = ref('')
+const sortBy = ref('updated_at')
+const sortDirection = ref('desc')
 const loading = ref(false)
 const syncing = ref(false)
 const lastSync = ref<ProductSyncRun | null>(null)
+const knowledgeTab = ref<InstanceType<typeof KnowledgeTab> | null>(null)
 
 const syncStatusText = computed(() => lastSync.value
   ? ({ running: '同步中', success: '同步成功', failed: '同步失败' }[lastSync.value.status])
@@ -181,11 +186,14 @@ const loadProducts = async () => {
       page_size: pageSize.value,
       keyword: keyword.value.trim() || undefined,
       status: status.value || undefined,
+      knowledge_linked: knowledgeFilter.value ? knowledgeFilter.value === 'true' : undefined,
       sort_by: sortBy.value,
       sort_direction: sortDirection.value
     })
     items.value = data.items
     total.value = data.total
+    productTotal.value = data.product_total
+    knowledgeLinkedCount.value = data.knowledge_linked_count
     lastSync.value = data.last_sync || null
   } finally {
     loading.value = false
@@ -208,15 +216,18 @@ const runSync = async () => {
   }
 }
 
-const saveSort = async (product: ProductItem) => {
-  await updateProductSort(product.item_id, product.sort_order)
-  ElMessage.success('排序已保存')
-  if (sortBy.value === 'manual') await loadProducts()
-}
-
 const saveNote = async (product: ProductItem) => {
   await updateProductNote(product.item_id, product.internal_note || '')
   ElMessage.success('备注已保存')
+}
+
+const openKnowledge = async (product: ProductItem) => {
+  activeTab.value = 'knowledge'
+  await nextTick()
+  await knowledgeTab.value?.openCreateForProduct({
+    item_id: product.item_id,
+    title: product.title
+  })
 }
 
 const money = (cent?: number | null) => cent == null ? '-' : `¥${(cent / 100).toFixed(2)}`
@@ -235,7 +246,7 @@ onMounted(loadProducts)
 .sync-state span { color: #64756f; }
 .sync-state strong { margin-left: 5px; color: #173d32; }
 .sync-state .warning { color: #b26a00; }
-.toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) 150px 150px 110px auto; gap: 10px; margin-bottom: 16px; }
+.toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) 145px 145px 145px 110px auto; gap: 10px; margin-bottom: 16px; }
 .product-table { width: 100%; border-radius: 10px; }
 .product-cell { display: flex; align-items: center; gap: 12px; }
 .product-cell .el-image { flex: 0 0 auto; width: 58px; height: 58px; background: #eef3f1; border-radius: 8px; }
@@ -245,6 +256,5 @@ onMounted(loadProducts)
 .sku-panel { padding: 12px 24px 20px 70px; }
 .sku-panel > strong { display: block; margin-bottom: 10px; color: #31584c; }
 .pagination { display: flex; justify-content: flex-end; padding-top: 18px; }
-:deep(.el-input-number) { width: 120px; }
 @media (max-width: 980px) { .toolbar { grid-template-columns: 1fr 1fr; } .sync-state { align-items: flex-start; flex-direction: column; gap: 8px; } }
 </style>
