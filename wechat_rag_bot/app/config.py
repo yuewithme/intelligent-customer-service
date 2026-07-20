@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     app_env: str = "dev"
     app_name: str = "wechat_rag_bot"
+    app_public_base_url: str = Field(default="", alias="APP_PUBLIC_BASE_URL")
     api_auth_enabled: bool = True
     api_key: str = "change_me"
     mcp_api_key: str = ""

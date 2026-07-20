@@ -39,6 +39,7 @@ from app.services.message_risk_control_service import eyun_risk_control_worker
 from app.services.unpurchased_sop_service import unpurchased_sop_worker
 from app.services.youzan_product_sync_service import youzan_product_sync_worker
 from app.services.eyun_callback_service import video_storage_dir
+from app.services.link_card_thumbnail_service import link_card_thumbnail_storage_dir
 from app.routers.admin_unpurchased_sop import sop_media_storage_dir
 from app.utils.logger import configure_logging
 from app.mcp_server import mcp_asgi_app, sales_mcp
@@ -84,6 +85,11 @@ app.mount(
     "/static/sop-media",
     StaticFiles(directory=sop_media_storage_dir()),
     name="sop-media",
+)
+app.mount(
+    "/static/link-card-thumbs",
+    StaticFiles(directory=link_card_thumbnail_storage_dir()),
+    name="link-card-thumbnails",
 )
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(admin_activities.router)

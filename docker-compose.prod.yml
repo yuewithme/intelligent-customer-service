@@ -10,6 +10,7 @@ services:
       CHAT_LOG_PROVIDER: sqlite
       CHAT_LOG_DB_URL: sqlite:////app/data/chat_logs.db
       UPLOAD_DIR: /app/data/uploads
+      APP_PUBLIC_BASE_URL: http://150.158.52.233
       HF_HOME: /app/data/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"

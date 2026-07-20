@@ -709,9 +709,35 @@ async def send_eyun_link_card(
             },
             json=payload,
         )
-    response.raise_for_status()
-    result = response.json()
+        response.raise_for_status()
+        result = response.json()
+        if str(result.get("code")) != "1000" and _is_thumbnail_size_error(result):
+            from app.services.link_card_thumbnail_service import (
+                compress_link_card_thumbnail,
+            )
+
+            payload["thumbUrl"] = await compress_link_card_thumbnail(thumb_url)
+            response = await client.post(
+                f"{base_url}/sendUrl",
+                headers={
+                    "Authorization": authorization,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            result = response.json()
     if str(result.get("code")) != "1000":
         logger.warning("Eyun sendUrl returned non-success response: %s", result)
         raise RuntimeError(f"Eyun sendUrl failed: {result}")
     return result
+
+
+def _is_thumbnail_size_error(result: dict[str, Any]) -> bool:
+    message = str(result.get("message") or "").lower()
+    return (
+        "51200" in message
+        or "图片大小超出" in message
+        or "image size" in message
+        or "thumbnail size" in message
+    )
