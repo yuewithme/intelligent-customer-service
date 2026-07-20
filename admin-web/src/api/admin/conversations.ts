@@ -63,6 +63,7 @@ export const getConversations = (params: {
   status?: string
   owner_id?: string
   keyword?: string
+  channel?: string
 }) => request.get<ConversationListResponse>({ url: conversationBase(), params })
 
 export const getConversationDetail = (conversationId: string) =>

@@ -34,6 +34,29 @@ def test_conversation_list_starts_empty(monkeypatch, tmp_path):
     assert response.json()["data"] == {"items": [], "total": 0, "page": 1, "page_size": 50}
 
 
+def test_admin_conversation_list_filters_by_channel(monkeypatch, tmp_path):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    for channel, user_id in (("api", "test_user"), ("wechat", "real_customer")):
+        asyncio.run(
+            record_customer_message(
+                channel=channel,
+                user_id=user_id,
+                session_id="default",
+                content="hello",
+            )
+        )
+
+    data = TestClient(app).get(
+        "/api/v1/admin/conversations", params={"channel": "wechat"}
+    ).json()["data"]
+
+    assert data["total"] == 1
+    assert data["items"][0]["channel"] == "wechat"
+    assert data["items"][0]["user_id"] == "real_customer"
+
+
 def test_admin_only_displays_configured_wechat_material_group(monkeypatch, tmp_path):
     import asyncio
 

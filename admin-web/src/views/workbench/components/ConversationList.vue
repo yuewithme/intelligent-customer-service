@@ -51,6 +51,7 @@
 import { onMounted, ref } from 'vue'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { getConversations, type ConversationItem, type ConversationStatus } from '@/api/admin/conversations'
+import { isTestGate } from '@/utils/gate'
 import {
   groupConversationsByCustomer,
   type ConversationGroupItem
@@ -79,7 +80,8 @@ const load = async (options: { silent?: boolean } = {}) => {
       page: 1,
       page_size: 50,
       status: status.value || undefined,
-      keyword: keyword.value || undefined
+      keyword: keyword.value || undefined,
+      channel: isTestGate() ? undefined : 'wechat'
     })
     items.value = groupConversationsByCustomer(data.items)
   })()
