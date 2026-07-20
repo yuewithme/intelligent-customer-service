@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.config import get_settings
 from app.routers import (
     admin_activities,
+    admin_care_manuals,
     admin_conversations,
     admin_eyun_materials,
     admin_gate,
@@ -86,6 +87,7 @@ app.mount(
 )
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(admin_activities.router)
+app.include_router(admin_care_manuals.router)
 app.include_router(admin_conversations.router)
 app.include_router(admin_eyun_materials.router)
 app.include_router(admin_gate.router)

@@ -19,6 +19,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'operations/user-profile', component: PlaceholderPage, props: { title: '客户画像' }, meta: { title: '客户画像' } },
       { path: 'operations/tags', component: () => import('@/views/tag-management/index.vue'), meta: { title: '标签管理' } },
       { path: 'operations/products', component: () => import('@/views/product-information/index.vue'), meta: { title: '产品信息' } },
+      { path: 'operations/care-manuals', component: () => import('@/views/care-manuals/index.vue'), meta: { title: '养护手册' } },
       { path: 'knowledge-ops/current-activities', component: () => import('@/views/current-activities/index.vue'), meta: { title: '销售活动' } },
       { path: 'knowledge-ops/wechat-materials', component: () => import('@/views/wechat-materials/index.vue'), meta: { title: '微信素材库' } },
       { path: 'knowledge-ops/knowledge', component: PlaceholderPage, props: { title: '销售知识库' }, meta: { title: '销售知识库' } },

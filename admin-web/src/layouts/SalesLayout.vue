@@ -51,7 +51,8 @@ const navigation = [
     { label: '人工接管', to: '/operations/handoff' },
     { label: '客户画像', to: '/operations/user-profile' },
     { label: '标签管理', to: '/operations/tags' },
-    { label: '产品信息', to: '/operations/products' }
+    { label: '产品信息', to: '/operations/products' },
+    { label: '养护手册', to: '/operations/care-manuals' }
   ] },
   { title: '策略与知识', items: [
     { label: '销售活动', to: '/knowledge-ops/current-activities' },

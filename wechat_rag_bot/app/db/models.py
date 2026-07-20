@@ -95,6 +95,66 @@ class YouzanProductKnowledgeModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class CareManualCardModel(Base):
+    __tablename__ = "care_manual_cards"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    youzan_note_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    note_alias: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    title: Mapped[str] = mapped_column(String(512), index=True)
+    orchid_name: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    aliases_json: Mapped[str] = mapped_column(Text, default="[]")
+    note_url: Mapped[str] = mapped_column(Text)
+    cover_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    card_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    youzan_status: Mapped[str] = mapped_column(String(32), index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, index=True, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, index=True, default=0)
+    match_keywords_json: Mapped[str] = mapped_column(Text, default="[]")
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+    last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class CareManualProductLinkModel(Base):
+    __tablename__ = "care_manual_product_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "care_manual_card_id",
+            "youzan_item_id",
+            name="uq_care_manual_card_product",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    care_manual_card_id: Mapped[int] = mapped_column(Integer, index=True)
+    youzan_item_id: Mapped[str] = mapped_column(String(128), index=True)
+    product_name_snapshot: Mapped[str] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CareManualSyncRunModel(Base):
+    __tablename__ = "care_manual_sync_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trigger: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    scanned_count: Mapped[int] = mapped_column(Integer, default=0)
+    qualified_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_count: Mapped[int] = mapped_column(Integer, default=0)
+    disabled_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+
+
 class ChatLogModel(Base):
     __tablename__ = "chat_logs"
 
