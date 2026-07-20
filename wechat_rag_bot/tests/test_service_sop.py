@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -116,6 +118,76 @@ async def test_service_sop_executes_independently_and_exits_when_tag_removed(
     )
     assert buyer["enrollment_status"] == "exited"
     assert buyer["exit_reason"] == "purchase_tag_removed"
+
+
+@pytest.mark.asyncio
+async def test_service_sop_d0_queues_immediately_outside_its_time_range(
+    monkeypatch, tmp_path
+):
+    _settings(monkeypatch, tmp_path)
+    now = datetime(2026, 7, 20, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(unpurchased_sop_service, "_utcnow", lambda: now)
+    await sync_eyun_contacts(friend_ids=["baseline"])
+    await sync_eyun_contacts(friend_ids=["baseline", "buyer"])
+    await patch_user_profile(
+        "buyer", {"customer_tags": [next(iter(unpurchased_sop_service.PURCHASE_TAGS))]}
+    )
+    update_unpurchased_sop(
+        UnpurchasedSopUpdateRequest(
+            name="服务SOP",
+            enabled=True,
+            dry_run=False,
+            send_window_start="09:00",
+            send_window_end="11:00",
+        ),
+        sop_id=SERVICE_SOP_ID,
+    )
+    d0 = create_unpurchased_sop_step(
+        UnpurchasedSopStepRequest(
+            day_offset=0,
+            send_time_start="20:00",
+            send_time_end="21:00",
+            message_type="text",
+            content="服务开场白",
+        ),
+        sop_id=SERVICE_SOP_ID,
+    )
+    create_unpurchased_sop_step(
+        UnpurchasedSopStepRequest(
+            day_offset=1,
+            send_time_start="10:00",
+            send_time_end="11:00",
+            message_type="text",
+            content="次日服务消息",
+        ),
+        sop_id=SERVICE_SOP_ID,
+    )
+    captured = []
+
+    async def fake_enqueue(**kwargs):
+        captured.append(kwargs)
+        return {"id": 701, "status": "queued"}
+
+    monkeypatch.setattr(
+        unpurchased_sop_service, "enqueue_wechat_outbound", fake_enqueue
+    )
+
+    assert sync_service_sop_enrollments() == {"enrolled": 1, "exited": 0}
+    assert await process_due_unpurchased_sop_deliveries(
+        sop_id=SERVICE_SOP_ID
+    ) == 1
+    assert captured[0]["content"] == "服务开场白"
+    assert await process_due_unpurchased_sop_deliveries(
+        sop_id=SERVICE_SOP_ID
+    ) == 0
+
+    deliveries = get_unpurchased_sop(sop_id=SERVICE_SOP_ID)
+    assert deliveries["steps"][0]["id"] == d0["id"]
+    delivery = unpurchased_sop_service.list_unpurchased_sop_deliveries(
+        sop_id=SERVICE_SOP_ID
+    )["items"][0]
+    assert delivery["step_id"] == d0["id"]
+    assert delivery["due_at"] == now.isoformat()
 
 
 def test_service_sop_admin_api_uses_separate_default_config(monkeypatch, tmp_path):

@@ -102,9 +102,10 @@ def create_unpurchased_sop_step(
 ) -> dict[str, Any]:
     with _get_session() as session:
         sop = _get_or_create_sop(session, sop_id)
-        _validate_step_window(
-            sop, request.send_time_start, request.send_time_end
-        )
+        if not (sop_id == SERVICE_SOP_ID and request.day_offset == 0):
+            _validate_step_window(
+                sop, request.send_time_start, request.send_time_end
+            )
         now = _utcnow()
         messages = _request_messages(request)
         first = messages[0]
@@ -135,9 +136,10 @@ def update_unpurchased_sop_step(
     with _get_session() as session:
         sop = _get_or_create_sop(session, sop_id)
         row = _get_step(session, step_id, sop_id)
-        _validate_step_window(
-            sop, request.send_time_start, request.send_time_end
-        )
+        if not (sop_id == SERVICE_SOP_ID and request.day_offset == 0):
+            _validate_step_window(
+                sop, request.send_time_start, request.send_time_end
+            )
         row.day_offset = request.day_offset
         row.send_time = request.send_time_start
         row.send_time_start = request.send_time_start
@@ -460,12 +462,7 @@ async def process_due_unpurchased_sop_deliveries(
                     )
                 ):
                     continue
-                due_at = _step_due_at(
-                    enrollment.friend_added_on,
-                    step,
-                    sop.timezone,
-                    seed=f"{enrollment.id}:{step.id}",
-                )
+                due_at = _sop_step_due_at(enrollment, step, sop)
                 if due_at <= now:
                     candidates.append((enrollment.id, contact.id, step.id, due_at))
         session.commit()
@@ -791,12 +788,7 @@ def pause_unpurchased_sop_for_customer(user_id: str, hours: int = 24) -> None:
                 )
             ).all()
             for step in steps:
-                due_at = _step_due_at(
-                    enrollment.friend_added_on,
-                    step,
-                    sop.timezone,
-                    seed=f"{enrollment.id}:{step.id}",
-                )
+                due_at = _sop_step_due_at(enrollment, step, sop)
                 if due_at > paused_until:
                     continue
                 exists = session.scalar(
@@ -1230,6 +1222,21 @@ def _step_due_at(
     selected = start + int.from_bytes(digest[:8], "big") % (span + 1)
     hour, minute = divmod(selected, 60)
     return datetime.combine(local_date, time(hour, minute), tzinfo=local_tz).astimezone(timezone.utc)
+
+
+def _sop_step_due_at(
+    enrollment: UnpurchasedSopEnrollmentModel,
+    step: UnpurchasedSopStepModel,
+    sop: UnpurchasedSopModel,
+) -> datetime:
+    if sop.id == SERVICE_SOP_ID and step.day_offset == 0:
+        return _aware(enrollment.enrolled_at)
+    return _step_due_at(
+        enrollment.friend_added_on,
+        step,
+        sop.timezone,
+        seed=f"{enrollment.id}:{step.id}",
+    )
 
 
 def _validate_step_window(

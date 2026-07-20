@@ -75,7 +75,7 @@
             <ElTableColumn label="节点" width="90">
               <template #default="{ row }"><strong>D{{ row.day_offset }}</strong></template>
             </ElTableColumn>
-            <ElTableColumn label="发送时间范围" width="160"><template #default="{ row }">{{ row.send_time_start }} - {{ row.send_time_end }}</template></ElTableColumn>
+            <ElTableColumn label="发送时间范围" width="160"><template #default="{ row }">{{ sopKind === 'service' && row.day_offset === 0 ? '进入即发送' : `${row.send_time_start} - ${row.send_time_end}` }}</template></ElTableColumn>
             <ElTableColumn label="消息序列" width="190">
               <template #default="{ row }">
                 <ElTag v-for="(message, index) in stepMessages(row)" :key="index" class="sequence-tag">{{ index + 1 }}. {{ typeText(message.message_type) }}</ElTag>
@@ -157,9 +157,15 @@
       <ElForm label-position="top">
         <div class="step-grid">
           <ElFormItem :label="dayOffsetLabel"><ElInputNumber v-model="stepForm.day_offset" :min="0" :max="3650" /></ElFormItem>
-          <ElFormItem label="随机发送时间范围">
-            <div class="time-range"><ElTimeSelect v-model="stepForm.send_time_start" start="00:00" step="00:30" end="23:30" /><span>至</span><ElTimeSelect v-model="stepForm.send_time_end" start="00:00" step="00:30" end="23:30" /></div>
-            <small>每位客户会在该范围内生成一个随机发送时刻</small>
+          <ElFormItem :label="isImmediateServiceD0 ? '发送方式' : '随机发送时间范围'">
+            <template v-if="isImmediateServiceD0">
+              <ElTag type="success">进入服务 SOP 后立即排队</ElTag>
+              <small>D0 作为开场白，不受总发送时间范围限制。</small>
+            </template>
+            <template v-else>
+              <div class="time-range"><ElTimeSelect v-model="stepForm.send_time_start" start="00:00" step="00:30" end="23:30" /><span>至</span><ElTimeSelect v-model="stepForm.send_time_end" start="00:00" step="00:30" end="23:30" /></div>
+              <small>每位客户会在该范围内生成一个随机发送时刻</small>
+            </template>
           </ElFormItem>
         </div>
         <div class="message-editor-head"><strong>消息序列</strong><small>拖动卡片或使用箭头调整顺序，系统将从上到下发送</small></div>
@@ -305,6 +311,7 @@ const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 const VIDEO_MAX_BYTES = 100 * 1024 * 1024
 const emptyMessage = (message_type: SopMessageType = 'text'): SopMessageItem => ({ message_type, content: '', preview_url: '', material_id: undefined, title: '', url: '', description: '', thumb_url: '' })
 const stepForm = reactive<SopStepPayload>({ day_offset: 0, send_time_start: '09:00', send_time_end: '10:00', messages: [emptyMessage()], position: 0, enabled: true })
+const isImmediateServiceD0 = computed(() => sopKind.value === 'service' && stepForm.day_offset === 0)
 const contacts = ref<UnpurchasedSopContact[]>([])
 const contactsTotal = ref(0)
 const contactsLoading = ref(false)
@@ -380,7 +387,7 @@ const selectMaterial = (message: SopMessageItem, materialId: number) => {
 }
 
 const saveStep = async () => {
-  if (stepForm.send_time_end < stepForm.send_time_start) return ElMessage.warning('发送结束时间不能早于开始时间')
+  if (!isImmediateServiceD0.value && stepForm.send_time_end < stepForm.send_time_start) return ElMessage.warning('发送结束时间不能早于开始时间')
   stepForm.messages.forEach((message) => {
     if (message.message_type === 'link_card') message.content = (message.url || '').trim()
   })
