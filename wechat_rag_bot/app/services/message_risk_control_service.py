@@ -35,6 +35,7 @@ from app.services.conversation_service import (
 )
 from app.services.customer_reply_formatter import split_customer_messages
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
+from app.services.orchid_material_service import orchid_material_chat_result
 from app.services.user_profile_service import (
     add_verified_customer_tag,
     append_conversation_memory,
@@ -719,7 +720,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         customer_snapshot.update(contact_snapshot)
 
-        if all_images_failed:
+        material_result = orchid_material_chat_result(batch_data["content"])
+        if material_result is not None:
+            chat_result = material_result
+        elif all_images_failed:
             is_first_failure = await reserve_eyun_image_description_prompt(
                 w_id=batch_data["w_id"],
                 wc_id=batch_data["target_wc_id"],
@@ -1026,7 +1030,8 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
             }
             for message in messages
             if isinstance(message, dict)
-            and message.get("type") in {"text", "image", "mini_program", "material"}
+            and message.get("type")
+            in {"text", "image", "link_card", "mini_program", "material"}
             and str(message.get("content") or "").strip()
         ]
         if valid:
