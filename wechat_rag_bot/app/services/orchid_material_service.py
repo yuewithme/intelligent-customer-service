@@ -27,8 +27,8 @@ ORCHID_MATERIAL_CARD = {
         "让你5分钟轻松学会养兰基础，新手上道更轻松。"
     ),
     "thumb_url": (
-        "https://img01.yzcdn.cn/upload_files/2025/04/19/"
-        "FhLcsP1lvFtffSQOTpWQbksCivad.jpg"
+        "http://150.158.52.233/static/orchid-material/"
+        "companion-material-card-thumb.jpg"
     ),
 }
 

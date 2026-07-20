@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from app.services.orchid_material_service import (
     ORCHID_MATERIAL_CARD,
@@ -49,6 +50,15 @@ def test_orchid_material_reply_uses_fixed_youzan_card():
         "description": ORCHID_MATERIAL_CARD["description"],
         "thumb_url": ORCHID_MATERIAL_CARD["thumb_url"],
     }
+    assert card["thumb_url"] == (
+        "http://150.158.52.233/static/orchid-material/"
+        "companion-material-card-thumb.jpg"
+    )
+    thumb_path = (
+        Path(__file__).parents[1]
+        / "app/static/orchid-material/companion-material-card-thumb.jpg"
+    )
+    assert thumb_path.stat().st_size < 51_200
     assert result["outbound_messages"][1] == {
         "type": "text",
         "content": ORCHID_MATERIAL_TEXT,
