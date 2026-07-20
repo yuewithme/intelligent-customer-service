@@ -167,6 +167,27 @@ async def test_product_preference_followup_keeps_recommendation_context():
 
 
 @pytest.mark.asyncio
+async def test_first_turn_recommendation_uses_product_catalog_policy():
+    from app.schemas.intent import IntentResult
+    from app.services.policy_service import decide_route
+
+    state = UserState(user_id="user_intent")
+    message = _message("推荐几款香味浓、性价比高的兰花")
+    decision = await decide_route(
+        IntentResult(
+            route="rag_answer",
+            primary_intent="knowledge_question",
+            confidence=0.9,
+            need_rag=True,
+        ),
+        state,
+        message,
+    )
+
+    assert decision.retrieval_policy == {"mode": "product_recommendation"}
+
+
+@pytest.mark.asyncio
 async def test_hard_rules_bypass_llm_when_llm_intent_is_enabled(monkeypatch):
     from app.config import get_settings
     from app.services import intent_service

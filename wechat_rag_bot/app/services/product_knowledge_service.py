@@ -13,6 +13,7 @@ from app.services.youzan_product_sync_service import _session
 
 _FIELDS = (
     "product_name",
+    "aliases",
     "category",
     "flower_color",
     "fragrance",
@@ -24,6 +25,18 @@ _FIELDS = (
     "market_price",
     "highlighted_features",
     "sales_copy",
+)
+PREFERENCE_TERMS = (
+    "好养",
+    "易活",
+    "新手",
+    "性价比",
+    "便宜",
+    "浓香",
+    "清香",
+    "花香",
+    "带花",
+    "花苞",
 )
 
 
@@ -41,6 +54,7 @@ def list_product_knowledge(
             filters.append(
                 or_(
                     YouzanProductKnowledgeModel.product_name.ilike(value),
+                    YouzanProductKnowledgeModel.aliases.ilike(value),
                     YouzanProductKnowledgeModel.category.ilike(value),
                     YouzanProductKnowledgeModel.highlighted_features.ilike(value),
                     YouzanProductKnowledgeModel.sales_copy.ilike(value),
@@ -232,7 +246,10 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
         term
         for term in (
             _normalize_name(value)
-            for value in re.split(r"[\s,，。；;、]+|(?:适合|有没有|推荐|想要|的|和)", keyword)
+            for value in re.split(
+                r"[\s,，。；;、]+|(?:适合|有没有|推荐|想要|想找|帮我|给我|几款|一款|哪款|哪种|兰花|的|和)",
+                keyword,
+            )
         )
         if len(term) >= 2
     ]
@@ -435,20 +452,29 @@ def _match_score(
 ) -> int:
     name = _normalize_name(knowledge.product_name)
     title = _normalize_name(product.title)
+    aliases = _normalize_name(knowledge.aliases)
     if name and name in keyword:
         return 300 + len(name)
+    if any(alias in keyword for alias in _split_aliases(knowledge.aliases)):
+        return 280
     if keyword in title or keyword in name:
         return 200 + min(len(keyword), len(name))
     searchable = _normalize_name(
         " ".join(
             str(getattr(knowledge, field) or "")
             for field in (
+                "aliases",
                 "category",
                 "flower_color",
                 "fragrance",
+                "flowering_status",
+                "price_budget",
                 "care_scenes",
+                "bloom_period",
                 "audience_tag",
+                "market_price",
                 "highlighted_features",
+                "sales_copy",
             )
         )
     )
@@ -457,9 +483,20 @@ def _match_score(
     matched_terms = {
         term
         for term in (query_terms or [])
-        if term in title or term in name or term in searchable
+        if term in title or term in name or term in aliases or term in searchable
     }
+    matched_terms.update(
+        term for term in PREFERENCE_TERMS if term in keyword and term in searchable
+    )
     return 20 * len(matched_terms)
+
+
+def _split_aliases(value: str | None) -> list[str]:
+    return [
+        normalized
+        for item in re.split(r"[\s,，、;；/|]+", str(value or ""))
+        if (normalized := _normalize_name(item))
+    ]
 
 
 def _normalize_name(value: str) -> str:

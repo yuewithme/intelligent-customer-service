@@ -31,6 +31,7 @@
 
     <ElTable v-loading="loading" :data="items" row-key="id">
       <ElTableColumn prop="product_name" label="产品名称" min-width="150" fixed="left" />
+      <ElTableColumn prop="aliases" label="产品别名" min-width="150" show-overflow-tooltip />
       <ElTableColumn label="关联有赞商品" min-width="240">
         <template #default="scope">
           <div v-if="scope.row.linked_product" class="linked-product">
@@ -121,6 +122,7 @@ type KnowledgeTextKey = Exclude<keyof ProductKnowledgePayload, 'item_id' | 'prod
 const emptyForm = (): ProductKnowledgePayload => ({
   item_id: null,
   product_name: '',
+  aliases: '',
   category: '',
   flower_color: '',
   fragrance: '',
@@ -135,6 +137,7 @@ const emptyForm = (): ProductKnowledgePayload => ({
 })
 
 const shortFields: Array<{ key: KnowledgeTextKey; label: string }> = [
+  { key: 'aliases', label: '产品别名' },
   { key: 'category', label: '所属类别' },
   { key: 'flower_color', label: '花色' },
   { key: 'fragrance', label: '香味' },

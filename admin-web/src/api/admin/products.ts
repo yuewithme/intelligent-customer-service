@@ -40,6 +40,7 @@ export interface ProductOption {
 export interface ProductKnowledgePayload {
   item_id?: string | null
   product_name: string
+  aliases: string
   category: string
   flower_color: string
   fragrance: string

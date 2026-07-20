@@ -80,6 +80,7 @@ class YouzanProductKnowledgeModel(Base):
         String(128), unique=True, index=True, nullable=True
     )
     product_name: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    aliases: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     flower_color: Mapped[str | None] = mapped_column(String(128), nullable=True)
     fragrance: Mapped[str | None] = mapped_column(String(128), nullable=True)

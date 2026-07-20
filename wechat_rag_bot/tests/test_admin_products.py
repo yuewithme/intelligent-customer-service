@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 import pytest
+import sqlite3
 
 from app.config import get_settings
 from app.main import app
@@ -269,8 +270,66 @@ async def test_knowledge_is_editable_and_drives_local_ai_catalog(monkeypatch, tm
     from app.services.product_knowledge_service import search_catalog_products
 
     products = search_catalog_products("适合新手的建兰")
+    recommendation = search_catalog_products("推荐几款花香浓、适合新手的兰花")
 
     assert imported.status_code == 200
     assert updated.status_code == 200
     assert products[0]["item_id"] == "1001"
     assert "适合新手" in products[0]["knowledge"]["highlighted_features"]
+    assert recommendation[0]["item_id"] == "1001"
+
+
+@pytest.mark.asyncio
+async def test_product_alias_drives_local_ai_catalog(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    await sync_youzan_products(client=FakeYouzanClient())
+    import_product_knowledge(
+        [
+            {
+                "product_name": "建兰皇帝",
+                "aliases": "逸红双娇，小国魂",
+                "category": "建兰",
+                "highlighted_features": "花香清幽",
+            }
+        ]
+    )
+
+    from app.services.product_knowledge_service import search_catalog_products
+
+    products = search_catalog_products("有没有逸红双娇")
+
+    assert products[0]["item_id"] == "1001"
+    assert products[0]["knowledge"]["aliases"] == "逸红双娇，小国魂"
+
+
+@pytest.mark.asyncio
+async def test_legacy_aliases_are_backfilled_once_into_new_catalog(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    await sync_youzan_products(client=FakeYouzanClient())
+    import_product_knowledge(
+        [{"product_name": "建兰皇帝", "category": "建兰"}]
+    )
+
+    database_path = tmp_path / "products.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE orchid_varieties (
+                variety_name TEXT,
+                primary_alias TEXT,
+                aliases_text TEXT
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO orchid_varieties VALUES (?, ?, ?)",
+            ("建兰皇帝", "皇帝梅", "皇帝梅，帝王梅"),
+        )
+
+    reset_product_store_for_tests()
+
+    from app.services.product_knowledge_service import list_product_knowledge
+
+    item = list_product_knowledge()["items"][0]
+
+    assert item["aliases"] == "皇帝梅，帝王梅"

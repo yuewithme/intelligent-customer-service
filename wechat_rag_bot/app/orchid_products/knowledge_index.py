@@ -90,6 +90,7 @@ async def search_orchid_knowledge_chunks(
         rows = (
             session.query(OrchidKnowledgeChunkModel)
             .filter(OrchidKnowledgeChunkModel.embedding_json.is_not(None))
+            .filter(OrchidKnowledgeChunkModel.source_table == "orchid_common_knowledge")
             .all()
         )
         for row in rows:

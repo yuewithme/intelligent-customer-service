@@ -72,6 +72,88 @@ def test_product_recommendation_retrieval_question_includes_recent_context():
 
 
 @pytest.mark.asyncio
+async def test_product_recommendation_uses_new_catalog_only(monkeypatch):
+    from app.config import get_settings
+
+    async def fake_embed(text):
+        assert "好养" in text
+        return [0.1, 0.2]
+
+    async def fail_legacy_search(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("product recommendation must not query legacy knowledge")
+
+    async def fake_rerank(question, docs, top_n):
+        assert "好养" in question
+        assert docs[0]["source_table"] == "youzan_product_knowledge"
+        return docs[:top_n]
+
+    async def fake_generate(prompt):
+        assert "逸红双娇" in prompt
+        assert "¥29.90" in prompt
+        return {"answer": "推荐小国魂，别名逸红双娇。", "usage": {}}
+
+    monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(rag_service.embedding_service, "embed_text", fake_embed)
+    monkeypatch.setattr(rag_service.qdrant_service, "search_chunks", fail_legacy_search)
+    monkeypatch.setattr(rag_service, "search_orchid_knowledge_chunks", fail_legacy_search)
+    monkeypatch.setattr(
+        rag_service,
+        "search_catalog_products",
+        lambda keyword, limit: [
+            {
+                "item_id": "1001",
+                "title": "小国魂 3苗",
+                "price_cent": 2990,
+                "stock": 8,
+                "knowledge": {
+                    "product_name": "小国魂",
+                    "aliases": "逸红双娇",
+                    "care_scenes": "好养",
+                },
+            }
+        ],
+    )
+    monkeypatch.setattr(rag_service.rerank_service, "rerank", fake_rerank)
+    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
+
+    try:
+        result = await rag_service.rag_chat(
+            user_id="user_001",
+            message="想找好养的兰花",
+            kb_id="kb_default",
+            metadata={"tenant_id": "tenant_default", "permission": "public"},
+            policy=PolicyDecision(
+                route="rag_answer",
+                retrieval_policy={"mode": "product_recommendation"},
+            ),
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result["answer"] == "推荐小国魂，别名逸红双娇。"
+    assert result["sources"][0]["file_name"] == "产品知识库"
+
+
+def test_generic_rag_excludes_legacy_product_rows_but_keeps_common_care():
+    docs = [
+        {
+            "source_table": "orchid_variety_traits",
+            "section": "旧品种特征",
+            "text": "旧商品资料",
+        },
+        {
+            "source_table": "orchid_common_knowledge",
+            "section": "通用养护",
+            "text": "浇水见干见湿",
+        },
+    ]
+
+    assert rag_service._select_non_sales_docs(docs) == [docs[1]]
+
+
+@pytest.mark.asyncio
 async def test_rag_chat_orchestrates_services(monkeypatch):
     from app.config import get_settings
 

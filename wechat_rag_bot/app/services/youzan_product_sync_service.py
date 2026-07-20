@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
@@ -108,7 +109,79 @@ def _session_factory(database_url: str):
             connection.execute(
                 text("ALTER TABLE youzan_products ADD COLUMN alias VARCHAR(128)")
             )
+    _ensure_product_knowledge_aliases(engine)
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def _ensure_product_knowledge_aliases(engine) -> None:
+    inspector = inspect(engine)
+    columns = {
+        column["name"]
+        for column in inspector.get_columns("youzan_product_knowledge")
+    }
+    if "aliases" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE youzan_product_knowledge ADD COLUMN aliases TEXT")
+            )
+
+    if "orchid_varieties" not in set(inspector.get_table_names()):
+        return
+
+    with engine.begin() as connection:
+        legacy_rows = connection.execute(
+            text(
+                "SELECT variety_name, primary_alias, aliases_text "
+                "FROM orchid_varieties"
+            )
+        ).mappings()
+        legacy_aliases: dict[str, list[str]] = {}
+        for row in legacy_rows:
+            key = _normalize_product_name(row["variety_name"])
+            if not key:
+                continue
+            values = legacy_aliases.setdefault(key, [])
+            for value in (row["primary_alias"], row["aliases_text"]):
+                values.extend(_alias_values(value))
+
+        knowledge_rows = connection.execute(
+            text("SELECT id, product_name, aliases FROM youzan_product_knowledge")
+        ).mappings()
+        for row in knowledge_rows:
+            product_name = str(row["product_name"] or "").strip()
+            candidates = [
+                *_alias_values(row["aliases"]),
+                *legacy_aliases.get(_normalize_product_name(product_name), []),
+            ]
+            aliases = []
+            seen = {_normalize_product_name(product_name)}
+            for alias in candidates:
+                normalized = _normalize_product_name(alias)
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                aliases.append(alias)
+            value = "，".join(aliases)
+            if value != str(row["aliases"] or "").strip():
+                connection.execute(
+                    text(
+                        "UPDATE youzan_product_knowledge "
+                        "SET aliases = :aliases WHERE id = :id"
+                    ),
+                    {"aliases": value or None, "id": row["id"]},
+                )
+
+
+def _alias_values(value: str | None) -> list[str]:
+    return [
+        item.strip()
+        for item in re.split(r"[\s,，、;；/|]+", str(value or ""))
+        if item.strip()
+    ]
+
+
+def _normalize_product_name(value: str | None) -> str:
+    return re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", str(value or "")).lower()
 
 
 def _session() -> Session:

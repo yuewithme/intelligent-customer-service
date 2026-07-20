@@ -29,6 +29,14 @@ TEMPLATE_INTENTS = {
     "payment_intent",
     "purchase_rejection",
 }
+PRODUCT_RECOMMENDATION_MARKERS = (
+    "推荐",
+    "哪款",
+    "哪种",
+    "想找",
+    "想要",
+    "性价比",
+)
 
 
 async def decide_route(
@@ -36,7 +44,7 @@ async def decide_route(
     user_state: UserState,
     message: NormalizedMessage,
 ) -> PolicyDecision:
-    del user_state, message
+    del user_state
     if intent.route not in VALID_ROUTES:
         return _handoff_decision("invalid_route_to_handoff", intent.route or "clarify")
     if intent.need_human or intent.primary_intent in HUMAN_INTENTS:
@@ -80,7 +88,10 @@ async def decide_route(
         return PolicyDecision(route="template_then_rag", reason="mixed_sales_knowledge")
     if intent.primary_intent in KNOWLEDGE_INTENTS:
         retrieval_policy = {}
-        if intent.slots.get("conversation_topic") == "product_recommendation":
+        if (
+            intent.slots.get("conversation_topic") == "product_recommendation"
+            or any(marker in message.message for marker in PRODUCT_RECOMMENDATION_MARKERS)
+        ):
             retrieval_policy = {"mode": "product_recommendation"}
         return PolicyDecision(
             route="rag_answer",

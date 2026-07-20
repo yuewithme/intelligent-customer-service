@@ -14,6 +14,7 @@ from app.services import (
 )
 from app.orchid_products.knowledge_index import search_orchid_knowledge_chunks
 from app.services.context_selector import select_context
+from app.services.product_knowledge_service import search_catalog_products
 from app.services.prompt_builder import build_prompt
 from app.utils.ids import generate_id
 from app.utils.logger import log_event
@@ -50,6 +51,7 @@ PRODUCT_SOURCE_TABLES = {
     "orchid_products",
     "orchid_sales_copy",
 }
+LEGACY_ORCHID_COMMON_TABLE = "orchid_common_knowledge"
 
 
 PROMPT_TEMPLATE = """
@@ -141,7 +143,7 @@ def _default_search_kb_ids(kb_id: str) -> list[str]:
 def select_care_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     selected = []
     for doc in docs:
-        if _is_sales_doc(doc):
+        if _is_sales_doc(doc) or _is_legacy_product_doc(doc):
             continue
         source_table = str(doc.get("source_table") or "").strip()
         if source_table in PRODUCT_SOURCE_TABLES:
@@ -157,7 +159,11 @@ def select_care_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _select_non_sales_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [doc for doc in docs if not _is_sales_doc(doc)]
+    return [
+        doc
+        for doc in docs
+        if not _is_sales_doc(doc) and not _is_legacy_product_doc(doc)
+    ]
 
 
 def select_product_recommendation_docs(
@@ -170,6 +176,65 @@ def select_product_recommendation_docs(
             continue
         selected.append(doc)
     return selected
+
+
+def _is_legacy_product_doc(doc: dict[str, Any]) -> bool:
+    source_table = str(doc.get("source_table") or "").strip()
+    return source_table.startswith("orchid_") and source_table != LEGACY_ORCHID_COMMON_TABLE
+
+
+def _catalog_product_docs(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    docs = []
+    for product in products:
+        knowledge = product.get("knowledge")
+        knowledge = knowledge if isinstance(knowledge, dict) else {}
+        values = (
+            ("产品名称", knowledge.get("product_name") or product.get("title")),
+            ("产品别名", knowledge.get("aliases")),
+            ("所属类别", knowledge.get("category")),
+            ("花色", knowledge.get("flower_color")),
+            ("香味", knowledge.get("fragrance")),
+            ("是否带花", knowledge.get("flowering_status")),
+            ("价格预算", knowledge.get("price_budget")),
+            ("适合养护场景", knowledge.get("care_scenes")),
+            ("花期", knowledge.get("bloom_period")),
+            ("适合人群", knowledge.get("audience_tag")),
+            ("突出特征", knowledge.get("highlighted_features")),
+            ("塑品话术", knowledge.get("sales_copy")),
+            ("当前售价", _price_text(product.get("price_cent"))),
+            ("当前库存", product.get("stock")),
+        )
+        item_id = str(product.get("item_id") or "").strip()
+        docs.append(
+            {
+                "text": "\n".join(
+                    f"{label}：{value}"
+                    for label, value in values
+                    if value not in (None, "")
+                ),
+                "kb_id": "product_catalog",
+                "doc_id": f"product_catalog_{item_id}",
+                "chunk_id": f"product_catalog_{item_id}",
+                "file_name": "产品知识库",
+                "file_type": "db",
+                "page": None,
+                "section": knowledge.get("product_name") or product.get("title"),
+                "tenant_id": "tenant_default",
+                "permission": "public",
+                "score": 1.0,
+                "source_table": "youzan_product_knowledge",
+                "entity_type": "catalog_product",
+                "item_id": item_id,
+            }
+        )
+    return docs
+
+
+def _price_text(value: Any) -> str:
+    try:
+        return f"¥{int(value) / 100:.2f}"
+    except (TypeError, ValueError):
+        return "以当前商品页为准"
 
 
 def _is_sales_doc(doc: dict[str, Any]) -> bool:
@@ -318,23 +383,28 @@ async def rag_chat(
         search_kb_ids = knowledge_base_ids or _default_search_kb_ids(kb_id)
         candidates = []
         stage_started = time.perf_counter()
-        for search_kb_id in search_kb_ids:
-            candidates.extend(
-                await qdrant_service.search_chunks(
-                    vector,
-                    kb_id=search_kb_id,
-                    tenant_id=metadata.get("tenant_id", "tenant_default"),
-                    permission=metadata.get("permission", "public"),
-                    top_k=settings.rag_top_k,
-                )
+        if policy and policy.retrieval_policy.get("mode") == "product_recommendation":
+            candidates = _catalog_product_docs(
+                search_catalog_products(retrieval_question, limit=settings.rag_top_k)
             )
-            candidates.extend(
-                await search_orchid_knowledge_chunks(
-                    vector,
-                    kb_id=search_kb_id,
-                    top_k=settings.rag_top_k,
+        else:
+            for search_kb_id in search_kb_ids:
+                candidates.extend(
+                    await qdrant_service.search_chunks(
+                        vector,
+                        kb_id=search_kb_id,
+                        tenant_id=metadata.get("tenant_id", "tenant_default"),
+                        permission=metadata.get("permission", "public"),
+                        top_k=settings.rag_top_k,
+                    )
                 )
-            )
+                candidates.extend(
+                    await search_orchid_knowledge_chunks(
+                        vector,
+                        kb_id=search_kb_id,
+                        top_k=settings.rag_top_k,
+                    )
+                )
         stage_latencies["search_ms"] = round(
             (time.perf_counter() - stage_started) * 1000
         )
