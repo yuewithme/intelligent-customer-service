@@ -87,6 +87,12 @@ async def search_templates(
     for template in _templates.values():
         if template.status != "active":
             continue
+        if (
+            template.template_id == "tpl_order_information_received"
+            and intent.slots.get("conversation_topic") != "order_information"
+            and not extract_shipping_contact(text)
+        ):
+            continue
         if any(word and word in text for word in template.not_use_when):
             continue
         intent_match = 1.0 if template.intent == intent.primary_intent else 0.0

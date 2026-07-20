@@ -333,7 +333,12 @@ async def apply_deterministic_profile_update(message, intent, reply) -> None:
         profile.last_template_id = reply.template_id
         profile.last_active_at = _now()
         _apply_tag_result(profile, reply.metadata.get("tag_result"))
-        _apply_sales_action(profile, intent, reply.metadata.get("sales_action"))
+        _apply_sales_action(
+            profile,
+            intent,
+            reply.metadata.get("sales_action"),
+            reply.metadata.get("sales_stage_decision"),
+        )
         profile.updated_at = _now()
         if reply.route == "human" or reply.need_human:
             handoff = reply.metadata.get("handoff", {})
@@ -397,7 +402,12 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     profile.pain_points_json = _json_dumps(pain_points)
 
 
-def _apply_sales_action(profile: UserProfileModel, intent, sales_action: Any) -> None:
+def _apply_sales_action(
+    profile: UserProfileModel,
+    intent,
+    sales_action: Any,
+    stage_decision: Any = None,
+) -> None:
     if not isinstance(sales_action, dict):
         return
     profile.active_opportunity_json = _json_dumps(
@@ -407,6 +417,7 @@ def _apply_sales_action(profile: UserProfileModel, intent, sales_action: Any) ->
                 "sales_stage", intent.sales_stage, fallback="unknown"
             ),
             sales_action=sales_action,
+            stage_decision=stage_decision if isinstance(stage_decision, dict) else None,
         )
     )
 

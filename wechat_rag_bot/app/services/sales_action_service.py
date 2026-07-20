@@ -55,7 +55,12 @@ def decide_sales_action(
     if stage == "unknown":
         stage = normalize_sales_stage(user_state.sales_stage)
 
-    priority = _priority_action(intent.primary_intent, intent.need_human, intent.route)
+    priority = _priority_action(
+        intent.primary_intent,
+        intent.need_human,
+        intent.route,
+        set(intent.sales_signals),
+    )
     if priority:
         goal, action, signal = priority
         return _decision(
@@ -131,23 +136,27 @@ def evolve_opportunity(
     *,
     sales_stage: str,
     sales_action: dict,
+    stage_decision: dict | None = None,
     now: str | None = None,
 ) -> dict:
     timestamp = now or datetime.now(timezone.utc).isoformat()
     opportunity = dict(current) if isinstance(current, dict) else {}
     known_slots = dict(_dict_value(sales_action.get("known_slots")))
+    stage_update = _dict_value(stage_decision)
     decision_blocker = known_slots.pop("decision_blocker", None)
     if (
         sales_action.get("sales_action") in NON_SALES_ACTIONS
         and sales_action.get("customer_signal", "none") == "none"
         and not known_slots
     ):
-        return opportunity
+        if not opportunity or opportunity.get("status") in {"won", "lost", "expired"}:
+            return opportunity
     replace_reason = _replace_reason(opportunity, known_slots, timestamp)
     if not opportunity.get("opportunity_id") or replace_reason:
         old_id = opportunity.get("opportunity_id")
         opportunity = {
             "opportunity_id": f"opp_{uuid4().hex}",
+            "kind": "first_order",
             "status": "active",
             "slots": {},
             "asked_slots": [],
@@ -160,7 +169,32 @@ def evolve_opportunity(
     opportunity["slots"] = {**_dict_value(opportunity.get("slots")), **known_slots}
     if isinstance(decision_blocker, dict):
         opportunity["decision_blocker"] = decision_blocker
-    opportunity["sales_stage"] = normalize_sales_stage(sales_stage)
+    decided_stage = stage_update.get("stage") or sales_stage
+    normalized_stage = normalize_sales_stage(decided_stage)
+    opportunity["sales_stage"] = normalized_stage
+    opportunity["current_stage"] = normalized_stage
+    previous_stage = normalize_sales_stage(stage_update.get("previous_stage"))
+    if previous_stage != "unknown":
+        opportunity["previous_stage"] = previous_stage
+    if stage_update.get("reason"):
+        opportunity["stage_reason"] = stage_update["reason"]
+    if stage_update.get("transition_type"):
+        opportunity["transition_type"] = stage_update["transition_type"]
+    if isinstance(stage_update.get("evidence"), list):
+        opportunity["stage_evidence"] = stage_update["evidence"]
+    if isinstance(stage_update.get("signals"), list):
+        opportunity["signals"] = _merge_strings(
+            _string_list(opportunity.get("signals")),
+            _string_list(stage_update["signals"]),
+        )
+    stage_status = stage_update.get("opportunity_status")
+    if stage_status in {"active", "won", "lost", "paused", "expired"}:
+        opportunity["status"] = stage_status
+    interruption = stage_update.get("interruption")
+    if isinstance(interruption, dict):
+        opportunity["interruption"] = interruption
+    elif stage_update.get("transition_type") == "resume":
+        opportunity.pop("interruption", None)
     opportunity["last_sales_action"] = sales_action.get("sales_action")
     opportunity["last_reply_goal"] = sales_action.get("reply_goal")
     opportunity["last_customer_signal"] = sales_action.get("customer_signal", "none")
@@ -181,6 +215,13 @@ def evolve_opportunity(
         opportunity["status"] = "won" if signal == "purchased" else "lost"
         opportunity["closed_at"] = timestamp
         opportunity["close_reason"] = signal
+    elif opportunity.get("status") in {"won", "lost", "expired"}:
+        opportunity["closed_at"] = timestamp
+        opportunity["close_reason"] = stage_update.get("reason") or opportunity["status"]
+    if opportunity.get("status") in {"won", "lost", "expired"}:
+        opportunity["asked_slots"] = []
+        opportunity.pop("decision_blocker", None)
+        opportunity["recommended_product_ids"] = []
     return opportunity
 
 
@@ -201,13 +242,20 @@ def _decision(
     )
 
 
-def _priority_action(intent: str, need_human: bool, route: str):
+def _priority_action(
+    intent: str,
+    need_human: bool,
+    route: str,
+    signals: set[str],
+):
     if need_human or route == "human":
         return ("转交人工继续处理", "handoff_to_human", "none")
     if intent in AFTER_SALE_INTENTS:
         return ("优先解决客户售后问题", "provide_service", "none")
-    if intent in PURCHASED_INTENTS:
+    if "purchased" in signals:
         return ("确认成交结果并完成服务交接", "close_order", "purchased")
+    if intent in PURCHASED_INTENTS or "payment_claimed" in signals:
+        return ("核验订单或支付状态，暂不标记成交", "close_order", "payment_claimed")
     if intent in REJECTED_INTENTS:
         return ("尊重客户决定并结束本次销售推进", "resolve_blocker", "rejected")
     if intent in ORDER_INTENTS:
@@ -248,6 +296,14 @@ def _string_list(value) -> list[str]:
 
 def _append_unique(values: list[str], value: str) -> list[str]:
     return values if value in values else [*values, value]
+
+
+def _merge_strings(current: list[str], incoming: list[str]) -> list[str]:
+    result = list(current)
+    for value in incoming:
+        if value not in result:
+            result.append(value)
+    return result
 
 
 def _slot_label(slot: str) -> str:

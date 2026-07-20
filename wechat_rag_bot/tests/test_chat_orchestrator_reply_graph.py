@@ -262,3 +262,55 @@ async def test_hydrate_user_state_restores_persisted_sales_stage(monkeypatch):
     await chat_orchestrator._hydrate_user_state_from_profile("user_001", state)
 
     assert state.sales_stage == "trial_close"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_uses_trusted_payment_facts_before_stage_decision(monkeypatch):
+    from app.services import chat_orchestrator
+
+    _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator)
+    captured = {}
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(intent_example_top_k=5),
+    )
+
+    async def classify_intent(message, user_state, candidates):
+        del message, user_state, candidates
+        return IntentResult(
+            route="template_reply",
+            primary_intent="payment_success",
+            confidence=0.9,
+        )
+
+    async def build_business_context(message):
+        del message
+        return BusinessFacts(tool_state={"payment_status": "paid"})
+
+    async def update_user_state(user_id, session_id, intent, reply):
+        del user_id, session_id
+        captured["signals"] = intent.sales_signals
+        captured["stage_decision"] = reply.metadata["sales_stage_decision"]
+
+    monkeypatch.setattr(chat_orchestrator, "classify_intent", classify_intent)
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "build_business_context",
+        build_business_context,
+    )
+    monkeypatch.setattr(chat_orchestrator, "update_user_state", update_user_state)
+
+    result = await chat_orchestrator.handle_chat(
+        ChatRequest(
+            channel="api",
+            user_id="user_001",
+            message="我已经付了",
+            kb_id="kb_default",
+        )
+    )
+
+    assert "purchased" in captured["signals"]
+    assert captured["stage_decision"]["stage"] == "closing"
+    assert captured["stage_decision"]["opportunity_status"] == "won"
+    assert "sales_stage_decision" not in result["metadata"]

@@ -424,14 +424,14 @@ python -m pytest tests/test_sales_stage_catalog.py tests/test_admin_tags.py -q
 - 修改：`wechat_rag_bot/app/services/user_profile_service.py`
 - 新增测试：`wechat_rag_bot/tests/test_sales_signal_service.py`
 
-- [ ] 在 `IntentResult` 中增加结构化 `sales_signals: list[str]`，保留 `sales_stage` 兼容字段。
-- [ ] 从当前消息、历史上下文、现有槽位、标签、商品事实和订单事实归一信号。
-- [ ] 扩充并规范槽位名称，避免同一事实出现多个键名。
-- [ ] 将 `decision_blocker` 扩展为 `price/trust/care_risk/product_fit/choice/timing/other`。
-- [ ] 对 `purchased` 做可信来源校验：仅订单工具状态、支付回调或已验证订单快照可生成。
-- [ ] 客户口述“已经付款”生成 `payment_claimed`，不得直接生成 `purchased`。
-- [ ] 测试服务、产品、复合需求以及典型成交阻碍。
-- [ ] 测试养护咨询不会自动变成售后，除非存在已购事实或售后请求。
+- [x] 在 `IntentResult` 中增加结构化 `sales_signals: list[str]`，保留 `sales_stage` 兼容字段。
+- [x] 从当前消息、历史上下文、现有槽位、标签、商品事实和订单事实归一信号。
+- [x] 扩充并规范槽位名称，避免同一事实出现多个键名。
+- [x] 将 `decision_blocker` 扩展为 `price/trust/care_risk/product_fit/choice/timing/other`。
+- [x] 对 `purchased` 做可信来源校验：仅订单工具状态、支付回调或已验证订单快照可生成。
+- [x] 客户口述“已经付款”生成 `payment_claimed`，不得直接生成 `purchased`。
+- [x] 测试服务、产品、复合需求以及典型成交阻碍。
+- [x] 测试养护咨询不会自动变成售后，除非存在已购事实或售后请求。
 
 **验证：**
 
@@ -447,25 +447,25 @@ python -m pytest tests/test_sales_signal_service.py tests/test_intent_service.py
 - 修改测试：`wechat_rag_bot/tests/test_sales_stage_service.py`
 - 新增测试：`wechat_rag_bot/tests/test_first_order_sales_flow.py`
 
-- [ ] 将阶段输入统一为：当前机会、客户信号、槽位、意图、标签和可信业务事实。
-- [ ] 输出 `previous_stage`、`stage`、`reason`、`evidence`、`transition_type`。
-- [ ] 实现正常前进、强信号跳级、受控回环、保持、中断、恢复和关闭。
-- [ ] 删除当前仅按数字大小禁止回退的单调递增实现。
-- [ ] 保留弱信号防抖：普通问候、单次知识问题不改变成熟销售机会阶段。
-- [ ] 价格问题在需求不清楚时保持挖需求；在推荐有依据后可进入试成交。
-- [ ] 异议可以进入成交推进；阻碍解决后允许回到试成交。
-- [ ] 换品种或预算实质变化时标记新机会/重新推荐，而不是沿用错误上下文。
-- [ ] 售后和人工中断保留 `resume_stage`。
+- [x] 将阶段输入统一为：当前机会、客户信号、槽位、意图、标签和可信业务事实。
+- [x] 输出 `previous_stage`、`stage`、`reason`、`evidence`、`transition_type`。
+- [x] 实现正常前进、强信号跳级、受控回环、保持、中断、恢复和关闭。
+- [x] 删除当前仅按数字大小禁止回退的单调递增实现。
+- [x] 保留弱信号防抖：普通问候、单次知识问题不改变成熟销售机会阶段。
+- [x] 价格问题在需求不清楚时保持挖需求；在推荐有依据后可进入试成交。
+- [x] 异议可以进入成交推进；阻碍解决后允许回到试成交。
+- [x] 换品种或预算实质变化时标记新机会/重新推荐，而不是沿用错误上下文。
+- [x] 售后和人工中断保留 `resume_stage`。
 
 **核心测试场景：**
 
-- [ ] 问候 → 挖需求 → 找痛点 → 推品 → 塑品 → 试成交 → 成交推进。
-- [ ] 新客带齐地区、预算、偏好，直接进入推品。
-- [ ] 未知需求直接问价，回答后仍停留挖需求。
-- [ ] 塑品阶段补充环境不匹配，回到推品重新推荐。
-- [ ] 成交推进解决异议，回到试成交。
-- [ ] 退款/投诉暂停销售；恢复时回到原阶段。
-- [ ] 客户口述付款不关闭机会；可信付款事实关闭为 `won`。
+- [x] 问候 → 挖需求 → 找痛点 → 推品 → 塑品 → 试成交 → 成交推进。
+- [x] 新客带齐地区、预算、偏好，直接进入推品。
+- [x] 未知需求直接问价，回答后仍停留挖需求。
+- [x] 塑品阶段补充环境不匹配，回到推品重新推荐。
+- [x] 成交推进解决异议，回到试成交。
+- [x] 退款/投诉暂停销售；恢复时回到原阶段。
+- [x] 客户口述付款不关闭机会；可信付款事实关闭为 `won`。
 
 **验证：**
 

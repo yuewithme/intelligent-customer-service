@@ -19,6 +19,7 @@ class IntentResult(BaseModel):
     primary_intent: str
     secondary_intents: list[str] = Field(default_factory=list)
     sales_stage: str = "unknown"
+    sales_signals: list[str] = Field(default_factory=list)
     customer_sentiment: str | None = None
     confidence: float = Field(ge=0, le=1)
     need_template: bool = False

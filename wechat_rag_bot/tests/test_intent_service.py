@@ -205,14 +205,14 @@ async def test_price_objection_adds_structured_decision_blocker():
 
 
 @pytest.mark.asyncio
-async def test_repeated_question_complaint_adds_communication_blocker():
+async def test_repeated_question_complaint_adds_other_blocker():
     intent = await classify_intent(
         _message("你怎么一直问，我想直接看商品"),
         UserState(user_id="user_intent"),
     )
 
     assert intent.slots["decision_blocker"] == {
-        "type": "communication",
+        "type": "other",
         "detail": "客户不愿继续回答重复问题，希望直接查看商品",
     }
 
@@ -227,10 +227,28 @@ def test_llm_prompt_requires_complete_intent_schema():
     assert '"confidence"' in prompt
     assert '"need_rag"' in prompt
     assert "slots.decision_blocker" in prompt
-    assert "price | trust | product_fit | timing | communication | unknown" in prompt
+    assert '"sales_signals"' in prompt
+    assert "payment_claimed" in prompt
+    assert "禁止输出 `purchased`" in prompt
+    assert "price | trust | care_risk | product_fit | choice | timing | other" in prompt
     assert "浇水需要多少天" in prompt
     assert "分类优先级" in prompt
     assert "重要边界" in prompt
     assert "confidence 规则" in prompt
     assert "名贵兰花" in prompt
     assert "换盆修根" in prompt
+
+
+def test_llm_intent_cannot_self_confirm_a_purchase():
+    from app.services.intent_service import _validated_intent
+
+    intent = _validated_intent(
+        {
+            "route": "template_reply",
+            "primary_intent": "payment_success",
+            "confidence": 0.9,
+            "sales_signals": ["purchased", "payment_claimed", "not_a_signal"],
+        }
+    )
+
+    assert intent.sales_signals == ["payment_claimed"]

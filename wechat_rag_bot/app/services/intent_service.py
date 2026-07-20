@@ -6,6 +6,7 @@ from app.config import get_settings
 from app.schemas.common import AppError, ErrorCode
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
+from app.schemas.sales_flow import CustomerSignal
 from app.schemas.state import UserState
 from app.services.shipping_contact_service import extract_shipping_contact
 from app.services.tag_catalog import normalize_system_value, system_tag_values
@@ -240,6 +241,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
                 "sales_stage": "closing",
                 "confidence": 0.9,
                 "need_template": True,
+                "slots": {"conversation_topic": "order_information"},
                 "reason": "soft_rule_order_information",
             }
         )
@@ -454,7 +456,7 @@ def _with_decision_blocker(intent: IntentResult, text: str) -> IntentResult:
         blocker = {"type": "price", "detail": "客户认为价格偏高"}
     elif hit_any(normalized, ("一直问", "反复问", "别再问", "直接看商品", "直接告诉")):
         blocker = {
-            "type": "communication",
+            "type": "other",
             "detail": "客户不愿继续回答重复问题，希望直接查看商品",
         }
     else:
@@ -462,7 +464,15 @@ def _with_decision_blocker(intent: IntentResult, text: str) -> IntentResult:
         if (
             isinstance(candidate, dict)
             and candidate.get("type")
-            in {"price", "trust", "product_fit", "timing", "communication"}
+            in {
+                "price",
+                "trust",
+                "care_risk",
+                "product_fit",
+                "choice",
+                "timing",
+                "other",
+            }
         ):
             blocker = {
                 "type": candidate["type"],
@@ -505,6 +515,14 @@ def _validated_intent(raw: dict) -> IntentResult:
         if intent.customer_sentiment
         else None
     )
+    sales_signals = []
+    for value in intent.sales_signals:
+        try:
+            signal = CustomerSignal(value)
+        except ValueError:
+            continue
+        if signal is not CustomerSignal.PURCHASED and signal.value not in sales_signals:
+            sales_signals.append(signal.value)
     return intent.model_copy(
         update={
             "primary_intent": primary_intent,
@@ -512,6 +530,7 @@ def _validated_intent(raw: dict) -> IntentResult:
             "sales_stage": normalize_system_value(
                 "sales_stage", intent.sales_stage, fallback="unknown"
             ),
+            "sales_signals": sales_signals,
             "customer_sentiment": sentiment,
         }
     )
@@ -577,6 +596,9 @@ def classify_product_recommendation_followup(
 def _build_prompt(message: str, recent_turns: list[dict] | None = None) -> str:
     intent_values = " | ".join(system_tag_values("intent")) or "unknown"
     stage_values = " | ".join(system_tag_values("sales_stage")) or "unknown"
+    signal_values = " | ".join(
+        signal.value for signal in CustomerSignal if signal is not CustomerSignal.PURCHASED
+    )
     sentiment_values = (
         " | ".join(system_tag_values("customer_sentiment")) or "neutral"
     )
@@ -618,6 +640,7 @@ def _build_prompt(message: str, recent_turns: list[dict] | None = None) -> str:
   "route": "template_reply | rag_answer | template_then_rag | clarify | human | chitchat | unsupported",
   "primary_intent": "{intent_values}",
   "secondary_intents": [],
+  "sales_signals": [],
   "slots": {{}},
   "sales_stage": "{stage_values}",
   "customer_sentiment": "{sentiment_values}",
@@ -633,16 +656,17 @@ def _build_prompt(message: str, recent_turns: list[dict] | None = None) -> str:
 1. `route`：后续处理路径。
 2. `primary_intent`：用户最主要的意图，只能选择一个。
 3. `secondary_intents`：用户同时表达的次要意图，没有则输出空数组。
-4. `sales_stage`：用户当前所处销售阶段或服务阶段。
-5. `customer_sentiment`：只能从标签管理中的客户情绪分类选择。
-6. `confidence`：判断置信度，范围为 `0.00` 到 `1.00`。
-7. `need_template`：是否需要调用固定话术模板。
-8. `need_rag`：是否需要调用兰花知识资料回答。
-9. `need_human`：是否需要转人工。
-10. `reason`：用一句简短中文说明分类原因，不超过 20 个字。
+4. `sales_signals`：只输出明确观察到的候选信号，可选值为 `{signal_values}`。客户口述付款只能输出 `payment_claimed`，禁止输出 `purchased`。
+5. `sales_stage`：兼容字段，只输出候选阶段，最终阶段由后续状态机决定。
+6. `customer_sentiment`：只能从标签管理中的客户情绪分类选择。
+7. `confidence`：判断置信度，范围为 `0.00` 到 `1.00`。
+8. `need_template`：是否需要调用固定话术模板。
+9. `need_rag`：是否需要调用兰花知识资料回答。
+10. `need_human`：是否需要转人工。
+11. `reason`：用一句简短中文说明分类原因，不超过 20 个字。
 
-`slots.decision_blocker` 格式为 {{"type": "price | trust | product_fit | timing | communication | unknown", "detail": ""}}。
-只记录客户明确表达的成交阻碍；没有明确阻碍时 type 输出 unknown、detail 输出空字符串。
+`slots.decision_blocker` 格式为 {{"type": "price | trust | care_risk | product_fit | choice | timing | other", "detail": ""}}。
+只记录客户明确表达的成交阻碍；没有明确阻碍时不要输出该槽位。
 detail 使用中性中文概括，不复述辱骂或攻击性原话；售后问题本身不算成交阻碍。
 
 # route 判定规则

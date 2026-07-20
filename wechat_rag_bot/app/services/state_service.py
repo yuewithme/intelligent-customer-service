@@ -87,6 +87,7 @@ async def update_user_state(
             _dict_value(state.metadata.get("active_opportunity")),
             sales_stage=intent.sales_stage,
             sales_action=action,
+            stage_decision=_dict_value(reply.metadata.get("sales_stage_decision")),
         )
 
 

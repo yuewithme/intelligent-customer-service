@@ -24,6 +24,7 @@ from app.services.reply_planner import resolve_reply_plan
 from app.services.reply_workflow_graph import execute_reply_plan
 from app.services.rule_guard_service import check_rules
 from app.services.sales_action_service import apply_sales_action, decide_sales_action
+from app.services.sales_signal_service import normalize_sales_signals
 from app.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
 from app.services.shipping_contact_service import extract_shipping_contact
 from app.services.state_service import get_user_state, update_user_state
@@ -107,16 +108,36 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_state=user_state,
             intent=intent,
         )
-        sales_stage_decision = decide_sales_stage(
-            user_state=user_state,
-            intent=intent,
-            tag_result=tag_result,
-        )
-        tag_result = tag_result.model_copy(update={"stage": sales_stage_decision.stage})
-        rich_decision = await decide_policy(tag_result)
         facts = await build_commerce_context(message, user_state, intent)
         if not facts.available:
             facts = await build_business_context(message)
+        sales_signals = normalize_sales_signals(
+            message=message,
+            user_state=user_state,
+            intent=intent,
+            tag_result=tag_result,
+            business_facts=facts,
+        )
+        normalized_intent = intent.model_copy(
+            update={
+                "sales_signals": [signal.value for signal in sales_signals.signals],
+                "slots": sales_signals.slots,
+            }
+        )
+        sales_stage_decision = decide_sales_stage(
+            user_state=user_state,
+            intent=normalized_intent,
+            tag_result=tag_result,
+            signal_result=sales_signals,
+            business_facts=facts,
+        )
+        tag_result = tag_result.model_copy(
+            update={
+                "stage": sales_stage_decision.stage,
+                "entities": sales_signals.slots,
+            }
+        )
+        rich_decision = await decide_policy(tag_result)
         plan = resolve_reply_plan(
             base=decision,
             tagged=rich_decision,
@@ -125,7 +146,7 @@ async def handle_chat(request: ChatRequest) -> dict:
         stage_latencies["tag_policy_ms"] = _elapsed_ms(stage_started)
 
         route = plan.action
-        routed_intent = intent.model_copy(
+        routed_intent = normalized_intent.model_copy(
             update={
                 "route": route,
                 "sales_stage": sales_stage_decision.stage,
@@ -142,6 +163,9 @@ async def handle_chat(request: ChatRequest) -> dict:
             intent=routed_intent,
         )
         user_state.metadata["sales_action"] = sales_action.model_dump()
+        user_state.metadata["sales_stage_decision"] = sales_stage_decision.model_dump(
+            mode="json"
+        )
 
         stage_started = time.perf_counter()
         reply = await execute_reply_plan(
@@ -154,6 +178,9 @@ async def handle_chat(request: ChatRequest) -> dict:
         reply = apply_sales_action(reply, sales_action)
         stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
         reply.metadata["sales_action"] = sales_action.model_dump()
+        reply.metadata["sales_stage_decision"] = sales_stage_decision.model_dump(
+            mode="json"
+        )
         reply.metadata["decision"] = {
             "action": plan.action,
             "reason": plan.reason,
@@ -287,6 +314,7 @@ def _public_reply_metadata(metadata: dict) -> dict:
         "business_facts",
         "decision",
         "reply_plan",
+        "sales_stage_decision",
         "tool_state",
     }
 

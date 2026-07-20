@@ -41,6 +41,7 @@ class CustomerSignal(str, Enum):
     READY_TO_BUY = "ready_to_buy"
     OBJECTION = "objection"
     PURCHASE_REJECTED = "purchase_rejected"
+    PAYMENT_CLAIMED = "payment_claimed"
     PURCHASED = "purchased"
 
 
@@ -88,12 +89,34 @@ class SalesInterruption(BaseModel):
     started_at: datetime
 
 
+SalesTransitionType = Literal[
+    "keep",
+    "advance",
+    "jump",
+    "loop",
+    "interrupt",
+    "resume",
+    "close",
+]
+
+
+class SalesSignalResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    signals: tuple[CustomerSignal, ...] = Field(default_factory=tuple)
+    slots: dict[str, Any] = Field(default_factory=dict)
+    incoming_slots: tuple[str, ...] = Field(default_factory=tuple)
+    evidence: tuple[SalesStageEvidence, ...] = Field(default_factory=tuple)
+
+
 class SalesStageDecision(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     stage: SalesStage
     previous_stage: SalesStage | None = None
     reason: str
+    transition_type: SalesTransitionType = "keep"
+    opportunity_status: SalesOpportunityStatus = SalesOpportunityStatus.ACTIVE
     evidence: tuple[SalesStageEvidence, ...] = Field(default_factory=tuple)
     signals: tuple[CustomerSignal, ...] = Field(default_factory=tuple)
     interruption: SalesInterruption | None = None
