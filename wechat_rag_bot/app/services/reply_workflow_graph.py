@@ -11,9 +11,7 @@ from app.schemas.reply_plan import ReplyPlan
 from app.services.business_reply_renderer import render_business_reply
 from app.services.reply_builder import (
     build_chitchat_reply,
-    build_clarify_reply,
     build_rag_reply,
-    build_unsupported_reply,
 )
 from app.services.template_reply_service import build_default_template_reply
 from app.talk_script.human_handoff_service import request_human_handoff
@@ -103,7 +101,14 @@ async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     if reply is not None:
         return {"reply": reply}
     stage_latencies["rag_ms"] = 0
-    return {"reply": build_clarify_reply(state["intent"], state["message"].message)}
+    return {
+        "handoff_reason": (
+            "business_facts_unanswerable_to_handoff"
+            if plan.business_facts.available
+            else "template_not_found_to_handoff"
+        ),
+        "handoff_original_route": plan.original_route or plan.action,
+    }
 
 
 def _policy_from_plan(plan: ReplyPlan) -> PolicyDecision:
@@ -135,7 +140,11 @@ async def rag_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     stage_latencies["rag_ms"] = _elapsed_ms(stage_started)
     stage_latencies.setdefault("template_ms", 0)
     if _is_rag_no_answer(rag_result):
-        return {"reply": build_clarify_reply(state["intent"], state["message"].message)}
+        return {
+            "handoff_reason": "rag_no_answer_to_handoff",
+            "handoff_original_route": state["plan"].original_route
+            or state["plan"].action,
+        }
     return {"reply": build_rag_reply(rag_result, state["intent"])}
 
 
@@ -209,18 +218,6 @@ def chitchat_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     return {"reply": build_chitchat_reply(state["intent"])}
 
 
-def unsupported_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
-    state["stage_latencies"].setdefault("template_ms", 0)
-    state["stage_latencies"].setdefault("rag_ms", 0)
-    return {"reply": build_unsupported_reply(state["intent"])}
-
-
-def clarify_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
-    state["stage_latencies"].setdefault("template_ms", 0)
-    state["stage_latencies"].setdefault("rag_ms", 0)
-    return {"reply": build_clarify_reply(state["intent"], state["message"].message)}
-
-
 def _after_talk_script(state: ReplyWorkflowState) -> str:
     if state.get("reply") is not None:
         return END
@@ -239,9 +236,7 @@ def _route_reply(state: ReplyWorkflowState) -> str:
         return "human"
     if action == "chitchat":
         return "chitchat"
-    if action == "unsupported":
-        return "unsupported"
-    return "clarify"
+    return "human"
 
 
 def _after_reply_node(state: ReplyWorkflowState) -> str:
@@ -260,8 +255,6 @@ def _compiled_graph():
     graph.add_node("handoff", handoff_node)
     graph.add_node("human", human_node)
     graph.add_node("chitchat", chitchat_node)
-    graph.add_node("unsupported", unsupported_node)
-    graph.add_node("clarify", clarify_node)
 
     graph.add_edge(START, "talk_script")
     graph.add_conditional_edges(
@@ -277,8 +270,6 @@ def _compiled_graph():
             "rag": "rag",
             "human": "human",
             "chitchat": "chitchat",
-            "unsupported": "unsupported",
-            "clarify": "clarify",
         },
     )
     graph.add_conditional_edges(
@@ -294,8 +285,6 @@ def _compiled_graph():
     graph.add_edge("handoff", END)
     graph.add_edge("human", END)
     graph.add_edge("chitchat", END)
-    graph.add_edge("unsupported", END)
-    graph.add_edge("clarify", END)
     return graph.compile()
 
 
@@ -325,7 +314,10 @@ def _elapsed_ms(started: float) -> int:
 
 def _is_rag_no_answer(rag_result: dict) -> bool:
     answer = (rag_result.get("answer") or "").strip()
-    return not answer or answer == "知识库中没有找到明确答案。"
+    return not answer or answer in {
+        "__HANDOFF__",
+        "知识库中没有找到明确答案。",
+    }
 
 
 def _is_soft_talk_script_handoff(reason: str | None) -> bool:

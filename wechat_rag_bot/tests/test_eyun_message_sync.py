@@ -104,6 +104,7 @@ async def test_self_callback_reconciles_queued_ai_message(monkeypatch, tmp_path)
 async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
     from app.services import message_risk_control_service as risk_control
     from app.services.conversation_service import (
+        AI_WAITING,
         get_conversation_detail,
         record_customer_message,
     )
@@ -131,6 +132,7 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
         session_id="default",
         content="你好",
         message_id="inbound-1",
+        status=AI_WAITING,
     )
     await risk_control.enqueue_eyun_inbound(
         {

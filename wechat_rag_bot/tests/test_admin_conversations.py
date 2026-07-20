@@ -116,6 +116,120 @@ def test_hidden_conversation_can_be_restored(monkeypatch, tmp_path):
     assert client.get("/api/v1/admin/conversations").json()["data"]["total"] == 1
 
 
+def test_handoff_pending_suppresses_ai_and_preserves_conversation_state(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="api",
+            user_id="locked_customer",
+            session_id="locked_session",
+            content="initial handoff message",
+            route="human",
+            primary_intent="human_request",
+            handoff_reason="human_required",
+        )
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/chat",
+        json={
+            "channel": "api",
+            "user_id": "locked_customer",
+            "session_id": "locked_session",
+            "message": "客户继续发消息",
+            "kb_id": "kb_default",
+            "metadata": {},
+        },
+    )
+
+    data = response.json()["data"]
+    detail = client.get(
+        "/api/v1/admin/conversations/api:locked_customer:locked_session"
+    ).json()["data"]
+    assert data["answer"] == ""
+    assert data.get("outbound_messages", []) == []
+    assert data["metadata"]["handoff_locked"] is True
+    assert detail["conversation"]["status"] == "handoff_pending"
+    assert detail["conversation"]["last_route"] == "human"
+    assert [item["sender_type"] for item in detail["messages"]] == [
+        "customer",
+        "customer",
+    ]
+
+
+def test_human_active_suppresses_ai_until_admin_releases_it(monkeypatch, tmp_path):
+    import asyncio
+
+    from app.services.user_profile_service import get_profile_bundle
+
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+    conversation_id = "api:release_customer:release_session"
+    handoff = client.post(
+        "/api/v1/chat",
+        json={
+            "channel": "api",
+            "user_id": "release_customer",
+            "session_id": "release_session",
+            "message": "我要转人工",
+            "kb_id": "kb_default",
+            "metadata": {},
+        },
+    )
+    assert handoff.json()["data"]["need_human"] is True
+
+    claimed = client.post(
+        f"/api/v1/admin/conversations/{conversation_id}/claim",
+        json={"operator_id": "op_release"},
+    )
+    assert claimed.json()["data"]["status"] == "human_active"
+    blocked = client.post(
+        "/api/v1/chat",
+        json={
+            "channel": "api",
+            "user_id": "release_customer",
+            "session_id": "release_session",
+            "message": "人工接管期间的新消息",
+            "kb_id": "kb_default",
+            "metadata": {},
+        },
+    ).json()["data"]
+    assert blocked["answer"] == ""
+    claimed_detail = client.get(
+        f"/api/v1/admin/conversations/{conversation_id}"
+    ).json()["data"]["conversation"]
+    assert claimed_detail["status"] == "human_active"
+    assert claimed_detail["owner_id"] == "op_release"
+
+    released = client.post(
+        f"/api/v1/admin/conversations/{conversation_id}/release-to-ai",
+        json={"operator_id": "op_release"},
+    )
+    assert released.json()["data"]["status"] == "ai_active"
+    profile = asyncio.run(get_profile_bundle("release_customer"))["profile"]
+    assert profile["is_human_handoff"] is False
+    assert profile["human_handoff_status"] is None
+
+    resumed = client.post(
+        "/api/v1/chat",
+        json={
+            "channel": "api",
+            "user_id": "release_customer",
+            "session_id": "release_session",
+            "message": "你好",
+            "kb_id": "kb_default",
+            "metadata": {},
+        },
+    ).json()["data"]
+    assert resumed["answer"]
+    assert resumed["route"] == "chitchat"
+
+
 def test_admin_only_displays_configured_wechat_material_group(monkeypatch, tmp_path):
     import asyncio
 

@@ -174,17 +174,17 @@ def test_refund_contract_keeps_empty_handoff_reply():
 def test_mock_intent_routes_knowledge_price_and_mixed_messages():
     client = TestClient(app)
     cases = [
-        ("兰花怎么养护？", "rag_answer"),
+        ("兰花怎么养护？", "human"),
         ("这个有点贵", "template_reply"),
-        ("这个有点贵，而且我怕养不活", "rag_answer"),
+        ("这个有点贵，而且我怕养不活", "human"),
     ]
 
-    for text, route in cases:
+    for index, (text, route) in enumerate(cases):
         response = client.post(
             "/api/v1/chat",
             json={
                 "channel": "api",
-                "user_id": "user_001",
+                "user_id": f"intent_contract_user_{index}",
                 "message": text,
                 "kb_id": "kb_default",
             },

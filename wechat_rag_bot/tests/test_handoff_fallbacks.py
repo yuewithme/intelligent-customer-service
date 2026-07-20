@@ -30,15 +30,15 @@ def test_explicit_human_request_triggers_handoff_without_reply():
     assert data["handoff"]["ticket_id"].startswith("handoff_")
 
 
-def test_clarify_route_asks_followup_without_rag_or_handoff():
+def test_clarify_route_silently_hands_off():
     data = _chat("这个那个")
 
-    assert data["answer"]
-    assert data["route"] == "clarify"
-    assert data["reply_type"] == "clarify"
-    assert data["need_human"] is False
-    assert data["next_action"] is None
-    assert data["handoff"] is None
+    assert data["answer"] == ""
+    assert data.get("outbound_messages", []) == []
+    assert data["route"] == "human"
+    assert data["reply_type"] == "human"
+    assert data["need_human"] is True
+    assert data["next_action"] == "human_handoff"
 
 
 def test_rag_answer_without_sources_is_not_handoff_by_itself():

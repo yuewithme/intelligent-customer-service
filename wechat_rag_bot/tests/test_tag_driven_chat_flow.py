@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 
 from app.schemas.chat import ChatRequest
@@ -6,10 +8,11 @@ from app.services.chat_orchestrator import handle_chat
 
 @pytest.mark.asyncio
 async def test_chat_response_contains_tag_and_policy_metadata():
+    suffix = uuid4().hex
     request = ChatRequest(
         channel="api",
-        user_id="tag_user_1",
-        session_id="tag_sess_1",
+        user_id=f"tag_user_{suffix}",
+        session_id=f"tag_sess_{suffix}",
         message="first time growing orchids, root rot, what should I do?",
         kb_id="kb_default",
         metadata={"segment": "beginner"},

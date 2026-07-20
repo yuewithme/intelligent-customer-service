@@ -10,7 +10,12 @@ from app.services.channel_service import normalize_chat_request
 from app.services.chat_log_service import record_chat_log
 from app.services.business_context_service import build_business_context
 from app.services.commerce_query_service import build_commerce_context
-from app.services.conversation_service import record_ai_turn
+from app.services.conversation_service import (
+    AI_WAITING,
+    conversation_blocks_ai,
+    record_ai_turn,
+    record_customer_message,
+)
 from app.services.customer_reply_formatter import (
     coalesce_customer_messages,
     plain_customer_text,
@@ -61,6 +66,83 @@ async def handle_chat(request: ChatRequest) -> dict:
         message = await normalize_chat_request(request)
         is_evaluation = _is_evaluation_request(message)
         stage_latencies["normalize_ms"] = _elapsed_ms(stage_started)
+
+        if not is_evaluation and conversation_blocks_ai(
+            channel=message.channel,
+            user_id=message.user_id,
+            session_id=message.session_id,
+        ):
+            if message.metadata.get("provider") != "eyun" and not message.metadata.get(
+                "skip_customer_record"
+            ):
+                await record_customer_message(
+                    channel=message.channel,
+                    user_id=message.user_id,
+                    session_id=message.session_id,
+                    content=message.message,
+                    message_id=message.message_id,
+                    tenant_id=message.tenant_id,
+                    status=AI_WAITING,
+                    metadata={**message.metadata, "ai_blocked": True},
+                )
+            routed_intent = IntentResult(
+                route="human",
+                primary_intent="human_handoff_active",
+                confidence=1.0,
+                need_human=True,
+                reason="human_handoff_locked",
+            )
+            intent = routed_intent
+            decision = PolicyDecision(
+                route="human",
+                reason="human_handoff_locked",
+                original_route="human",
+                next_action="human_handoff",
+            )
+            reply = FinalReply(
+                answer="",
+                reply_type="human",
+                route="human",
+                need_human=True,
+                next_action="human_handoff",
+                metadata={"handoff_locked": True},
+            )
+            stage_latencies.update(
+                {
+                    "state_ms": 0,
+                    "rule_guard_ms": 0,
+                    "intent_examples_ms": 0,
+                    "intent_ms": 0,
+                    "policy_ms": 0,
+                    "tag_policy_ms": 0,
+                    "reply_build_ms": 0,
+                    "state_update_ms": 0,
+                }
+            )
+            result = _to_chat_data(
+                message.session_id, message.trace_id, routed_intent, reply
+            )
+            log_payload = _success_log_payload(
+                message=message,
+                intent=routed_intent,
+                decision=decision,
+                reply=reply,
+            )
+            log_event(
+                {
+                    "trace_id": message.trace_id,
+                    "channel": message.channel,
+                    "user_id": message.user_id,
+                    "session_id": message.session_id,
+                    "kb_id": message.kb_id,
+                    "route": "human",
+                    "intent": routed_intent.primary_intent,
+                    "candidate_count": 0,
+                    "latency_ms": round((time.perf_counter() - started) * 1000),
+                    "status": "success",
+                }
+            )
+            return result
 
         stage_started = time.perf_counter()
         user_state = await get_user_state(message.user_id, message.session_id)

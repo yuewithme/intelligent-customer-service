@@ -78,9 +78,6 @@ class Settings(BaseSettings):
     )
     eyun_reply_jitter_min_seconds: int = Field(default=2, alias="EYUN_REPLY_JITTER_MIN_SECONDS")
     eyun_reply_jitter_max_seconds: int = Field(default=12, alias="EYUN_REPLY_JITTER_MAX_SECONDS")
-    eyun_image_description_prompt_cooldown_seconds: int = Field(
-        default=180, ge=0, alias="EYUN_IMAGE_DESCRIPTION_PROMPT_COOLDOWN_SECONDS"
-    )
     eyun_worker_poll_seconds: float = Field(default=1.0, alias="EYUN_WORKER_POLL_SECONDS")
     eyun_contact_refresh_delay_seconds: float = Field(
         default=15.0, ge=0, alias="EYUN_CONTACT_REFRESH_DELAY_SECONDS"
@@ -197,11 +194,6 @@ class Settings(BaseSettings):
     vision_min_confidence: float = Field(
         default=0.55, ge=0, le=1, alias="VISION_MIN_CONFIDENCE"
     )
-    vision_fallback_text: str = Field(
-        default="亲能否描述一下图片或重拍一下图片",
-        alias="VISION_FALLBACK_TEXT",
-    )
-
     embedding_provider: str = "mock"
     embedding_model: str = "BAAI/bge-m3"
     embedding_api_key: str = ""

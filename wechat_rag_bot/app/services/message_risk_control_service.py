@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import create_engine, inspect, select, text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -25,6 +24,7 @@ from app.db.models import (
 from app.schemas.chat import ChatRequest
 from app.services.chat_orchestrator import handle_chat
 from app.services.conversation_service import (
+    HANDOFF_PENDING,
     HUMAN_ACTIVE,
     RESOLVED,
     ensure_outbound_conversation_message,
@@ -397,40 +397,6 @@ async def enqueue_wechat_bulk_send(
     }
 
 
-async def reserve_eyun_image_description_prompt(*, w_id: str, wc_id: str) -> bool:
-    if not w_id or not wc_id:
-        return False
-
-    now = utcnow()
-    cooldown_seconds = get_settings().eyun_image_description_prompt_cooldown_seconds
-    next_allowed_at = now + timedelta(seconds=cooldown_seconds)
-    with _get_session() as session:
-        rate = session.get(
-            EyunImagePromptRateModel,
-            {"w_id": w_id, "wc_id": wc_id},
-        )
-        if rate is not None and _ensure_aware(rate.next_allowed_at) > now:
-            return False
-        if rate is None:
-            session.add(
-                EyunImagePromptRateModel(
-                    w_id=w_id,
-                    wc_id=wc_id,
-                    next_allowed_at=next_allowed_at,
-                    updated_at=now,
-                )
-            )
-        else:
-            rate.next_allowed_at = next_allowed_at
-            rate.updated_at = now
-        try:
-            session.commit()
-        except IntegrityError:
-            session.rollback()
-            return False
-    return True
-
-
 async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
     now = utcnow()
     attempted = 0
@@ -738,30 +704,19 @@ async def _process_inbound_batch(batch_id: int) -> None:
         elif material_result is not None:
             chat_result = material_result
         elif all_images_failed:
-            is_first_failure = await reserve_eyun_image_description_prompt(
-                w_id=batch_data["w_id"],
-                wc_id=batch_data["target_wc_id"],
-            )
-            if not is_first_failure:
-                await _handoff_repeated_image_failure(
+            if wrong_store_order_count == image_count:
+                chat_result = {
+                    "answer": WRONG_STORE_ORDER_REPLY,
+                    "route": "unsupported_store_order",
+                }
+            else:
+                await _handoff_image_failure(
                     batch_id=batch_id,
                     batch=batch_data,
                     customer_snapshot=customer_snapshot,
                 )
                 _mark_batch(batch_id, "processed")
                 return
-            chat_result = {
-                "answer": (
-                    WRONG_STORE_ORDER_REPLY
-                    if wrong_store_order_count
-                    else get_settings().vision_fallback_text
-                ),
-                "route": (
-                    "unsupported_store_order"
-                    if wrong_store_order_count
-                    else "image_recognition_fallback"
-                ),
-            }
         elif is_first_inbound and image_count == 0:
             chat_result = _opening_chat_result()
             await _record_opening_memories(batch_data, chat_result.get("answer", ""))
@@ -982,7 +937,7 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
         )
 
 
-async def _handoff_repeated_image_failure(
+async def _handoff_image_failure(
     *,
     batch_id: int,
     batch: dict[str, Any],
@@ -1005,7 +960,7 @@ async def _handoff_repeated_image_failure(
         await force_handoff(
             conversation_id,
             operator_id="system",
-            reason="repeated_image_recognition_failure",
+            reason="image_recognition_failure",
         )
         return
 
@@ -1023,7 +978,7 @@ async def _handoff_repeated_image_failure(
             "batch_key": batch["batch_key"],
             **customer_snapshot,
         },
-        handoff_reason="repeated_image_recognition_failure",
+        handoff_reason="image_recognition_failure",
     )
 
 
@@ -1039,7 +994,10 @@ def _conversation_blocks_ai(batch: dict[str, Any]) -> bool:
                 ConversationModel.conversation_id == conversation_id
             )
         )
-        return bool(conversation and conversation.status in {HUMAN_ACTIVE, RESOLVED})
+        return bool(
+            conversation
+            and conversation.status in {HANDOFF_PENDING, HUMAN_ACTIVE, RESOLVED}
+        )
 
 
 def _answer_segments(chat_result: dict[str, Any]) -> list[str]:

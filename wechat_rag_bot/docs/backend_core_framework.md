@@ -829,7 +829,7 @@ rag_chat
        使用 PROMPT_TEMPLATE 组装 context + question
        generate_answer(prompt)
      否则：
-       返回“知识库中没有找到明确答案”
+       返回空答案，由回复工作流静默转人工
   -> 返回 answer/sources/session_id/usage
   -> finally 记录 JSON 日志
 ```
@@ -1352,7 +1352,7 @@ class APIResponse(BaseModel):
 | `EMBEDDING_BATCH_SIZE` | `16` | Embedding 批大小 |
 | `RAG_TOP_K` | `20` | Qdrant 召回数量 |
 | `RAG_TOP_N` | `5` | rerank 后保留数量 |
-| `RAG_KNOWLEDGE_ENABLED` | `false` | 是否启用本地/向量知识库检索；默认关闭，RAG 直接走无来源的 LLM 客服兜底 |
+| `RAG_KNOWLEDGE_ENABLED` | `false` | 是否启用本地/向量知识库检索；关闭时不生成无来源回复，直接静默转人工 |
 | `TEMPLATE_TOP_K` | `5` | 模板召回数量 |
 | `TEMPLATE_MIN_SCORE` | `0.5` | 模板最低分 |
 | `STATE_PROVIDER` | `memory` | 状态存储 provider |

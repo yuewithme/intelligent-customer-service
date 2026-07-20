@@ -96,8 +96,8 @@ PROMPT_TEMPLATE = """
 4. 不要出现“参考资料”“知识库”“资料显示”“根据资料”“系统判断”“推荐回复”“来源文件”“页码”“标签”“适用场景”等内部说明词。
 5. 如果资料中有多个信息块，优先采用与用户问题最直接相关、内容更完整、非泛泛而谈、的内容。
 6. 如果资料内容存在轻微差异，但能提炼共同原则，则先给出共同原则，避免武断下结论。
-7. 信息不足时，先给安全方向，再仅按 question_slot 自然追问 1 个关键问题；没有 question_slot 就不追问，不要像表单，也不要直接转人工。
-8. 如果资料明显与用户问题无关、资料冲突严重且无法提炼共同原则，或缺少关键判断信息，需温和说明需要用户补充信息，不要武断下结论。
+7. 信息不足、资料与问题无关、资料严重冲突或缺少关键判断信息时，不要追问或编造，只输出 __HANDOFF__。
+8. __HANDOFF__ 是内部控制标记，不是客服话术，不得添加任何其他文字。
 
 # 回答风格
 
@@ -115,22 +115,8 @@ PROMPT_TEMPLATE = """
 不要加引号。
 
 不要加编号，除非用户问题确实需要分步骤说明。
-"""
 
-
-LLM_FALLBACK_PROMPT_TEMPLATE = """你是兰花私域客服助手。当前不要调用本地知识库，也不要写来源。
-请直接回答用户问题，语气自然、温和，像客服在微信里回复客户。
-只输出最终客服回复，不要复述角色、任务、要求或任何预设开场白。
-
-要求：
-1. 可以基于通用兰花养护原则给建议，但不要编造具体商品、库存、价格、订单、赔付或药剂疗效。
-2. 信息不足时，先给安全方向，再仅按 question_slot 自然追问 1 个关键问题；没有 question_slot 就不追问，不要像表单，也不要直接转人工。
-3. 涉及售后赔付、订单物流、危险药剂搭配等超出可判断范围的问题，不要编造处理结论。
-4. 不要在回答正文或结尾写“来源”，不要提“知识库”“资料”“推荐回复”。
-5. 回答要简洁可执行，尽量说明边界条件，例如根系状态、植料干湿、通风、光照、季节或现场情况。
-
-用户问题：
-{question}
+如果参考资料不足以可靠回答，只输出 __HANDOFF__。
 """
 
 
@@ -430,16 +416,11 @@ async def rag_chat(
     try:
         settings = get_settings()
         if not settings.rag_knowledge_enabled:
-            result = await llm_service.generate_answer(
-                LLM_FALLBACK_PROMPT_TEMPLATE.format(question=message.strip())
-            )
-            answer = result["answer"]
-            usage = result.get("usage", {})
             return {
-                "answer": answer,
+                "answer": "",
                 "sources": sources,
                 "session_id": active_session_id,
-                "usage": usage,
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0},
                 "stage_latencies": stage_latencies,
             }
 
@@ -522,7 +503,7 @@ async def rag_chat(
             answer = result["answer"]
             usage = result.get("usage", {})
         else:
-            answer = "知识库中没有找到明确答案。"
+            answer = ""
             usage = {"prompt_tokens": 0, "completion_tokens": 0}
         return {
             "answer": answer,

@@ -455,7 +455,7 @@ flowchart TD
   C --> D["按 kb_id + tenant_id + permission 过滤"]
   D --> E["rerank<br/>当前为截断占位"]
   E --> F{"是否有候选文档"}
-  F -- "否" --> G["知识库中没有找到明确答案"]
+  F -- "否" --> G["空答案并静默转人工"]
   F -- "是" --> H["拼接知识库上下文"]
   H --> I["LLM generate_answer<br/>严格基于资料回答"]
   I --> J["返回 answer / sources / usage"]
@@ -634,7 +634,7 @@ erDiagram
 | `LLM_PROVIDER`、`LLM_MODEL` | 默认 LLM |
 | `RAG_LLM_PROVIDER`、`INTENT_LLM_PROVIDER`、`TALK_SCRIPT_LLM_PROVIDER` | 不同用途专用模型 |
 | `RAG_TOP_K`、`RAG_TOP_N` | RAG 检索和重排数量 |
-| `RAG_KNOWLEDGE_ENABLED` | 是否启用本地/向量知识库检索；默认关闭，RAG 走无来源 LLM 客服兜底 |
+| `RAG_KNOWLEDGE_ENABLED` | 是否启用本地/向量知识库检索；关闭时不生成无来源回复，直接静默转人工 |
 | `CHUNK_SIZE`、`CHUNK_OVERLAP`、`CHUNK_STRATEGY` | 文档分块策略 |
 | `DATABASE_URL` | 用户画像、记忆、话术库等关系数据 |
 | `CHAT_LOG_ENABLED`、`CHAT_LOG_DB_URL` | 聊天日志存储 |

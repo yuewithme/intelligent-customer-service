@@ -194,10 +194,11 @@ async def test_verified_store_order_adds_purchase_tag_and_enters_chat(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_unrecognized_image_uses_configured_fallback(monkeypatch):
+async def test_unrecognized_image_silently_hands_off(monkeypatch):
     from app.services import message_risk_control_service as service
 
     queued = []
+    handoffs = []
     now = datetime(2026, 7, 18, 12, 10, tzinfo=timezone.utc)
     monkeypatch.setattr(service, "utcnow", lambda: now - timedelta(seconds=120))
     await service.enqueue_eyun_inbound(
@@ -225,16 +226,24 @@ async def test_unrecognized_image_uses_configured_fallback(monkeypatch):
         queued.append(kwargs)
         return kwargs
 
+    async def fake_record_customer_message(**kwargs):
+        handoffs.append(kwargs)
+        return kwargs
+
     monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
     monkeypatch.setattr(
         service, "ensure_outbound_conversation_message", fake_conversation_message
     )
     monkeypatch.setattr(service, "enqueue_eyun_outbound", fake_enqueue_outbound)
+    monkeypatch.setattr(service, "record_customer_message", fake_record_customer_message)
     monkeypatch.setattr(service, "random_reply_delay_seconds", lambda: 0)
     monkeypatch.setattr(service, "utcnow", lambda: now)
 
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
-    assert queued[0]["content"] == "亲能否描述一下图片或重拍一下图片"
+    assert queued == []
+    assert len(handoffs) == 1
+    assert handoffs[0]["route"] == "image_recognition_handoff"
+    assert handoffs[0]["handoff_reason"] == "image_recognition_failure"
 
 
 @pytest.mark.asyncio
@@ -368,4 +377,4 @@ async def test_second_image_failure_within_cooldown_silently_hands_off(monkeypat
     assert len(queued) == 1
     assert len(handoffs) == 1
     assert handoffs[0]["route"] == "image_recognition_handoff"
-    assert handoffs[0]["handoff_reason"] == "repeated_image_recognition_failure"
+    assert handoffs[0]["handoff_reason"] == "image_recognition_failure"

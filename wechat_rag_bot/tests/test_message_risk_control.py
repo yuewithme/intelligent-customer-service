@@ -37,7 +37,6 @@ def test_risk_control_defaults():
     assert settings.eyun_send_max_interval_seconds == 3.0
     assert settings.eyun_reply_jitter_min_seconds == 2
     assert settings.eyun_reply_jitter_max_seconds == 12
-    assert settings.eyun_image_description_prompt_cooldown_seconds == 180
 
 
 def test_risk_control_models_have_table_names():
@@ -50,27 +49,6 @@ def test_risk_control_models_have_table_names():
     image_prompt_rate_model = getattr(models, "EyunImagePromptRateModel", None)
     assert image_prompt_rate_model is not None
     assert image_prompt_rate_model.__tablename__ == "eyun_image_prompt_rates"
-
-
-@pytest.mark.asyncio
-async def test_reserve_image_description_prompt_blocks_same_contact_for_cooldown(
-    monkeypatch,
-):
-    from app.services import message_risk_control_service as service
-
-    reserve = getattr(service, "reserve_eyun_image_description_prompt", None)
-    assert reserve is not None
-
-    now = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(service, "utcnow", lambda: now)
-
-    assert await reserve(w_id="wid", wc_id="customer") is True
-
-    monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=179))
-    assert await reserve(w_id="wid", wc_id="customer") is False
-
-    monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=180))
-    assert await reserve(w_id="wid", wc_id="customer") is True
 
 
 def test_build_eyun_batch_key_prefers_group():

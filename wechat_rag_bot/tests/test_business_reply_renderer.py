@@ -24,7 +24,6 @@ def _message(text: str, tool_state: dict) -> NormalizedMessage:
             {"current_bundle_price": 72, "historical_price": 66},
             "72",
         ),
-        ("我已经下单了，帮我开课程。", {"order_lookup": "not_found"}, "没有查询到"),
         ("我刚付过了，怎么还显示失败？", {"payment_status": "failed"}, "支付失败"),
     ],
 )
@@ -63,3 +62,31 @@ async def test_business_reply_uses_customer_language(
     assert not any(key in reply.answer for key in tool_state)
     assert reply.route == "template_reply"
     assert reply.need_human is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool_state",
+    [
+        {"order_lookup": "not_found"},
+        {"commerce_type": "product", "status": "not_found", "products": []},
+        {"commerce_type": "product", "status": "unavailable", "products": []},
+        {"commerce_type": "order", "status": "not_found", "orders": []},
+    ],
+)
+async def test_unanswerable_business_facts_do_not_render_fallback_reply(
+    monkeypatch, tool_state
+):
+    from app.services import business_reply_renderer
+
+    async def fail_generate_answer(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("unanswerable facts must hand off before generation")
+
+    monkeypatch.setattr(business_reply_renderer, "generate_answer", fail_generate_answer)
+
+    reply = await business_reply_renderer.render_business_reply(
+        _message("帮我查一下", tool_state)
+    )
+
+    assert reply is None

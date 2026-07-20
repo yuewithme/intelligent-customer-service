@@ -471,6 +471,22 @@ async def apply_deterministic_profile_update(message, intent, reply) -> None:
         session.commit()
 
 
+async def clear_human_handoff(user_id: str) -> None:
+    """Clear the profile lock only after an operator explicitly returns the chat to AI."""
+    with _get_session() as session:
+        profile = session.scalar(
+            select(UserProfileModel).where(UserProfileModel.user_id == user_id)
+        )
+        if profile is None:
+            return
+        profile.is_human_handoff = False
+        profile.human_ticket_id = None
+        profile.human_handoff_status = None
+        profile.human_handoff_reason = None
+        profile.updated_at = _now()
+        session.commit()
+
+
 def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     if not isinstance(tag_result, dict):
         return

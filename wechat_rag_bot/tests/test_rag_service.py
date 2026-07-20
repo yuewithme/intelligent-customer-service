@@ -400,18 +400,14 @@ async def test_rag_chat_skips_knowledge_retrieval_when_disabled(monkeypatch):
         del text
         raise AssertionError("default RAG fallback should not query local knowledge")
 
-    async def fake_generate(prompt):
-        assert "【知识库资料】" not in prompt
-        assert "私域销售首单推进_AI客服知识库.md" not in prompt
-        return {
-            "answer": "可以先放在通风散光的位置观察，结合根系和植料干湿情况再决定是否浇水。",
-            "usage": {"prompt_tokens": 10, "completion_tokens": 8},
-        }
+    async def fail_generate(prompt):
+        del prompt
+        raise AssertionError("disabled knowledge must not use an ungrounded LLM fallback")
 
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "false")
     get_settings.cache_clear()
     monkeypatch.setattr(rag_service.embedding_service, "embed_text", fail_embed)
-    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
+    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fail_generate)
 
     try:
         result = await rag_service.rag_chat(
@@ -422,7 +418,7 @@ async def test_rag_chat_skips_knowledge_retrieval_when_disabled(monkeypatch):
     finally:
         get_settings.cache_clear()
 
-    assert result["answer"] == "可以先放在通风散光的位置观察，结合根系和植料干湿情况再决定是否浇水。"
+    assert result["answer"] == ""
     assert result["sources"] == []
 
 
@@ -435,7 +431,7 @@ async def test_rag_chat_rejects_empty_message():
 
 
 @pytest.mark.asyncio
-async def test_rag_chat_returns_grounded_fallback_without_llm(monkeypatch):
+async def test_rag_chat_returns_empty_answer_without_context_or_llm(monkeypatch):
     from app.config import get_settings
 
     async def fake_embed(text):
@@ -458,7 +454,7 @@ async def test_rag_chat_returns_grounded_fallback_without_llm(monkeypatch):
     finally:
         get_settings.cache_clear()
 
-    assert result["answer"] == "知识库中没有找到明确答案。"
+    assert result["answer"] == ""
     assert result["sources"] == []
 
 
@@ -488,23 +484,15 @@ def test_rag_prompt_discourages_metadata_and_truncated_chunks():
     assert "直接输出可发送给用户的完整客服话术" in prompt
 
 
-def test_rag_prompt_uses_minimal_natural_followup_rule():
+def test_rag_prompt_uses_internal_handoff_marker_when_unanswerable():
     prompt = rag_service.PROMPT_TEMPLATE.format(
         context="兰花养护资料",
         question="黑斑黄叶腐苗，去年全军覆没",
     )
-    fallback_prompt = rag_service.LLM_FALLBACK_PROMPT_TEMPLATE.format(
-        question="那您推荐一款吧"
-    )
-
-    assert not fallback_prompt.startswith("我先按通用养护原则")
-    assert "不要复述角色、任务、要求或任何预设开场白" in fallback_prompt
-
-    for value in (prompt, fallback_prompt):
-        assert "信息不足时" in value
-        assert "仅按 question_slot 自然追问 1 个关键问题" in value
-        assert "不要像表单" in value
-        assert "不要直接转人工" in value
+    assert "信息不足" in prompt
+    assert "不要追问或编造" in prompt
+    assert "只输出 __HANDOFF__" in prompt
+    assert "内部控制标记" in prompt
 
 
 @pytest.mark.asyncio

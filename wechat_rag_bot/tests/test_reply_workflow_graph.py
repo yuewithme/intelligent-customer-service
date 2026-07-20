@@ -163,7 +163,7 @@ async def test_rag_answer_with_answer_returns_rag_reply(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rag_answer_without_answer_clarifies(monkeypatch):
+async def test_rag_answer_without_answer_silently_hands_off(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def pass_talk_script(**kwargs):
@@ -186,10 +186,11 @@ async def test_rag_answer_without_answer_clarifies(monkeypatch):
     )
 
     _assert_reply(reply)
-    assert reply.route == "clarify"
-    assert reply.reply_type == "clarify"
-    assert reply.need_human is False
-    assert reply.answer
+    assert reply.route == "human"
+    assert reply.reply_type == "human"
+    assert reply.need_human is True
+    assert reply.answer == ""
+    assert reply.metadata["handoff"]["reason"] == "rag_no_answer_to_handoff"
 
 
 @pytest.mark.asyncio
@@ -258,7 +259,7 @@ async def test_plan_with_business_facts_uses_grounded_renderer(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_template_reply_missing_default_template_returns_clarify_without_rag(monkeypatch):
+async def test_template_reply_missing_default_template_silently_hands_off(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def pass_talk_script(**kwargs):
@@ -281,10 +282,11 @@ async def test_template_reply_missing_default_template_returns_clarify_without_r
     )
 
     _assert_reply(reply)
-    assert reply.route == "clarify"
-    assert reply.reply_type == "clarify"
-    assert reply.need_human is False
-    assert reply.answer
+    assert reply.route == "human"
+    assert reply.reply_type == "human"
+    assert reply.need_human is True
+    assert reply.answer == ""
+    assert reply.metadata["handoff"]["reason"] == "template_not_found_to_handoff"
 
 
 @pytest.mark.asyncio
@@ -379,15 +381,8 @@ async def test_human_route_handoffs(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("route", "reply_type"),
-    [
-        ("chitchat", "chitchat"),
-        ("unsupported", "unsupported"),
-        ("clarify", "clarify"),
-    ],
-)
-async def test_simple_routes_return_existing_builder_replies(route, reply_type):
+@pytest.mark.parametrize("route", ["unsupported", "clarify"])
+async def test_unanswerable_routes_silently_hand_off(route):
     from app.services import reply_workflow_graph
 
     reply = await reply_workflow_graph.execute_reply_plan(
@@ -399,7 +394,26 @@ async def test_simple_routes_return_existing_builder_replies(route, reply_type):
     )
 
     _assert_reply(reply)
-    assert reply.route == route
-    assert reply.reply_type == reply_type
+    assert reply.route == "human"
+    assert reply.reply_type == "human"
+    assert reply.need_human is True
+    assert reply.answer == ""
+
+
+@pytest.mark.asyncio
+async def test_chitchat_route_keeps_normal_reply():
+    from app.services import reply_workflow_graph
+
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("chitchat"),
+        intent=_intent("chitchat"),
+        message=_message(),
+        user_state=_state(),
+        stage_latencies={},
+    )
+
+    _assert_reply(reply)
+    assert reply.route == "chitchat"
+    assert reply.reply_type == "chitchat"
     assert reply.need_human is False
-    assert reply.metadata == {}
+    assert reply.answer

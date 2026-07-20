@@ -59,7 +59,7 @@ async def generate_answer(prompt: str, purpose: str = "rag") -> dict:
                 for line in context.splitlines()
                 if line.strip() and not line.strip().startswith("[")
             ),
-            "知识库中没有找到明确答案。",
+            "__HANDOFF__",
         )
         return {
             "answer": first_line,

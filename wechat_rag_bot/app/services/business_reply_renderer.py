@@ -12,6 +12,8 @@ INTERNAL_KEYS = {
     "shipping_date_change_executed",
     "course_status",
 }
+UNANSWERABLE_FACT_KEYS = {"order_lookup", "activity_status", "course_status"}
+UNANSWERABLE_FACT_VALUES = {"unavailable", "unknown", "unverified", "not_found"}
 
 
 def build_business_prompt(*, question: str, facts: BusinessFacts) -> str:
@@ -23,6 +25,7 @@ def build_business_prompt(*, question: str, facts: BusinessFacts) -> str:
 3. 不得向客户输出英文内部字段名。
 4. 已付款、已执行和已开通必须有明确的肯定事实才能确认。
 5. 用简洁自然的中文说明现状和下一步。
+6. 如果给定事实不足以可靠回答，只输出 __HANDOFF__。
 
 【业务事实】
 {payload}
@@ -40,7 +43,7 @@ def _contains_internal_key(answer: str, facts: BusinessFacts) -> bool:
 async def render_business_reply(
     message,
     facts: BusinessFacts | None = None,
-) -> FinalReply:
+) -> FinalReply | None:
     metadata = message.metadata if isinstance(message.metadata, dict) else {}
     tool_state = metadata.get("tool_state")
     facts = facts or BusinessFacts(
@@ -50,16 +53,20 @@ async def render_business_reply(
     commerce_reply = _render_commerce_reply(facts)
     if commerce_reply is not None:
         return commerce_reply
+    if facts.tool_state.get("commerce_type") in {"product", "order"}:
+        return None
+    if any(
+        facts.tool_state.get(key) in UNANSWERABLE_FACT_VALUES
+        for key in UNANSWERABLE_FACT_KEYS
+    ):
+        return None
     result = await generate_answer(
         build_business_prompt(question=message.message, facts=facts),
         purpose="business",
     )
     answer = str(result.get("answer") or "").strip()
-    if not answer or _contains_internal_key(answer, facts):
-        answer = (
-            "当前业务状态需要进一步核验，"
-            "我会根据查询或操作结果再向您确认。"
-        )
+    if not answer or answer == "__HANDOFF__" or _contains_internal_key(answer, facts):
+        return None
     return FinalReply(
         answer=answer,
         reply_type="template",
@@ -77,13 +84,13 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
 
     status = state.get("status")
     if status == "unavailable":
-        return _commerce_final_reply("当前有赞系统暂时无法查询，请稍后再试。", state)
+        return None
     if status == "missing_product":
         return _commerce_final_reply("可以的，您想看哪一个品种或规格？", state)
     if commerce_type == "product":
         products = state.get("products") if isinstance(state.get("products"), list) else []
         if status != "found" or not products:
-            answer = "暂时没有查到合适的商品，您可以再告诉我品种、颜色或规格。"
+            return None
         else:
             first = products[0]
             price = first.get("price_cent") if isinstance(first, dict) else None
@@ -106,8 +113,7 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
         return _commerce_final_reply("可以的，请把下单手机号发给我，我帮您查询一下。", state)
     orders = state.get("orders") if isinstance(state.get("orders"), list) else []
     if status != "found" or not orders:
-        answer = "暂时没有查到近期订单，请核对下单手机号，或点击订单卡片自行查看。"
-        return _commerce_final_reply(answer, state)
+        return None
 
     lines = ["查到您近期的订单："]
     for index, order in enumerate(orders, start=1):

@@ -18,7 +18,7 @@ def _message() -> NormalizedMessage:
 
 
 @pytest.mark.asyncio
-async def test_clarify_intent_stays_clarify_without_rag_or_handoff():
+async def test_clarify_intent_silently_hands_off():
     intent = IntentResult(
         route="clarify",
         primary_intent="unknown",
@@ -28,14 +28,14 @@ async def test_clarify_intent_stays_clarify_without_rag_or_handoff():
 
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
-    assert decision.route == "clarify"
-    assert decision.reason == "clarify_missing_information"
+    assert decision.route == "human"
+    assert decision.reason == "clarify_to_handoff"
     assert decision.original_route == "clarify"
-    assert decision.next_action is None
+    assert decision.next_action == "human_handoff"
 
 
 @pytest.mark.asyncio
-async def test_unsupported_intent_stays_unsupported_without_handoff():
+async def test_unsupported_intent_silently_hands_off():
     intent = IntentResult(
         route="unsupported",
         primary_intent="unsupported",
@@ -45,9 +45,10 @@ async def test_unsupported_intent_stays_unsupported_without_handoff():
 
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
-    assert decision.route == "unsupported"
-    assert decision.reason == "unsupported_intent"
-    assert decision.next_action is None
+    assert decision.route == "human"
+    assert decision.reason == "unsupported_to_handoff"
+    assert decision.original_route == "unsupported"
+    assert decision.next_action == "human_handoff"
 
 
 @pytest.mark.asyncio
@@ -63,7 +64,7 @@ async def test_low_confidence_knowledge_intent_uses_rag_fallback():
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
     assert decision.route == "rag_answer"
-    assert decision.reason == "low_confidence_llm_fallback"
+    assert decision.reason == "low_confidence_knowledge_lookup"
     assert decision.original_route == "rag_answer"
 
 

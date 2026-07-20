@@ -18,6 +18,7 @@ AI_WAITING = "ai_waiting"
 HANDOFF_PENDING = "handoff_pending"
 HUMAN_ACTIVE = "human_active"
 RESOLVED = "resolved"
+AI_BLOCKED_STATUSES = frozenset({HANDOFF_PENDING, HUMAN_ACTIVE, RESOLVED})
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _initialized_urls: set[str] = set()
@@ -93,6 +94,19 @@ async def user_has_conversation_in_channels(
             )
         )
     return bool(count)
+
+
+def conversation_blocks_ai(
+    *, channel: str, user_id: str, session_id: str | None
+) -> bool:
+    conversation_id = make_conversation_id(channel, user_id, session_id)
+    with _get_session() as session:
+        status = session.scalar(
+            select(ConversationModel.status).where(
+                ConversationModel.conversation_id == conversation_id
+            )
+        )
+    return status in AI_BLOCKED_STATUSES
 
 
 async def get_conversation_detail(conversation_id: str) -> dict:
@@ -216,6 +230,34 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 conversation.user_display_name = display_name
             if avatar_url:
                 conversation.user_avatar_url = avatar_url
+
+        if conversation.status in AI_BLOCKED_STATUSES:
+            conversation.last_message = message.message
+            if not skip_customer_record:
+                conversation.unread_count = (conversation.unread_count or 0) + 1
+                session.add(
+                    ConversationMessageModel(
+                        conversation_id=conversation_id,
+                        trace_id=message.trace_id,
+                        message_id=message.message_id,
+                        sender_type="customer",
+                        sender_id=message.user_id,
+                        content=message.message,
+                        metadata_json=json.dumps(
+                            {
+                                "channel": message.channel,
+                                "tenant_id": message.tenant_id,
+                                "ai_blocked": True,
+                            },
+                            ensure_ascii=False,
+                        ),
+                        created_at=now,
+                    )
+                )
+            conversation.updated_at = now
+            session.commit()
+            _publish_change(conversation_id, "message")
+            return
 
         conversation.status = status
         conversation.hidden_at = None
@@ -423,16 +465,22 @@ async def record_customer_message(
             if avatar_url:
                 conversation.user_avatar_url = avatar_url
 
-        conversation.status = status
+        preserve_ai_lock = conversation.status in AI_BLOCKED_STATUSES
+        if preserve_ai_lock:
+            should_notify_handoff = False
+        if not preserve_ai_lock:
+            conversation.status = status
+            conversation.owner_id = None
         conversation.hidden_at = None
-        conversation.owner_id = None
         conversation.last_message = content
-        conversation.last_route = route
-        conversation.last_intent = primary_intent
-        conversation.handoff_reason = handoff_reason
-        conversation.handoff_ticket_id = conversation.handoff_ticket_id or generate_id(
-            "handoff"
-        )
+        if not preserve_ai_lock:
+            conversation.last_route = route
+            conversation.last_intent = primary_intent
+            conversation.handoff_reason = handoff_reason
+            if status == HANDOFF_PENDING:
+                conversation.handoff_ticket_id = (
+                    conversation.handoff_ticket_id or generate_id("handoff")
+                )
         conversation.unread_count = (conversation.unread_count or 0) + 1
         conversation.updated_at = now
 
@@ -954,10 +1002,17 @@ async def release_to_ai(conversation_id: str, operator_id: str) -> dict:
             )
         conversation.status = AI_ACTIVE
         conversation.owner_id = None
+        conversation.handoff_reason = None
+        conversation.handoff_ticket_id = None
         conversation.updated_at = _now()
         session.commit()
+        user_id = conversation.user_id
+        result = _conversation_to_dict(conversation)
         _publish_change(conversation_id, "released")
-        return _conversation_to_dict(conversation)
+    from app.services.user_profile_service import clear_human_handoff
+
+    await clear_human_handoff(user_id)
+    return result
 
 
 async def resolve_conversation(

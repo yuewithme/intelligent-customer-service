@@ -20,7 +20,7 @@ def _chat(message: str, user_id: str = "intent_route_user") -> dict:
     return payload["data"]
 
 
-def test_rag_no_answer_detection_keeps_llm_fallback_without_sources():
+def test_rag_no_answer_detection_catches_empty_and_legacy_sentinels():
     from app.services.reply_workflow_graph import _is_rag_no_answer
 
     assert _is_rag_no_answer({"answer": "可以先放在通风散光处观察。", "sources": []}) is False
@@ -29,31 +29,24 @@ def test_rag_no_answer_detection_keeps_llm_fallback_without_sources():
 
 
 def test_product_recommendation_no_answer_does_not_switch_to_disease_triage():
-    from app.schemas.intent import IntentResult
-    from app.services.reply_builder import build_clarify_reply
-
-    reply = build_clarify_reply(
-        IntentResult(
-            route="rag_answer",
-            primary_intent="knowledge_question",
-            confidence=0.9,
-            slots={"conversation_topic": "product_recommendation"},
-        ),
+    data = _chat(
         "我想找好养活的，我不是很懂这个怎么养",
+        "intent_route_product_no_answer",
     )
 
-    assert "刚才推荐的品种" in reply.answer
-    assert not any(word in reply.answer for word in ("黄叶", "烂根", "黑斑", "不开花"))
+    assert data["answer"] == ""
+    assert data["route"] == "human"
+    assert data["need_human"] is True
 
 
-def test_unclear_input_stays_in_clarify_route():
+def test_unclear_input_silently_hands_off():
     data = _chat("乱七八糟不明确输入", "intent_route_clarify")
 
-    assert data["answer"]
-    assert data["route"] == "clarify"
-    assert data["need_human"] is False
+    assert data["answer"] == ""
+    assert data["route"] == "human"
+    assert data["need_human"] is True
     assert data["intent"]["slots"]["original_route"] == "clarify"
-    assert data["intent"]["reason"] == "clarify_missing_information"
+    assert data["intent"]["reason"] == "clarify_to_handoff"
 
 
 def test_refund_routes_to_human_without_normal_reply():
