@@ -68,7 +68,7 @@ import { formatChinaTime } from '../time'
 defineProps<{ activeKey: string }>()
 const emit = defineEmits<{
   select: [item: ConversationGroupItem]
-  hidden: [item: ConversationGroupItem]
+  hidden: [conversationIds: string[]]
 }>()
 
 const loading = ref(false)
@@ -111,7 +111,7 @@ const hideItem = async (item: ConversationGroupItem) => {
   if (isTestGate()) return
   try {
     await ElMessageBox.confirm(
-      `隐藏“${displayName(item)}”后，该对话将不再显示，但聊天记录不会删除。`,
+      `隐藏“${displayName(item)}”后，它将不再出现在会话列表中，但聊天记录不会删除。`,
       '隐藏对话',
       {
         confirmButtonText: '隐藏',
@@ -119,15 +119,13 @@ const hideItem = async (item: ConversationGroupItem) => {
         type: 'warning'
       }
     )
-    await Promise.all(item.conversation_ids.map((conversationId) => hideConversation(conversationId)))
-    emit('hidden', item)
-    await load({ silent: true })
-    ElMessage.success('对话已隐藏')
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error('隐藏失败，请稍后重试')
-    }
+  } catch {
+    return
   }
+  await Promise.all(item.conversation_ids.map((id) => hideConversation(id)))
+  items.value = items.value.filter((candidate) => candidate.group_key !== item.group_key)
+  emit('hidden', item.conversation_ids)
+  ElMessage.success('对话已隐藏，收到新消息后会重新显示')
 }
 
 const statusText = (value: ConversationStatus) =>
