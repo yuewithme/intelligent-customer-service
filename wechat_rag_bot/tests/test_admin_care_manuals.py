@@ -52,7 +52,8 @@ class FakeCareManualClient:
     async def call(self, method, version, params):
         assert method == "youzan.showcase.shopnote.list"
         assert version == "1.0.0"
-        page = params["page"]
+        page = params["request"]["page"]
+        assert params["request"]["page_size"] == 2
         if self.reduced:
             return {
                 "count": 1,

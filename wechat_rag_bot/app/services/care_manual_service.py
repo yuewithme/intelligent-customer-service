@@ -306,7 +306,7 @@ async def _fetch_all_notes(
         data = await client.call(
             method,
             version,
-            {"page": page, "page_size": page_size},
+            {"request": {"page": page, "page_size": page_size}},
         )
         items = _note_items(data)
         reported_page = _integer(data.get("page"))
