@@ -297,6 +297,7 @@ async def test_recommendation_respects_budget_level_and_product_preferences(
                 "flowering_status": "带花",
                 "price_budget": "历史资料500元",
                 "care_scenes": "阳台,室内",
+                "bloom_period": "6月-11月",
                 "audience_tag": "L2",
                 "highlighted_features": "好养，性价比高",
             },
@@ -308,6 +309,7 @@ async def test_recommendation_respects_budget_level_and_product_preferences(
                 "fragrance": "浓香",
                 "flowering_status": "带花",
                 "care_scenes": "阳台,室内",
+                "bloom_period": "1月-3月",
                 "audience_tag": "L4",
             },
             {
@@ -339,11 +341,15 @@ async def test_recommendation_respects_budget_level_and_product_preferences(
         "我是L2，预算30元以内，想要浓香、带花、适合阳台的建兰"
     )
     no_flower = search_catalog_products("L2想要素花，不要带花苞，放阳台")
+    long_bloom = search_catalog_products("预算30元左右，想要红色、花期长的")
+    good_value = search_catalog_products("L2预算30元以内，想要性价比高的建兰")
     missing_level = search_catalog_products("L1客户，预算50元以内，推荐建兰")
     direct = search_catalog_products("建兰皇帝，预算1元")
 
     assert [item["item_id"] for item in strict] == ["1001"]
     assert [item["item_id"] for item in no_flower] == ["1004"]
+    assert [item["item_id"] for item in long_bloom] == ["1001"]
+    assert [item["item_id"] for item in good_value] == ["1001"]
     assert missing_level == []
     assert direct[0]["item_id"] == "1001"
 

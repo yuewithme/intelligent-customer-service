@@ -75,6 +75,9 @@ class ProductRecommendationCriteria:
     flowering_status: str | None = None
     scene: str | None = None
     color_key: str | None = None
+    requires_easy_care: bool = False
+    requires_value: bool = False
+    requires_long_bloom: bool = False
 
     @property
     def active_count(self) -> int:
@@ -89,6 +92,9 @@ class ProductRecommendationCriteria:
                 self.flowering_status,
                 self.scene,
                 self.color_key,
+                self.requires_easy_care or None,
+                self.requires_value or None,
+                self.requires_long_bloom or None,
             )
         )
 
@@ -422,6 +428,15 @@ def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteri
         flowering_status=flowering_status,
         scene=scene,
         color_key=color_key,
+        requires_easy_care=any(
+            value in keyword for value in ("好养", "易养", "易活", "新手")
+        ),
+        requires_value=any(
+            value in keyword for value in ("性价比", "实惠", "划算", "便宜")
+        ),
+        requires_long_bloom=any(
+            value in keyword for value in ("花期长", "开花久", "花期久")
+        ),
     )
 
 
@@ -464,7 +479,40 @@ def _matches_recommendation_criteria(
         knowledge.flower_color
     ):
         return False
+    knowledge_text = " ".join(
+        str(getattr(knowledge, field) or "")
+        for field in ("highlighted_features", "sales_copy", "care_scenes")
+    )
+    if criteria.requires_easy_care and not any(
+        marker in knowledge_text for marker in ("好养", "易养", "易活", "皮实", "新手")
+    ):
+        return False
+    if criteria.requires_value and not any(
+        marker in knowledge_text
+        for marker in ("性价比", "实惠", "划算", "亲民", "入门")
+    ):
+        return False
+    if criteria.requires_long_bloom and not _has_long_bloom(knowledge):
+        return False
     return True
+
+
+def _has_long_bloom(knowledge: YouzanProductKnowledgeModel) -> bool:
+    text = " ".join(
+        str(getattr(knowledge, field) or "")
+        for field in ("bloom_period", "highlighted_features", "sales_copy")
+    )
+    if any(marker in text for marker in ("花期长", "花期较长", "开花时间久", "花期可达")):
+        return True
+    month_range = re.search(
+        r"(\d{1,2})(?:月)?\s*[-至到]\s*(?:次年)?(\d{1,2})月",
+        str(knowledge.bloom_period or ""),
+    )
+    if not month_range:
+        return False
+    start_month, end_month = (int(value) for value in month_range.groups())
+    span = (end_month - start_month) % 12 + 1
+    return span >= 4
 
 
 def _criteria_score(
