@@ -53,8 +53,12 @@ async def render_persona_reply(
                 "role": "user",
                 "content": (
                     "请依据下列数据生成这一轮的微信客户回复。"
-                    "优先完成 reply_goal；question_slot 有值时只自然追问该项，"
-                    "不得输出字段名。不得增加 verified_facts 之外的业务事实。\n"
+                    "先完成 reply_goal。question_slot 有值时，只能自然追问该项，"
+                    "不要顺带询问相邻信息；question_slot 为空时，不得出现问句，"
+                    "也不得用命令句索要手机号、订单号、图片或其他资料。"
+                    "suggested_copy 只供参考表达，不是事实来源。不得输出字段名，"
+                    "不得增加 verified_facts 之外的商品、价格、库存、订单、物流、"
+                    "优惠、服务能力或时效事实。\n"
                     + json.dumps(payload, ensure_ascii=False, sort_keys=True)
                 ),
             },

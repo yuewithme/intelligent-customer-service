@@ -1,3 +1,5 @@
+import re
+
 from app.schemas.persona import PersonaContext, ReplySpec
 from app.schemas.reply import FinalReply
 
@@ -13,6 +15,11 @@ INTERNAL_MARKERS = {
     "用户画像",
     "知识库",
 }
+UNSOLICITED_REQUEST_PATTERNS = (
+    re.compile(r"(?:你|您)?(?:把|将).{1,40}(?:发|告诉|提供|留给)我"),
+    re.compile(r"(?:请|麻烦)(?:提供|发送|告知|填写|留下|留一下)"),
+    re.compile(r"(?:手机号|订单号|地址|图片|照片).{0,12}(?:发我|给我|提供一下)"),
+)
 
 
 def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
@@ -22,8 +29,14 @@ def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
     fallback_reason = None
     if not answer:
         fallback_reason = "empty_persona_reply"
-    elif sum(answer.count(mark) for mark in ("?", "？")) > 1:
+    elif _question_count(answer) > 1:
         fallback_reason = "multiple_questions"
+    elif spec.question_slot is None and _question_count(answer):
+        fallback_reason = "unexpected_question"
+    elif spec.question_slot is None and any(
+        pattern.search(answer) for pattern in UNSOLICITED_REQUEST_PATTERNS
+    ):
+        fallback_reason = "unsolicited_information_request"
     elif any(marker in answer for marker in INTERNAL_MARKERS):
         fallback_reason = "internal_marker"
     elif any(phrase in answer for phrase in context.anti_patterns):
@@ -44,6 +57,10 @@ def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
             "metadata": _guard_metadata(spec, "fallback", fallback_reason),
         }
     )
+
+
+def _question_count(answer: str) -> int:
+    return sum(answer.count(mark) for mark in ("?", "？"))
 
 
 def finalize_reply_spec(spec: ReplySpec) -> FinalReply:

@@ -56,6 +56,7 @@ def test_persona_context_selects_mode_and_gates_memory():
     )
 
     assert context.mode == "recommendation"
+    assert context.persona_version == "v1.1"
     assert len(context.examples) <= 2
     assert len(context.relevant_memories) <= 4
     assert any(item.get("content") == "阳台上午有光" for item in context.relevant_memories)
@@ -157,6 +158,29 @@ def test_guard_rejects_customer_service_tone_and_removes_internal_fallback_copy(
     assert final.metadata["persona_guard"]["status"] == "fallback"
     assert final.metadata["persona"]["sales_action_rendered"] is False
     assert "persona_original_copy" not in final.metadata
+
+
+def test_guard_rejects_unsolicited_question_and_information_request():
+    context = _context()
+    question = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="确认下一步",
+        suggested_copy="我先核对库存。您这边要几盆？",
+        metadata={"persona_original_copy": "我先核对当前库存，确认后再往下走。"},
+    )
+    request = question.model_copy(
+        update={"suggested_copy": "你把下单手机号发我，我先核实。"}
+    )
+
+    guarded_question = guard_reply_spec(spec=question, context=context)
+    guarded_request = guard_reply_spec(spec=request, context=context)
+
+    assert guarded_question.metadata["persona_guard"]["reason"] == "unexpected_question"
+    assert (
+        guarded_request.metadata["persona_guard"]["reason"]
+        == "unsolicited_information_request"
+    )
 
 
 @pytest.mark.asyncio
