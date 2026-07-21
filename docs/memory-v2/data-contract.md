@@ -226,6 +226,12 @@ projections, and subject-scoped vector points. The retained purge audit contains
 only a subject hash, request/operator metadata, status, error class, timestamps,
 and explicit deletion counts; it contains no deleted content.
 
+Procedural learning is stored only as a versioned review candidate with
+normalized links to feedback evidence. Candidate text must not contain customer
+identifiers or raw messages. `approved` means “reviewed for separate manual
+implementation”; no runtime prompt, policy, extractor, or tool configuration may
+read and apply these candidates automatically.
+
 ## 10. Source policy
 
 | Claim | Accepted authority | Explicit rejection |

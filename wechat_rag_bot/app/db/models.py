@@ -777,6 +777,50 @@ class MemoryPurgeAuditModel(Base):
     )
 
 
+class MemoryProcedureCandidateModel(Base):
+    __tablename__ = "memory_procedure_candidates"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "candidate_uid", name="uq_memory_procedure_candidate"
+        ),
+        Index("ix_memory_procedure_tenant_status", "tenant_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    candidate_uid: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(256))
+    proposal: Mapped[str] = mapped_column(Text)
+    rationale: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    proposed_by: Mapped[str] = mapped_column(String(128))
+    reviewed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+
+
+class MemoryProcedureEvidenceModel(Base):
+    __tablename__ = "memory_procedure_evidence"
+    __table_args__ = (
+        UniqueConstraint(
+            "candidate_id", "feedback_id", name="uq_memory_procedure_evidence"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("memory_procedure_candidates.id"), index=True
+    )
+    feedback_id: Mapped[int] = mapped_column(
+        ForeignKey("memory_feedback.id"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class EyunContactModel(Base):
     __tablename__ = "eyun_contacts"
     __table_args__ = (

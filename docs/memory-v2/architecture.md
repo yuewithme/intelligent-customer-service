@@ -1,13 +1,13 @@
 # Memory 2.0 architecture contract
 
-Status: implemented through WP5
+Status: implemented through WP6
 
 Contract version: `memory.v1`
 
 Last updated: 2026-07-21
 
-Implementation status: WP5 correction, purge, and vector rebuild lifecycle
-complete; all Memory 2.0 rollout flags remain disabled by default.
+Implementation status: Memory 2.0 WP0-WP6 engineering scope complete; all rollout
+flags remain disabled by default and procedural candidates never mutate runtime.
 
 ## 1. Purpose
 
@@ -83,6 +83,7 @@ Planned service ownership:
 | Projection | Rebuild the compatible user profile | `app/services/memory_projection_service.py` |
 | Retrieval | Scope, recall, rerank, and evidence expansion | `app/services/memory_retrieval_service.py` |
 | Vector index | Maintain rebuildable episode vectors | `app/services/memory_vector_service.py` |
+| Operations | Shadow metrics, gates, reviewed procedures | `app/services/memory_procedure_service.py` |
 
 ## 4. Storage boundaries
 
@@ -99,6 +100,8 @@ The target SQL entities are:
 - `memory_rollout_gates`: reviewed quality measurements authorizing a canary.
 - `memory_feedback`: confirmations and corrections.
 - `memory_purge_audits`: content-free deletion audit.
+- `memory_procedure_candidates`: review-only workflow proposals.
+- `memory_procedure_evidence`: normalized feedback links for proposals.
 
 WP1 physically creates `memory_subjects`, `memory_identities`, `memory_events`,
 `memory_facts`, and `memory_fact_evidence`. WP2 adds `memory_episodes`,

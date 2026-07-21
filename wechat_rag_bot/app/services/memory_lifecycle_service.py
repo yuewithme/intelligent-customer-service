@@ -18,6 +18,8 @@ from app.db.models import (
     MemoryIdentityModel,
     MemoryJobModel,
     MemoryPurgeAuditModel,
+    MemoryProcedureCandidateModel,
+    MemoryProcedureEvidenceModel,
     MemoryShadowRunModel,
     MemorySubjectModel,
     ProfileEventModel,
@@ -317,12 +319,46 @@ def _delete_subject_rows(
             "legacy_rows_deleted": 0,
             "vector_points_deleted": vector_count,
         }
+        feedback_ids = list(
+            session.scalars(
+                select(MemoryFeedbackModel.id).where(
+                    MemoryFeedbackModel.tenant_id == tenant_id,
+                    MemoryFeedbackModel.subject_id == subject_id,
+                )
+            )
+        )
+        affected_candidate_ids: list[int] = []
+        if feedback_ids:
+            affected_candidate_ids = list(
+                session.scalars(
+                    select(MemoryProcedureEvidenceModel.candidate_id)
+                    .where(MemoryProcedureEvidenceModel.feedback_id.in_(feedback_ids))
+                    .distinct()
+                )
+            )
+            session.execute(
+                delete(MemoryProcedureEvidenceModel).where(
+                    MemoryProcedureEvidenceModel.feedback_id.in_(feedback_ids)
+                )
+            )
         counts["feedback_deleted"] = session.execute(
             delete(MemoryFeedbackModel).where(
                 MemoryFeedbackModel.tenant_id == tenant_id,
                 MemoryFeedbackModel.subject_id == subject_id,
             )
         ).rowcount
+        for candidate_id in affected_candidate_ids:
+            evidence_exists = session.scalar(
+                select(MemoryProcedureEvidenceModel.id)
+                .where(MemoryProcedureEvidenceModel.candidate_id == candidate_id)
+                .limit(1)
+            )
+            if evidence_exists is None:
+                session.execute(
+                    delete(MemoryProcedureCandidateModel).where(
+                        MemoryProcedureCandidateModel.id == candidate_id
+                    )
+                )
         session.execute(
             delete(MemoryEpisodeEventModel).where(
                 MemoryEpisodeEventModel.episode_id.in_(episode_ids)

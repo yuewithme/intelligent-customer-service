@@ -13,6 +13,8 @@ from app.db.models import (
     MemoryIdentityModel,
     MemoryJobModel,
     MemoryPurgeAuditModel,
+    MemoryProcedureCandidateModel,
+    MemoryProcedureEvidenceModel,
     MemoryRolloutGateModel,
     MemoryShadowRunModel,
     MemorySubjectModel,
@@ -33,6 +35,8 @@ _MEMORY_TABLES = [
     MemoryRolloutGateModel.__table__,
     MemoryFeedbackModel.__table__,
     MemoryPurgeAuditModel.__table__,
+    MemoryProcedureCandidateModel.__table__,
+    MemoryProcedureEvidenceModel.__table__,
 ]
 
 

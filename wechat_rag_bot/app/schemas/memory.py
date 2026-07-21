@@ -398,3 +398,37 @@ class MemorySubjectPurgeRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=128)
     requested_by: str = Field(min_length=1, max_length=128)
     confirm_subject_id: str = Field(min_length=1, max_length=36)
+
+
+class MemoryIndexRebuildRequest(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=128)
+
+
+class MemoryProcedureCandidateRequest(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=128)
+    request_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=256)
+    proposal: str = Field(min_length=1, max_length=4000)
+    rationale: str = Field(min_length=1, max_length=4000)
+    feedback_ids: list[int] = Field(min_length=2)
+    proposed_by: str = Field(min_length=1, max_length=128)
+
+
+class MemoryProcedureReviewRequest(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=128)
+    decision: Literal["approved", "rejected"]
+    reviewed_by: str = Field(min_length=1, max_length=128)
+    review_reason: str = Field(min_length=1, max_length=4000)
+
+
+class MemoryRolloutGateRequest(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=128)
+    evaluation_version: str = Field(min_length=1, max_length=64)
+    sample_count: int = Field(ge=0)
+    retrieval_success_rate: float = Field(ge=0, le=1)
+    retrieval_recall_at_5: float = Field(ge=0, le=1)
+    temporal_accuracy: float = Field(ge=0, le=1)
+    evidence_grounding: float = Field(ge=0, le=1)
+    scope_violations: int = Field(ge=0)
+    verified_business_violations: int = Field(ge=0)
+    approved_by: str = Field(min_length=1, max_length=128)
