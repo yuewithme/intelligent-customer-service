@@ -104,6 +104,24 @@ class Settings(BaseSettings):
     memory_v2_job_retry_base_seconds: int = Field(
         default=30, ge=1, alias="MEMORY_V2_JOB_RETRY_BASE_SECONDS"
     )
+    qdrant_memory_collection: str = Field(
+        default="customer_memory", alias="QDRANT_MEMORY_COLLECTION"
+    )
+    memory_v2_retrieval_top_k: int = Field(
+        default=20, ge=1, le=100, alias="MEMORY_V2_RETRIEVAL_TOP_K"
+    )
+    memory_v2_context_max_facts: int = Field(
+        default=8, ge=1, le=20, alias="MEMORY_V2_CONTEXT_MAX_FACTS"
+    )
+    memory_v2_context_max_episodes: int = Field(
+        default=2, ge=0, le=10, alias="MEMORY_V2_CONTEXT_MAX_EPISODES"
+    )
+    memory_v2_context_max_evidence_per_episode: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        alias="MEMORY_V2_CONTEXT_MAX_EVIDENCE_PER_EPISODE",
+    )
     first_order_sales_flow_v2_enabled: bool | None = Field(
         default=None, alias="FIRST_ORDER_SALES_FLOW_V2_ENABLED"
     )

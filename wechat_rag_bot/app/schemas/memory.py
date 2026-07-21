@@ -320,3 +320,57 @@ class MemoryApplyResult(BaseModel):
     record_id: int | None = None
     created: bool
     operation: MemoryOperationType
+
+
+class MemoryQueryPlan(BaseModel):
+    requested_fact_keys: list[str] = Field(default_factory=list)
+    include_episodes: bool = True
+    episode_types: list[MemoryEpisodeType] = Field(default_factory=list)
+    require_verified_business: bool = False
+    query_terms: list[str] = Field(default_factory=list)
+
+
+class MemoryEvidenceItem(BaseModel):
+    event_id: int
+    event_uid: str
+    event_type: str
+    actor_type: str
+    source_type: str
+    content: dict[str, Any]
+    occurred_at: datetime
+
+
+class MemoryFactContext(BaseModel):
+    fact_id: int
+    fact_key: str
+    fact_value: Any
+    source_type: str
+    confidence: float
+    valid_from: datetime
+    evidence_event_ids: list[int] = Field(default_factory=list)
+
+
+class MemoryEpisodeContext(BaseModel):
+    episode_id: int
+    episode_type: str
+    title: str
+    summary: str
+    outcome: str | None = None
+    importance: float
+    started_at: datetime
+    ended_at: datetime | None = None
+    score: float
+    evidence_event_ids: list[int] = Field(default_factory=list)
+
+
+class MemoryContext(BaseModel):
+    schema_version: Literal["memory_context.v1"] = "memory_context.v1"
+    subject_id: str
+    as_of: datetime
+    current_facts: list[MemoryFactContext] = Field(default_factory=list)
+    relevant_episodes: list[MemoryEpisodeContext] = Field(default_factory=list)
+    working_state: dict[str, Any] = Field(default_factory=dict)
+    verified_business_facts: list[MemoryFactContext] = Field(default_factory=list)
+    unresolved_conflicts: list[MemoryFactContext] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    evidence: list[MemoryEvidenceItem] = Field(default_factory=list)

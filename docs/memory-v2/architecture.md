@@ -1,13 +1,13 @@
 # Memory 2.0 architecture contract
 
-Status: accepted for WP0
+Status: implemented through WP3
 
 Contract version: `memory.v1`
 
 Last updated: 2026-07-21
 
-Implementation status: WP2 durable write pipeline complete; production reads
-remain legacy and Memory 2.0 writes are disabled by default.
+Implementation status: WP3 scoped retrieval and context assembly complete;
+production reads remain legacy and Memory 2.0 writes are disabled by default.
 
 ## 1. Purpose
 
@@ -100,11 +100,14 @@ The target SQL entities are:
 
 WP1 physically creates `memory_subjects`, `memory_identities`, `memory_events`,
 `memory_facts`, and `memory_fact_evidence`. WP2 adds `memory_episodes`,
-`memory_episode_events`, and `memory_jobs`. Feedback and purge tables remain
-contract targets for WP5. The WP2 worker starts only when
-`MEMORY_V2_WRITE_ENABLED=true`; no production adapter enqueues events yet.
+`memory_episode_events`, and `memory_jobs`. WP3 adds the independently configured
+`customer_memory` vector projection, query planner, SQL revalidation, reranking,
+and bounded evidence expansion. Feedback and purge tables remain contract targets
+for WP5. The worker starts only when `MEMORY_V2_WRITE_ENABLED=true`; no production
+adapter enqueues events and no production reply path reads Memory 2.0 yet.
 
-The target Qdrant collection is `customer_memory`. It stores episode embeddings
+The Qdrant collection defaults to `customer_memory` and is configured separately
+from the knowledge-base collection. It stores episode embeddings
 and only the minimum filtering payload: tenant, subject, episode ID, status,
 time, and embedding version. It must not be queried globally and treated as an
 authorization layer.
@@ -140,6 +143,10 @@ facts, episodes, or vector points.
 7. Mark evidence gaps as unknown; use a trusted tool or ask the customer instead
    of filling the gap with model inference.
 
+Default retrieval excludes facts supported only by restricted evidence and omits
+episodes linked to restricted events. A future privileged caller must opt in
+explicitly and still passes tenant/subject SQL revalidation.
+
 The prompt receives a curated `memory_context`, not the entire profile JSON and
 not an unbounded transcript.
 
@@ -150,7 +157,7 @@ not an unbounded transcript.
 | WP0 | Contracts, seed data, deterministic evaluator | Dataset validates; tests and baseline command pass |
 | WP1 | Identity, SQL models, idempotent events | Duplicate and tenant-isolation tests pass; no read switch |
 | WP2 | Durable jobs and versioned writes | Evidence coverage is 100%; retries are idempotent |
-| WP3 | Scoped retrieval and context assembly | Recall and temporal gates pass in shadow mode |
+| WP3 | Scoped retrieval and context assembly | Scope, temporal, rerank, and evidence contract tests pass; no production read switch |
 | WP4 | Dual write, shadow read, canary | No verified-business hallucination or tenant leakage |
 | WP5 | Admin correction and purge | SQL/vector/cache deletion residue is zero |
 | WP6 | Reviewed procedural candidates | No automatic production policy mutation |

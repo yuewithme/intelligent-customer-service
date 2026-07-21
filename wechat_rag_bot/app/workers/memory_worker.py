@@ -15,6 +15,7 @@ from app.services.memory_job_service import (
     fail_memory_job,
 )
 from app.services.memory_validation_service import MemoryValidationError
+from app.services.memory_vector_service import index_memory_episode
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,12 @@ async def process_memory_job(job, *, use_llm: bool, min_confidence: float) -> in
                 exc,
             )
             continue
+        if result.memory_kind == "episode" and result.record_id is not None:
+            await index_memory_episode(
+                tenant_id=job.tenant_id,
+                subject_id=job.subject_id,
+                episode_id=result.record_id,
+            )
         accepted += int(result.created)
     return accepted
 
