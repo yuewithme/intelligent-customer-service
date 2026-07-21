@@ -138,6 +138,10 @@ def _product_knowledge_text(product: dict) -> str:
     knowledge = product.get("knowledge")
     if not isinstance(knowledge, dict):
         return ""
+    sales_copy = re.sub(r"\s+", "", str(knowledge.get("sales_copy") or "")).strip()
+    sales_copy = sales_copy.rstrip("。！？!?；; ")
+    if sales_copy:
+        return f"。{sales_copy}"
     features = str(knowledge.get("highlighted_features") or "").strip()
     if features:
         feature_items = [

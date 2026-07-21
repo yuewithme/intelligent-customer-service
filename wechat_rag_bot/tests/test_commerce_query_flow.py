@@ -444,6 +444,35 @@ async def test_product_renderer_returns_one_coherent_customer_message():
 
 
 @pytest.mark.asyncio
+async def test_product_renderer_prefers_prebuilt_sales_copy():
+    from app.services.business_reply_renderer import render_business_reply
+
+    facts = BusinessFacts(
+        tool_state={
+            "commerce_type": "product",
+            "status": "found",
+            "products": [
+                {
+                    "title": "建兰芽黄素",
+                    "price_cent": 6800,
+                    "knowledge": {
+                        "product_name": "芽黄素",
+                        "category": "建兰",
+                        "highlighted_features": "不应出现在回复里的旧特征",
+                        "sales_copy": "新芽由明亮的淡黄色慢慢转为黄绿色，花叶相映，整体清雅耐看。",
+                    },
+                }
+            ],
+        }
+    )
+
+    reply = await render_business_reply(_message("我喜欢绿色素花"), facts)
+
+    assert "新芽由明亮的淡黄色" in reply.answer
+    assert "旧特征" not in reply.answer
+
+
+@pytest.mark.asyncio
 async def test_phone_followup_keeps_pending_order_query_intent():
     from app.services.intent_service import classify_intent
 

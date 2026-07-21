@@ -48,6 +48,7 @@
       <ElTableColumn prop="bloom_period" label="花期" width="120" show-overflow-tooltip />
       <ElTableColumn prop="audience_tag" label="适合人群" width="140" show-overflow-tooltip />
       <ElTableColumn prop="highlighted_features" label="突出特征" min-width="220" show-overflow-tooltip />
+      <ElTableColumn prop="sales_copy" label="塑品话术" min-width="300" show-overflow-tooltip />
       <ElTableColumn label="操作" width="120" fixed="right">
         <template #default="scope">
           <ElButton link type="primary" @click="openEdit(scope.row)">编辑</ElButton>
