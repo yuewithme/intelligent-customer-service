@@ -30,6 +30,7 @@ def test_sales_copy_prompt_is_for_product_shaping_not_field_listing():
     assert "开头不要重复商品名称" in prompt
     assert "最终话术中禁止出现L1—L6" in prompt
     assert '"商品名称": "芽黄素"' in prompt
+    assert "旧话术" not in prompt
 
 
 def test_parse_and_validate_sales_copy_json():
@@ -47,6 +48,23 @@ def test_validate_sales_copy_rejects_transaction_and_internal_level():
     assert "包含价格" in errors
     assert "包含实时交易信息" in errors
     assert "无资料依据的表达：唯一" in errors
+
+
+def test_validate_sales_copy_rejects_old_copy_only_historical_claim():
+    product = {
+        **PRODUCT,
+        "sales_copy": "清代名品，印在人民币上的兰花",
+    }
+    copy = (
+        "翠绿的荷瓣与雪白素心自然呼应，整体显得端庄而纯净，初春绽放时尤其清雅。"
+        "作为印在人民币上的清代名品，它把传统荷瓣的规整与素心的洁净融在一处。"
+        "摆在阳台或书房细细观赏，更能感受其中沉静而耐看的东方韵味。"
+    )
+
+    errors = validate_sales_copy(copy, product)
+
+    assert "无资料依据的表达：人民币" in errors
+    assert "无资料依据的表达：清代" in errors
 
 
 @pytest.mark.asyncio

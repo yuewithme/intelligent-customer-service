@@ -16,6 +16,11 @@ _ABSOLUTE_CLAIMS = (
     "传世",
     "金奖",
     "闭眼养",
+    "人民币",
+    "清代",
+    "国展",
+    "获奖",
+    "无需春化",
 )
 _FORBIDDEN_PATTERNS = (
     (re.compile(r"https?://", re.I), "包含链接"),
@@ -36,7 +41,6 @@ def build_product_sales_copy_prompt(product: dict[str, Any]) -> str:
         "花期": _text(product.get("bloom_period")),
         "养护场景": _text(product.get("care_scenes")),
         "核心资料": _text(product.get("highlighted_features")),
-        "原有文案": _text(product.get("sales_copy")),
     }
     payload = json.dumps(facts, ensure_ascii=False, indent=2)
     return f"""你是“萧岚苑”的资深兰花塑品文案师。
@@ -65,7 +69,7 @@ def build_product_sales_copy_prompt(product: dict[str, Any]) -> str:
 6. 不写价格、库存、优惠、购买链接、当前是否带花或下单引导。
 7. 不增加资料中不存在的香味、花期、获奖记录、稀缺性、养护表现或开花次数。
 8. “唯一、顶级、第一、绝版、传世、金奖、闭眼养”等表达，只有输入资料明确支持时才允许使用。
-9. 原有文案只参考表达方向；如与结构化资料冲突，以结构化资料为准。
+9. 完全忽略数据库中原有的销售话术。原有话术不是事实来源，不得继承其中的历史、获奖、稀缺性或营销说法。
 10. 先在内部检查价值点、画面感、差异性和事实依据，不输出分析过程。
 
 【商品资料】
@@ -139,13 +143,13 @@ def validate_sales_copy(copy: str, product: dict[str, Any]) -> list[str]:
     for pattern, message in _FORBIDDEN_PATTERNS:
         if pattern.search(copy):
             errors.append(message)
-    source = " ".join(
-        _text(product.get(key))
-        for key in ("highlighted_features", "sales_copy")
-    )
+    source = _text(product.get("highlighted_features"))
     for claim in _ABSOLUTE_CLAIMS:
         if claim in copy and claim not in source:
             errors.append(f"无资料依据的表达：{claim}")
+    for year in re.findall(r"(?:19|20)\d{2}年", copy):
+        if year not in source:
+            errors.append(f"无资料依据的年份：{year}")
     name = _text(product.get("product_name"))
     if name and copy.startswith(name):
         errors.append("开头重复商品名称")
