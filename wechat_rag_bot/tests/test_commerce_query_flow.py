@@ -382,6 +382,8 @@ async def test_product_renderer_uses_real_h5_link_without_mini_program_config():
                     "title": "建兰皇帝",
                     "price_cent": 29900,
                     "h5_url": "https://h5.youzan.com/goods/abc",
+                    "image_url": "https://cdn.example.com/goods.jpg",
+                    "knowledge": {"product_name": "皇帝", "category": "建兰"},
                 }
             ],
         }
@@ -389,8 +391,56 @@ async def test_product_renderer_uses_real_h5_link_without_mini_program_config():
 
     reply = await render_business_reply(_message("发我链接"), facts)
 
-    assert "https://h5.youzan.com/goods/abc" in reply.answer
-    assert [item.type for item in reply.outbound_messages] == ["text"]
+    assert "https://" not in reply.answer
+    assert [item.type for item in reply.outbound_messages] == ["text", "link_card"]
+    assert reply.outbound_messages[0].model_dump()["split"] is False
+    card = json.loads(reply.outbound_messages[1].content)
+    assert card == {
+        "title": "建兰皇帝",
+        "url": "https://h5.youzan.com/goods/abc",
+        "description": "当前售价299元，点击查看详情和下单",
+        "thumb_url": "https://cdn.example.com/goods.jpg",
+    }
+
+
+@pytest.mark.asyncio
+async def test_product_renderer_returns_one_coherent_customer_message():
+    from app.services.business_reply_renderer import render_business_reply
+
+    facts = BusinessFacts(
+        tool_state={
+            "commerce_type": "product",
+            "status": "found",
+            "products": [
+                {
+                    "title": "建兰【芽黄素】田黄玉 建兰唯一黄素名品",
+                    "price_cent": 6800,
+                    "h5_url": "https://h5.youzan.com/goods/yahuangsu",
+                    "image_url": "https://cdn.example.com/yahuangsu.jpg",
+                    "knowledge": {
+                        "product_name": "芽黄素",
+                        "category": "建兰",
+                        "highlighted_features": (
+                            "1.芽色：新苗时期新芽呈淡黄色，随着生长逐渐转为黄绿色。\n"
+                            "2.花色：花朵呈淡黄色素花，清秀雅致。\n"
+                            "3.瓣型：外观清秀漂亮。"
+                        ),
+                    },
+                }
+            ],
+        }
+    )
+
+    reply = await render_business_reply(_message("我喜欢绿色的素花"), facts)
+
+    assert reply.answer == (
+        "推荐您看看建兰“芽黄素”，当前售价68元，"
+        "新苗时期新芽呈淡黄色，随着生长逐渐转为黄绿色；"
+        "花朵呈淡黄色素花，清秀雅致。点击下方商品卡片就可以查看详情和下单。"
+    )
+    assert len(reply.outbound_messages) == 2
+    assert reply.outbound_messages[0].model_dump()["split"] is False
+    assert "https://" not in reply.outbound_messages[0].content
 
 
 @pytest.mark.asyncio

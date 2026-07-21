@@ -1,4 +1,5 @@
 import json
+import re
 
 from app.schemas.reply import FinalReply
 from app.schemas.reply_plan import BusinessFacts
@@ -97,15 +98,15 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             price_text = f"，当前售价{price / 100:g}元" if isinstance(price, int) else ""
             card = state.get("mini_program")
             if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
-                next_step = "，点击商品卡片就可以查看和下单。"
+                next_step = "点击商品卡片就可以查看和下单。"
             elif first.get("h5_url"):
-                next_step = f"。购买链接：{first['h5_url']}"
+                next_step = "点击下方商品卡片就可以查看详情和下单。"
             else:
-                next_step = "。如果需要下单，我再帮您确认购买入口。"
+                next_step = "如果需要下单，我再帮您确认购买入口。"
             knowledge_text = _product_knowledge_text(first)
             answer = (
-                f"给您找到这款“{first.get('title') or '商品'}”{price_text}"
-                f"{knowledge_text}{next_step}"
+                f"推荐您看看{_product_display_name(first)}{price_text}"
+                f"{knowledge_text}。{next_step}"
             )
         return _commerce_final_reply(answer, state)
 
@@ -139,7 +140,13 @@ def _product_knowledge_text(product: dict) -> str:
         return ""
     features = str(knowledge.get("highlighted_features") or "").strip()
     if features:
-        return f"。特点：{features[:180]}"
+        feature_items = [
+            re.sub(r"^\s*\d+[.、]\s*[^：:]{0,12}[：:]\s*", "", item).strip(" 。；;")
+            for item in re.split(r"[\r\n]+|(?=\s*\d+[.、])", features)
+        ]
+        concise = [item for item in feature_items if item][:2]
+        if concise:
+            return f"，{'；'.join(item[:70] for item in concise)}"
     details = []
     for label, key in (
         ("花色", "flower_color"),
@@ -152,11 +159,21 @@ def _product_knowledge_text(product: dict) -> str:
             details.append(f"{label}{value}")
         if len(details) == 3:
             break
-    return f"。{'，'.join(details)}" if details else ""
+    return f"，{'，'.join(details)}" if details else ""
+
+
+def _product_display_name(product: dict) -> str:
+    knowledge = product.get("knowledge")
+    if isinstance(knowledge, dict):
+        name = str(knowledge.get("product_name") or "").strip()
+        category = str(knowledge.get("category") or "").strip()
+        if name:
+            return f"{category}“{name}”" if category else f"“{name}”"
+    return f"“{str(product.get('title') or '这款商品').strip()}”"
 
 
 def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
-    outbound_messages = [{"type": "text", "content": answer}]
+    outbound_messages = [{"type": "text", "content": answer, "split": False}]
     card = state.get("mini_program")
     if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
         outbound_messages.append(
@@ -165,6 +182,30 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
                 "content": json.dumps(card, ensure_ascii=False),
             }
         )
+    elif state.get("commerce_type") == "product":
+        products = state.get("products") if isinstance(state.get("products"), list) else []
+        first = products[0] if products and isinstance(products[0], dict) else {}
+        if first.get("h5_url"):
+            price = first.get("price_cent")
+            description = (
+                f"当前售价{price / 100:g}元，点击查看详情和下单"
+                if isinstance(price, int)
+                else "点击查看商品详情和下单"
+            )
+            outbound_messages.append(
+                {
+                    "type": "link_card",
+                    "content": json.dumps(
+                        {
+                            "title": _product_display_name(first).replace("“", "").replace("”", ""),
+                            "url": first["h5_url"],
+                            "description": description,
+                            "thumb_url": first.get("image_url") or "",
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            )
     return FinalReply(
         answer=answer,
         outbound_messages=outbound_messages,

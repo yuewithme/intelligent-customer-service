@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -46,6 +47,9 @@ from app.services.user_profile_service import (
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
+
+_URL_PATTERN = re.compile(r"https?://[^\s<>，。！？；：、（）【】“”‘’《》]+")
+_URL_TRAILING_PUNCTUATION = "，。！？；：、,.!?;:)]}》〉”’\"'"
 
 WRONG_STORE_ORDER_REPLY = "亲这不是我们萧岚苑的订单截图哦"
 
@@ -1043,8 +1047,71 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
                     {"type": "text", "content": content}
                     for content in split_customer_messages(message["content"])
                 )
-            return formatted
-    return [{"type": "text", "content": answer} for answer in _answer_segments(chat_result)]
+            return _convert_text_links_to_cards(formatted)
+    fallback = [
+        {"type": "text", "content": answer}
+        for answer in _answer_segments(chat_result)
+    ]
+    return _convert_text_links_to_cards(fallback)
+
+
+def _convert_text_links_to_cards(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Never send a bare URL to customers; render every URL as a link card."""
+    result: list[dict[str, Any]] = []
+    existing_urls: set[str] = set()
+    for message in messages:
+        if message.get("type") != "link_card":
+            continue
+        try:
+            card = json.loads(str(message.get("content") or ""))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(card, dict) and card.get("url"):
+            existing_urls.add(str(card["url"]).strip())
+
+    for message in messages:
+        if message.get("type") != "text":
+            result.append(message)
+            continue
+        content = str(message.get("content") or "")
+        urls: list[str] = []
+        for match in _URL_PATTERN.finditer(content):
+            url = match.group(0).rstrip(_URL_TRAILING_PUNCTUATION)
+            if url and url not in urls:
+                urls.append(url)
+        if not urls:
+            result.append(message)
+            continue
+
+        text_content = content
+        for url in urls:
+            text_content = text_content.replace(url, "")
+        text_content = re.sub(
+            r"(?:(?:购买)?链接|详情)\s*[：:]\s*(?=[，。；,.;]|$)",
+            "",
+            text_content,
+        ).strip()
+        text_content = text_content.strip("，。；：,.;: ")
+        if text_content:
+            result.append({**message, "content": text_content})
+        for url in urls:
+            if url in existing_urls:
+                continue
+            result.append(
+                {
+                    "type": "link_card",
+                    "content": json.dumps(
+                        {
+                            "title": "查看详情",
+                            "url": url,
+                            "description": "点击卡片查看详情",
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            )
+            existing_urls.add(url)
+    return result
 
 
 def _source_type_from_batch_key(source_batch_key: str | None) -> str:

@@ -1,10 +1,12 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OutboundMessage(BaseModel):
-    type: Literal["text", "image", "mini_program", "material"]
+    model_config = ConfigDict(extra="allow")
+
+    type: Literal["text", "image", "link_card", "mini_program", "material"]
     content: str
     material_id: int | None = None
 

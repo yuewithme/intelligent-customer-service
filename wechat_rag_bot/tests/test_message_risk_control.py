@@ -541,6 +541,37 @@ def test_outbound_text_messages_are_plain_short_messages():
     ]
 
 
+def test_outbound_bare_link_is_removed_from_text_and_sent_as_card():
+    from app.services.message_risk_control_service import _outbound_messages
+
+    messages = _outbound_messages(
+        {
+            "answer": "这款比较适合您。购买链接：https://h5.youzan.com/goods/abc",
+        }
+    )
+
+    assert messages[0] == {"type": "text", "content": "这款比较适合您"}
+    assert messages[1]["type"] == "link_card"
+    assert json.loads(messages[1]["content"]) == {
+        "title": "查看详情",
+        "url": "https://h5.youzan.com/goods/abc",
+        "description": "点击卡片查看详情",
+    }
+
+
+def test_outbound_link_parser_preserves_chinese_text_after_url():
+    from app.services.message_risk_control_service import _outbound_messages
+
+    messages = _outbound_messages(
+        {"answer": "详情：https://example.com/item?a=1&b=2，点击即可查看。"}
+    )
+
+    assert messages[0] == {"type": "text", "content": "点击即可查看"}
+    assert json.loads(messages[1]["content"])["url"] == (
+        "https://example.com/item?a=1&b=2"
+    )
+
+
 async def _async_value(value):
     return value
 
