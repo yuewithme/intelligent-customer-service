@@ -280,6 +280,75 @@ async def test_knowledge_is_editable_and_drives_local_ai_catalog(monkeypatch, tm
 
 
 @pytest.mark.asyncio
+async def test_recommendation_respects_budget_level_and_product_preferences(
+    monkeypatch,
+    tmp_path,
+):
+    _configure(monkeypatch, tmp_path)
+    await sync_youzan_products(client=FakeYouzanClient())
+    import_product_knowledge(
+        [
+            {
+                "item_id": "1001",
+                "product_name": "建兰皇帝",
+                "category": "建兰",
+                "flower_color": "红花",
+                "fragrance": "浓香",
+                "flowering_status": "带花",
+                "price_budget": "历史资料500元",
+                "care_scenes": "阳台,室内",
+                "audience_tag": "L2",
+                "highlighted_features": "好养，性价比高",
+            },
+            {
+                "item_id": "1003",
+                "product_name": "建兰红香",
+                "category": "建兰",
+                "flower_color": "红花",
+                "fragrance": "浓香",
+                "flowering_status": "带花",
+                "care_scenes": "阳台,室内",
+                "audience_tag": "L4",
+            },
+            {
+                "item_id": "1004",
+                "product_name": "建兰素心",
+                "category": "建兰",
+                "flower_color": "素心",
+                "fragrance": "清香",
+                "flowering_status": "无花",
+                "care_scenes": "阳台,室内",
+                "audience_tag": "L2",
+            },
+            {
+                "item_id": "1005",
+                "product_name": "建兰低价红香",
+                "category": "建兰",
+                "flower_color": "红花",
+                "fragrance": "浓香",
+                "flowering_status": "无花",
+                "care_scenes": "室外",
+                "audience_tag": "L2",
+            },
+        ]
+    )
+
+    from app.services.product_knowledge_service import search_catalog_products
+
+    strict = search_catalog_products(
+        "我是L2，预算30元以内，想要浓香、带花、适合阳台的建兰"
+    )
+    no_flower = search_catalog_products("L2想要素花，不要带花苞，放阳台")
+    missing_level = search_catalog_products("L1客户，预算50元以内，推荐建兰")
+    direct = search_catalog_products("建兰皇帝，预算1元")
+
+    assert [item["item_id"] for item in strict] == ["1001"]
+    assert [item["item_id"] for item in no_flower] == ["1004"]
+    assert missing_level == []
+    assert direct[0]["item_id"] == "1001"
+
+
+@pytest.mark.asyncio
 async def test_product_alias_drives_local_ai_catalog(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
     await sync_youzan_products(client=FakeYouzanClient())

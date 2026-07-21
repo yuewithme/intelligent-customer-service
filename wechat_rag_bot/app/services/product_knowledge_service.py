@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -38,6 +39,58 @@ PREFERENCE_TERMS = (
     "带花",
     "花苞",
 )
+ORCHID_CATEGORIES = (
+    "建兰",
+    "春兰",
+    "蕙兰",
+    "墨兰",
+    "寒兰",
+    "春剑",
+    "莲瓣兰",
+    "秋芝",
+    "送春",
+)
+SCENE_TERMS = ("阳台", "室内", "室外", "露台", "公司办公室", "办公室")
+FRAGRANCE_TERMS = ("浓香", "清香", "幽香", "甜香")
+COLOR_TERMS = {
+    "红": ("红色", "红花", "红素"),
+    "白": ("白色", "白花"),
+    "黄": ("黄色", "黄花", "黄素"),
+    "紫": ("紫色", "紫花"),
+    "绿": ("绿色", "绿花"),
+    "素": ("素花", "素心", "素雅"),
+    "复色": ("复色",),
+    "艳丽": ("艳丽",),
+}
+
+
+@dataclass(frozen=True)
+class ProductRecommendationCriteria:
+    min_price_cent: int | None = None
+    max_price_cent: int | None = None
+    target_price_cent: int | None = None
+    audience_tag: str | None = None
+    category: str | None = None
+    fragrance: str | None = None
+    flowering_status: str | None = None
+    scene: str | None = None
+    color_key: str | None = None
+
+    @property
+    def active_count(self) -> int:
+        return sum(
+            value is not None
+            for value in (
+                self.min_price_cent,
+                self.max_price_cent,
+                self.audience_tag,
+                self.category,
+                self.fragrance,
+                self.flowering_status,
+                self.scene,
+                self.color_key,
+            )
+        )
 
 
 def list_product_knowledge(
@@ -242,6 +295,7 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
     normalized_keyword = _normalize_name(keyword)
     if not normalized_keyword:
         return []
+    criteria = _parse_recommendation_criteria(keyword)
     query_terms = [
         term
         for term in (
@@ -264,12 +318,26 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
         ).all()
         ranked = []
         for product, knowledge in rows:
+            direct_score = _direct_product_score(
+                normalized_keyword,
+                product,
+                knowledge,
+            )
+            if not direct_score and not _matches_recommendation_criteria(
+                product,
+                knowledge,
+                criteria,
+            ):
+                continue
             score = _match_score(
                 normalized_keyword,
                 product,
                 knowledge,
                 query_terms=query_terms,
             )
+            score += _criteria_score(product, criteria)
+            if criteria.active_count and not direct_score:
+                score = max(score, criteria.active_count * 10)
             if score > 0:
                 ranked.append((score, product, knowledge))
         ranked.sort(key=lambda item: (-item[0], item[1].sort_order, item[1].id))
@@ -277,6 +345,140 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
             _serialize_ai_product(product, knowledge)
             for _, product, knowledge in ranked[:limit]
         ]
+
+
+def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteria:
+    min_price_cent = None
+    max_price_cent = None
+    target_price_cent = None
+    price_range = re.search(
+        r"(\d+(?:\.\d+)?)\s*(?:到|至|[-~～])\s*(\d+(?:\.\d+)?)\s*元?",
+        keyword,
+    )
+    if price_range:
+        lower, upper = sorted(float(value) for value in price_range.groups())
+        min_price_cent = round(lower * 100)
+        max_price_cent = round(upper * 100)
+        target_price_cent = round((lower + upper) * 50)
+    else:
+        price = re.search(
+            r"预算(?:在|是|大概|约)?\s*(\d+(?:\.\d+)?)\s*元?\s*"
+            r"(以内|以下|之内|不超过|最多|左右|上下)?",
+            keyword,
+        )
+        if price is None:
+            price = re.search(
+                r"(\d+(?:\.\d+)?)\s*元?\s*"
+                r"(以内|以下|之内|不超过|最多|左右|上下)",
+                keyword,
+            )
+        if price:
+            amount_cent = round(float(price.group(1)) * 100)
+            qualifier = price.group(2) or ""
+            if qualifier in {"左右", "上下"}:
+                min_price_cent = round(amount_cent * 0.8)
+                max_price_cent = round(amount_cent * 1.2)
+                target_price_cent = amount_cent
+            else:
+                max_price_cent = amount_cent
+
+    audience_match = re.search(
+        r"(?<![A-Za-z0-9])L([1-6])(?![A-Za-z0-9])",
+        keyword,
+        re.I,
+    )
+    audience_tag = f"L{audience_match.group(1)}" if audience_match else None
+    category = next((value for value in ORCHID_CATEGORIES if value in keyword), None)
+    fragrance = next((value for value in FRAGRANCE_TERMS if value in keyword), None)
+    if fragrance is None and any(value in keyword for value in ("香味浓", "香气浓", "浓郁")):
+        fragrance = "浓香"
+
+    negative_flower = any(
+        value in keyword
+        for value in ("不要带花", "不带花", "不要花苞", "不带花苞", "无花")
+    )
+    positive_flower = any(
+        value in keyword for value in ("带花", "带花苞", "要花苞", "现花")
+    )
+    flowering_status = "无花" if negative_flower else ("带花" if positive_flower else None)
+    scene = next((value for value in SCENE_TERMS if value in keyword), None)
+    if scene == "办公室":
+        scene = "公司办公室"
+    color_key = next(
+        (
+            key
+            for key, markers in COLOR_TERMS.items()
+            if any(marker in keyword for marker in markers)
+        ),
+        None,
+    )
+    return ProductRecommendationCriteria(
+        min_price_cent=min_price_cent,
+        max_price_cent=max_price_cent,
+        target_price_cent=target_price_cent,
+        audience_tag=audience_tag,
+        category=category,
+        fragrance=fragrance,
+        flowering_status=flowering_status,
+        scene=scene,
+        color_key=color_key,
+    )
+
+
+def _matches_recommendation_criteria(
+    product: YouzanProductModel,
+    knowledge: YouzanProductKnowledgeModel,
+    criteria: ProductRecommendationCriteria,
+) -> bool:
+    price_cent = product.price_cent
+    if criteria.min_price_cent is not None and (
+        price_cent is None or price_cent < criteria.min_price_cent
+    ):
+        return False
+    if criteria.max_price_cent is not None and (
+        price_cent is None or price_cent > criteria.max_price_cent
+    ):
+        return False
+    if (
+        criteria.audience_tag
+        and _normalize_name(knowledge.audience_tag) != criteria.audience_tag.lower()
+    ):
+        return False
+    if criteria.category and _normalize_name(knowledge.category) != _normalize_name(
+        criteria.category
+    ):
+        return False
+    if criteria.fragrance and _normalize_name(knowledge.fragrance) != _normalize_name(
+        criteria.fragrance
+    ):
+        return False
+    if criteria.flowering_status and _normalize_name(
+        knowledge.flowering_status
+    ) != _normalize_name(criteria.flowering_status):
+        return False
+    if criteria.scene and _normalize_name(criteria.scene) not in _normalize_name(
+        knowledge.care_scenes
+    ):
+        return False
+    if criteria.color_key and criteria.color_key not in _normalize_name(
+        knowledge.flower_color
+    ):
+        return False
+    return True
+
+
+def _criteria_score(
+    product: YouzanProductModel,
+    criteria: ProductRecommendationCriteria,
+) -> int:
+    score = criteria.active_count * 40
+    if criteria.target_price_cent and product.price_cent is not None:
+        difference_ratio = (
+            abs(product.price_cent - criteria.target_price_cent)
+            / criteria.target_price_cent
+        )
+        score += max(0, round(30 * (1 - difference_ratio)))
+    return score
 
 
 def get_catalog_product(item_id: str) -> dict[str, Any] | None:
@@ -450,15 +652,12 @@ def _match_score(
     *,
     query_terms: list[str] | None = None,
 ) -> int:
+    direct_score = _direct_product_score(keyword, product, knowledge)
+    if direct_score:
+        return direct_score
     name = _normalize_name(knowledge.product_name)
     title = _normalize_name(product.title)
     aliases = _normalize_name(knowledge.aliases)
-    if name and name in keyword:
-        return 300 + len(name)
-    if any(alias in keyword for alias in _split_aliases(knowledge.aliases)):
-        return 280
-    if keyword in title or keyword in name:
-        return 200 + min(len(keyword), len(name))
     searchable = _normalize_name(
         " ".join(
             str(getattr(knowledge, field) or "")
@@ -489,6 +688,22 @@ def _match_score(
         term for term in PREFERENCE_TERMS if term in keyword and term in searchable
     )
     return 20 * len(matched_terms)
+
+
+def _direct_product_score(
+    keyword: str,
+    product: YouzanProductModel,
+    knowledge: YouzanProductKnowledgeModel,
+) -> int:
+    name = _normalize_name(knowledge.product_name)
+    title = _normalize_name(product.title)
+    if name and name in keyword:
+        return 300 + len(name)
+    if any(alias in keyword for alias in _split_aliases(knowledge.aliases)):
+        return 280
+    if keyword and (keyword in title or keyword in name):
+        return 200 + min(len(keyword), len(name))
+    return 0
 
 
 def _split_aliases(value: str | None) -> list[str]:
