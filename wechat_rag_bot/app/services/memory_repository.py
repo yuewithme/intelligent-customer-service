@@ -5,9 +5,12 @@ from app.config import get_settings
 from app.db.models import (
     Base,
     MemoryEventModel,
+    MemoryEpisodeEventModel,
+    MemoryEpisodeModel,
     MemoryFactEvidenceModel,
     MemoryFactModel,
     MemoryIdentityModel,
+    MemoryJobModel,
     MemorySubjectModel,
 )
 
@@ -19,6 +22,9 @@ _MEMORY_TABLES = [
     MemoryEventModel.__table__,
     MemoryFactModel.__table__,
     MemoryFactEvidenceModel.__table__,
+    MemoryEpisodeModel.__table__,
+    MemoryEpisodeEventModel.__table__,
+    MemoryJobModel.__table__,
 ]
 
 

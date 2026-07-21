@@ -98,6 +98,47 @@ def get_memory_event(
         return _event_read(model) if model is not None else None
 
 
+def get_memory_event_by_id(
+    *, tenant_id: str, subject_id: str, event_id: int
+) -> MemoryEventRead | None:
+    with get_memory_session() as session:
+        model = session.scalar(
+            select(MemoryEventModel).where(
+                MemoryEventModel.id == event_id,
+                MemoryEventModel.tenant_id == tenant_id,
+                MemoryEventModel.subject_id == subject_id,
+                MemoryEventModel.deleted_at.is_(None),
+            )
+        )
+        return _event_read(model) if model is not None else None
+
+
+def list_memory_events(
+    *,
+    tenant_id: str,
+    subject_id: str,
+    session_id: str | None = None,
+    limit: int = 20,
+) -> list[MemoryEventRead]:
+    limit = max(1, min(limit, 100))
+    with get_memory_session() as session:
+        query = select(MemoryEventModel).where(
+            MemoryEventModel.tenant_id == tenant_id,
+            MemoryEventModel.subject_id == subject_id,
+            MemoryEventModel.deleted_at.is_(None),
+        )
+        if session_id is not None:
+            query = query.where(MemoryEventModel.session_id == session_id)
+        rows = list(
+            session.scalars(
+                query.order_by(
+                    MemoryEventModel.occurred_at.desc(), MemoryEventModel.id.desc()
+                ).limit(limit)
+            )
+        )
+        return [_event_read(row) for row in reversed(rows)]
+
+
 def _find_scoped_event(
     session, *, tenant_id: str, subject_id: str, event_uid: str
 ) -> MemoryEventModel | None:
@@ -162,8 +203,8 @@ def _event_read(model: MemoryEventModel) -> MemoryEventRead:
         source_type=model.source_type,
         source_id=model.source_id,
         trace_id=model.trace_id,
-        occurred_at=model.occurred_at,
-        ingested_at=model.ingested_at,
+        occurred_at=_database_utc(model.occurred_at),
+        ingested_at=_database_utc(model.ingested_at),
         sensitivity=model.sensitivity,
     )
 
@@ -176,3 +217,9 @@ def _utc_iso(value: datetime) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).isoformat()
+
+
+def _database_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

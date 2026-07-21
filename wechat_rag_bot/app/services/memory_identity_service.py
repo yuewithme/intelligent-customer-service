@@ -191,8 +191,8 @@ def _subject_read(model: MemorySubjectModel) -> MemorySubjectRead:
         tenant_id=model.tenant_id,
         status=model.status,
         profile_version=model.profile_version,
-        created_at=model.created_at,
-        updated_at=model.updated_at,
+        created_at=_database_utc(model.created_at),
+        updated_at=_database_utc(model.updated_at),
     )
 
 
@@ -206,8 +206,8 @@ def _identity_read(model: MemoryIdentityModel) -> MemoryIdentityRead:
         external_user_id=model.external_user_id,
         identity_source=model.identity_source,
         verified=model.verified,
-        created_at=model.created_at,
-        updated_at=model.updated_at,
+        created_at=_database_utc(model.created_at),
+        updated_at=_database_utc(model.updated_at),
     )
 
 
@@ -235,3 +235,9 @@ def _required(value: str, field: str) -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _database_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

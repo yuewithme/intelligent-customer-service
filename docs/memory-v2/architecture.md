@@ -6,7 +6,8 @@ Contract version: `memory.v1`
 
 Last updated: 2026-07-21
 
-Implementation status: WP1 core storage complete; production integration disabled.
+Implementation status: WP2 durable write pipeline complete; production reads
+remain legacy and Memory 2.0 writes are disabled by default.
 
 ## 1. Purpose
 
@@ -98,10 +99,10 @@ The target SQL entities are:
 - `memory_purge_audits`: content-free deletion audit.
 
 WP1 physically creates `memory_subjects`, `memory_identities`, `memory_events`,
-`memory_facts`, and `memory_fact_evidence`. The episode, job, feedback, and purge
-tables remain contract targets and must be introduced only by their owning work
-packages. Merely importing the WP1 services does not change the production chat
-path or create records.
+`memory_facts`, and `memory_fact_evidence`. WP2 adds `memory_episodes`,
+`memory_episode_events`, and `memory_jobs`. Feedback and purge tables remain
+contract targets for WP5. The WP2 worker starts only when
+`MEMORY_V2_WRITE_ENABLED=true`; no production adapter enqueues events yet.
 
 The target Qdrant collection is `customer_memory`. It stores episode embeddings
 and only the minimum filtering payload: tenant, subject, episode ID, status,

@@ -572,6 +572,104 @@ class MemoryFactEvidenceModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class MemoryEpisodeModel(Base):
+    __tablename__ = "memory_episodes"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "subject_id",
+            "episode_uid",
+            "version",
+            name="uq_memory_episode_version",
+        ),
+        Index(
+            "ix_memory_episode_active_scope",
+            "tenant_id",
+            "subject_id",
+            "status",
+            "started_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    episode_uid: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    subject_id: Mapped[str] = mapped_column(
+        ForeignKey("memory_subjects.id"), index=True
+    )
+    episode_type: Mapped[str] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(String(256))
+    summary: Mapped[str] = mapped_column(Text)
+    outcome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    importance: Mapped[float] = mapped_column(Float, default=0.5)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
+    embedding_version: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class MemoryEpisodeEventModel(Base):
+    __tablename__ = "memory_episode_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "episode_id", "event_id", name="uq_memory_episode_event"
+        ),
+        UniqueConstraint(
+            "episode_id", "position", name="uq_memory_episode_position"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    episode_id: Mapped[int] = mapped_column(
+        ForeignKey("memory_episodes.id"), index=True
+    )
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey("memory_events.id"), index=True
+    )
+    position: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class MemoryJobModel(Base):
+    __tablename__ = "memory_jobs"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "dedup_key", name="uq_memory_job_dedup"),
+        Index("ix_memory_job_available", "status", "available_at", "id"),
+        Index("ix_memory_job_subject", "tenant_id", "subject_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    subject_id: Mapped[str] = mapped_column(
+        ForeignKey("memory_subjects.id"), index=True
+    )
+    job_type: Mapped[str] = mapped_column(String(64), index=True)
+    dedup_key: Mapped[str] = mapped_column(String(512))
+    trigger_event_id: Mapped[int] = mapped_column(
+        ForeignKey("memory_events.id"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    locked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+    locked_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+
+
 class EyunContactModel(Base):
     __tablename__ = "eyun_contacts"
     __table_args__ = (

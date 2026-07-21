@@ -20,6 +20,20 @@ MemoryEventType = Literal[
     "image_observation",
 ]
 MemorySensitivity = Literal["public", "internal", "sensitive", "restricted"]
+MemoryOperationType = Literal[
+    "ADD", "REINFORCE", "SUPERSEDE", "DISPUTE", "RESOLVE", "NOOP"
+]
+MemoryKind = Literal["semantic_fact", "episode"]
+MemoryEpisodeType = Literal[
+    "product_consultation",
+    "purchase",
+    "refund",
+    "complaint",
+    "after_sales",
+    "sales_objection",
+    "preference_expression",
+    "commitment",
+]
 
 
 class RegionFactValue(BaseModel):
@@ -232,3 +246,77 @@ class LegacyProfileProjection(BaseModel):
     pain_points: list[str] = Field(default_factory=list)
     preference_summary: str | None = None
     active_opportunity: dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryOperationCandidate(BaseModel):
+    operation: MemoryOperationType
+    memory_kind: MemoryKind
+    fact_key: str | None = None
+    fact_value: Any = None
+    evidence_event_ids: list[int] = Field(default_factory=list)
+    source_type: str | None = None
+    valid_from: datetime | None = None
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    supersedes_fact_id: int | None = None
+    reason: str = ""
+    episode_type: MemoryEpisodeType | None = None
+    title: str | None = Field(default=None, max_length=256)
+    summary: str | None = Field(default=None, max_length=4000)
+    outcome: str | None = Field(default=None, max_length=4000)
+    importance: float = Field(default=0.5, ge=0, le=1)
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_shape(self):
+        if self.operation == "NOOP":
+            return self
+        if not self.evidence_event_ids:
+            raise ValueError("memory operation requires evidence_event_ids")
+        if self.memory_kind == "semantic_fact":
+            if not self.fact_key or self.fact_value is None or not self.source_type:
+                raise ValueError(
+                    "semantic fact requires fact_key, fact_value, and source_type"
+                )
+        elif not all(
+            (
+                self.episode_type,
+                self.title,
+                self.summary,
+                self.started_at,
+                self.source_type,
+            )
+        ):
+            raise ValueError(
+                "episode requires type, title, summary, start time, and source"
+            )
+        return self
+
+
+class ValidatedMemoryOperation(MemoryOperationCandidate):
+    normalized_value: str | None = None
+
+
+class MemoryJobRead(BaseModel):
+    id: int
+    tenant_id: str
+    subject_id: str
+    job_type: str
+    dedup_key: str
+    trigger_event_id: int
+    status: str
+    attempts: int
+    available_at: datetime
+    locked_at: datetime | None
+    locked_by: str | None
+    last_error: str | None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+
+
+class MemoryApplyResult(BaseModel):
+    memory_kind: MemoryKind
+    record_id: int | None = None
+    created: bool
+    operation: MemoryOperationType

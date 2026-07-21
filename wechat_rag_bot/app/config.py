@@ -83,6 +83,27 @@ class Settings(BaseSettings):
         default=15.0, ge=0, alias="EYUN_CONTACT_REFRESH_DELAY_SECONDS"
     )
     evaluation_mode: bool = Field(default=False, alias="EVALUATION_MODE")
+    memory_v2_write_enabled: bool = Field(
+        default=False, alias="MEMORY_V2_WRITE_ENABLED"
+    )
+    memory_v2_llm_extraction_enabled: bool = Field(
+        default=True, alias="MEMORY_V2_LLM_EXTRACTION_ENABLED"
+    )
+    memory_v2_min_confidence: float = Field(
+        default=0.85, ge=0, le=1, alias="MEMORY_V2_MIN_CONFIDENCE"
+    )
+    memory_v2_worker_poll_seconds: float = Field(
+        default=1.0, ge=0.05, alias="MEMORY_V2_WORKER_POLL_SECONDS"
+    )
+    memory_v2_job_lease_seconds: int = Field(
+        default=600, ge=1, alias="MEMORY_V2_JOB_LEASE_SECONDS"
+    )
+    memory_v2_job_max_attempts: int = Field(
+        default=3, ge=1, le=20, alias="MEMORY_V2_JOB_MAX_ATTEMPTS"
+    )
+    memory_v2_job_retry_base_seconds: int = Field(
+        default=30, ge=1, alias="MEMORY_V2_JOB_RETRY_BASE_SECONDS"
+    )
     first_order_sales_flow_v2_enabled: bool | None = Field(
         default=None, alias="FIRST_ORDER_SALES_FLOW_V2_ENABLED"
     )
@@ -94,6 +115,13 @@ class Settings(BaseSettings):
                 "prod",
                 "production",
             }
+        if (
+            self.memory_v2_write_enabled
+            and self.memory_v2_job_lease_seconds <= self.llm_timeout_seconds
+        ):
+            raise ValueError(
+                "MEMORY_V2_JOB_LEASE_SECONDS must exceed LLM_TIMEOUT_SECONDS"
+            )
         return self
 
     youzan_enabled: bool = False

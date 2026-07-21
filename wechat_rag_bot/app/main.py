@@ -39,6 +39,7 @@ from app.schemas.common import AppError, ErrorCode
 from app.services.message_risk_control_service import eyun_risk_control_worker
 from app.services.unpurchased_sop_service import unpurchased_sop_worker
 from app.services.youzan_product_sync_service import youzan_product_sync_worker
+from app.workers.memory_worker import memory_worker
 from app.services.eyun_callback_service import video_storage_dir
 from app.services.link_card_thumbnail_service import link_card_thumbnail_storage_dir
 from app.routers.admin_unpurchased_sop import sop_media_storage_dir
@@ -65,6 +66,9 @@ async def lifespan(app: FastAPI):
     app.state.youzan_product_sync_task = asyncio.create_task(
         youzan_product_sync_worker(stop_event)
     )
+    app.state.memory_v2_task = None
+    if getattr(get_settings(), "memory_v2_write_enabled", False):
+        app.state.memory_v2_task = asyncio.create_task(memory_worker(stop_event))
     async with run_sales_mcp_session_manager():
         try:
             yield
@@ -73,6 +77,8 @@ async def lifespan(app: FastAPI):
             await app.state.eyun_risk_control_task
             await app.state.unpurchased_sop_task
             await app.state.youzan_product_sync_task
+            if app.state.memory_v2_task is not None:
+                await app.state.memory_v2_task
 
 
 app = FastAPI(title=get_settings().app_name, lifespan=lifespan)

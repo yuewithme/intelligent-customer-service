@@ -145,10 +145,15 @@ Unknown keys are rejected until the catalog and evaluation contract are updated.
 Required fields:
 
 ```text
-id, tenant_id, subject_id, episode_type, title, summary, outcome,
+id, episode_uid, tenant_id, subject_id, episode_type, title, summary, outcome,
 importance, started_at, ended_at, status, embedding_version, version,
 created_at, updated_at
 ```
+
+`episode_uid` is stable for one episode lineage. For initial ingestion it is
+derived from the tenant, subject, episode type, and ordered evidence event IDs.
+Retries with the same evidence therefore resolve to the same episode instead of
+creating duplicates.
 
 Episode-to-event links contain `episode_id`, `event_id`, and `position`. A
 summary without at least one linked source event is invalid.
@@ -160,7 +165,22 @@ product_consultation, purchase, refund, complaint, after_sales,
 sales_objection, preference_expression, commitment
 ```
 
-## 7. Retrieval context
+## 7. Durable memory job
+
+Required fields:
+
+```text
+id, tenant_id, subject_id, job_type, dedup_key, trigger_event_id, status,
+attempts, available_at, locked_at, locked_by, last_error, created_at,
+updated_at, completed_at
+```
+
+Allowed statuses are `pending`, `processing`, `retry`, `completed`, and `dead`.
+`(tenant_id, dedup_key)` is unique. Claiming a job increments `attempts` and
+assigns a time-bounded worker lease. An expired processing lease is reclaimable.
+Completing or failing a job requires the current `locked_by` value.
+
+## 8. Retrieval context
 
 The only Memory 2.0 structure supplied to reply generation is:
 
@@ -182,7 +202,7 @@ The only Memory 2.0 structure supplied to reply generation is:
 The context builder enforces the content budget and must not expose unrelated
 sensitive fields merely because they are present in the profile.
 
-## 8. Source policy
+## 9. Source policy
 
 | Claim | Accepted authority | Explicit rejection |
 |---|---|---|
@@ -193,7 +213,7 @@ sensitive fields merely because they are present in the profile.
 | Contact field | authorized provider, customer, correction | model inference |
 | Assistant commitment | assistant/human source event | reclassified customer fact |
 
-## 9. Evaluation dataset contract
+## 10. Evaluation dataset contract
 
 The seed dataset is JSONL. Each row contains:
 
