@@ -290,7 +290,9 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_state=user_state,
             stage_latencies=stage_latencies,
         )
-        reply = apply_sales_action(reply, sales_action)
+        persona_meta = reply.metadata.get("persona", {})
+        if not persona_meta.get("sales_action_rendered"):
+            reply = apply_sales_action(reply, sales_action)
         stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
         reply.metadata["sales_action"] = sales_action.model_dump()
         reply.metadata["sales_stage_decision"] = sales_stage_decision.model_dump(

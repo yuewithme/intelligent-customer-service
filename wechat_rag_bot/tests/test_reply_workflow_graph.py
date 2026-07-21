@@ -159,7 +159,8 @@ async def test_rag_answer_with_answer_returns_rag_reply(monkeypatch):
     assert reply.reply_type == "rag"
     assert reply.need_human is False
     assert reply.sources == [{"doc_id": "doc_1"}]
-    assert reply.metadata == {}
+    assert reply.metadata["persona"]["render_mode"] == "locked"
+    assert reply.metadata["persona"]["version"] == "v1"
 
 
 @pytest.mark.asyncio
@@ -317,7 +318,8 @@ async def test_rag_plan_uses_rag_without_legacy_template(monkeypatch):
     assert reply.reply_type == "rag"
     assert reply.need_human is False
     assert reply.sources == [{"doc_id": "doc_1"}]
-    assert reply.metadata == {}
+    assert reply.metadata["persona"]["render_mode"] == "locked"
+    assert reply.metadata["persona"]["version"] == "v1"
 
 
 @pytest.mark.asyncio

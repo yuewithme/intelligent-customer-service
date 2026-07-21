@@ -5,10 +5,17 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from app.schemas.intent import IntentResult
+from app.schemas.persona import PersonaContext, ReplySpec
 from app.schemas.policy import PolicyDecision
 from app.schemas.reply import FinalReply
 from app.schemas.reply_plan import ReplyPlan
 from app.services.business_reply_renderer import render_business_reply
+from app.services.persona_renderer import render_persona_reply
+from app.services.persona_service import (
+    build_persona_context,
+    build_reply_spec,
+)
+from app.services.reply_guard_service import finalize_reply_spec, guard_reply_spec
 from app.services.reply_builder import (
     build_chitchat_reply,
     build_rag_reply,
@@ -25,10 +32,23 @@ class ReplyWorkflowState(TypedDict, total=False):
     message: Any
     user_state: Any
     stage_latencies: dict[str, int]
+    persona_context: PersonaContext
+    reply_spec: ReplySpec
     reply: FinalReply
     handoff_reason: str
     handoff_original_route: str | None
     handoff_context: dict | None
+
+
+def persona_context_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
+    started = time.perf_counter()
+    context = build_persona_context(
+        message=state["message"],
+        user_state=state["user_state"],
+        intent=state["intent"],
+    )
+    state["stage_latencies"]["persona_context_ms"] = _elapsed_ms(started)
+    return {"persona_context": context}
 
 
 async def talk_script_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
@@ -54,19 +74,18 @@ async def talk_script_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     if talk_script.status == "matched":
         stage_latencies.setdefault("template_ms", 0)
         stage_latencies.setdefault("rag_ms", 0)
-        return {
-            "reply": FinalReply(
-                answer=talk_script.answer,
-                reply_type="template",
-                route="template_reply",
-                template_id=talk_script.template_id,
-                need_human=False,
-                metadata={
-                    "talk_script": talk_script.model_dump(),
-                    "score": talk_script.confidence,
-                },
-            )
-        }
+        reply = FinalReply(
+            answer=talk_script.answer,
+            reply_type="template",
+            route="template_reply",
+            template_id=talk_script.template_id,
+            need_human=False,
+            metadata={
+                "talk_script": talk_script.model_dump(),
+                "score": talk_script.confidence,
+            },
+        )
+        return {"reply_spec": _reply_spec(state, reply)}
     if talk_script.status == "handoff" and not _is_soft_talk_script_handoff(
         talk_script.reason
     ):
@@ -99,7 +118,7 @@ async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
         )
     stage_latencies["template_ms"] = _elapsed_ms(stage_started)
     if reply is not None:
-        return {"reply": reply}
+        return {"reply_spec": _reply_spec(state, reply)}
     stage_latencies["rag_ms"] = 0
     return {
         "handoff_reason": (
@@ -145,7 +164,8 @@ async def rag_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
             "handoff_original_route": state["plan"].original_route
             or state["plan"].action,
         }
-    return {"reply": build_rag_reply(rag_result, state["intent"])}
+    reply = build_rag_reply(rag_result, state["intent"])
+    return {"reply_spec": _reply_spec(state, reply)}
 
 
 async def build_handoff_reply(
@@ -215,12 +235,51 @@ async def human_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
 def chitchat_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     state["stage_latencies"].setdefault("template_ms", 0)
     state["stage_latencies"].setdefault("rag_ms", 0)
-    return {"reply": build_chitchat_reply(state["intent"])}
+    return {"reply_spec": _reply_spec(state, build_chitchat_reply(state["intent"]))}
+
+
+async def persona_render_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
+    started = time.perf_counter()
+    spec = state["reply_spec"]
+    try:
+        rendered = await render_persona_reply(
+            spec=spec,
+            context=state["persona_context"],
+            current_message=state["message"].message,
+        )
+    except Exception as exc:
+        rendered = spec.model_copy(
+            update={
+                "metadata": {
+                    **spec.metadata,
+                    "persona": {
+                        "persona_id": state["persona_context"].persona_id,
+                        "version": state["persona_context"].persona_version,
+                        "mode": state["persona_context"].mode,
+                        "render_mode": spec.render_mode,
+                        "fallback": type(exc).__name__,
+                    },
+                }
+            }
+        )
+    state["stage_latencies"]["persona_render_ms"] = _elapsed_ms(started)
+    return {"reply_spec": rendered}
+
+
+def reply_guard_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
+    started = time.perf_counter()
+    guarded = guard_reply_spec(
+        spec=state["reply_spec"],
+        context=state["persona_context"],
+    )
+    reply = finalize_reply_spec(guarded)
+    state["stage_latencies"]["persona_guard_ms"] = _elapsed_ms(started)
+    return {"reply": reply}
 
 
 def _after_talk_script(state: ReplyWorkflowState) -> str:
-    if state.get("reply") is not None:
-        return END
+    if state.get("reply_spec") is not None:
+        return "persona_render"
     if state.get("handoff_reason"):
         return "handoff"
     return "route_reply"
@@ -240,14 +299,15 @@ def _route_reply(state: ReplyWorkflowState) -> str:
 
 
 def _after_reply_node(state: ReplyWorkflowState) -> str:
-    if state.get("reply") is not None:
-        return END
+    if state.get("reply_spec") is not None:
+        return "persona_render"
     return "handoff"
 
 
 @lru_cache
 def _compiled_graph():
     graph = StateGraph(ReplyWorkflowState)
+    graph.add_node("persona_context", persona_context_node)
     graph.add_node("talk_script", talk_script_node)
     graph.add_node("route_reply", route_reply_node)
     graph.add_node("template", template_node)
@@ -255,12 +315,19 @@ def _compiled_graph():
     graph.add_node("handoff", handoff_node)
     graph.add_node("human", human_node)
     graph.add_node("chitchat", chitchat_node)
+    graph.add_node("persona_render", persona_render_node)
+    graph.add_node("reply_guard", reply_guard_node)
 
-    graph.add_edge(START, "talk_script")
+    graph.add_edge(START, "persona_context")
+    graph.add_edge("persona_context", "talk_script")
     graph.add_conditional_edges(
         "talk_script",
         _after_talk_script,
-        {END: END, "handoff": "handoff", "route_reply": "route_reply"},
+        {
+            "persona_render": "persona_render",
+            "handoff": "handoff",
+            "route_reply": "route_reply",
+        },
     )
     graph.add_conditional_edges(
         "route_reply",
@@ -275,16 +342,18 @@ def _compiled_graph():
     graph.add_conditional_edges(
         "template",
         _after_reply_node,
-        {END: END, "handoff": "handoff"},
+        {"persona_render": "persona_render", "handoff": "handoff"},
     )
     graph.add_conditional_edges(
         "rag",
         _after_reply_node,
-        {END: END, "handoff": "handoff"},
+        {"persona_render": "persona_render", "handoff": "handoff"},
     )
     graph.add_edge("handoff", END)
     graph.add_edge("human", END)
-    graph.add_edge("chitchat", END)
+    graph.add_edge("chitchat", "persona_render")
+    graph.add_edge("persona_render", "reply_guard")
+    graph.add_edge("reply_guard", END)
     return graph.compile()
 
 
@@ -328,3 +397,19 @@ def _is_soft_talk_script_handoff(reason: str | None) -> bool:
         "question_not_found",
         "template_not_found",
     }
+
+
+def _reply_spec(state: ReplyWorkflowState, reply: FinalReply) -> ReplySpec:
+    spec = build_reply_spec(
+        reply=reply,
+        plan=state["plan"],
+        user_state=state["user_state"],
+    )
+    return spec.model_copy(
+        update={
+            "metadata": {
+                **spec.metadata,
+                "persona_original_copy": reply.answer,
+            }
+        }
+    )

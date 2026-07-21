@@ -52,6 +52,40 @@ def test_sales_flow_metrics_include_stage_action_and_safety_rates():
     assert metrics["fact_hallucination_rate"] == 0.0
 
 
+def test_sales_flow_metrics_measure_persona_coverage_and_anti_patterns():
+    items = [
+        {"id": "p1", "expected_action": "reply"},
+        {"id": "p2", "expected_action": "reply"},
+    ]
+    results = [
+        {
+            "id": "p1",
+            "responses": [
+                {
+                    "answer": "这盆更适合明亮散射光。",
+                    "need_human": False,
+                    "persona": {"persona_id": "orchid_sales", "version": "v1"},
+                }
+            ],
+        },
+        {
+            "id": "p2",
+            "responses": [
+                {
+                    "answer": "亲亲，为了更好地为您服务，请填写信息。",
+                    "need_human": False,
+                    "persona": None,
+                }
+            ],
+        },
+    ]
+
+    metrics = aggregate_sales_flow_metrics(items, results)
+
+    assert metrics["persona_runtime_coverage_rate"] == 0.5
+    assert metrics["persona_anti_pattern_rate"] == 0.5
+
+
 def test_evaluation_default_timeout_allows_complex_reply_pipeline(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["run_evaluation"])
 

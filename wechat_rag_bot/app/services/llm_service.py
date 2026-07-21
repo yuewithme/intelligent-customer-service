@@ -97,6 +97,48 @@ async def generate_answer(prompt: str, purpose: str = "rag") -> dict:
         raise AppError(ErrorCode.LLM_FAILED, status_code=502) from exc
 
 
+async def generate_messages(
+    messages: list[dict[str, str]],
+    *,
+    purpose: str,
+    temperature: float = 0,
+) -> dict:
+    """Generate from role-separated messages without flattening system instructions."""
+    config = get_model_config(purpose)
+    provider = config.provider
+    if provider == "mock":
+        return {"answer": "", "usage": {}}
+    if provider not in PROVIDERS:
+        raise AppError(
+            ErrorCode.LLM_FAILED,
+            f"不支持的 {purpose} LLM Provider: {provider}",
+            status_code=500,
+        )
+
+    base_url, key_name = PROVIDERS[provider]
+    settings = get_settings()
+    api_key = getattr(settings, key_name)
+    try:
+        async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": config.model,
+                    "messages": messages,
+                    "temperature": temperature,
+                },
+            )
+            response.raise_for_status()
+            body = response.json()
+            return {
+                "answer": body["choices"][0]["message"]["content"],
+                "usage": body.get("usage", {}),
+            }
+    except Exception as exc:
+        raise AppError(ErrorCode.LLM_FAILED, status_code=502) from exc
+
+
 async def generate_json(prompt: str, purpose: str = "intent") -> dict:
     config = get_model_config(purpose)
     provider = config.provider
@@ -158,6 +200,10 @@ def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
         "talk_script": (
             ("talk_script_llm_provider", "talk_script_llm_model"),
             ("intent_llm_provider", "intent_llm_model"),
+        ),
+        "persona": (
+            ("persona_llm_provider", "persona_llm_model"),
+            ("rag_llm_provider", "rag_llm_model"),
         ),
         "profile": (
             ("profile_llm_provider", "profile_llm_model"),

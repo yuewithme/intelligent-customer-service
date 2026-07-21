@@ -206,6 +206,25 @@ def aggregate_sales_flow_metrics(
         expected_human = item.get("expected_action") == "human_handoff"
         totals["human"] += 1
         counters["human"] += bool(response.get("need_human")) == expected_human
+        if not expected_human:
+            totals["persona"] += 1
+            persona = response.get("persona")
+            counters["persona"] += bool(
+                isinstance(persona, dict)
+                and persona.get("persona_id")
+                and persona.get("version")
+            )
+            totals["persona_style"] += 1
+            counters["persona_anti_pattern"] += any(
+                phrase in answer
+                for phrase in (
+                    "您的问题非常好",
+                    "为了更好地为您服务",
+                    "根据您的用户画像",
+                    "根据你的用户画像",
+                    "亲亲",
+                )
+            )
         trusted_purchase = str((item.get("tool_state") or {}).get("order_status") or "").lower() in {"paid", "completed", "success"}
         if not trusted_purchase:
             totals["deal"] += 1
@@ -224,6 +243,10 @@ def aggregate_sales_flow_metrics(
         "fact_hallucination_rate": ratio("fact_hallucination", totals["facts"]),
         "wrong_deal_rate": ratio("wrong_deal", totals["deal"]),
         "human_handoff_accuracy": ratio("human", totals["human"]),
+        "persona_runtime_coverage_rate": ratio("persona", totals["persona"]),
+        "persona_anti_pattern_rate": ratio(
+            "persona_anti_pattern", totals["persona_style"]
+        ),
         "sample_counts": dict(totals),
     }
 
@@ -278,6 +301,7 @@ class EvaluationRunner:
         if body.get("code") != 0:
             raise RuntimeError(f"chat API error: {body}")
         data = body["data"]
+        metadata = data.get("metadata") or {}
         return {
             "answer": data["answer"],
             "session_id": data["session_id"],
@@ -287,7 +311,11 @@ class EvaluationRunner:
             "need_human": data.get("need_human", False),
             "next_action": data.get("next_action"),
             "sales_stage": (data.get("intent") or {}).get("sales_stage"),
-            "sales_action": ((data.get("metadata") or {}).get("sales_action") or {}).get("sales_action") or data.get("next_action"),
+            "sales_action": (
+                (metadata.get("sales_action") or {}).get("sales_action")
+                or data.get("next_action")
+            ),
+            "persona": metadata.get("persona"),
             "trace_id": data.get("trace_id"),
             "latency_ms": latency_ms,
             "queue_wait_ms": queue_wait_ms,

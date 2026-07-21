@@ -1,5 +1,6 @@
 from app.schemas.prompt import PromptBuildInput
 from app.services.business_tag_prompt_service import get_prompt_blocks
+from app.services.persona_service import build_static_persona_prompt
 
 
 PROMPT_BLOCKS = {
@@ -64,13 +65,31 @@ PROMPT_BLOCKS = {
 
 
 async def build_prompt(request: PromptBuildInput) -> str:
-    sections: list[str] = []
+    sections: list[str] = [
+        build_static_persona_prompt(mode=_persona_mode(request.context.session_state))
+    ]
     sections.extend(_render_prompt_blocks(request.prompt_block_ids))
     sections.append(_render_templates(request.templates))
     sections.append(_render_context(request.context))
     sections.append(_render_knowledge(request.knowledge_snippets))
     sections.append("User question:\n" + request.user_message.strip())
     return "\n\n".join(section for section in sections if section.strip())
+
+
+def _persona_mode(session_state: dict) -> str:
+    sales_action = session_state.get("sales_action")
+    action = sales_action.get("sales_action") if isinstance(sales_action, dict) else None
+    return {
+        "build_rapport": "first_contact",
+        "discover_need_track": "first_contact",
+        "discover_pain": "care_companion",
+        "provide_service": "care_companion",
+        "recommend_solution": "recommendation",
+        "build_value": "objection",
+        "resolve_blocker": "objection",
+        "trial_close": "closing",
+        "close_order": "closing",
+    }.get(str(action or ""), "care_companion")
 
 
 def _render_prompt_blocks(block_ids: list[str]) -> list[str]:

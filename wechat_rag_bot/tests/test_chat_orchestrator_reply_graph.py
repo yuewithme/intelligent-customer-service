@@ -165,6 +165,40 @@ async def test_orchestrator_executes_the_single_planned_reply(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_orchestrator_does_not_append_question_after_persona_render(monkeypatch):
+    from app.services import chat_orchestrator
+
+    _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator)
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(intent_example_top_k=5),
+    )
+
+    async def execute_reply_plan(**kwargs):
+        del kwargs
+        return FinalReply(
+            answer="先看看您想解决养护问题，还是正在挑品种？",
+            reply_type="template",
+            route="template_reply",
+            metadata={"persona": {"sales_action_rendered": True}},
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "execute_reply_plan", execute_reply_plan)
+    result = await chat_orchestrator.handle_chat(
+        ChatRequest(
+            channel="api",
+            user_id="user_001",
+            message="想了解一下",
+            kb_id="kb_default",
+        )
+    )
+
+    assert result["answer"] == "先看看您想解决养护问题，还是正在挑品种？"
+    assert result["answer"].count("？") == 1
+
+
+@pytest.mark.asyncio
 async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypatch):
     from app.services import chat_orchestrator
 
