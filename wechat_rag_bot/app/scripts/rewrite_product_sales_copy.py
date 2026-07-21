@@ -55,19 +55,45 @@ def _write_json(path: str, records: list[dict]) -> None:
 async def _generate(path: str, concurrency: int) -> None:
     records = _eligible_records()
     semaphore = asyncio.Semaphore(concurrency)
+    output_path = Path(path)
+    generated_by_key: dict[tuple[int, str], dict] = {}
+    if output_path.exists():
+        existing = json.loads(output_path.read_text(encoding="utf-8"))
+        for item in existing.get("records", []):
+            key = (int(item["id"]), str(item["item_id"]))
+            generated_by_key[key] = item
+    write_lock = asyncio.Lock()
 
-    async def generate(record: dict) -> dict:
+    async def generate(record: dict) -> dict | None:
+        key = (int(record["id"]), str(record["item_id"]))
+        if key in generated_by_key:
+            return generated_by_key[key]
         async with semaphore:
             copy = await generate_product_sales_copy(record)
-        return {
+        generated = {
             "id": record["id"],
             "item_id": record["item_id"],
             "product_name": record["product_name"],
             "sales_copy": copy,
         }
+        async with write_lock:
+            generated_by_key[key] = generated
+            ordered = sorted(generated_by_key.values(), key=lambda item: int(item["id"]))
+            _write_json(path, ordered)
+        return generated
 
-    generated = await asyncio.gather(*(generate(record) for record in records))
+    results = await asyncio.gather(
+        *(generate(record) for record in records),
+        return_exceptions=True,
+    )
+    failures = [result for result in results if isinstance(result, Exception)]
+    generated = sorted(generated_by_key.values(), key=lambda item: int(item["id"]))
     _write_json(path, generated)
+    if failures:
+        raise RuntimeError(
+            f"{len(failures)}款话术生成失败，已保存{len(generated)}款，可重新执行续跑："
+            f"{failures[0]}"
+        )
     print(json.dumps({"generated": len(generated), "output": path}, ensure_ascii=False))
 
 

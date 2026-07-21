@@ -1,5 +1,6 @@
 import json
 import re
+import asyncio
 from typing import Any
 
 from app.services.llm_service import generate_answer
@@ -90,7 +91,13 @@ async def generate_product_sales_copy(
                 "\n\n上一次输出未通过校验，请修正以下问题后重新输出JSON："
                 + "；".join(errors)
             )
-        result = await generate_answer(current_prompt, purpose="rag")
+        try:
+            result = await generate_answer(current_prompt, purpose="rag")
+        except Exception:  # noqa: BLE001 - transient provider failures are retried
+            errors = ["模型接口暂时不可用"]
+            if attempt + 1 < max_attempts:
+                await asyncio.sleep(2**attempt)
+            continue
         try:
             copy = parse_sales_copy_response(str(result.get("answer") or ""))
         except ValueError as exc:

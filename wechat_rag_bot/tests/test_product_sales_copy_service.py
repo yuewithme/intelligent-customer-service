@@ -79,3 +79,27 @@ async def test_generate_sales_copy_retries_invalid_response(monkeypatch):
     copy = await generate_product_sales_copy(PRODUCT)
 
     assert len(copy) >= 90
+
+
+@pytest.mark.asyncio
+async def test_generate_sales_copy_retries_transient_provider_failure(monkeypatch):
+    valid = (
+        "淡黄色的新芽会随着生长慢慢沉成黄绿色，尚未开花便有鲜明的观赏层次。"
+        "待淡黄色素花舒展，花叶之间的色调自然呼应，整体清雅而不张扬。"
+        "放在日常能够细看的位置，每一段变化都会让养护过程多一层耐人寻味的乐趣。"
+    )
+    responses = iter([RuntimeError("timeout"), {"answer": json.dumps({"sales_copy": valid}, ensure_ascii=False)}])
+
+    async def fake_generate_answer(prompt, purpose):
+        result = next(responses)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("app.services.product_sales_copy_service.generate_answer", fake_generate_answer)
+    monkeypatch.setattr("app.services.product_sales_copy_service.asyncio.sleep", no_sleep)
+
+    assert await generate_product_sales_copy(PRODUCT) == valid
