@@ -375,3 +375,26 @@ class MemoryContext(BaseModel):
     unresolved_conflicts: list[MemoryFactContext] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
     evidence: list[MemoryEvidenceItem] = Field(default_factory=list)
+
+
+class MemoryFactCorrectionRequest(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=128)
+    request_id: str = Field(min_length=1, max_length=128)
+    fact_value: Any
+    valid_from: datetime
+    reason_code: str = Field(min_length=1, max_length=128)
+    operator_id: str = Field(min_length=1, max_length=128)
+
+    @field_validator("valid_from")
+    @classmethod
+    def require_correction_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("valid_from must be timezone-aware")
+        return value
+
+
+class MemorySubjectPurgeRequest(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=128)
+    request_id: str = Field(min_length=1, max_length=128)
+    requested_by: str = Field(min_length=1, max_length=128)
+    confirm_subject_id: str = Field(min_length=1, max_length=36)

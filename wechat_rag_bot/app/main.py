@@ -17,6 +17,7 @@ from app.routers import (
     admin_gate,
     admin_handoff_notification,
     admin_logs,
+    admin_memory,
     admin_products,
     admin_sales_flow,
     admin_tags,
@@ -117,6 +118,7 @@ app.include_router(demo.router)
 app.include_router(demo_admin.router)
 app.include_router(demo_admin.profile_router)
 app.include_router(admin_logs.router)
+app.include_router(admin_memory.router)
 app.include_router(admin_products.router)
 app.include_router(admin_sales_flow.router)
 app.include_router(admin_unpurchased_sop.router)

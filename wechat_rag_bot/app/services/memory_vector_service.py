@@ -178,5 +178,74 @@ async def search_memory_episodes(
         raise AppError(ErrorCode.QDRANT_FAILED, status_code=502) from exc
 
 
+async def delete_memory_subject_points(*, tenant_id: str, subject_id: str) -> int:
+    """Delete a subject projection; SQL rows remain authoritative."""
+    settings = get_settings()
+    if _is_memory_mode():
+        point_ids = [
+            point_id
+            for point_id, point in _memory_points.items()
+            if point["payload"]["tenant_id"] == tenant_id
+            and point["payload"]["subject_id"] == subject_id
+        ]
+        for point_id in point_ids:
+            _memory_points.pop(point_id, None)
+        return len(point_ids)
+    try:
+        from qdrant_client.models import (
+            FieldCondition,
+            Filter,
+            FilterSelector,
+            MatchValue,
+        )
+
+        await ensure_memory_collection()
+        scope_filter = Filter(
+            must=[
+                FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id)),
+                FieldCondition(key="subject_id", match=MatchValue(value=subject_id)),
+            ]
+        )
+        client = _client()
+        count = await client.count(
+            collection_name=settings.qdrant_memory_collection,
+            count_filter=scope_filter,
+            exact=True,
+        )
+        await client.delete(
+            collection_name=settings.qdrant_memory_collection,
+            points_selector=FilterSelector(filter=scope_filter),
+            wait=True,
+        )
+        return int(count.count)
+    except Exception as exc:
+        raise AppError(ErrorCode.QDRANT_FAILED, status_code=502) from exc
+
+
+async def rebuild_memory_subject_index(*, tenant_id: str, subject_id: str) -> int:
+    """Recreate every active episode point from SQL for one subject."""
+    await delete_memory_subject_points(tenant_id=tenant_id, subject_id=subject_id)
+    with get_memory_session() as session:
+        episode_ids = list(
+            session.scalars(
+                select(MemoryEpisodeModel.id).where(
+                    MemoryEpisodeModel.tenant_id == tenant_id,
+                    MemoryEpisodeModel.subject_id == subject_id,
+                    MemoryEpisodeModel.status == "active",
+                )
+            )
+        )
+    indexed = 0
+    for episode_id in episode_ids:
+        indexed += int(
+            await index_memory_episode(
+                tenant_id=tenant_id,
+                subject_id=subject_id,
+                episode_id=episode_id,
+            )
+        )
+    return indexed
+
+
 def reset_memory_vector_cache() -> None:
     _memory_points.clear()

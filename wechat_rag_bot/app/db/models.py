@@ -722,6 +722,61 @@ class MemoryRolloutGateModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class MemoryFeedbackModel(Base):
+    __tablename__ = "memory_feedback"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "request_id", name="uq_memory_feedback_request"),
+        Index("ix_memory_feedback_subject_time", "tenant_id", "subject_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    subject_id: Mapped[str] = mapped_column(
+        ForeignKey("memory_subjects.id"), index=True
+    )
+    request_id: Mapped[str] = mapped_column(String(128))
+    feedback_type: Mapped[str] = mapped_column(String(32), index=True)
+    target_fact_id: Mapped[int] = mapped_column(ForeignKey("memory_facts.id"), index=True)
+    correction_event_id: Mapped[int] = mapped_column(
+        ForeignKey("memory_events.id"), index=True
+    )
+    replacement_fact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("memory_facts.id"), index=True, nullable=True
+    )
+    reason_code: Mapped[str] = mapped_column(String(128))
+    operator_id: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class MemoryPurgeAuditModel(Base):
+    __tablename__ = "memory_purge_audits"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "request_id", name="uq_memory_purge_request"),
+        Index("ix_memory_purge_tenant_time", "tenant_id", "requested_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    subject_id_hash: Mapped[str] = mapped_column(String(64), index=True)
+    request_id: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    requested_by: Mapped[str] = mapped_column(String(128))
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    identities_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    events_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    facts_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    episodes_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    jobs_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    feedback_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    shadow_runs_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    legacy_rows_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    vector_points_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+
+
 class EyunContactModel(Base):
     __tablename__ = "eyun_contacts"
     __table_args__ = (

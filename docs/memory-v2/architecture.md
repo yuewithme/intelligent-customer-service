@@ -1,13 +1,13 @@
 # Memory 2.0 architecture contract
 
-Status: implemented through WP4
+Status: implemented through WP5
 
 Contract version: `memory.v1`
 
 Last updated: 2026-07-21
 
-Implementation status: WP4 dual write, shadow read, and gated canary complete;
-all Memory 2.0 rollout flags remain disabled by default.
+Implementation status: WP5 correction, purge, and vector rebuild lifecycle
+complete; all Memory 2.0 rollout flags remain disabled by default.
 
 ## 1. Purpose
 
@@ -106,9 +106,10 @@ WP1 physically creates `memory_subjects`, `memory_identities`, `memory_events`,
 `customer_memory` vector projection, query planner, SQL revalidation, reranking,
 and bounded evidence expansion. WP4 adds content-free shadow telemetry, reviewed
 rollout gates, central conversation dual write, and curated canary prompt context.
-Feedback and purge tables remain contract targets for WP5. The worker and dual
-write start only when `MEMORY_V2_WRITE_ENABLED=true`; shadow and canary reads have
-separate default-off flags.
+WP5 adds evidence-backed admin correction, feedback records, content-free purge
+audits, complete subject deletion, and SQL-driven vector rebuild. The worker and
+dual write start only when `MEMORY_V2_WRITE_ENABLED=true`; shadow and canary reads
+have separate default-off flags.
 
 The Qdrant collection defaults to `customer_memory` and is configured separately
 from the knowledge-base collection. It stores episode embeddings

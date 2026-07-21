@@ -216,6 +216,16 @@ scope violations, verified-business violations, reviewer, approval time, and
 pass/fail status. A passing row is necessary but not sufficient for canary reads;
 runtime flags and deterministic subject selection are also required.
 
+Admin correction appends a `manual_correction` source event and creates a new
+fact version through the normal validator/consolidator. It never edits an old
+fact row or uses manual input to assert verified commerce state.
+
+A subject purge removes Memory 2.0 events, facts, evidence links, episodes,
+jobs, feedback, shadow runs, identities, the subject row, legacy profile
+projections, and subject-scoped vector points. The retained purge audit contains
+only a subject hash, request/operator metadata, status, error class, timestamps,
+and explicit deletion counts; it contains no deleted content.
+
 ## 10. Source policy
 
 | Claim | Accepted authority | Explicit rejection |
