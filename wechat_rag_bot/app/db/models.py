@@ -5,6 +5,8 @@ from sqlalchemy import (
     Date,
     DateTime,
     Float,
+    ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -420,6 +422,154 @@ class UserProfileModel(Base):
     friend_added_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class MemorySubjectModel(Base):
+    __tablename__ = "memory_subjects"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_memory_subject_tenant_id"),
+        Index("ix_memory_subject_tenant_status", "tenant_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
+    profile_version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+
+
+class MemoryIdentityModel(Base):
+    __tablename__ = "memory_identities"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "channel",
+            "owner_external_id",
+            "external_user_id",
+            name="uq_memory_external_identity",
+        ),
+        Index(
+            "ix_memory_identity_subject_scope", "tenant_id", "subject_id"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subject_id: Mapped[str] = mapped_column(
+        ForeignKey("memory_subjects.id"), index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    channel: Mapped[str] = mapped_column(String(64), index=True)
+    owner_external_id: Mapped[str] = mapped_column(String(256), default="")
+    external_user_id: Mapped[str] = mapped_column(String(256), index=True)
+    identity_source: Mapped[str] = mapped_column(String(64), index=True)
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class MemoryEventModel(Base):
+    __tablename__ = "memory_events"
+    __table_args__ = (
+        Index(
+            "ix_memory_event_subject_time",
+            "tenant_id",
+            "subject_id",
+            "occurred_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(32), default="memory.v1")
+    event_uid: Mapped[str] = mapped_column(String(512), unique=True, index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    subject_id: Mapped[str] = mapped_column(
+        ForeignKey("memory_subjects.id"), index=True
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        String(256), index=True, nullable=True
+    )
+    event_type: Mapped[str] = mapped_column(String(64), index=True)
+    actor_type: Mapped[str] = mapped_column(String(32), index=True)
+    content_json: Mapped[str] = mapped_column(Text)
+    source_type: Mapped[str] = mapped_column(String(64), index=True)
+    source_id: Mapped[str] = mapped_column(String(512), index=True)
+    trace_id: Mapped[str | None] = mapped_column(
+        String(128), index=True, nullable=True
+    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    sensitivity: Mapped[str] = mapped_column(String(32), index=True, default="internal")
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+
+
+class MemoryFactModel(Base):
+    __tablename__ = "memory_facts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "subject_id",
+            "fact_uid",
+            "version",
+            name="uq_memory_fact_version",
+        ),
+        Index(
+            "ix_memory_fact_active_scope",
+            "tenant_id",
+            "subject_id",
+            "status",
+            "fact_key",
+            "valid_from",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fact_uid: Mapped[str] = mapped_column(String(36), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    subject_id: Mapped[str] = mapped_column(
+        ForeignKey("memory_subjects.id"), index=True
+    )
+    fact_key: Mapped[str] = mapped_column(String(128), index=True)
+    fact_value_json: Mapped[str] = mapped_column(Text)
+    normalized_value: Mapped[str] = mapped_column(Text)
+    source_type: Mapped[str] = mapped_column(String(64), index=True)
+    confidence: Mapped[float] = mapped_column(Float)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    valid_to: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    supersedes_fact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("memory_facts.id"), index=True, nullable=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class MemoryFactEvidenceModel(Base):
+    __tablename__ = "memory_fact_evidence"
+    __table_args__ = (
+        UniqueConstraint(
+            "fact_id", "event_id", name="uq_memory_fact_evidence"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fact_id: Mapped[int] = mapped_column(
+        ForeignKey("memory_facts.id"), index=True
+    )
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey("memory_events.id"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class EyunContactModel(Base):

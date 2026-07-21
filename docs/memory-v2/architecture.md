@@ -6,6 +6,8 @@ Contract version: `memory.v1`
 
 Last updated: 2026-07-21
 
+Implementation status: WP1 core storage complete; production integration disabled.
+
 ## 1. Purpose
 
 Memory 2.0 replaces the current profile-plus-recent-messages behavior with an
@@ -94,6 +96,12 @@ The target SQL entities are:
 - `memory_jobs`: durable asynchronous work.
 - `memory_feedback`: confirmations and corrections.
 - `memory_purge_audits`: content-free deletion audit.
+
+WP1 physically creates `memory_subjects`, `memory_identities`, `memory_events`,
+`memory_facts`, and `memory_fact_evidence`. The episode, job, feedback, and purge
+tables remain contract targets and must be introduced only by their owning work
+packages. Merely importing the WP1 services does not change the production chat
+path or create records.
 
 The target Qdrant collection is `customer_memory`. It stores episode embeddings
 and only the minimum filtering payload: tenant, subject, episode ID, status,

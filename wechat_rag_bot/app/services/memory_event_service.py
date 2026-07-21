@@ -1,0 +1,178 @@
+import json
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from app.db.models import MemoryEventModel, MemorySubjectModel
+from app.schemas.memory import (
+    MemoryEventAppendResult,
+    MemoryEventCreate,
+    MemoryEventRead,
+)
+from app.services.memory_repository import get_memory_session
+
+
+class MemoryEventConflictError(ValueError):
+    pass
+
+
+class MemoryEventSubjectError(ValueError):
+    pass
+
+
+def append_memory_event(
+    event: MemoryEventCreate | dict,
+) -> MemoryEventAppendResult:
+    if not isinstance(event, MemoryEventCreate):
+        event = MemoryEventCreate.model_validate(event)
+    content_json = _json_dumps(event.content)
+    with get_memory_session() as session:
+        subject = session.scalar(
+            select(MemorySubjectModel).where(
+                MemorySubjectModel.id == event.subject_id,
+                MemorySubjectModel.tenant_id == event.tenant_id,
+                MemorySubjectModel.deleted_at.is_(None),
+            )
+        )
+        if subject is None:
+            raise MemoryEventSubjectError("memory subject not found in tenant")
+
+        existing = _find_scoped_event(
+            session,
+            tenant_id=event.tenant_id,
+            subject_id=event.subject_id,
+            event_uid=event.event_uid,
+        )
+        if existing is not None:
+            _assert_same_event(existing, event, content_json)
+            return MemoryEventAppendResult(event=_event_read(existing), created=False)
+
+        model = MemoryEventModel(
+            schema_version=event.schema_version,
+            event_uid=event.event_uid,
+            tenant_id=event.tenant_id,
+            subject_id=event.subject_id,
+            session_id=event.session_id,
+            event_type=event.event_type,
+            actor_type=event.actor_type,
+            content_json=content_json,
+            source_type=event.source_type,
+            source_id=event.source_id,
+            trace_id=event.trace_id,
+            occurred_at=event.occurred_at.astimezone(timezone.utc),
+            ingested_at=datetime.now(timezone.utc),
+            sensitivity=event.sensitivity,
+        )
+        session.add(model)
+        try:
+            session.commit()
+        except IntegrityError as exc:
+            session.rollback()
+            existing = _find_scoped_event(
+                session,
+                tenant_id=event.tenant_id,
+                subject_id=event.subject_id,
+                event_uid=event.event_uid,
+            )
+            if existing is None:
+                raise MemoryEventConflictError(
+                    "event_uid already exists outside the scoped subject"
+                ) from exc
+            _assert_same_event(existing, event, content_json)
+            return MemoryEventAppendResult(event=_event_read(existing), created=False)
+        session.refresh(model)
+        return MemoryEventAppendResult(event=_event_read(model), created=True)
+
+
+def get_memory_event(
+    *, tenant_id: str, subject_id: str, event_uid: str
+) -> MemoryEventRead | None:
+    with get_memory_session() as session:
+        model = _find_scoped_event(
+            session,
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            event_uid=event_uid,
+        )
+        return _event_read(model) if model is not None else None
+
+
+def _find_scoped_event(
+    session, *, tenant_id: str, subject_id: str, event_uid: str
+) -> MemoryEventModel | None:
+    return session.scalar(
+        select(MemoryEventModel).where(
+            MemoryEventModel.tenant_id == tenant_id,
+            MemoryEventModel.subject_id == subject_id,
+            MemoryEventModel.event_uid == event_uid,
+            MemoryEventModel.deleted_at.is_(None),
+        )
+    )
+
+
+def _assert_same_event(
+    model: MemoryEventModel, event: MemoryEventCreate, content_json: str
+) -> None:
+    expected = (
+        event.schema_version,
+        event.tenant_id,
+        event.subject_id,
+        event.session_id,
+        event.event_type,
+        event.actor_type,
+        content_json,
+        event.source_type,
+        event.source_id,
+        event.trace_id,
+        _utc_iso(event.occurred_at),
+        event.sensitivity,
+    )
+    actual = (
+        model.schema_version,
+        model.tenant_id,
+        model.subject_id,
+        model.session_id,
+        model.event_type,
+        model.actor_type,
+        model.content_json,
+        model.source_type,
+        model.source_id,
+        model.trace_id,
+        _utc_iso(model.occurred_at),
+        model.sensitivity,
+    )
+    if actual != expected:
+        raise MemoryEventConflictError(
+            "event_uid already exists with different immutable content"
+        )
+
+
+def _event_read(model: MemoryEventModel) -> MemoryEventRead:
+    return MemoryEventRead(
+        id=model.id,
+        schema_version=model.schema_version,
+        event_uid=model.event_uid,
+        tenant_id=model.tenant_id,
+        subject_id=model.subject_id,
+        session_id=model.session_id,
+        event_type=model.event_type,
+        actor_type=model.actor_type,
+        content=json.loads(model.content_json),
+        source_type=model.source_type,
+        source_id=model.source_id,
+        trace_id=model.trace_id,
+        occurred_at=model.occurred_at,
+        ingested_at=model.ingested_at,
+        sensitivity=model.sensitivity,
+    )
+
+
+def _json_dumps(value: dict) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _utc_iso(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()

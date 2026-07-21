@@ -89,10 +89,16 @@ fact version.
 Required columns:
 
 ```text
-id, tenant_id, subject_id, fact_key, fact_value_json, normalized_value,
+id, fact_uid, tenant_id, subject_id, fact_key, fact_value_json, normalized_value,
 source_type, confidence, valid_from, valid_to, recorded_at, status,
 supersedes_fact_id, version, created_by, created_at, updated_at
 ```
+
+`fact_uid` identifies one fact lineage and remains stable across versions. This
+allows a subject to have multiple simultaneous facts under a multi-valued key,
+such as several product interests, while `version` remains unique within each
+lineage. A `SUPERSEDE` operation creates the next version with the same
+`fact_uid` and points `supersedes_fact_id` to the prior row.
 
 Evidence is normalized through a fact-to-event link table. At least one valid
 link is required for every active fact.
