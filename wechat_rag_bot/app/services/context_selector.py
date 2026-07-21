@@ -22,6 +22,17 @@ async def select_context(request: ContextSelectionInput) -> ContextPackage:
         session_state=session_state,
         recent_turns=recent_turns,
         long_memory_summary=long_memory_summary,
+        memory_facts=list(request.memory_context.get("current_facts") or []),
+        verified_business_facts=list(
+            request.memory_context.get("verified_business_facts") or []
+        ),
+        relevant_episodes=list(
+            request.memory_context.get("relevant_episodes") or []
+        ),
+        unresolved_memory_conflicts=list(
+            request.memory_context.get("unresolved_conflicts") or []
+        ),
+        memory_unknowns=list(request.memory_context.get("unknowns") or []),
     )
 
 

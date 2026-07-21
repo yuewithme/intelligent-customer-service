@@ -376,26 +376,45 @@ async def append_conversation_memory(
     route: str | None = None,
     template_id: str | None = None,
     trace_id: str | None = None,
+    channel: str = "legacy",
+    owner_external_id: str = "",
+    source_id: str | None = None,
 ) -> None:
     if not content:
         return
+    created_at = _now()
     with _get_session() as session:
         _get_or_create_profile(session, user_id, tenant_id=tenant_id)
-        session.add(
-            ConversationMemoryModel(
-                user_id=user_id,
-                tenant_id=tenant_id,
-                session_id=session_id,
-                role=role,
-                content=content,
-                intent=intent,
-                route=route,
-                template_id=template_id,
-                trace_id=trace_id,
-                created_at=_now(),
-            )
+        row = ConversationMemoryModel(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            session_id=session_id,
+            role=role,
+            content=content,
+            intent=intent,
+            route=route,
+            template_id=template_id,
+            trace_id=trace_id,
+            created_at=created_at,
         )
+        session.add(row)
+        session.flush()
+        durable_source_id = source_id or f"legacy_conversation_memory:{row.id}"
         session.commit()
+    from app.services.memory_dual_write_service import dual_write_conversation_event
+
+    dual_write_conversation_event(
+        tenant_id=tenant_id,
+        channel=channel,
+        external_user_id=user_id,
+        owner_external_id=owner_external_id,
+        session_id=session_id,
+        role=role,
+        content=content,
+        source_id=durable_source_id,
+        trace_id=trace_id,
+        occurred_at=created_at,
+    )
 
 
 async def update_profile_after_chat(message, intent, reply) -> None:

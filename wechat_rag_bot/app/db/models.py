@@ -670,6 +670,58 @@ class MemoryJobModel(Base):
     )
 
 
+class MemoryShadowRunModel(Base):
+    __tablename__ = "memory_shadow_runs"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "trace_id", name="uq_memory_shadow_trace"),
+        Index("ix_memory_shadow_tenant_time", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    subject_id: Mapped[str | None] = mapped_column(
+        ForeignKey("memory_subjects.id"), index=True, nullable=True
+    )
+    trace_id: Mapped[str] = mapped_column(String(128))
+    query_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    injected: Mapped[bool] = mapped_column(Boolean, default=False)
+    fact_count: Mapped[int] = mapped_column(Integer, default=0)
+    episode_count: Mapped[int] = mapped_column(Integer, default=0)
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    unknown_count: Mapped[int] = mapped_column(Integer, default=0)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    scope_violation: Mapped[bool] = mapped_column(Boolean, default=False)
+    verified_business_violation: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class MemoryRolloutGateModel(Base):
+    __tablename__ = "memory_rollout_gates"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "evaluation_version", name="uq_memory_rollout_evaluation"
+        ),
+        Index("ix_memory_rollout_tenant_status", "tenant_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    evaluation_version: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    sample_count: Mapped[int] = mapped_column(Integer)
+    retrieval_success_rate: Mapped[float] = mapped_column(Float)
+    retrieval_recall_at_5: Mapped[float] = mapped_column(Float)
+    temporal_accuracy: Mapped[float] = mapped_column(Float)
+    evidence_grounding: Mapped[float] = mapped_column(Float)
+    scope_violations: Mapped[int] = mapped_column(Integer)
+    verified_business_violations: Mapped[int] = mapped_column(Integer)
+    approved_by: Mapped[str] = mapped_column(String(128))
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class EyunContactModel(Base):
     __tablename__ = "eyun_contacts"
     __table_args__ = (

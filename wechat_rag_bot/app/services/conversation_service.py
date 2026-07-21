@@ -782,6 +782,7 @@ async def reply_conversation(
             "user_id": conversation.user_id,
             "tenant_id": conversation.tenant_id,
             "session_id": conversation.session_id,
+            "channel": conversation.channel,
         }
         session.commit()
         result = _conversation_to_dict(conversation)
@@ -813,6 +814,8 @@ async def reply_conversation(
         session_id=memory_context["session_id"],
         role="human",
         content=content,
+        channel=memory_context["channel"],
+        source_id=f"workbench:{conversation_message_id}",
     )
     _publish_change(conversation_id, "reply")
     return result

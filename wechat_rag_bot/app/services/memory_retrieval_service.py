@@ -363,6 +363,7 @@ async def retrieve_memory_context(
     ):
         unknowns.append("verified_purchase_status")
     return MemoryContext(
+        tenant_id=tenant_id,
         subject_id=subject_id,
         as_of=as_of,
         current_facts=current,

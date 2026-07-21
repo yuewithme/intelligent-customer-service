@@ -187,6 +187,7 @@ The only Memory 2.0 structure supplied to reply generation is:
 ```json
 {
   "schema_version": "memory_context.v1",
+  "tenant_id": "tenant_default",
   "subject_id": "subject_01",
   "as_of": "2026-07-21T02:10:00Z",
   "current_facts": [],
@@ -202,7 +203,20 @@ The only Memory 2.0 structure supplied to reply generation is:
 The context builder enforces the content budget and must not expose unrelated
 sensitive fields merely because they are present in the profile.
 
-## 9. Source policy
+## 9. Shadow and rollout records
+
+`memory_shadow_runs` contains only tenant/subject IDs, trace and query hashes,
+status, injection flag, selected-item counts, latency, violation flags, a bounded
+error class, and creation time. It must never store query text, fact values,
+episode text, evidence content, prompts, or replies.
+
+`memory_rollout_gates` records a versioned reviewed evaluation for one tenant:
+sample count, retrieval success, Recall@5, temporal accuracy, evidence grounding,
+scope violations, verified-business violations, reviewer, approval time, and
+pass/fail status. A passing row is necessary but not sufficient for canary reads;
+runtime flags and deterministic subject selection are also required.
+
+## 10. Source policy
 
 | Claim | Accepted authority | Explicit rejection |
 |---|---|---|
@@ -213,7 +227,7 @@ sensitive fields merely because they are present in the profile.
 | Contact field | authorized provider, customer, correction | model inference |
 | Assistant commitment | assistant/human source event | reclassified customer fact |
 
-## 10. Evaluation dataset contract
+## 11. Evaluation dataset contract
 
 The seed dataset is JSONL. Each row contains:
 

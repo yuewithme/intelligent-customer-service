@@ -11,6 +11,8 @@ from app.db.models import (
     MemoryFactModel,
     MemoryIdentityModel,
     MemoryJobModel,
+    MemoryRolloutGateModel,
+    MemoryShadowRunModel,
     MemorySubjectModel,
 )
 
@@ -25,6 +27,8 @@ _MEMORY_TABLES = [
     MemoryEpisodeModel.__table__,
     MemoryEpisodeEventModel.__table__,
     MemoryJobModel.__table__,
+    MemoryShadowRunModel.__table__,
+    MemoryRolloutGateModel.__table__,
 ]
 
 

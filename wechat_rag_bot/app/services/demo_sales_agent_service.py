@@ -66,6 +66,8 @@ async def open_demo_sales_conversation(
         content=reply.answer,
         intent="opening",
         route="chitchat",
+        channel=channel,
+        source_id=f"demo-opening:{session_id}",
     )
 
     return {

@@ -365,6 +365,7 @@ class MemoryEpisodeContext(BaseModel):
 
 class MemoryContext(BaseModel):
     schema_version: Literal["memory_context.v1"] = "memory_context.v1"
+    tenant_id: str
     subject_id: str
     as_of: datetime
     current_facts: list[MemoryFactContext] = Field(default_factory=list)

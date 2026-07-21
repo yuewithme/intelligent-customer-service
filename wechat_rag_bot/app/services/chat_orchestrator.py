@@ -23,6 +23,7 @@ from app.services.customer_reply_formatter import (
 )
 from app.services.intent_example_service import retrieve_intent_examples
 from app.services.intent_service import classify_intent
+from app.services.memory_rollout_service import prepare_memory_context_for_request
 from app.services.policy_service import decide_route
 from app.services.policy_engine import decide_policy
 from app.services.reply_planner import resolve_reply_plan
@@ -150,6 +151,17 @@ async def handle_chat(request: ChatRequest) -> dict:
             _apply_evaluation_context(message, user_state)
         else:
             await _hydrate_user_state_from_profile(message.user_id, user_state)
+            memory_context, memory_trace = await prepare_memory_context_for_request(
+                message
+            )
+            user_state.metadata["memory_v2_trace"] = memory_trace
+            if memory_context is not None:
+                user_state.metadata["memory_v2_context"] = memory_context.model_dump(
+                    mode="json"
+                )
+            stage_latencies["memory_v2_ms"] = int(
+                memory_trace.get("latency_ms") or 0
+            )
             shipping_contact = extract_shipping_contact(
                 message.message,
                 allow_mobile_only=(
@@ -329,6 +341,9 @@ async def handle_chat(request: ChatRequest) -> dict:
                 route=reply.route,
                 template_id=reply.template_id,
                 trace_id=message.trace_id,
+                channel=message.channel,
+                owner_external_id=_memory_owner_external_id(message.metadata),
+                source_id=message.message_id or message.trace_id,
             )
             if reply.answer:
                 await append_conversation_memory(
@@ -341,6 +356,9 @@ async def handle_chat(request: ChatRequest) -> dict:
                     route=reply.route,
                     template_id=reply.template_id,
                     trace_id=message.trace_id,
+                    channel=message.channel,
+                    owner_external_id=_memory_owner_external_id(message.metadata),
+                    source_id=message.trace_id,
                 )
             await apply_deterministic_profile_update(message, routed_intent, reply)
         stage_latencies["state_update_ms"] = _elapsed_ms(stage_started)
@@ -430,6 +448,8 @@ def _public_reply_metadata(metadata: dict) -> dict:
         "business_context",
         "business_facts",
         "decision",
+        "memory_v2_context",
+        "memory_v2_trace",
         "reply_plan",
         "sales_stage_decision",
         "tool_state",
@@ -520,6 +540,14 @@ def _merge_list(existing: list, incoming: list) -> list:
         if isinstance(item, str) and item and item not in merged:
             merged.append(item)
     return merged
+
+
+def _memory_owner_external_id(metadata: dict) -> str:
+    for key in ("w_id", "owner_external_id", "wechat_to_user"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _answer_segments(

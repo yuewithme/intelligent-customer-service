@@ -928,6 +928,9 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
             content=batch["content"],
             intent="opening_trigger",
             route="chitchat",
+            channel="wechat",
+            owner_external_id=str(batch.get("w_id") or ""),
+            source_id=f"{batch['batch_key']}:customer",
         )
     if answer:
         await append_conversation_memory(
@@ -938,6 +941,9 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
             content=answer,
             intent="opening",
             route="chitchat",
+            channel="wechat",
+            owner_external_id=str(batch.get("w_id") or ""),
+            source_id=f"{batch['batch_key']}:assistant",
         )
 
 

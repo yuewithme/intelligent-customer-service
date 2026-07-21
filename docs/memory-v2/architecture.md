@@ -1,13 +1,13 @@
 # Memory 2.0 architecture contract
 
-Status: implemented through WP3
+Status: implemented through WP4
 
 Contract version: `memory.v1`
 
 Last updated: 2026-07-21
 
-Implementation status: WP3 scoped retrieval and context assembly complete;
-production reads remain legacy and Memory 2.0 writes are disabled by default.
+Implementation status: WP4 dual write, shadow read, and gated canary complete;
+all Memory 2.0 rollout flags remain disabled by default.
 
 ## 1. Purpose
 
@@ -95,6 +95,8 @@ The target SQL entities are:
 - `memory_episodes`: situation summaries linked to source events.
 - `memory_episode_events`: ordered episode-to-event links.
 - `memory_jobs`: durable asynchronous work.
+- `memory_shadow_runs`: content-free per-request shadow telemetry.
+- `memory_rollout_gates`: reviewed quality measurements authorizing a canary.
 - `memory_feedback`: confirmations and corrections.
 - `memory_purge_audits`: content-free deletion audit.
 
@@ -102,9 +104,11 @@ WP1 physically creates `memory_subjects`, `memory_identities`, `memory_events`,
 `memory_facts`, and `memory_fact_evidence`. WP2 adds `memory_episodes`,
 `memory_episode_events`, and `memory_jobs`. WP3 adds the independently configured
 `customer_memory` vector projection, query planner, SQL revalidation, reranking,
-and bounded evidence expansion. Feedback and purge tables remain contract targets
-for WP5. The worker starts only when `MEMORY_V2_WRITE_ENABLED=true`; no production
-adapter enqueues events and no production reply path reads Memory 2.0 yet.
+and bounded evidence expansion. WP4 adds content-free shadow telemetry, reviewed
+rollout gates, central conversation dual write, and curated canary prompt context.
+Feedback and purge tables remain contract targets for WP5. The worker and dual
+write start only when `MEMORY_V2_WRITE_ENABLED=true`; shadow and canary reads have
+separate default-off flags.
 
 The Qdrant collection defaults to `customer_memory` and is configured separately
 from the knowledge-base collection. It stores episode embeddings
@@ -150,7 +154,24 @@ explicitly and still passes tenant/subject SQL revalidation.
 The prompt receives a curated `memory_context`, not the entire profile JSON and
 not an unbounded transcript.
 
-## 7. Work-package gates
+## 7. Rollout boundary
+
+WP4 dual-writes normalized conversation events only when
+`MEMORY_V2_WRITE_ENABLED=true`. Shadow retrieval stores hashes, counts, latency,
+and violation flags, never query text, fact values, episode text, or evidence.
+
+Memory 2.0 context can enter a reply only when all of these are true:
+
+1. `MEMORY_V2_CANARY_ENABLED=true` and the deterministic subject bucket is below
+   `MEMORY_V2_CANARY_PERCENT`.
+2. The tenant has a current, human-approved SQL rollout gate meeting the contract
+   metrics and minimum reviewed sample count.
+3. Retrieval succeeds without scope or verified-business violations.
+
+Shadow mode alone never changes reply inputs. Setting canary percentage to zero
+or disabling the canary immediately returns reads to the legacy context path.
+
+## 8. Work-package gates
 
 | WP | Deliverable | Exit gate |
 |---|---|---|
