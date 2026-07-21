@@ -22,6 +22,9 @@ def _message(text: str) -> NormalizedMessage:
     ("text", "route", "primary_intent"),
     [
         ("你好", "chitchat", "greeting"),
+        ("你是真人还是机器人？", "chitchat", "greeting"),
+        ("你到底是不是AI？", "chitchat", "greeting"),
+        ("你是谁？", "chitchat", "greeting"),
         ("这个多少钱？", "template_reply", "ask_price"),
         ("有点贵", "template_reply", "price_objection"),
         ("这个有点贵，而且我怕养不活", "template_then_rag", "price_objection"),
@@ -33,6 +36,7 @@ def _message(text: str) -> NormalizedMessage:
         ("我要退款", "human", "refund_request"),
         ("我要投诉", "human", "complaint"),
         ("我要转人工", "human", "human_request"),
+        ("我要找真人客服", "human", "human_request"),
         ("乱七八糟不明确输入", "clarify", "unknown"),
         ("帮我写代码", "unsupported", "unsupported"),
         ("不要再给我推荐产品了", "template_reply", "purchase_rejection"),
@@ -57,6 +61,17 @@ async def test_human_priority_beats_knowledge_question():
     assert intent.route == "human"
     assert intent.primary_intent == "refund_request"
     assert intent.need_human is True
+
+
+@pytest.mark.asyncio
+async def test_identity_question_is_annotated_for_persona_reply():
+    intent = await classify_intent(
+        _message("你是真人还是机器人？"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.reason == "rule_identity_question"
+    assert intent.slots["chitchat_kind"] == "identity_question"
 
 
 @pytest.mark.asyncio

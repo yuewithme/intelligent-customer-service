@@ -73,6 +73,15 @@ def build_opening_reply() -> FinalReply:
     )
 
 def build_chitchat_reply(intent: IntentResult) -> FinalReply:
+    if intent.slots.get("chitchat_kind") == "identity_question":
+        return FinalReply(
+            answer=(
+                "我是萧岚苑这边负责兰花咨询、养护和选品的在线顾问。"
+                "您现在是想先看养护，还是挑品种？"
+            ),
+            reply_type="chitchat",
+            route="chitchat",
+        )
     if intent.primary_intent == "profile_answer":
         return FinalReply(
             answer=(

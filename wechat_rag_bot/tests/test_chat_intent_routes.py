@@ -49,6 +49,18 @@ def test_unclear_input_silently_hands_off():
     assert data["intent"]["reason"] == "clarify_to_handoff"
 
 
+def test_identity_question_reaches_persona_reply_instead_of_handoff():
+    data = _chat("你是真人还是机器人？", "intent_route_identity")
+
+    assert data["route"] == "chitchat"
+    assert data["need_human"] is False
+    assert "在线顾问" in data["answer"]
+    assert "智能客服" not in data["answer"]
+    assert "我是真人" not in data["answer"]
+    assert data["intent"]["slots"]["chitchat_kind"] == "identity_question"
+    assert data["metadata"]["persona"]["version"] == "v1.1"
+
+
 def test_refund_routes_to_human_without_normal_reply():
     data = _chat("我要退款", "intent_route_refund")
 

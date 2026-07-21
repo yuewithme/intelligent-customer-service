@@ -9,6 +9,7 @@ from app.schemas.reply import FinalReply, OutboundMessage
 from app.schemas.reply_plan import BusinessFacts, ReplyPlan
 from app.schemas.state import UserState
 from app.services.persona_service import build_persona_context, build_reply_spec
+from app.services.reply_builder import build_chitchat_reply
 from app.services.reply_guard_service import finalize_reply_spec, guard_reply_spec
 
 
@@ -181,6 +182,21 @@ def test_guard_rejects_unsolicited_question_and_information_request():
         guarded_request.metadata["persona_guard"]["reason"]
         == "unsolicited_information_request"
     )
+
+
+def test_identity_question_has_role_first_fallback_copy():
+    reply = build_chitchat_reply(
+        IntentResult(
+            route="chitchat",
+            primary_intent="greeting",
+            confidence=0.99,
+            slots={"chitchat_kind": "identity_question"},
+        )
+    )
+
+    assert "在线顾问" in reply.answer
+    assert "智能客服" not in reply.answer
+    assert "我是真人" not in reply.answer
 
 
 @pytest.mark.asyncio

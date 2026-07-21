@@ -13,6 +13,14 @@ from app.services.tag_catalog import normalize_system_value, system_tag_values
 
 
 HUMAN_WORDS = ("人工", "转人工", "真人", "人工客服")
+IDENTITY_QUESTION_PATTERNS = (
+    re.compile(
+        r"(?:你|您|你们)(?:到底)?(?:是|是不是)"
+        r"(?:真人|ai|人工智能|机器人|智能客服|人工客服)"
+    ),
+    re.compile(r"(?:你|您|你们)(?:到底)?是(?:真人还是机器人|机器人还是真人)"),
+    re.compile(r"(?:你|您)(?:到底)?是谁"),
+)
 REFUND_WORDS = ("退款", "退货", "退钱", "退单")
 COMPLAINT_WORDS = ("投诉", "举报", "骗子", "骗我", "不满意", "差评", "强烈不满")
 PRICE_ASK_WORDS = ("价格", "多少钱", "报价", "优惠", "便宜")
@@ -121,6 +129,10 @@ def match_human_request(text: str) -> bool:
     return hit_any(text, HUMAN_WORDS) or hit_any(text, CUSTOMER_SERVICE_REQUEST_WORDS)
 
 
+def match_identity_question(text: str) -> bool:
+    return any(pattern.search(text) for pattern in IDENTITY_QUESTION_PATTERNS)
+
+
 def match_price_intent(text: str) -> str | None:
     if hit_any(text, PRICE_OBJECTION_WORDS) or hit_any(text, HESITATION_WORDS):
         return "price_objection"
@@ -133,6 +145,18 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
     text = normalize_intent_text(text)
     if not text:
         raise AppError(ErrorCode.MESSAGE_EMPTY)
+
+    if match_identity_question(text):
+        return _validated_intent(
+            {
+                "route": "chitchat",
+                "primary_intent": "greeting",
+                "sales_stage": "rapport",
+                "confidence": 0.99,
+                "slots": {"chitchat_kind": "identity_question"},
+                "reason": "rule_identity_question",
+            }
+        )
 
     if hit_any(text, REFUND_WORDS):
         return _validated_intent(
