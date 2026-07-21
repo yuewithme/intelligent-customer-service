@@ -345,11 +345,21 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
             if criteria.active_count and not direct_score:
                 score = max(score, criteria.active_count * 10)
             if score > 0:
-                ranked.append((score, product, knowledge))
-        ranked.sort(key=lambda item: (-item[0], item[1].sort_order, item[1].id))
+                audience_distance = (
+                    -1
+                    if direct_score
+                    else _audience_level_distance(
+                        criteria.audience_tag,
+                        knowledge.audience_tag,
+                    )
+                )
+                ranked.append((audience_distance, score, product, knowledge))
+        ranked.sort(
+            key=lambda item: (item[0], -item[1], item[2].sort_order, item[2].id)
+        )
         return [
             _serialize_ai_product(product, knowledge)
-            for _, product, knowledge in ranked[:limit]
+            for _, _, product, knowledge in ranked[:limit]
         ]
 
 
@@ -454,11 +464,6 @@ def _matches_recommendation_criteria(
         price_cent is None or price_cent > criteria.max_price_cent
     ):
         return False
-    if (
-        criteria.audience_tag
-        and _normalize_name(knowledge.audience_tag) != criteria.audience_tag.lower()
-    ):
-        return False
     if criteria.category and _normalize_name(knowledge.category) != _normalize_name(
         criteria.category
     ):
@@ -495,6 +500,17 @@ def _matches_recommendation_criteria(
     if criteria.requires_long_bloom and not _has_long_bloom(knowledge):
         return False
     return True
+
+
+def _audience_level_distance(requested: str | None, actual: str | None) -> int:
+    """Treat L1-L6 as a ranking preference, never as a recommendation gate."""
+    if not requested:
+        return 0
+    requested_match = re.fullmatch(r"L([1-6])", str(requested).strip(), re.I)
+    actual_match = re.fullmatch(r"L([1-6])", str(actual or "").strip(), re.I)
+    if not requested_match or not actual_match:
+        return 99
+    return abs(int(requested_match.group(1)) - int(actual_match.group(1)))
 
 
 def _has_long_bloom(knowledge: YouzanProductKnowledgeModel) -> bool:

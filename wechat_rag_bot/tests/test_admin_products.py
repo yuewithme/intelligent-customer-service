@@ -343,14 +343,16 @@ async def test_recommendation_respects_budget_level_and_product_preferences(
     no_flower = search_catalog_products("L2想要素花，不要带花苞，放阳台")
     long_bloom = search_catalog_products("预算30元左右，想要红色、花期长的")
     good_value = search_catalog_products("L2预算30元以内，想要性价比高的建兰")
-    missing_level = search_catalog_products("L1客户，预算50元以内，推荐建兰")
+    nearby_level = search_catalog_products("L1客户，想要性价比高、适合阳台的建兰")
+    exact_level = search_catalog_products("L4客户，预算50元以内，推荐带花的浓香建兰")
     direct = search_catalog_products("建兰皇帝，预算1元")
 
-    assert [item["item_id"] for item in strict] == ["1001"]
+    assert [item["item_id"] for item in strict] == ["1001", "1003"]
     assert [item["item_id"] for item in no_flower] == ["1004"]
     assert [item["item_id"] for item in long_bloom] == ["1001"]
     assert [item["item_id"] for item in good_value] == ["1001"]
-    assert missing_level == []
+    assert [item["item_id"] for item in nearby_level] == ["1001"]
+    assert exact_level[0]["item_id"] == "1003"
     assert direct[0]["item_id"] == "1001"
 
 
