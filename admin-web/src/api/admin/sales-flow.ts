@@ -12,7 +12,6 @@ export interface SalesStageDefinition {
   conditional_knowledge_sources: string[]
   required_slot_groups: string[][]
   prohibited_behaviors: string[]
-  script_coverage: number
 }
 
 export interface SalesOpportunity {
@@ -34,28 +33,8 @@ export interface SalesOpportunity {
   interruption?: { type: string; reason?: string; resume_stage?: string } | null
 }
 
-export interface SalesScript {
-  template_id: string
-  name?: string | null
-  sales_stage: string
-  sales_action: string
-  branch_code: string
-  answer: string
-  required_conditions: string[]
-  exclude_conditions: string[]
-  required_fact_keys: string[]
-  priority: number
-  status: string
-}
-
 export const getSalesStages = () =>
   request.get<{ items: SalesStageDefinition[] }>({ url: '/api/admin/sales-flow/stages' })
-
-export const getSalesScripts = (params?: Record<string, string | undefined>) =>
-  request.get<{ items: SalesScript[]; total: number }>({
-    url: '/api/admin/sales-flow/scripts',
-    params
-  })
 
 export const getSalesOpportunity = (userId: string) =>
   request.get<SalesOpportunity>({

@@ -39,6 +39,7 @@ from app.routers import (
 )
 from app.schemas.common import AppError, ErrorCode
 from app.services.message_risk_control_service import eyun_risk_control_worker
+from app.services.legacy_talk_script_cleanup_service import purge_legacy_talk_script_data
 from app.services.unpurchased_sop_service import unpurchased_sop_worker
 from app.services.youzan_product_sync_service import youzan_product_sync_worker
 from app.workers.memory_worker import memory_worker
@@ -54,6 +55,7 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    purge_legacy_talk_script_data()
     if get_settings().evaluation_mode:
         yield
         return

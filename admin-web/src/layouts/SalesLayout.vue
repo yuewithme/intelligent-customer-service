@@ -47,23 +47,16 @@ const testMode = isTestGate()
 const navigation = [
   { title: '销售执行', items: [
     { label: '销售工作台', to: '/workbench' },
-    { label: '首单销售流程', to: '/sales-flow' },
-    { label: '销售话术', to: '/sales-scripts' }
+    { label: '首单销售流程', to: '/sales-flow' }
   ] },
   { title: '销售运营', items: [
     { label: '意图标注日志', to: '/operations/chat-logs' },
-    { label: '人工接管', to: '/operations/handoff' },
-    { label: '客户画像', to: '/operations/user-profile' },
     { label: '标签管理', to: '/operations/tags' },
     { label: '产品信息', to: '/operations/products' },
     { label: '养护手册', to: '/operations/care-manuals' }
   ] },
   { title: '策略与知识', items: [
-    { label: '销售活动', to: '/knowledge-ops/current-activities' },
-    { label: '微信素材库', to: '/knowledge-ops/wechat-materials' },
-    { label: '知识库', to: '/knowledge-ops/knowledge' },
-    { label: '销售话术', to: '/knowledge-ops/templates' },
-    { label: '意图样本', to: '/knowledge-ops/intent-examples' }
+    { label: '销售活动', to: '/knowledge-ops/current-activities' }
   ] },
   { title: 'SOP流程', items: [
     { label: '未购SOP', to: '/sop/unpurchased' },

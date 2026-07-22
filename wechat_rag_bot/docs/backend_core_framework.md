@@ -729,67 +729,9 @@ profile_events.event_type = handoff_created
 
 聊天记忆仍写入用户消息；`answer=""` 时不写 assistant 空消息。
 
-## 6. 确定性话术库匹配模块
+## 6. 回复分流
 
-文件目录：`wechat_rag_bot/app/talk_script/`
-
-定位：兰花私域确定性话术库是意图识别之后的高优先级执行模块，不替代 `intent_service`。当 `policy_service` 决定路线为 `template_reply`、`template_then_rag` 或 `rag_answer` 时，`chat_orchestrator._build_reply` 会先尝试 `match_talk_script(...)`。只要高置信命中固定话术，就直接返回 Excel 中 `template_library.answer_default`，不会进入 RAG，也不会让 LLM 自由生成客服回复。
-
-核心数据表：
-
-| 表 | 说明 |
-| --- | --- |
-| `scene_index` | 一级场景索引，字段包括 `scene_id`、`scene_name`、`enter_conditions`、`typical_user_messages`、`exclude_conditions`、`priority`、`status` |
-| `question_cluster` | 标准问题簇，字段包括 `question_id`、`scene_id`、正反例、关键词、`default_template_id`、置信度阈值、优先级、状态 |
-| `template_library` | 固定话术库，最终用户可见回答只取 `answer_default` |
-| `talk_script_match_logs` | 话术匹配明细子表，通过 `trace_id`、`customer_id`、`session_id` 与主聊天日志关联 |
-
-导入命令：
-
-```bash
-cd wechat_rag_bot
-python -m app.scripts.import_talk_scripts "C:/Users/32456/Downloads/兰花私域MVP确定性话术库_优化版.xlsx"
-```
-
-Excel 导入校验：
-
-```text
-scene_id / question_id / template_id 唯一
-question_cluster.scene_id 必须存在于 scene_index
-question_cluster.default_template_id 必须存在于 template_library
-template_library.question_id 必须存在于 question_cluster
-status 只能是 active / disabled / need_review，其中 scene_index 只允许 active / disabled
-answer_default、default_template_id 不能为空
-每个 active question_id 必须有 active template
-```
-
-运行链路：
-
-```text
-match_talk_script
-  -> normalize_message
-  -> match_scene
-  -> retrieve_candidate_questions(scene_id, max 5)
-  -> llm_question_classifier
-       真实环境：调用 llm_service.generate_json(purpose="talk_script")
-       模型选择：TALK_SCRIPT_LLM_* -> INTENT_LLM_* -> LLM_*
-       mock 环境：本地候选打分，便于测试
-  -> 根据 question_id 查 default_template_id
-  -> 返回 template_library.answer_default
-  -> record_match_log 写入 talk_script_match_logs
-```
-
-返回状态：
-
-| 状态 | 含义 | 主流程行为 |
-| --- | --- | --- |
-| `matched` | 高置信命中固定话术 | 返回 `answer_default`，不走 RAG |
-| `handoff` | 进入话术库范围但低置信、信息不足、高风险或需要人工 | 调用预留 `human_handoff_service`，`answer=""`，`need_human=true` |
-| `pass_through` | 不属于固定话术库范围 | 继续原 `template_service` 或 `rag_service` 路线 |
-
-人工转接接口预留在 `app/talk_script/human_handoff_service.py`。当前实现只返回 `requested=true/status=pending`，后续可接企业微信、飞书、短信或内部工单通知。
-
-聊天主日志仍由 `chat_log_service` 写入 `chat_logs`。固定话术命中摘要放入主日志 `metadata.talk_script`，完整候选、置信度、原因和转人工信息放入 `talk_script_match_logs`。
+确定性销售话术库已下线，数据库中的旧话术、问题簇、场景和匹配日志会在启动时清空。`ReplyPlan` 现在直接分流到业务事实模板、RAG、闲聊或转人工节点，不再执行固定销售话术匹配。
 
 ## 7. RAG 主流程
 

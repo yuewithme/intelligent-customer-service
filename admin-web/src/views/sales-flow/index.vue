@@ -1,12 +1,12 @@
 <template>
   <section class="page">
-    <header><div><h2>首单销售流程</h2><p>统一展示阶段目标、流转证据和话术覆盖。</p></div></header>
+    <header><div><h2>首单销售流程</h2><p>统一展示阶段目标和流转证据。</p></div></header>
     <ElSkeleton v-if="loading" :rows="7" animated />
     <div v-else class="stage-list">
       <article v-for="stage in stages" :key="stage.stage">
         <span class="sequence">{{ stage.sequence }}</span>
         <div class="content">
-          <div class="title"><h3>{{ stage.display_name }}</h3><ElTag>{{ stage.script_coverage }} 条话术</ElTag></div>
+          <div class="title"><h3>{{ stage.display_name }}</h3></div>
           <p>{{ stage.objective }}</p>
           <dl>
             <dt>进入条件</dt><dd>{{ join(stage.entry_evidence_any) }}</dd>

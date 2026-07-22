@@ -1,6 +1,4 @@
-import json
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.schemas.chat import APIResponse
@@ -10,8 +8,6 @@ from app.services.user_profile_service import (
     close_sales_opportunity,
     get_sales_opportunity,
 )
-from app.talk_script.first_order_sales_seed import ensure_first_order_sales_templates
-from app.talk_script.repository import list_sales_templates
 from app.utils.auth import require_api_key
 
 
@@ -36,37 +32,11 @@ class OpportunityCloseRequest(BaseModel):
 
 @router.get("/stages", response_model=APIResponse)
 async def stages() -> APIResponse:
-    ensure_first_order_sales_templates()
-    coverage: dict[str, int] = {}
-    for row in list_sales_templates():
-        coverage[row.sales_stage or "unknown"] = coverage.get(row.sales_stage or "unknown", 0) + 1
-    items = []
-    for definition in get_sales_stage_definitions():
-        item = definition.model_dump(mode="json")
-        item["script_coverage"] = coverage.get(definition.stage.value, 0)
-        items.append(item)
+    items = [
+        definition.model_dump(mode="json")
+        for definition in get_sales_stage_definitions()
+    ]
     return APIResponse(code=0, message="success", data={"items": items})
-
-
-@router.get("/scripts", response_model=APIResponse)
-async def scripts(
-    stage: str | None = None,
-    action: str | None = None,
-    branch: str | None = None,
-    status: str | None = Query(default="active"),
-) -> APIResponse:
-    ensure_first_order_sales_templates()
-    rows = list_sales_templates(
-        sales_stage=stage,
-        sales_action=action,
-        branch_code=branch,
-        status=status,
-    )
-    return APIResponse(
-        code=0,
-        message="success",
-        data={"items": [_script_item(row) for row in rows], "total": len(rows)},
-    )
 
 
 @router.get("/opportunities/{user_id}", response_model=APIResponse)
@@ -100,29 +70,3 @@ async def close_opportunity(user_id: str, request: OpportunityCloseRequest) -> A
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return APIResponse(code=0, message="success", data=data)
-
-
-def _script_item(row) -> dict:
-    return {
-        "template_id": row.template_id,
-        "name": row.template_name,
-        "sales_stage": row.sales_stage,
-        "sales_action": row.sales_action,
-        "branch_code": row.branch_code,
-        "answer": row.answer_default,
-        "required_conditions": _json_list(row.required_conditions_json),
-        "exclude_conditions": _json_list(row.exclude_conditions_json),
-        "required_fact_keys": _json_list(row.required_fact_keys_json),
-        "variables": _json_list(row.variables_json),
-        "priority": row.priority,
-        "status": row.status,
-        "version": row.version,
-    }
-
-
-def _json_list(value: str | None) -> list:
-    try:
-        parsed = json.loads(value or "[]")
-    except json.JSONDecodeError:
-        return []
-    return parsed if isinstance(parsed, list) else []

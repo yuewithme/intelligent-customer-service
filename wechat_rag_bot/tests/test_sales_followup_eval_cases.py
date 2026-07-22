@@ -4,7 +4,6 @@ from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
 from app.schemas.reply_plan import ReplyPlan
 from app.schemas.state import UserState
-from app.talk_script.models import TalkScriptMatchResult
 
 
 def _message(text: str) -> NormalizedMessage:
@@ -44,10 +43,6 @@ def _plan(action: str) -> ReplyPlan:
 async def test_disease_case_generates_followup_not_handoff(monkeypatch):
     from app.services import reply_workflow_graph
 
-    async def pass_talk_script(**kwargs):
-        del kwargs
-        return TalkScriptMatchResult(status="pass_through")
-
     async def answer_knowledge(message, user_state, policy_decision=None):
         del message, user_state, policy_decision
         return {
@@ -55,7 +50,6 @@ async def test_disease_case_generates_followup_not_handoff(monkeypatch):
             "sources": [],
         }
 
-    monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", answer_knowledge)
 
     reply = await reply_workflow_graph.execute_reply_plan(
@@ -76,15 +70,10 @@ async def test_disease_case_generates_followup_not_handoff(monkeypatch):
 async def test_recommend_short_sentence_asks_sales_qualifying_question(monkeypatch):
     from app.services import reply_workflow_graph
 
-    async def pass_talk_script(**kwargs):
-        del kwargs
-        return TalkScriptMatchResult(status="pass_through")
-
     async def fail_rag(message, user_state, policy_decision=None):
         del message, user_state, policy_decision
         raise AssertionError("transaction fallback must not enter general RAG")
 
-    monkeypatch.setattr(reply_workflow_graph, "match_talk_script", pass_talk_script)
     monkeypatch.setattr("app.services.rag_service.answer_knowledge", fail_rag)
 
     reply = await reply_workflow_graph.execute_reply_plan(

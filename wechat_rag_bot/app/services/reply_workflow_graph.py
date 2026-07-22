@@ -22,7 +22,6 @@ from app.services.reply_builder import (
 )
 from app.services.template_reply_service import build_default_template_reply
 from app.talk_script.human_handoff_service import request_human_handoff
-from app.talk_script.service import match_talk_script
 from app.utils.ids import generate_id
 
 
@@ -49,54 +48,6 @@ def persona_context_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     )
     state["stage_latencies"]["persona_context_ms"] = _elapsed_ms(started)
     return {"persona_context": context}
-
-
-async def talk_script_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
-    plan = state["plan"]
-    stage_latencies = state["stage_latencies"]
-    if plan.action != "template_reply" or plan.business_facts.available:
-        stage_latencies.setdefault("talk_script_ms", 0)
-        return {}
-
-    message = state["message"]
-    user_state = state["user_state"]
-    stage_started = time.perf_counter()
-    talk_script = await match_talk_script(
-        customer_id=message.user_id,
-        current_message=message.message,
-        trace_id=message.trace_id,
-        session_id=message.session_id,
-        recent_messages=[],
-        customer_tags={"tags": user_state.customer_tags},
-        sales_stage=state["intent"].sales_stage,
-    )
-    stage_latencies["talk_script_ms"] = _elapsed_ms(stage_started)
-    if talk_script.status == "matched":
-        stage_latencies.setdefault("template_ms", 0)
-        stage_latencies.setdefault("rag_ms", 0)
-        reply = FinalReply(
-            answer=talk_script.answer,
-            reply_type="template",
-            route="template_reply",
-            template_id=talk_script.template_id,
-            need_human=False,
-            metadata={
-                "talk_script": talk_script.model_dump(),
-                "score": talk_script.confidence,
-            },
-        )
-        return {"reply_spec": _reply_spec(state, reply)}
-    if talk_script.status == "handoff" and not _is_soft_talk_script_handoff(
-        talk_script.reason
-    ):
-        stage_latencies.setdefault("template_ms", 0)
-        stage_latencies.setdefault("rag_ms", 0)
-        return {
-            "handoff_reason": talk_script.reason or "talk_script_to_handoff",
-            "handoff_original_route": plan.original_route or plan.action,
-            "handoff_context": {"talk_script": talk_script.model_dump()},
-        }
-    return {}
 
 
 def route_reply_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
@@ -277,14 +228,6 @@ def reply_guard_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     return {"reply": reply}
 
 
-def _after_talk_script(state: ReplyWorkflowState) -> str:
-    if state.get("reply_spec") is not None:
-        return "persona_render"
-    if state.get("handoff_reason"):
-        return "handoff"
-    return "route_reply"
-
-
 def _route_reply(state: ReplyWorkflowState) -> str:
     action = state["plan"].action
     if action == "template_reply":
@@ -308,7 +251,6 @@ def _after_reply_node(state: ReplyWorkflowState) -> str:
 def _compiled_graph():
     graph = StateGraph(ReplyWorkflowState)
     graph.add_node("persona_context", persona_context_node)
-    graph.add_node("talk_script", talk_script_node)
     graph.add_node("route_reply", route_reply_node)
     graph.add_node("template", template_node)
     graph.add_node("rag", rag_node)
@@ -319,16 +261,7 @@ def _compiled_graph():
     graph.add_node("reply_guard", reply_guard_node)
 
     graph.add_edge(START, "persona_context")
-    graph.add_edge("persona_context", "talk_script")
-    graph.add_conditional_edges(
-        "talk_script",
-        _after_talk_script,
-        {
-            "persona_render": "persona_render",
-            "handoff": "handoff",
-            "route_reply": "route_reply",
-        },
-    )
+    graph.add_edge("persona_context", "route_reply")
     graph.add_conditional_edges(
         "route_reply",
         _route_reply,
@@ -386,16 +319,6 @@ def _is_rag_no_answer(rag_result: dict) -> bool:
     return not answer or answer in {
         "__HANDOFF__",
         "知识库中没有找到明确答案。",
-    }
-
-
-def _is_soft_talk_script_handoff(reason: str | None) -> bool:
-    return reason in {
-        "classifier_unmatched",
-        "confidence_below_threshold",
-        "no_candidate_questions",
-        "question_not_found",
-        "template_not_found",
     }
 
 

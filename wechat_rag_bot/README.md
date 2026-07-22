@@ -90,31 +90,9 @@ PROFILE_ANALYSIS_PROMPT=
 
 复杂回复链路允许单次模型请求最多等待 180 秒；评测客户端默认等待 240 秒，为 API 编排和网络传输预留空间。
 
-如果要给固定话术库单独指定分类模型，只需要配置 `TALK_SCRIPT_LLM_PROVIDER` 和 `TALK_SCRIPT_LLM_MODEL`。
 用户画像生成使用 `PROFILE_LLM_PROVIDER` / `PROFILE_LLM_MODEL`，输入只包含用户消息原文记录；`PROFILE_ANALYSIS_PROMPT` 为空时使用内置画像提示词。
 
-## 确定性话术库
-
-兰花私域固定话术库通过 Excel 导入到 SQLite，命中后直接返回 `template_library.answer_default`，不会走 RAG，也不会让 LLM 生成客服回复。LLM 只用于在候选 `question_id` 中做分类。
-
-导入命令：
-
-```bash
-python -m app.scripts.import_talk_scripts "C:/Users/32456/Downloads/兰花私域MVP确定性话术库_优化版.xlsx"
-```
-
-运行时流程：
-
-```text
-intent_service
-  -> reply_planner
-  -> ReplyPlan
-  -> LangGraph
-  -> talk_script_matcher
-       matched: 返回固定 answer_default
-       handoff: answer=""，need_human=true，next_action=human_handoff
-       pass_through: 继续原 template/RAG 流程
-```
+固定销售话术库已移除，不再参与回复生成。回复计划现在直接进入业务事实模板、知识检索、闲聊或转人工分支。
 
 转人工通知逻辑当前只保留 `human_handoff_service` 接口，暂不真正推送给指定人员。
 

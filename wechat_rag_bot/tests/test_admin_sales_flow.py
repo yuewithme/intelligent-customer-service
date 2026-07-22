@@ -1,10 +1,12 @@
 import json
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
 
 from app.config import get_settings
 from app.db.models import UserProfileModel
 from app.main import app
+from app.services.legacy_talk_script_cleanup_service import purge_legacy_talk_script_data
 from app.services.user_profile_service import _get_session, ensure_user_profile
 
 
@@ -35,14 +37,36 @@ def _seed_opportunity(user_id: str, *, interruption: dict | None = None):
         session.commit()
 
 
-def test_stage_catalog_exposes_seven_stages_and_script_coverage(monkeypatch, tmp_path):
+def test_stage_catalog_exposes_seven_stages_without_sales_scripts(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
     response = TestClient(app).get("/api/admin/sales-flow/stages")
 
     assert response.status_code == 200
     items = response.json()["data"]["items"]
     assert len(items) == 7
-    assert all(item["script_coverage"] > 0 for item in items)
+    assert all("script_coverage" not in item for item in items)
+
+    scripts_response = TestClient(app).get("/api/admin/sales-flow/scripts")
+    assert scripts_response.status_code == 404
+
+
+def test_legacy_sales_script_data_is_purged(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    engine = create_engine(get_settings().database_url)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE template_library (template_id TEXT)"))
+        connection.execute(
+            text("INSERT INTO template_library (template_id) VALUES ('sales_legacy')")
+        )
+
+    purge_legacy_talk_script_data()
+
+    with engine.connect() as connection:
+        count = connection.execute(
+            text("SELECT COUNT(*) FROM template_library")
+        ).scalar_one()
+    engine.dispose()
+    assert count == 0
 
 
 def test_manual_stage_adjustment_requires_reason_and_is_audited(monkeypatch, tmp_path):
