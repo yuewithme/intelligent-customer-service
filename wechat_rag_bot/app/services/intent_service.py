@@ -8,6 +8,12 @@ from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
 from app.schemas.sales_flow import CustomerSignal
 from app.schemas.state import UserState
+from app.services.intent_taxonomy_service import (
+    format_candidate_cards,
+    prepare_intent_payload,
+    taxonomy_values,
+)
+from app.services.orchid_material_service import is_orchid_material_request
 from app.services.shipping_contact_service import extract_shipping_contact
 from app.services.tag_catalog import normalize_system_value, system_tag_values
 
@@ -189,6 +195,21 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                 "confidence": 0.98,
                 "need_human": True,
                 "reason": "rule_human_request",
+            }
+        )
+
+    if is_orchid_material_request(text):
+        return _validated_intent(
+            {
+                "primary_domain": "care_service",
+                "primary_goal": "request_material",
+                "issues": ["care_general"],
+                "confidence": 0.99,
+                "slots": {
+                    "material_type": "orchid_care",
+                    "resource_type": "orchid_material",
+                },
+                "reason": "rule_material_request",
             }
         )
 
@@ -377,13 +398,13 @@ async def classify_by_llm(
     user_state: UserState,
     candidates: list[dict] | None = None,
 ) -> IntentResult:
-    del candidates
     from app.services import llm_service
 
     raw = await llm_service.classify_intent(
         _build_prompt(
             message.message,
             recent_turns=user_state.metadata.get("recent_turns", []),
+            candidates=candidates,
         )
     )
     return _validated_intent(raw)
@@ -446,15 +467,6 @@ async def classify_intent(
     llm_enabled = bool(getattr(settings, "intent_llm_enabled", False))
     confidence_threshold = getattr(settings, "intent_confidence_threshold", 0.6)
     rule_intent = classify_by_soft_rules(message.message)
-    if (
-        rule_intent.route != "clarify"
-        and rule_intent.confidence >= confidence_threshold
-    ):
-        if candidates and rule_intent.route == candidates[0].get("route"):
-            rule_intent = rule_intent.model_copy(
-                update={"confidence": min(rule_intent.confidence + 0.05, 1.0)}
-            )
-        return _with_decision_blocker(rule_intent, message.message)
     if llm_enabled:
         try:
             llm_intent = await classify_by_llm(message, user_state, candidates)
@@ -474,7 +486,10 @@ def _with_decision_blocker(intent: IntentResult, text: str) -> IntentResult:
     normalized = normalize_intent_text(text)
     blocker = None
     if (
-        intent.primary_intent in {"price_objection", "discount_request"}
+        (
+            intent.primary_intent in {"price_objection", "discount_request"}
+            and (not intent.issues or bool({"price", "discount"} & set(intent.issues)))
+        )
         or match_price_intent(normalized) == "price_objection"
     ):
         blocker = {"type": "price", "detail": "客户认为价格偏高"}
@@ -520,6 +535,7 @@ def _knowledge_primary_intent(text: str) -> str:
 
 
 def _validated_intent(raw: dict) -> IntentResult:
+    raw = prepare_intent_payload(raw)
     try:
         intent = IntentResult.model_validate(raw)
     except ValidationError as exc:
@@ -579,12 +595,14 @@ def classify_opening_followup(
         or hit_any(normalized, ORCHID_VARIETY_WORDS)
     ):
         return None
-    return IntentResult(
-        route="chitchat",
-        primary_intent="profile_answer",
-        sales_stage="need_discovery",
-        confidence=0.98,
-        reason="opening_profile_answer",
+    return _validated_intent(
+        {
+            "route": "chitchat",
+            "primary_intent": "profile_answer",
+            "sales_stage": "need_discovery",
+            "confidence": 0.98,
+            "reason": "opening_profile_answer",
+        }
     )
 
 
@@ -606,18 +624,20 @@ def classify_product_recommendation_followup(
     )
     if not has_recommendation_context:
         return None
-    return IntentResult(
-        route="rag_answer",
-        primary_intent="knowledge_question",
-        sales_stage="need_discovery",
-        confidence=0.9,
-        need_rag=True,
-        slots={"conversation_topic": "product_recommendation"},
-        reason="contextual_product_preference",
+    return _validated_intent(
+        {
+            "primary_domain": "product_solution",
+            "primary_goal": "seek_recommendation",
+            "issues": ["recommendation_fit"],
+            "sales_stage": "need_discovery",
+            "confidence": 0.9,
+            "slots": {"conversation_topic": "product_recommendation"},
+            "reason": "contextual_product_preference",
+        }
     )
 
 
-def _build_prompt(message: str, recent_turns: list[dict] | None = None) -> str:
+def _build_legacy_prompt(message: str, recent_turns: list[dict] | None = None) -> str:
     intent_values = " | ".join(system_tag_values("intent")) or "unknown"
     stage_values = " | ".join(system_tag_values("sales_stage")) or "unknown"
     signal_values = " | ".join(
@@ -1047,3 +1067,74 @@ detail 使用中性中文概括，不复述辱骂或攻击性原话；售后问�
   "need_human": true,
   "reason": "明确要求退款"
 }}"""
+
+
+def _build_prompt(
+    message: str,
+    recent_turns: list[dict] | None = None,
+    candidates: list[dict] | None = None,
+) -> str:
+    domain_values = " | ".join(taxonomy_values("domain"))
+    goal_values = " | ".join(taxonomy_values("goal"))
+    issue_values = " | ".join(taxonomy_values("issue"))
+    legacy_intent_values = " | ".join(system_tag_values("intent")) or "unknown"
+    signal_values = " | ".join(
+        signal.value
+        for signal in CustomerSignal
+        if signal is not CustomerSignal.PURCHASED
+    )
+    recent_lines = []
+    for turn in (recent_turns or [])[-6:]:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role") or "").strip()
+        content = str(turn.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            recent_lines.append(f"{role}: {content[:500]}")
+    recent_context = "\n最近对话：\n" + "\n".join(recent_lines) if recent_lines else ""
+    candidate_text = format_candidate_cards(candidates)
+    return f"""你是兰花私域销售客服的意图结构化分类器，只分类，不回复客户。
+
+当前消息：{message}
+{recent_context}
+
+分类采用三个彼此独立的维度：
+- Domain：客户在谈哪一类业务对象。
+- Goal：客户这一轮想完成什么动作。
+- Issue：涉及哪些具体议题；没有明确议题可以为空，禁止猜测。
+
+只输出一个 JSON 对象，字段必须完整：
+{{
+  "primary_domain": "{domain_values}",
+  "secondary_domains": [],
+  "primary_goal": "{goal_values}",
+  "secondary_goals": [],
+  "issues": [],
+  "scope": "in_scope | ambiguous | out_of_scope",
+  "evidence": [{{"text": "消息中的原文片段", "dimension": "domain | goal | issue", "label": "对应标签"}}],
+  "sales_signals": [],
+  "slots": {{}},
+  "customer_sentiment": "neutral",
+  "confidence": 0.0,
+  "reason": "不超过20字"
+}}
+
+约束：
+1. 每个维度只能使用候选卡中的标签；主标签一个，确有并列意图才给 secondary。
+   Issue 允许值：{issue_values}。
+2. 优先识别明确动作，再结合最近对话消解“这个、那款、发我”等指代。
+3. “要资料/发教程/怎么领视频”必须识别为 Goal=request_material；资料类型放入 slots.material_type。只讨论资料内容、明确不要资料、资料打不开时分别考虑 ask_information、deny、request_service。
+4. 售前询问保障用 Issue=after_sale_policy；已收货破损等事实用 received_problem；明确退款退货用 request_refund_return。
+5. 只有明确请求人工、退款退货或强烈投诉才使用对应人工 Goal。出现“客服指导、客服怎么说”不等于请求人工。
+6. 不能仅因出现“贵”判断价格异议，例如“名贵兰花”；必须结合完整语义和反例。
+7. evidence 必须引用当前消息或最近对话中的短原文；不能编造。confidence 低于 0.60 或指代无法消解时 scope=ambiguous、Goal=unclear。
+8. sales_signals 仅允许 `{signal_values}`；客户自述付款只能为 payment_claimed，禁止输出 purchased。
+9. slots.decision_blocker 仅记录明确成交阻碍，type 只能是 price | trust | care_risk | product_fit | choice | timing | other。
+
+候选标签卡（含定义、正例和反例）：
+{candidate_text}
+
+旧兼容意图目录（只用于理解历史标注样例，不得作为新输出字段）：{legacy_intent_values}
+
+不要输出 route、primary_intent、need_template、need_rag、need_human 或 sales_stage；这些由确定性策略根据 D/G/I 计算。
+"""

@@ -1,0 +1,2739 @@
+{
+  "version": "1.0",
+  "counts": {
+    "domain": 8,
+    "goal": 25,
+    "issue": 28
+  },
+  "labels": [
+    {
+      "kind": "domain",
+      "id": "customer_need",
+      "name": "客户需求",
+      "definition": "用户描述购买用途、养护条件、预算、偏好、经验、困难或期望结果，核心在“客户需要什么”。",
+      "include": "自养/送礼用途；地区和摆放环境；新手或有经验；预算；颜色与香味偏好；过去养不活等困难。",
+      "exclude": "只询问具体商品参数；只问价格；已经明确要求下单或支付。",
+      "positive_examples": [
+        "“我是新手，想找一盆比较好养的。”",
+        "“广东阳台养，预算三百左右。”",
+        "有比较香的兰花品种吗？",
+        "有没有一年四季都开花的兰花品种？",
+        "辽宁高层楼适合养兰花吗？",
+        "喜欢兰花，但是我以前养的都没养活，兰花太难养了，不会管理",
+        "便宜经济实惠的兰花有没有？",
+        "兰花多久开一次花？一次开几天？",
+        "新手小白，家里基本没有光照，推荐耐阴好养活的兰花有吗",
+        "兰花不开花怎么办",
+        "兰花黄叶干尖怎么解决",
+        "之前养兰一到冬天供暖就干枯，暖气房适合养什么品种呀？",
+        "出现黑点黑斑，新芽也不长是怎么回事？",
+        "师傅我家里现在养了3OO盆兰花，主要是秋芝，春兰，惠兰没几盆，其次是免耳兰。就是没养好，发牙历低。",
+        "兰花收到了，怎么养？",
+        "家里现存40多盆，90 ％是科技激素苗。不懂瞎买，死了就买，近两年、买了130多盆价格不数高20-80元不等，品种杂，家里通风应该可以，5十6小高层，楼顶有30平方米的平台，－半阳光房可随时遮荫。",
+        "之前几年养了很多，春，兰，兰花知识之前也知道一些，现在想系统学习一下怎样养兰花",
+        "现在我家客厅的温度，白天25°，晚上空调关了也不会超过30°，现在我家的兰花该几天浇一次水啊！",
+        "春兰，金边兰，红叶兰，建兰是新手刚刚养了三个月建议给提供养兰知识",
+        "养了6盆具体不知道品种，有三盆根都腐了不知道怎么救活"
+      ],
+      "negative_examples": [
+        "“这盆是什么品种？”（更偏 product_solution）",
+        "“这个多少钱？”（更偏 commercial_decision）"
+      ],
+      "confusable": [
+        "product_solution",
+        "care_service"
+      ],
+      "slots": [
+        "purchase_purpose",
+        "region",
+        "placement",
+        "experience_level",
+        "budget_min",
+        "budget_max",
+        "color_preference",
+        "fragrance_preference",
+        "pain_point",
+        "desired_outcome"
+      ],
+      "stage_effect": "product_need, service_need, preference_revealed, pain_revealed, desired_outcome；主要支持挖需求和找痛点。"
+    },
+    {
+      "kind": "domain",
+      "id": "product_solution",
+      "name": "商品与解决方案",
+      "definition": "用户了解商品事实、请求推荐、比较商品，或判断某个商品是否适合自己的需求。",
+      "include": "商品品种/花色/苗情/规格；推荐；商品对比；是否适合新手、地区或用途；库存选择。",
+      "exclude": "只描述个人情况但未讨论商品；单纯问养护操作；只谈价格优惠。",
+      "positive_examples": [
+        "“给新手推荐一盆好养又香的。”",
+        "“这两款有什么区别，哪款更适合北方？”",
+        "几苗，何时开花？",
+        "你给我寄来的兰花我收到了，完好，你消过毒没有？如果没有消毒的话是不是收到我需要消毒",
+        "带盆吗？可以寄养吗？",
+        "红君荷和老种君荷有什么不一样？哪个好？",
+        "你发个全盆草我看看，一盆有几苗，今年能上花吗？",
+        "《元字》拍张开品给我看一下，另整苗裸根的拍张我看一下是否才脱盆的苗子。然后确定是否购买！",
+        "下午好！惠兰《程梅》大约多少米一苗？",
+        "夏皇梅们开品怎样？带花苞吗？",
+        "喜欢素雅的，香味浓郁的都有啥？",
+        "一盆有几苗？一株有几苗？",
+        "带的什么盆？是瓷盆吗？",
+        "紫砂盆怎么这么贵？",
+        "什么是荷瓣？？不懂，和我家这颗宋梅有什么区别吗？",
+        "建兰香还是春兰香？哪个开的时间长？",
+        "什么时候会开花？今年能开吗？"
+      ],
+      "negative_examples": [
+        "“我在北京室内养。”（更偏 customer_need）",
+        "“多久浇一次水？”（更偏 care_service）",
+        "收到回来可以移盆换盆吗？我家里有盆子",
+        "不满意能退吗？有没有运费险？",
+        "回来用施肥吗？",
+        "你们是刚栽种的还是已经服盆好发过来的？",
+        "我在阳台上养，光照不够充足行不行？",
+        "我以前买的都消苞了，总是开不出来，不知道是为什么",
+        "这个热的天在路上会不会闷死呀？"
+      ],
+      "confusable": [
+        "customer_need",
+        "care_service",
+        "commercial_decision"
+      ],
+      "slots": [
+        "product_id",
+        "sku_id",
+        "variety",
+        "color",
+        "seedling_size",
+        "stock_status",
+        "comparison_product_ids"
+      ],
+      "stage_effect": "recommendation_ready, recommendation_engaged, selected_product；主要支持推品和塑品。"
+    },
+    {
+      "kind": "domain",
+      "id": "care_service",
+      "name": "养护服务",
+      "definition": "用户询问兰花养护、异常处理或购买后的持续指导，也包括因担心养不好而产生的服务需求。",
+      "include": "浇水施肥；光照温湿度；植料换盆；黄叶烂根；病虫害；是否有人指导；担心养死。",
+      "exclude": "询问商品自身的规格；纯价格异议；已经发生的到货损坏或退款问题。",
+      "positive_examples": [
+        "“这个平时要怎么养？”",
+        "“我怕买回去养不活，有没有人指导？”",
+        "收到回来要施肥吗？",
+        "我在室内养光照不足行不行？能不能开花？",
+        "可不可以淋雨？",
+        "我还是很担心，养死了可惜",
+        "你们是科技苗吗？我怕养不活",
+        "你们都是大棚草，没有下山的资源草好养吧？",
+        "黑斑黑点怎么救？会不会死",
+        "这种是虫害吗？前天还好好的",
+        "怎么老是烂根呢？应该几天浇一次水呀？",
+        "腐苗还能救吗？需不需要脱盆呀？"
+      ],
+      "negative_examples": [
+        "“这盆苗多大？”（商品信息）",
+        "“收到的时候根已经断了。”（真实服务问题）",
+        "收到花苞就黑了，还能开吗？",
+        "叶子卷起来了，是缺水吗？",
+        "看我栽的怎么样？高度可以吗？",
+        "焦尖是母苗还是病害呀？",
+        "夏天可以施肥吗？我的苗子太弱了 怎么不长？"
+      ],
+      "confusable": [
+        "customer_need",
+        "product_solution",
+        "customer_service"
+      ],
+      "slots": [
+        "plant_variety",
+        "symptom",
+        "care_action",
+        "region",
+        "placement",
+        "temperature",
+        "humidity"
+      ],
+      "stage_effect": "可能产生 service_need, care_concern, pain_revealed；纯知识问题保持阶段，购买顾虑进入异议处理。"
+    },
+    {
+      "kind": "domain",
+      "id": "commercial_decision",
+      "name": "价格与购买决策",
+      "definition": "用户评估是否购买，关注价格、优惠、商品价值、品质信任、养护信心和服务保障。",
+      "include": "询价、议价、优惠；觉得贵；为什么值这个价；真假和品质；怕养不好；售前询问包邮或坏了怎么办。",
+      "exclude": "已经发生的物流或售后问题；明确下单和支付；单纯请求商品推荐。",
+      "positive_examples": [
+        "“这个有点贵，能优惠吗？”",
+        "“能保证对版吗，收到坏了怎么处理？”",
+        "我是会员，不是说好的有折扣吗？",
+        "上个月的活动还有名额吗？",
+        "这个品种为什么这么贵？我看和我的富山奇蝶长得一样啊",
+        "我刚开始养，这个品种怕养不活，死了可惜",
+        "蕙兰程梅现在多少一苗？",
+        "偏远地区能包邮吗",
+        "还是觉得有点贵，有苗少点的吗？",
+        "都是老客户了，价格还能不能优惠点，再少点",
+        "怎么别比别家的价格高这么多？",
+        "你们家价格普遍要比别家贵，现在兰花市场这么差，卖便宜点嘛",
+        "包对版吗？买回来不对版怎么办？"
+      ],
+      "negative_examples": [
+        "“我的快递三天没动了。”（真实客户服务）",
+        "“就要这个，给我两盆。”（购买成交）",
+        "666 怎么买",
+        "怎么拍？",
+        "链接我不敢点，万一中病毒怎么办",
+        "怎么还没有发货，都下单多久了"
+      ],
+      "confusable": [
+        "product_solution",
+        "care_service",
+        "purchase_transaction",
+        "customer_service"
+      ],
+      "slots": [
+        "quoted_price",
+        "budget",
+        "requested_discount",
+        "decision_blockers",
+        "guarantee_topic"
+      ],
+      "stage_effect": "price_interest, value_acknowledged, objection, care_concern；主要支持塑品、试成交和成交推进。"
+    },
+    {
+      "kind": "domain",
+      "id": "purchase_transaction",
+      "name": "购买与成交",
+      "definition": "用户确认商品、规格和数量，准备下单、索要购买入口或进行支付。",
+      "include": "明确选择某款；确认颜色规格；购买数量；怎么下单；购买链接；支付方式；声称已付款。",
+      "exclude": "仍在比较商品；只询问价格；订单发生后的物流或售后问题。",
+      "positive_examples": [
+        "“就要刚才那个红色的，给我两盆。”",
+        "“发个购买链接，我现在付款。”",
+        "那就听你的，挑4苗的，要壮",
+        "直接给你转钱可以吗",
+        "拍了，你看有没有收到订单",
+        "我拍的是带紫砂盆带花苞的，不要发错了"
+      ],
+      "negative_examples": [
+        "“红色和黄色哪个好？”（仍在比较）",
+        "“这个多少钱？”（询价）",
+        "3苗就是3苗，怎么3-4苗？",
+        "苗子有多高叶有多宽呀？",
+        "还在路上，怎么没到，不会闷死了吧",
+        "你查一下，快递怎么显示退回了"
+      ],
+      "confusable": [
+        "product_solution",
+        "commercial_decision",
+        "customer_service"
+      ],
+      "slots": [
+        "product_id",
+        "sku_id",
+        "color",
+        "specification",
+        "quantity",
+        "purchase_link_requested",
+        "payment_method"
+      ],
+      "stage_effect": "selected_product, ready_to_buy, payment_claimed；主要支持试成交和成交推进。成交必须由订单事实确认。"
+    },
+    {
+      "kind": "domain",
+      "id": "customer_service",
+      "name": "客户服务处理",
+      "definition": "用户针对已经发生的订单、配送、收货或售后问题请求处理，是销售体系外的精简服务兜底。",
+      "include": "查询真实订单/物流；到货损坏；错发少发；退货退款；明确投诉；人工介入。",
+      "exclude": "购买前询问包邮、发货时效或售后保障；单纯询问养护知识。",
+      "positive_examples": [
+        "“昨天收到的苗断了，帮我处理一下。”",
+        "“我的订单还没发货，帮我查一下。”",
+        "在路上几天不会出问题吧？你查查到哪里了？",
+        "怎么显示揽件，一直没有物流信息呀？",
+        "下次不要发中通了，快递到了都不发信息通知"
+      ],
+      "negative_examples": [
+        "“这个包邮吗？”（购买决策）",
+        "“买回去养死有保障吗？”（售前保障顾虑）",
+        "万一养不活，能退款吗？",
+        "新疆多久可以收到？",
+        "你们售后质保多久呢？"
+      ],
+      "confusable": [
+        "commercial_decision",
+        "care_service"
+      ],
+      "slots": [
+        "order_id",
+        "tracking_no",
+        "service_problem",
+        "requested_resolution",
+        "received_at"
+      ],
+      "stage_effect": "产生 after_sale_interruption 或 human_interruption；暂停活跃销售机会，处理完成后恢复。"
+    },
+    {
+      "kind": "domain",
+      "id": "conversation",
+      "name": "普通会话",
+      "definition": "没有独立业务主题的寒暄、确认、否认、感谢和结束表达。",
+      "include": "你好、在吗、好的、不是、谢谢、不用了、再见。",
+      "exclude": "消息中虽然有寒暄，但同时包含明确业务需求；此时业务 Domain 应为主。",
+      "positive_examples": [
+        "“你好，在吗？”",
+        "“好的，谢谢。”",
+        "鼓掌",
+        "大拇指",
+        "赞",
+        "早安问候",
+        "先不买",
+        "有喜欢的找你"
+      ],
+      "negative_examples": [
+        "“你好，这盆多少钱？”（主域为购买决策）",
+        "“好的，我在广东阳台养。”（主域为客户需求）",
+        "老师，适合内蒙古养吗？",
+        "真好，想养一盆，可惜我怕会养不好",
+        "送人适合吗？",
+        "买回来能开花吗？",
+        "带盆多少钱？好发货吗？"
+      ],
+      "confusable": [
+        "所有业务 Domain，尤其是带寒暄前缀的消息"
+      ],
+      "slots": [
+        "通常为空"
+      ],
+      "stage_effect": "通常保持当前阶段；实质性确认由 Goal 和上下文进一步判断。"
+    },
+    {
+      "kind": "domain",
+      "id": "out_of_scope",
+      "name": "范围外",
+      "definition": "与兰花、商品购买、养护服务、订单和客户服务均无关的请求。",
+      "include": "无关知识问答、写作、代码、娱乐等。",
+      "exclude": "表达模糊但可能与当前对话相关；应优先使用上下文或澄清，而不是直接判定范围外。",
+      "positive_examples": [
+        "“帮我写一段 Python 代码。”",
+        "“给我讲个历史故事。”",
+        "你是主播吗？",
+        "你看我家养的盆栽",
+        "你是哪的"
+      ],
+      "negative_examples": [
+        "“那这个呢？”（可能依赖上下文，应澄清或继承对象）",
+        "“怎么处理？”（可能依赖上一轮问题）",
+        "怎么剪呢？",
+        "要怎么用",
+        "明白了",
+        "再相信你一次",
+        "再尝试一次"
+      ],
+      "confusable": [
+        "conversation 以及信息不足但仍可能在业务范围内的消息"
+      ],
+      "slots": [
+        "out_of_scope_topic"
+      ],
+      "stage_effect": "通常保持阶段，不推进销售；连续范围外对话可由策略层决定退出。 # Goal 标签定义卡"
+    },
+    {
+      "kind": "goal",
+      "id": "express_need",
+      "name": "表达需求",
+      "definition": "用户主动表达想购买、解决或获得什么，但尚未必指向具体商品。",
+      "include": "想要好养/香花/送礼的商品；希望解决养不活等问题。",
+      "exclude": "只补充地区预算等事实；已经明确选择商品并要求下单。",
+      "positive_examples": [
+        "“想找一盆适合新手的。”",
+        "“我想要开花香一点的。”",
+        "想让老师你教教我怎么养能够开花",
+        "想用用你们的植料试试",
+        "有没有适合阳台养的？",
+        "能不能送点东西？",
+        "一年四季都开花的品种有吗？"
+      ],
+      "negative_examples": [
+        "“我在广东。”（provide_information）",
+        "“就要这盆。”（confirm_choice）",
+        "听你的，就这样给我发货吧",
+        "越便宜越好",
+        "新手怕养死，一二十的预算",
+        "一定要给我挑盆壮苗的，买回来养不活我肯定要退的",
+        "左边这一盆留给我，下周发货"
+      ],
+      "confusable": [
+        "provide_information",
+        "seek_recommendation",
+        "purchase"
+      ],
+      "slots": [
+        "desired_outcome",
+        "purchase_purpose",
+        "product_requirements"
+      ],
+      "stage_effect": "product_need 或 service_need；进入/保持挖需求。"
+    },
+    {
+      "kind": "goal",
+      "id": "provide_information",
+      "name": "补充信息",
+      "definition": "用户回答问题或主动提供地区、环境、预算、经验、偏好等可用于理解需求的事实。",
+      "include": "我在北京；预算三百；阳台朝南；以前没养过。",
+      "exclude": "用户在询问信息；用户只是说“好的”但没有实质内容。",
+      "positive_examples": [
+        "“我在广东，放阳台养。”",
+        "“预算大概两百到三百。”",
+        "露天阳台能养什么品种的兰花？",
+        "我是新手，在云南适合养什么品种",
+        "有没有素花的，开花比较香的",
+        "价格越便宜越好，新手不敢养贵的，怕养死",
+        "室内养什么品种比较好？能养开花吗"
+      ],
+      "negative_examples": [
+        "“广东适合养什么？”（seek_recommendation）",
+        "“好的。”（affirm）",
+        "南方潮湿环境适合养什么兰花？好的，你帮我挑一款性价比高的",
+        "两百块能买到壮苗建兰吗？",
+        "阳台光照不足要怎么养护？",
+        "推荐一款耐阴、适合室内的兰花",
+        "这款素心兰花多少钱一苗？"
+      ],
+      "confusable": [
+        "express_need",
+        "affirm"
+      ],
+      "slots": [
+        "所有客户画像和需求槽位"
+      ],
+      "stage_effect": "preference_revealed, pain_revealed, desired_outcome；补齐条件后可推进阶段。"
+    },
+    {
+      "kind": "goal",
+      "id": "ask_information",
+      "name": "询问信息",
+      "definition": "用户询问事实、规则、参数、价格或方法，本身不必包含问题处理或购买动作。",
+      "include": "是什么品种；多少钱；怎么养；有没有售后；多久发货。",
+      "exclude": "已经出现具体异常并求解决；请求个性化推荐；明确要求购买。",
+      "positive_examples": [
+        "“这是什么品种？”",
+        "“这个多少钱？”",
+        "这盆元字兰花一苗现在卖多少钱？",
+        "红君荷一年能开几次花，花期有多久？",
+        "发货一般需要几天，偏远地区会延迟吗？",
+        "苗子是裸根发货还是带原盆原土寄出？",
+        "购买后会配套送养护教程和肥料吗？",
+        "这款蕙兰程梅现在还有几苗壮苗库存？",
+        "购买多盆的话，店铺有会员折扣吗？",
+        "苗子收到后需要自己准备消毒药剂吗？",
+        "紫砂盆和塑料种植盆价格分别是多少？",
+        "兰花花苞正常多久能完全打开？"
+      ],
+      "negative_examples": [
+        "“已经烂根了怎么办？”（seek_solution）",
+        "“给我推荐一款。”（seek_recommendation）",
+        "我的兰花烂根了，要怎么抢救？",
+        "苗子收到叶片大面积破损，帮我售后处理",
+        "预算 300，北方室内适合推荐什么兰花？",
+        "订单发货三天了，查一下物流走到哪了",
+        "阳台光照不足，选哪种兰花不容易黄叶？",
+        "花苞发黑消苞，有什么办法保住花箭？",
+        "收到苗子断根，我要申请退款处理",
+        "新手怕养死，给我推荐皮实耐活的品种",
+        "室内暖气房养护多久浇一次水？",
+        "两盆打包能不能优惠一点、包邮？"
+      ],
+      "confusable": [
+        "seek_solution",
+        "seek_recommendation",
+        "query_status"
+      ],
+      "slots": [
+        "由 Issue 决定"
+      ],
+      "stage_effect": "按 Issue 产生 price_interest、service_need 等；不能仅因询问就机械推进。"
+    },
+    {
+      "kind": "goal",
+      "id": "seek_recommendation",
+      "name": "请求推荐",
+      "definition": "用户希望系统根据需求推荐商品、品种或购买方案。",
+      "include": "给新手推荐；广东阳台适合哪款；预算内选哪个。",
+      "exclude": "用户只是询问某款商品事实；用户自己比较两个明确商品但未要求推荐结论。",
+      "positive_examples": [
+        "“推荐一款新手好养的。”",
+        "“三百以内哪个适合送人？”",
+        "纯新手，预算 150 以内，推荐一款浓香好养的建兰",
+        "广东封闭阳台光照少，帮我挑耐阴勤花的兰花品种",
+        "送人用，想要素心淡雅、开花量大的兰花，三百左右预算",
+        "之前养死十几盆，怕难养，推荐皮实不容易消苞的品种",
+        "北方暖气干燥环境，适合入手什么春兰？",
+        "楼顶露天暴晒养护，给我推荐耐高温不易焦尖的兰花",
+        "办公室弱光环境，不用经常打理的兰花推荐几款",
+        "想要四季持续开花，香味清淡的兰花，麻烦推荐",
+        "送礼套装，两盆组合，总价控制在 260，帮我搭配推荐",
+        "老年人养护，操作简单、不用精细管理的兰花推荐"
+      ],
+      "negative_examples": [
+        "“这款多大？”（ask_information）",
+        "“这两个有什么区别？”（compare_options）",
+        "富山奇蝶这款兰花一年开几次花？",
+        "元字和程梅这两款蕙兰，苗情、花香有什么区别？",
+        "我在北方室内，冬天有暖气，预算两百",
+        "建兰小苗一苗现在单价是多少？",
+        "大苗和中苗的叶片数量、开花速度差别在哪？",
+        "我喜欢浓香素花，室内散光养护",
+        "这款宋梅带花苞发货吗，一盆有几苗？",
+        "南阳台通风好，光照充足",
+        "老种君荷和红君荷哪个开花更勤？",
+        "预算不超过三百，纯新手自养"
+      ],
+      "confusable": [
+        "express_need",
+        "compare_options",
+        "ask_information"
+      ],
+      "slots": [
+        "budget",
+        "region",
+        "placement",
+        "preferences",
+        "purchase_purpose"
+      ],
+      "stage_effect": "product_need, recommendation_ready；信息完整后进入推品，否则继续挖需求。"
+    },
+    {
+      "kind": "goal",
+      "id": "compare_options",
+      "name": "比较选择",
+      "definition": "用户比较两个或多个商品、品种、规格或方案，希望了解差异或优劣。",
+      "include": "哪款更好养；红色和黄色哪个好；A 与 B 有什么区别。",
+      "exclude": "没有明确比较对象的推荐请求；只询问单个商品参数。",
+      "positive_examples": [
+        "“这两款哪个更适合新手？”",
+        "“大苗和中苗有什么区别？”",
+        "富山奇蝶和建兰市长红，哪个香味更浓、更容易开花？",
+        "大苗和中苗差价一百，哪种更适合新手快速开花？",
+        "老种春兰和科技春兰，哪个不容易黄叶烂根？",
+        "荷瓣和梅瓣开花哪个观赏性更高，养护难度差多少？",
+        "裸根小苗和带原盆成品苗，收到后哪个更容易服盆？",
+        "蕙兰程梅和元字，北方室内养护哪个更合适？",
+        "素心建兰和色花建兰，花期长短有多大区别？",
+        "三苗弱苗和四苗壮苗，哪个发新芽速度更快？",
+        "室内养护，春兰和建兰哪个不需要强光更容易养？",
+        "送礼选单盆带花苞，还是两盆组合套装更好看？"
+      ],
+      "negative_examples": [
+        "“推荐一个好养的。”（seek_recommendation）",
+        "“这盆是什么品种？”（ask_information）"
+      ],
+      "confusable": [
+        "seek_recommendation",
+        "ask_information"
+      ],
+      "slots": [
+        "comparison_product_ids",
+        "comparison_dimensions"
+      ],
+      "stage_effect": "recommendation_engaged；通常处于推品或塑品。"
+    },
+    {
+      "kind": "goal",
+      "id": "seek_solution",
+      "name": "寻求解决方案",
+      "definition": "用户已经存在明确困难、异常或阻碍，希望系统告诉他如何解决。",
+      "include": "烂根怎么办；一直不开花怎么处理；担心养不活应该选什么。",
+      "exclude": "一般知识询问；真实订单售后要求退款或人工处理。",
+      "positive_examples": [
+        "“已经烂根了怎么救？”",
+        "“以前总养死，该选什么样的？”",
+        "新手室内弱光，预算 200，推荐一款勤花兰花",
+        "这款建兰一年开几次，一盆栽多少苗？",
+        "我家住山东室内，冬天供暖干燥，预算三百",
+        "推荐耐高温、楼顶露天养护不容易焦尖的兰花",
+        "素心兰花现在一苗多少钱，带花苞加价多少？",
+        "纯新手，想要香味浓郁、便宜好养活的兰花",
+        "这款蕙兰开花是什么香型，花期持续多久？",
+        "南方梅雨季高湿环境，适合什么兰花",
+        "给长辈送礼，省心好养的兰花推荐几款",
+        "阳台每天两小时散光，想要四季开花品种"
+      ],
+      "negative_examples": [
+        "“多久浇一次水？”（ask_information）",
+        "“收到坏了，我要退款。”（request_refund_return）",
+        "兰花日常基础养护需要多久浇一次水？",
+        "收到的苗子根部断裂，我要申请退货退款",
+        "这款建兰带花苞发货吗，一盆有几苗？",
+        "收到货少发一包肥料，帮我补发处理",
+        "兰花换盆最佳季节是什么时候，需要准备什么植料？",
+        "订单物流停滞五天，查询一下配送情况",
+        "新手室内弱光推荐耐阴勤花兰花",
+        "高温天气运输，苗子会不会闷坏？",
+        "收到花苗叶片破损严重，要求售后赔付",
+        "兰花施肥适合用哪种肥料，多久施加一次？"
+      ],
+      "confusable": [
+        "ask_information",
+        "seek_recommendation",
+        "request_service"
+      ],
+      "slots": [
+        "problem",
+        "symptom",
+        "desired_outcome",
+        "constraints"
+      ],
+      "stage_effect": "pain_revealed, service_need；可支持找痛点或解决成交阻碍。"
+    },
+    {
+      "kind": "goal",
+      "id": "express_interest",
+      "name": "表达兴趣或认可",
+      "definition": "用户对已介绍商品或方案表达喜欢、认可或继续了解的兴趣，但尚未明确购买。",
+      "include": "这个不错；挺喜欢这个颜色；感觉这款适合我。",
+      "exclude": "单纯肯定系统收到；明确选择并购买；仅礼貌性回应。",
+      "positive_examples": [
+        "“这款看起来不错。”",
+        "“这个颜色我挺喜欢。”",
+        "这款素心建兰看着很不错，香味我也很喜欢",
+        "你推荐的这款耐阴兰花，刚好适合我室内散光环境",
+        "程梅这款蕙兰花型大气，我挺中意这个品种",
+        "对比下来还是富山奇蝶更好看，开花量也大",
+        "你们家苗子看着壮实，比别家苗情要好很多",
+        "这个带紫砂盆的套装颜值很高，送人很合适",
+        "四季开花的品种我很感兴趣，再多给我讲讲细节",
+        "淡香型兰花刚好符合我的喜好，这款我很看好",
+        "楼顶耐高温这款建兰，完全适配我的养护环境",
+        "老种荷瓣开花图片太美了，我想多了解一下养护难度"
+      ],
+      "negative_examples": [
+        "“好的，我知道了。”（affirm）",
+        "“就买这个。”（purchase）",
+        "好的，那就选这款四苗壮苗",
+        "就要这盆素心建兰，直接给我下单两盆",
+        "好的，我家里是北方暖气房，预算两百",
+        "嗯，没问题，晚点我再过来拍",
+        "可以，发个购买链接我现在付款",
+        "好的，谢谢你的讲解",
+        "确定要这款带花苞的中苗，不用再推荐别的",
+        "直接帮我下单一套送礼组合，现在付款",
+        "好的，我是纯新手，光照不足",
+        "没问题，等我考虑两天再决定"
+      ],
+      "confusable": [
+        "affirm",
+        "confirm_choice",
+        "purchase"
+      ],
+      "slots": [
+        "interested_product_id",
+        "liked_attributes"
+      ],
+      "stage_effect": "recommendation_engaged, value_acknowledged；支持塑品或试成交。"
+    },
+    {
+      "kind": "goal",
+      "id": "express_objection",
+      "name": "表达异议或顾虑",
+      "definition": "用户表达阻碍购买的担心、质疑或不认可，但没有明确要求优惠或拒绝购买。",
+      "include": "太贵；怕养不好；不确定真假；担心售后；感觉不值。",
+      "exclude": "明确要求便宜；明确不买；单纯询问价格或保障政策。",
+      "positive_examples": [
+        "“有点贵，我再想想。”",
+        "“挺喜欢，但我怕养死。”",
+        "这款兰花价格有点高，我有点犹豫要不要入手",
+        "我纯新手，怕买回来养护不当直接养死，有点担心",
+        "网上很多商家不对版，我有点担心品种和图片不符",
+        "现在气温三十多度，路上运输花苞大概率会闷坏吧",
+        "看着苗子偏弱小，怕不容易服盆、很难开花",
+        "这款虽然好看，但听说很容易消苞，有点不敢买",
+        "这个价位只有三苗，对比别家总觉得性价比不高",
+        "北方长途运输，苗子冻伤黄叶的话售后麻烦吗？心里没底",
+        "我经常出差没时间打理，怕疏于养护直接枯萎",
+        "荷瓣品种养护难度高，怕自己照顾不好开不出花"
+      ],
+      "negative_examples": [
+        "“能便宜五十吗？”（negotiate）",
+        "“不用了，我不买。”（decline_purchase）",
+        "价格能不能再优惠五十，买两盆顺便包邮",
+        "不用了，这个品种我不打算入手",
+        "这款兰花单苗现在多少钱，有没有活动价",
+        "太贵了，我再考虑几天（defer_decision）",
+        "买两盆能不能送一包专用植料？（negotiate）",
+        "这款兰花运输损坏有赔付保障吗？（ask_information）",
+        "算了，暂时不买兰花，先观望一段时间（decline_purchase）",
+        "满两百有没有优惠券可以抵扣？（negotiate）",
+        "新手养这款需要注意哪些养护要点？（ask_information）",
+        "价格最低能给到多少，合适我直接下单（negotiate）"
+      ],
+      "confusable": [
+        "negotiate",
+        "defer_decision",
+        "decline_purchase",
+        "ask_information"
+      ],
+      "slots": [
+        "decision_blockers",
+        "objection_type",
+        "objection_detail"
+      ],
+      "stage_effect": "objection；根据是否已有具体商品决定继续需求确认或进入成交阻碍处理。"
+    },
+    {
+      "kind": "goal",
+      "id": "negotiate",
+      "name": "议价或争取优惠",
+      "definition": "用户明确希望降价、打折、赠送权益或获得包邮等优惠。",
+      "include": "便宜点；最低多少；送点东西；能包邮吗。",
+      "exclude": "只说贵；只问正常价格；询问现有活动但未提出额外要求时可视业务决定。",
+      "positive_examples": [
+        "“能再便宜一点吗？”",
+        "“买两盆可以包邮吗？”",
+        "这款建兰三百太贵了，能不能便宜三十块？",
+        "我一次性拿三盆，所有订单帮我包个邮可以吗？",
+        "老客户经常回购，能不能给我一个专属折扣价？",
+        "下单两盆的话，能不能额外送一包兰花专用肥料？",
+        "总价 286，能不能抹掉零头只收 280？",
+        "两套送礼组合一起拍，能不能打个九五折？",
+        "现在有没有满减优惠券，满两百能减多少？",
+        "买这款大苗，能不能赠送一小袋种植植料？",
+        "我一次性拿五苗，单苗价格再优惠一点行吗？",
+        "偏远地区运费太贵，多买一盆能不能免快递费？"
+      ],
+      "negative_examples": [
+        "“这个多少钱？”（ask_information）",
+        "“太贵了。”（express_objection）",
+        "这款蕙兰单苗价格有点偏高，我再想想（express_objection）",
+        "现在店铺这款兰花正常售价是多少？（ask_information）",
+        "别家同款苗情比你便宜不少，性价比一般（express_objection）",
+        "高温运输苗子容易闷坏，有点担心不敢下单（express_objection）",
+        "满三百才有优惠活动吗，活动持续多久？（ask_information）",
+        "新手怕养死，这款养护难度高，有点犹豫（express_objection）",
+        "这款兰花带花苞发货需要额外加价吗？（ask_information）",
+        "苗子看着偏弱，怕很难开花，不太敢入手（express_objection）",
+        "现在下单有没有配套养护教程赠送？（ask_information）",
+        "北方长途运输售后流程麻烦，我有点顾虑（express_objection）"
+      ],
+      "confusable": [
+        "ask_information",
+        "express_objection"
+      ],
+      "slots": [
+        "requested_price",
+        "requested_discount",
+        "requested_benefit",
+        "quantity"
+      ],
+      "stage_effect": "price_interest, objection；通常处于试成交或成交推进。"
+    },
+    {
+      "kind": "goal",
+      "id": "confirm_choice",
+      "name": "确认商品或方案",
+      "definition": "用户明确锁定某个商品、规格或推荐方案，但未必已经提出下单动作。",
+      "include": "就刚才那款；选红色中苗；还是要第二个方案。",
+      "exclude": "只是表示喜欢；仍在比较；已明确要求购买数量和付款。",
+      "positive_examples": [
+        "“就选刚才推荐的第二款。”",
+        "“确定要红色中苗。”",
+        "不用推荐别的了，我就选这款素心建兰四苗壮苗",
+        "对比完几款，确定要带紫砂盆、带花苞的市长红套装",
+        "就选你刚才说的耐阴中苗，别的花色我都不考虑",
+        "送礼组合我确定要两盆荷瓣搭配，不用更换品种",
+        "裸根小苗不用，我锁定这款带原盆成品大苗",
+        "程梅这款蕙兰确定了，不用再给我对比元字",
+        "想要浓香款，最终选定富山奇蝶，其他淡香型不用看",
+        "楼顶耐高温那款建兰确定，其他不耐晒品种 pass",
+        "单盆三苗弱苗不要，我确定要四苗壮苗规格",
+        "室内养护专用的春兰确定，不用再推荐建兰"
+      ],
+      "negative_examples": [
+        "“第二款挺好看。”（express_interest）",
+        "“第二款和第三款哪个好？”（compare_options）",
+        "这款富山奇蝶看着很香，我挺感兴趣（express_interest）",
+        "程梅和元字哪个更适合北方室内养护？（compare_options）",
+        "确定这款建兰，直接给我下单两盆（purchase）",
+        "素心兰花颜值很高，我比较中意这个风格（express_interest）",
+        "大苗和中苗哪个开花速度更快，我再对比下（compare_options）",
+        "就要这款带花苞的，发链接我现在付款（pay）",
+        "荷瓣花型好看，我更喜欢这种（express_interest）",
+        "送礼套装两盆组合和单盆大苗哪个更合适？（compare_options）",
+        "锁定这款兰花，帮我直接提交订单（purchase）",
+        "室内弱光这款挺适配我的环境，我很喜欢（express_interest）"
+      ],
+      "confusable": [
+        "express_interest",
+        "purchase",
+        "affirm"
+      ],
+      "slots": [
+        "selected_product_id",
+        "selected_sku_id",
+        "selected_attributes"
+      ],
+      "stage_effect": "selected_product, ready_to_buy 的弱证据；支持试成交。"
+    },
+    {
+      "kind": "goal",
+      "id": "defer_decision",
+      "name": "暂缓决定",
+      "definition": "用户没有明确拒绝，只表示需要考虑、稍后决定或暂时不推进。",
+      "include": "考虑一下；晚点回复；先看看；回头再说。",
+      "exclude": "明确不买；因具体异议而犹豫但未表达暂缓时，主 Goal 可为 express_objection。",
+      "positive_examples": [
+        "“我先考虑一下，晚点再说。”",
+        "“先看看，过两天决定。”",
+        "我先和家人商量一下，晚点再来给你答复",
+        "今天手头预算不够，过十天发工资再来下单",
+        "先收藏这款兰花，我观望一段时间再决定买不买",
+        "暂时先不拍，等家里阳台收拾好再来找你",
+        "我再多对比几家店铺，考虑清楚再回来找你",
+        "今天有点忙没时间细聊，明天有空再来咨询下单",
+        "先记一下这个品种，等下个月送礼再入手",
+        "暂时不着急买兰花，先学习养护知识再说",
+        "我先看看其他款式，过半小时再回来决定",
+        "打算秋天再入手，夏天高温先暂时不买"
+      ],
+      "negative_examples": [
+        "“不用了，我不买。”（decline_purchase）",
+        "“主要是太贵。”（express_objection）",
+        "算了，这款兰花我不打算入手了（decline_purchase）",
+        "价格偏高，我怕养死，心里有点顾虑（express_objection）",
+        "不用推荐别的，我确定要这款大苗（confirm_choice）",
+        "苗子看着偏弱，不太敢直接下单（express_objection）",
+        "不用了，暂时没有养兰花的打算（decline_purchase）",
+        "高温运输容易闷坏花苞，我有点犹豫（express_objection）",
+        "直接发链接，我现在就付款（pay）",
+        "品种担心不对版，心里没底不敢买（express_objection）",
+        "不需要，我放弃购买兰花了（decline_purchase）",
+        "这款性价比一般，我再看看别家（express_objection）"
+      ],
+      "confusable": [
+        "express_objection",
+        "decline_purchase"
+      ],
+      "slots": [
+        "follow_up_time",
+        "defer_reason"
+      ],
+      "stage_effect": "保持商机，不强行推进；进入适度跟进策略。"
+    },
+    {
+      "kind": "goal",
+      "id": "decline_purchase",
+      "name": "明确拒绝购买",
+      "definition": "用户明确表示不购买、不要或终止当前购买决定。",
+      "include": "不买了；不用了；这个我不要；决定不买。",
+      "exclude": "只是暂时考虑；否认某个属性或纠正理解；取消已创建订单属于服务/交易操作。",
+      "positive_examples": [
+        "“不用了，我不买了。”",
+        "“这个不考虑了。”",
+        "不用了，这款兰花我不打算买，不用再介绍了",
+        "暂时没有养兰花的想法，所有品种都不用推荐",
+        "对比完价格不合适，我直接放弃不入手了",
+        "养护难度太高，我不买了，不用再讲解",
+        "别家苗情性价比更高，我不在你家下单了",
+        "送礼计划取消，这套组合我不需要了",
+        "不用继续推荐，我决定不养兰花了",
+        "担心品种不对版，直接放弃不考虑购买",
+        "预算不够，也不想议价，干脆不买了",
+        "夏天高温运输风险大，今年我不入手兰花"
+      ],
+      "negative_examples": [
+        "“我再考虑一下。”（defer_decision）",
+        "“不是红色的。”（deny）",
+        "我先考虑两天，下周再来决定（defer_decision）",
+        "价格有点高，我怕养死，心里有点犹豫（express_objection）",
+        "不是这款，我想要素心不带花色的（deny）",
+        "苗子偏弱，我再观望一段时间（defer_decision）",
+        "高温运输花苞容易损坏，有点顾虑（express_objection）",
+        "我和家人商量下，晚点回复你（defer_decision）",
+        "不是暖气房养护，我是露天楼顶（deny）",
+        "这款性价比一般，我再多对比几家（express_objection）",
+        "等秋天降温了，我再来选购兰花（defer_decision）",
+        "担心新手养不活，暂时先了解不着急买（express_objection）"
+      ],
+      "confusable": [
+        "defer_decision",
+        "deny",
+        "end_conversation"
+      ],
+      "slots": [
+        "rejection_reason",
+        "rejected_product_id"
+      ],
+      "stage_effect": "purchase_rejected；关闭当前机会或进入合规的流失挽回策略。"
+    },
+    {
+      "kind": "goal",
+      "id": "purchase",
+      "name": "明确购买",
+      "definition": "用户明确要求购买、下单或按指定数量获取商品。",
+      "include": "我要这个；来两盆；帮我下单；现在买。",
+      "exclude": "只确认商品但未表达购买；索要商品信息；询问价格。",
+      "positive_examples": [
+        "“就要这个，给我来两盆。”",
+        "“可以，帮我下单吧。”",
+        "就要这款四苗富山奇蝶，直接给我下单两盆",
+        "锁定带花苞紫砂盆套装，帮我提交订单",
+        "程梅蕙兰拿三苗壮苗，现在直接拍",
+        "送礼两套组合，全部下单，不用再调整",
+        "这款素心建兰预留一盆，我马上付款",
+        "大苗规格来一盆，裸根发货，直接下单",
+        "楼顶耐高温建兰拿两盆，帮我开购买链接",
+        "老种荷瓣一盆，搭配肥料套装一起下单",
+        "中苗市长红三盆，全部拍下来，尽快发货",
+        "蕙兰元字一苗，直接给我准备链接"
+      ],
+      "negative_examples": [
+        "“我比较喜欢这个。”（express_interest）",
+        "“这个多少钱？”（ask_information）",
+        "这款富山奇蝶花香很好，我挺喜欢（express_interest）",
+        "确定要这款带花苞中苗，再问问运费多少（confirm_choice）",
+        "这款兰花一苗现在卖多少钱？（ask_information）",
+        "对比完还是荷瓣好看，我更中意这个（express_interest）",
+        "带盆发货需要额外加钱吗？（ask_information）",
+        "锁定这款大苗，我考虑半小时再下单（confirm_choice\\+defer）",
+        "这款苗子壮实，适配我的阳台环境（express_interest）",
+        "现在下单几天能发货，偏远地区包邮吗？（ask_information）",
+        "对比元字和程梅，我最终选程梅（confirm_choice）",
+        "这款兰花高温运输会不会闷坏花苞？（ask_information）"
+      ],
+      "confusable": [
+        "confirm_choice",
+        "pay",
+        "express_interest"
+      ],
+      "slots": [
+        "product_id",
+        "sku_id",
+        "quantity",
+        "buyer_requirements"
+      ],
+      "stage_effect": "ready_to_buy；进入成交推进，但必须查询真实库存和价格。"
+    },
+    {
+      "kind": "goal",
+      "id": "pay",
+      "name": "支付",
+      "definition": "用户询问、准备执行或声称已经完成支付。",
+      "include": "怎么付款；发付款码；我已经付了；支付失败。",
+      "exclude": "只要求下单；询问价格；订单支付状态的事实查询可结合 query_status。",
+      "positive_examples": [
+        "“微信怎么付款？”",
+        "“我已经付过了，查一下。”",
+        "微信怎么付款，麻烦发一下付款入口链接",
+        "我刚刚已经付款了，帮我查一下有没有收到订单",
+        "支付宝扣款成功，但页面没生成订单，怎么处理？",
+        "能不能直接微信转账给你，不走平台下单？",
+        "付款码发我一下，我现在直接扫码支付",
+        "支付页面加载失败，换个渠道付款可以吗？",
+        "已经付完两套组合的全款，麻烦尽快安排打包",
+        "平台余额不足，能不能货到再付款？",
+        "扫码付款后多久能同步订单信息？",
+        "刚扣款成功，帮我核对一下购买的品种数量"
+      ],
+      "negative_examples": [
+        "“我要这个。”（purchase）",
+        "“总共多少钱？”（ask_information）",
+        "这款四苗富山奇蝶直接给我下单两盆（purchase）",
+        "两盆兰花加起来总价是多少钱？（ask_information）",
+        "订单下单完成，什么时候安排发货？（query_status）",
+        "确定这套送礼组合，帮我创建订单（purchase）",
+        "买两盆能不能优惠、包个邮？（negotiate）",
+        "锁定大苗一盆，我稍后再付款（confirm_choice\\+defer）",
+        "下单后快递几天能送到北方？（ask_information）",
+        "三苗程梅，直接帮我提交订单（purchase）",
+        "满两百有没有优惠券抵扣付款金额？（ask_information）",
+        "订单物流走到哪里了，怎么三天没更新？（query_status）"
+      ],
+      "confusable": [
+        "purchase",
+        "query_status",
+        "ask_information"
+      ],
+      "slots": [
+        "payment_method",
+        "payment_claimed",
+        "transaction_id",
+        "payment_problem"
+      ],
+      "stage_effect": "payment_claimed；只有业务系统确认后才能产生 purchased_verified 和成交关闭。"
+    },
+    {
+      "kind": "goal",
+      "id": "query_status",
+      "name": "查询状态",
+      "definition": "用户查询订单、支付、发货、物流、服务处理或退款的当前进度。",
+      "include": "下单成功了吗；发货了吗；快递到哪；退款到账了吗。",
+      "exclude": "购买前询问通常几天发货；请求执行退款；询问操作方法。",
+      "positive_examples": [
+        "“我的订单发货了吗？”",
+        "“退款什么时候到账？”",
+        "我昨天付款的订单，现在发货了吗？",
+        "订单物流三天没更新，帮我查一下包裹位置",
+        "申请的退款处理完了吗，什么时候能到账？",
+        "补发的肥料快递有没有揽收，单号发我一下",
+        "昨天提交的换货订单，打包好了没有？",
+        "支付扣款成功，帮我核对是否生成有效订单",
+        "快递显示停滞中转站，查一下是什么情况",
+        "售后赔付申请提交两天，现在处理到哪一步了？",
+        "下单两小时了，还没显示揽收，帮我看下",
+        "退货寄回的包裹，商家签收了吗，退款何时处理"
+      ],
+      "negative_examples": [
+        "“买了以后几天发货？”（ask_information）",
+        "“我要退款。”（request_refund_return）",
+        "下单后一般几天能发货，偏远地区延迟多久？（ask_information）",
+        "收到苗子断根，我要申请全额退款（request_refund_return）",
+        "买兰花运输损坏有赔付保障吗？（ask_information）",
+        "少发一包植料，麻烦给我补发一份（request_service）",
+        "这款兰花现在下单，多久能发出快递？（ask_information）",
+        "苗子叶片破损严重，我要退货退款（request_refund_return）",
+        "高温天气运输会不会损伤花苞？（ask_information）",
+        "收到货品种不对版，帮我处理售后（request_service）",
+        "售前养死包赔政策有效期多久？（ask_information）",
+        "快递运输坏苗，怎么提交售后申请？（ask_information）"
+      ],
+      "confusable": [
+        "ask_information",
+        "request_service",
+        "request_refund_return"
+      ],
+      "slots": [
+        "order_id",
+        "tracking_no",
+        "status_type"
+      ],
+      "stage_effect": "通常不推进销售；真实服务问题可触发中断。"
+    },
+    {
+      "kind": "goal",
+      "id": "request_service",
+      "name": "请求客户服务",
+      "definition": "用户针对已经发生的订单、配送、收货或使用问题，要求查询、解释或处理。",
+      "include": "帮我查快递；收到有问题怎么处理；少发了一件；需要售后帮助。",
+      "exclude": "购买前询问服务政策；纯养护知识咨询；明确退款退货或人工请求。",
+      "positive_examples": [
+        "“收到的苗状态不好，帮我处理一下。”",
+        "“订单一直没发，帮我看看。”",
+        "收到苗子叶片轻微折损，帮我看看怎么补偿处理",
+        "物流停滞四天无更新，麻烦协助联系快递核查",
+        "下单赠送的肥料没有随包裹发出，帮我补发一份",
+        "实物花苞数量比直播间展示少，帮忙协调处理",
+        "收货根系轻微干瘪，有没有养护补救和补偿方案",
+        "快递地址填错一位，协助修改派送地址",
+        "配套种植植料漏发，麻烦安排单独补发",
+        "苗子收到轻微黄叶，商家这边有什么处理办法？",
+        "包裹外包装破损，帮我确认内部苗子有无受损",
+        "买两盆只收到一盆，核对订单后补发缺失的那一盆"
+      ],
+      "negative_examples": [
+        "“买了以后有人指导吗？”（售前 ask_information）",
+        "“我要退货。”（request_refund_return）",
+        "买完兰花会有专人指导养护吗？（ask_information）",
+        "收到苗子根部全部断裂，我要申请退货退款（request_refund_return）",
+        "高温运输坏苗售后赔付期限是多久？（ask_information）",
+        "问题处理不清楚，帮我转人工客服对接（request_human）",
+        "售前运输损坏有免费补发政策吗？（ask_information）",
+        "整株兰花收到腐烂，直接全额退款不用补发（request_refund_return）",
+        "新手买苗之后会送养护教程吗？（ask_information）",
+        "多次沟通处理无果，我要找人工售后（request_human）",
+        "养死包赔的售后规则是什么？（ask_information）",
+        "收到货完全不对版，申请全额退货退款（request_refund_return）"
+      ],
+      "confusable": [
+        "seek_solution",
+        "query_status",
+        "request_refund_return",
+        "request_human"
+      ],
+      "slots": [
+        "order_id",
+        "service_problem",
+        "requested_resolution"
+      ],
+      "stage_effect": "after_sale_interruption；暂停销售机会，处理完成后恢复。"
+    },
+    {
+      "kind": "goal",
+      "id": "request_refund_return",
+      "name": "请求退款或退货",
+      "definition": "用户明确要求退回款项或退回商品，第一版暂不拆分退款与退货流程。",
+      "include": "我要退款；这个要退掉；帮我退钱；不想要了怎么退。",
+      "exclude": "询问售前退款政策；查询退款进度；表达不购买但不存在订单。",
+      "positive_examples": [
+        "“收到坏了，我要退款。”",
+        "“这个订单我想退掉。”",
+        "收到苗子根系全部腐烂，我要全额退款不用补发",
+        "刚下单还没发货，这个订单我不需要了，申请退款",
+        "品种和直播间完全不符，我把货寄回，麻烦退款",
+        "苗子收到全部消苞，不接受补偿，直接给我退款",
+        "这套送礼组合不需要了，未发货取消订单退款",
+        "叶片大面积黑斑病害，我选择退货，退回全款",
+        "补发的苗子依旧苗情很差，坚持仅退款处理",
+        "收到货少发一盆，不接受补发，直接差额退款",
+        "运输冻伤整株枯萎，申请退货退款处理",
+        "直播间描述带花苞，收到无花箭，要求退货退款"
+      ],
+      "negative_examples": [
+        "“坏了能退款吗？”（售前 ask_information）",
+        "“我暂时不买了。”（decline_purchase）",
+        "买回去运输损坏的话，可以申请退款吗？（ask_information）",
+        "暂时不打算入手兰花，先不买了（decline_purchase）",
+        "我提交的退款申请什么时候能审核完成？（query_status）",
+        "售前养死包赔政策可以退货退款吗？（ask_information）",
+        "先考虑一段时间，暂时不下单（defer_decision）",
+        "售后退款一般多久能原路返还？（ask_information）",
+        "不打算养兰花，所有品种都不用推荐（decline_purchase）",
+        "高温运输坏苗退换货流程是什么？（ask_information）",
+        "退款到账需要核对什么信息？（ask_information）",
+        "先观望，等秋天再考虑购买兰花（defer_decision）"
+      ],
+      "confusable": [
+        "ask_information",
+        "query_status",
+        "decline_purchase",
+        "request_service"
+      ],
+      "slots": [
+        "order_id",
+        "requested_resolution",
+        "refund_reason",
+        "return_reason"
+      ],
+      "stage_effect": "高风险服务中断；由业务政策或人工处理，不由意图模块直接执行。"
+    },
+    {
+      "kind": "goal",
+      "id": "complain",
+      "name": "投诉或强烈不满",
+      "definition": "用户针对商品、服务或处理过程表达明确投诉、追责或强烈不满。",
+      "include": "我要投诉；服务太差；一直没人处理；必须给说法。",
+      "exclude": "普通价格异议；轻微负面评价但仍在正常选购；单纯描述商品问题。",
+      "positive_examples": [
+        "“你们这个服务太差了，我要投诉。”",
+        "“处理这么久都没结果，必须给我说法。”",
+        "售后沟通三天没人解决，你们服务太差，我要投诉",
+        "直播间虚假宣传带花苞，收到光秃秃，必须给我说法",
+        "苗子运输全烂，商家一直拖延不处理，我要投诉维权",
+        "少发赠品多次反馈不理睬，这个服务态度我要投诉",
+        "货不对版还拒不退换，我直接走平台投诉渠道",
+        "快递丢失商家不跟进协调，处理效率太低严重不满",
+        "承诺的养护指导完全没人对接，虚假服务我要投诉",
+        "多次协商补偿都被拒绝，只能投诉处理这件事",
+        "苗子苗情和图片差距极大，虚假宣传必须追责",
+        "售后客服敷衍回复，问题迟迟不解决，我要投诉商家"
+      ],
+      "negative_examples": [
+        "“这个有点贵。”（express_objection）",
+        "“收到的叶子有点黄。”（可能 request_service）",
+        "这款兰花价格偏高，我有点犹豫（express_objection）",
+        "收到苗子叶片轻微折损，看看有什么补偿方案（request_service）",
+        "高温运输花苞容易闷坏，我有点担心不敢买（express_objection）",
+        "少发一包肥料，麻烦帮忙补发一份（request_service）",
+        "苗子看着偏弱，怕不容易开花（express_objection）",
+        "物流停滞四天，帮我查一下包裹位置（query_status）",
+        "价格比别家贵，性价比一般（express_objection）",
+        "根系轻微干瘪，有没有养护补救办法？（request_service）",
+        "新手养护难度高，怕买回来养死（express_objection）",
+        "实物花苞数量少一点，协调小额补偿即可（request_service）"
+      ],
+      "confusable": [
+        "express_objection",
+        "request_service",
+        "request_human"
+      ],
+      "slots": [
+        "complaint_target",
+        "complaint_reason",
+        "requested_resolution"
+      ],
+      "stage_effect": "高风险服务/人工中断，不推进销售。"
+    },
+    {
+      "kind": "goal",
+      "id": "request_human",
+      "name": "请求人工介入",
+      "definition": "用户明确要求真人、人工客服、老板或售后人员接管当前对话。",
+      "include": "转人工；找真人客服；让老板联系我；人工处理。",
+      "exclude": "只是出现“客服”一词；询问是否有客服指导；要求系统提供服务但未要求真人。",
+      "positive_examples": [
+        "“帮我转人工客服。”",
+        "“我想找真人处理。”",
+        "机器人解决不了问题，帮我转接人工客服对接",
+        "这件售后纠纷比较复杂，麻烦让老板联系我",
+        "不用自动回复，直接转真人售后过来沟通",
+        "货不对板维权，我需要人工客服详细处理",
+        "多次沟通无果，麻烦安排人工专员对接我的订单",
+        "机器人解释不清楚退换货规则，转人工给我讲解",
+        "大额送礼订单有特殊需求，找真人客服沟通细节",
+        "投诉问题需要人工登记处理，不要机器回复",
+        "苗子严重腐烂售后，安排人工一对一处理",
+        "自动回复解决不了物流丢失问题，转人工核查"
+      ],
+      "negative_examples": [
+        "“有没有客服指导养护？”（ask_information）",
+        "“客服一般几点上班？”（是否转人工需结合语义）",
+        "购买之后会有客服指导养护吗？（ask_information）",
+        "客服一般几点在线，晚上能不能咨询？（ask_information）",
+        "售后赔付流程是什么，机器回复讲清楚就行（ask_information）",
+        "发货前客服会拍照确认苗情吗？（ask_information）",
+        "有没有客服一对一跟进养护指导？（ask_information）",
+        "物流停滞，机器帮我查一下包裹位置（query_status）",
+        "少发肥料，自动补发处理可以吗？（request_service）",
+        "客服处理售后需要提供哪些照片凭证？（ask_information）",
+        "新手养护问题，机器人能解答清楚吗？（ask_information）",
+        "订单退款进度，机器直接查询给我（query_status）"
+      ],
+      "confusable": [
+        "request_service",
+        "ask_information"
+      ],
+      "slots": [
+        "handoff_reason",
+        "preferred_contact_method"
+      ],
+      "stage_effect": "human_interruption；暂停机会并记录恢复阶段。"
+    },
+    {
+      "kind": "goal",
+      "id": "affirm",
+      "name": "肯定确认",
+      "definition": "用户对上一轮问题、提议或事实作肯定回答，但没有更具体的业务动作。",
+      "include": "是的；可以；好的；没问题。",
+      "exclude": "确认具体商品选择；“好的”后继续提供实质信息；礼貌感谢。",
+      "positive_examples": [
+        "“是的。”",
+        "“可以，就这样。”",
+        "是的，我家里确实是北方暖气房养护",
+        "没错，预算就是两百左右，不会再加价",
+        "可以，这个补发补偿方案我认可接受",
+        "没问题，就按照你推荐的这款兰花来看",
+        "对，我纯新手，完全没有养兰经验",
+        "好的，我清楚高温运输的注意事项了",
+        "没错，我想要浓香素心的兰花品种",
+        "可以，多买两盆包邮这个方案我同意",
+        "对，阳台每天只有两小时散光",
+        "没问题，知晓养死包赔的售后规则了"
+      ],
+      "negative_examples": [
+        "“好的，我在广东阳台养。”（主 Goal provide_information）",
+        "“就要第二款。”（confirm_choice）",
+        "好的，我家住广东南阳台，预算三百（provide_information）",
+        "可以，就要这款四苗带花苞建兰（confirm_choice）",
+        "好的，谢谢耐心讲解（social）",
+        "没问题，这款大苗直接帮我下单两盆（purchase）",
+        "对，我纯新手，室内光照不足，想要耐阴品种（provide_information）",
+        "好的，锁定这套送礼组合，我现在付款（pay）",
+        "没错，偏爱素花，打算买来办公室摆放（provide_information）",
+        "可以，这款蕙兰确定，不用再对比其他品种（confirm_choice）",
+        "对，楼顶露天养护，夏天暴晒高温（provide_information）",
+        "没问题，发链接我直接扫码支付（pay）"
+      ],
+      "confusable": [
+        "confirm_choice",
+        "provide_information",
+        "social"
+      ],
+      "slots": [
+        "affirmed_proposition"
+      ],
+      "stage_effect": "必须结合上一轮问题解释；不能仅凭“好的”认定购买。"
+    },
+    {
+      "kind": "goal",
+      "id": "deny",
+      "name": "否认或纠正",
+      "definition": "用户否定上一轮假设、纠正商品/需求信息，或说明系统理解错误。",
+      "include": "不是；不对；我说的不是这个；不是红色。",
+      "exclude": "明确不购买；表达商品异议；拒绝某个推荐但仍想继续选择时需结合上下文。",
+      "positive_examples": [
+        "“不是，我是放室内养。”",
+        "“我说的不是这款。”",
+        "不是，我不是室内养护，是楼顶露天阳台",
+        "不对，预算不是三百，最多只能两百以内",
+        "我说的不是这款建兰，我想要蕙兰程梅",
+        "不是花色艳丽的，我只想要素心无杂色兰花",
+        "不对，我不是新手，养兰花已经三年了",
+        "不是三苗弱苗，我要四苗壮苗规格",
+        "不对，不送人，纯粹自己室内摆放观赏",
+        "不是南阳台，家里是北向几乎无直射光",
+        "不是夏天入手，我打算秋天再买兰花",
+        "不对，我不想要带花苞，裸根小苗就行"
+      ],
+      "negative_examples": [
+        "“我不买了。”（decline_purchase）",
+        "“这个品质不太行。”（express_objection）",
+        "不用了，这款兰花我不打算入手（decline_purchase）",
+        "价格偏高，怕养死，有点不敢下单（express_objection）",
+        "这个补偿方案我不接受，直接申请退款（request_refund_return）",
+        "所有品种都不需要，暂时不养兰花（decline_purchase）",
+        "苗子偏弱，养护难度高，我不太中意（express_objection）",
+        "补发肥料这个方案我不同意，要差额退款（request_refund_return）",
+        "高温运输容易闷坏花苞，顾虑比较多（express_objection）",
+        "不用推荐任何款式，我放弃购买（decline_purchase）",
+        "这款性价比太低，我不考虑入手（express_objection）",
+        "售后处理方案不满意，坚持退货退款（request_refund_return）"
+      ],
+      "confusable": [
+        "decline_purchase",
+        "express_objection"
+      ],
+      "slots": [
+        "denied_proposition",
+        "corrected_value"
+      ],
+      "stage_effect": "修正会话状态；必要时回到需求确认，不直接关闭机会。"
+    },
+    {
+      "kind": "goal",
+      "id": "social",
+      "name": "寒暄或感谢",
+      "definition": "用户进行没有独立业务动作的问候、感谢或礼貌互动。",
+      "include": "你好；在吗；谢谢；辛苦了。",
+      "exclude": "寒暄后包含业务问题；表示对商品认可；明确结束对话。",
+      "positive_examples": [
+        "“你好，在吗？”",
+        "“谢谢，辛苦了。”",
+        "你好，请问客服在吗？",
+        "早上好，打扰你一下",
+        "谢谢你这么耐心给我讲解兰花知识",
+        "辛苦了，麻烦你花这么久介绍品种",
+        "晚上好，有空咨询一下兰花相关问题",
+        "感谢详细解答，讲解得很清楚",
+        "在吗，想简单了解一下",
+        "多谢你的推荐，讲解很细致",
+        "中午好，打扰你几分钟",
+        "麻烦你了，非常感谢"
+      ],
+      "negative_examples": [
+        "“你好，这个多少钱？”（主 Goal ask_information）",
+        "“这个不错。”（express_interest）",
+        "你好，这款程梅一苗现在多少钱？（ask_information）",
+        "早上好，纯新手室内弱光推荐兰花（seek_recommendation）",
+        "谢谢，这款素心兰花我挺喜欢的（express_interest）",
+        "在吗，我预算两百，阳台散光养护（provide_information）",
+        "感谢讲解，我直接下单两盆富山奇蝶（purchase）",
+        "晚上好，暖气房兰花黄叶怎么解决？（seek_solution）",
+        "多谢推荐，锁定这款带花苞大苗（confirm_choice）",
+        "中午好，高温运输苗子会不会闷坏？（ask_information）",
+        "麻烦你了，帮我转接人工处理售后（request_human）",
+        "讲解很细致，这款兰花我现在付款（pay）"
+      ],
+      "confusable": [
+        "affirm",
+        "express_interest",
+        "end_conversation"
+      ],
+      "slots": [
+        "通常为空"
+      ],
+      "stage_effect": "通常保持阶段。"
+    },
+    {
+      "kind": "goal",
+      "id": "end_conversation",
+      "name": "结束会话",
+      "definition": "用户明确表示当前问题已解决或希望结束对话，不等同于拒绝购买。",
+      "include": "问题解决了；先这样；不用回复了；再见。",
+      "exclude": "明确不购买；只说谢谢；暂缓决策但希望后续联系。",
+      "positive_examples": [
+        "“问题解决了，谢谢，再见。”",
+        "“先这样吧，不用回复了。”",
+        "问题都了解清楚了，不用再回复，再见",
+        "先聊到这里，后续想买兰花再来找你",
+        "售后问题处理完毕，这次对话先结束了",
+        "没有其他疑问了，先到此为止，拜拜",
+        "信息全部看完明白了，不用继续讲解",
+        "今天先问到这里，下次有需求再来咨询",
+        "所有养护问题都解答完了，先结束对话",
+        "不用再推荐品种，我先退出，需要再联系",
+        "订单问题处理好，这次沟通到此结束",
+        "了解全部规则了，先这样，再见"
+      ],
+      "negative_examples": [
+        "“我先考虑一下。”（defer_decision）",
+        "“这个我不买了。”（decline_purchase）",
+        "我先考虑两天，下周再来下单（defer_decision）",
+        "不用了，所有兰花我都不打算买（decline_purchase）",
+        "谢谢，讲解很细致（social）",
+        "暂时先观望，秋天再来选购兰花（defer_decision）",
+        "不用继续介绍，我放弃购买（decline_purchase）",
+        "辛苦了，麻烦你这么久（social）",
+        "预算不够，先攒钱，过段时间再来（defer_decision）",
+        "不需要任何推荐，我不养兰花了（decline_purchase）",
+        "感谢解答，我再对比别家看看（defer_decision）",
+        "暂时没有采购计划，先观望一段时间（defer_decision）"
+      ],
+      "confusable": [
+        "social",
+        "defer_decision",
+        "decline_purchase"
+      ],
+      "slots": [
+        "end_reason"
+      ],
+      "stage_effect": "结束当前会话，但商机是否关闭由策略层根据购买状态判断。"
+    },
+    {
+      "kind": "goal",
+      "id": "unclear",
+      "name": "目标不清楚",
+      "definition": "结合当前上下文后仍无法判断用户希望系统完成什么，需要澄清或补充信息。",
+      "include": "无上下文的“那个呢”“怎么办”“不行”；多个候选动作都合理且无法区分。",
+      "exclude": "可以从最近对话明确继承对象；虽然表达简短但业务动作明确。",
+      "positive_examples": [
+        "“那个怎么弄？”（无可用上下文）",
+        "“还是不行。”（不知道指什么）",
+        "那个怎么养护？（无前文，不知道指代哪款兰花）",
+        "这个不行，怎么处理？（无上下文，分不清养护 / 售后）",
+        "再来点，我看看（指代模糊，不知要资料 / 品种）",
+        "怎么弄？（无前文，无法判断浇水 / 换盆 / 售后退款）",
+        "有问题，帮我处理一下（分不清养护病害还是收货破损）",
+        "那款怎么样？（无前文，无对应商品）",
+        "怎么补救？（无上下文，烂根 / 消苞 / 运输坏苗无法区分）",
+        "再发一下（指代资料 / 链接 / 实拍图不明确）",
+        "不太好，怎么办？（养护问题 / 商品不满意 / 售后纠纷）",
+        "看下这个（无图片无前文，指代模糊）"
+      ],
+      "negative_examples": [
+        "“那第二款呢？”（有明确商品上下文时可继续识别）",
+        "“我要人工。”（明确 request_human）",
+        "那款富山奇蝶怎么日常养护？（有明确商品上下文，seek_solution）",
+        "收到苗子烂根，怎么补救？（有收货问题，request_service）",
+        "再发一下这款程梅的实拍开花图（ask_information）",
+        "室内暖气房兰花黄叶怎么处理？（seek_solution）",
+        "这个订单物流停滞，帮我查一下（query_status）",
+        "这款大苗我不太满意，申请退货退款（request_refund_return）",
+        "再发一下购买链接，我现在付款（pay）",
+        "建兰黑斑病害怎么补救？（seek_solution）",
+        "这款元字开品怎么样，发图看看（ask_information）",
+        "收到货少发肥料，再补发一份（request_service）"
+      ],
+      "confusable": [
+        "所有上下文依赖 Goal"
+      ],
+      "slots": [
+        "missing_information",
+        "candidate_goals"
+      ],
+      "stage_effect": "不推进阶段；生成一个最有区分力的澄清问题。"
+    },
+    {
+      "kind": "goal",
+      "id": "request_material",
+      "name": "索要资料",
+      "definition": "用户明确希望获取、领取或接收资料、教程、图文、视频课程、手册或其他固定资源。",
+      "include": "明确说“发资料”“要资料”“给我教程”；询问资料怎么领或如何获取；在兰花或养护语境中请求图文、视频等学习资源。",
+      "exclude": "只提到或评价资料但没有索取；明确说不要、不需要或不用发资料；反馈资料或视频打不开等已经发生的服务问题。",
+      "positive_examples": [
+        "“麻烦把养兰资料发我一下。”",
+        "“直播间说有视频教程，我怎么领？”",
+        "“我想要一份兰花养护资料。”",
+        "麻烦把全套新手养兰图文资料发我一份",
+        "直播间说有四季养护视频，我要怎么领取？",
+        "能不能发一份兰花烂根、黑斑病害急救教程？",
+        "想要植料配比、换盆操作完整电子版手册",
+        "麻烦发一下室内暖气房专属养护图文资料",
+        "有没有品种识别图文手册，发我参考一下"
+      ],
+      "negative_examples": [
+        "“不用发资料了。”（否定请求，不命中 request_material）",
+        "“这份资料写得怎么样？”（ask_information）",
+        "“资料里的视频打不开。”（request_service）",
+        "不用发养护资料了，我自己网上查（deny）",
+        "这份养兰手册里面内容全面吗？（ask_information）",
+        "你发的视频教程打不开，帮我重新处理（request_service）",
+        "养护手册里面有没有荷瓣品种介绍？（ask_information）",
+        "不用给我任何资料，我养兰很多年了（deny）",
+        "电子版资料保存不了，有纸质版吗？（ask_information）",
+        "发送的图文缺失病害防治部分，补发完整（request_service）",
+        "这份教程讲解难度高，适合新手吗？（ask_information）",
+        "不需要养护视频，我只需要问单品价格（deny）",
+        "资料里面的浇水周期标准是什么？（ask_information）"
+      ],
+      "confusable": [
+        "ask_information",
+        "request_service",
+        "deny"
+      ],
+      "slots": [
+        "material_type",
+        "material_format",
+        "resource_id",
+        "delivery_channel"
+      ],
+      "stage_effect": "产生 resource_interest 或 service_need；固定资料可以直接发送，但不会因为“要资料”自动推进到成交阶段。当前陪伴养兰资料通常对应 primary_domain = care_service。 # Issue 标签定义卡"
+    },
+    {
+      "kind": "issue",
+      "id": "purchase_purpose",
+      "name": "购买用途",
+      "definition": "用户购买商品的使用目的，如自养、送礼、收藏、办公室摆放。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“想买一盆送人。”",
+        "“办公室摆一盆。”",
+        "想买两盆素雅兰花送长辈祝寿",
+        "办公室工位采光弱，摆一盆装点环境",
+        "自己收藏荷瓣品种，专门收集老种",
+        "新店开业，买几盆兰花摆在前台迎宾",
+        "给闺蜜当生日礼物，要带花苞好看的",
+        "楼顶庭院造景，多入手几盆四季建兰",
+        "单纯自己居家观赏，不用包装礼盒",
+        "过年走亲戚送礼，需要精致礼盒套装",
+        "茶室摆放，想要淡雅低调的素心品种",
+        "批量采购送给公司客户，要大气开品"
+      ],
+      "negative_examples": [
+        "“我在阳台养。”（growing_environment）",
+        "“想要红色的。”（preference）",
+        "我家北方室内冬天有暖气（growing_environment）",
+        "预算控制在 200 以内，太贵不考虑（budget）",
+        "偏爱浓香素花，不喜欢艳色花瓣（preference）",
+        "高层阳台每天只有两小时散光（growing_environment）",
+        "之前养啥死啥，总烂根不开花（pain_and_outcome）",
+        "想要勤花、一年四季持续开花的品种（pain_and_outcome）",
+        "南方梅雨季潮湿，容易闷根烂苗（growing_environment）",
+        "喜欢荷瓣花型，花瓣厚实耐看（preference）",
+        "纯新手，一点养兰经验都没有（experience_level）",
+        "楼顶露天暴晒，夏天温度很高（growing_environment）"
+      ],
+      "confusable": [
+        "preference",
+        "pain_and_outcome"
+      ],
+      "slots": [
+        "purchase_purpose",
+        "recipient",
+        "occasion"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "experience_level",
+      "name": "养兰经验",
+      "definition": "用户自述的新手、已有经验或资深程度。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“我是第一次养兰花。”",
+        "“养了好几年了。”",
+        "我纯新手，第一次接触兰花完全不懂养护",
+        "养兰花快五年，手里囤了几十盆老种",
+        "只会粗放放养，平时没空精细打理花草",
+        "入门半年，只会简单浇水，不会催花",
+        "资深兰友，专门收集各类蕙兰铭品",
+        "完全零基础，之前从来没养过绿植",
+        "养了两三年，但是总养不好开花少",
+        "退休老人，有充足时间慢慢打理兰花",
+        "只会养绿萝，兰花一点经验都没有",
+        "玩兰十几年，能自己分苗、配植料"
+      ],
+      "negative_examples": [
+        "“我总是养不活。”（也可能是 pain_and_outcome）",
+        "“这个适合新手吗？”（更偏 recommendation_fit）",
+        "之前十几盆兰花全部养死，总烂根（pain_and_outcome）",
+        "这款荷瓣兰花适合新手室内养护吗（recommendation_fit）",
+        "北方暖气房干燥，兰花容易干尖（growing_environment）",
+        "想要耐阴、不用频繁打理的品种（preference）",
+        "预算三百，想入手好养活的建兰（budget）",
+        "室内光照不足，大部分兰花很难开花（pain_and_outcome）",
+        "喜欢浓香型，开花量大的兰花（preference）",
+        "楼顶露天养护，夏天正午暴晒（growing_environment）",
+        "养兰总消苞，不知道怎么催花保花（pain_and_outcome）",
+        "送礼用，选颜值高带花苞的兰花（purchase_purpose）"
+      ],
+      "confusable": [
+        "pain_and_outcome",
+        "recommendation_fit"
+      ],
+      "slots": [
+        "experience_level",
+        "years_of_experience"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "growing_environment",
+      "name": "养护环境",
+      "definition": "用户将要养护兰花的地区、空间、朝向、气候和环境条件。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“广东阳台朝南。”",
+        "“北方室内有暖气。”",
+        "辽宁高层楼房，室内冬天全天供暖干燥",
+        "广东封闭南阳台，通风一般光照充足",
+        "楼顶露天养护，夏天正午全日暴晒",
+        "江浙地区梅雨季，长期高湿不通风",
+        "北向室内客厅，几乎没有直射太阳光",
+        "山东一楼小院，半阴散光通风极佳",
+        "西北干燥地区，空气湿度常年很低",
+        "办公室密闭工位，只有微弱灯光",
+        "南方无暖气，冬天室内温度偏低",
+        "阳台玻璃遮光，光照强度减半"
+      ],
+      "negative_examples": [
+        "“需要多少光照？”（environment_care）",
+        "“这个适合北方吗？”（recommendation_fit）",
+        "兰花每天需要晒多久太阳合适（environment_care）",
+        "这款建兰适合北方干燥室内养吗（recommendation_fit）",
+        "买来送人，想要包装精致带花苞（purchase_purpose）",
+        "新手不会控水，经常把兰花浇烂根（pain_and_outcome）",
+        "喜欢素心淡香，花瓣素雅的品种（preference）",
+        "多久浇一次水不会出现烂根（watering_fertilizing）",
+        "预算两百，想要皮实耐活的小苗（budget）",
+        "黑斑黄叶要怎么处理才能恢复（symptom_disease_recovery）",
+        "养兰三年，只会简单浇水施肥（experience_level）",
+        "露天兰花夏天怎么遮阴降温（environment_care）"
+      ],
+      "confusable": [
+        "environment_care",
+        "recommendation_fit"
+      ],
+      "slots": [
+        "region",
+        "city",
+        "placement",
+        "orientation",
+        "climate",
+        "has_heating"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "preference",
+      "name": "商品偏好",
+      "definition": "用户对颜色、香味、花型、大小、品种或风格的偏好。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“想要红色、香一点的。”",
+        "“喜欢小巧一点的。”",
+        "只爱素心兰花，彩色花瓣完全不喜欢",
+        "偏爱浓香品种，淡香型一点兴趣没有",
+        "想要小巧矮株，不占阳台空间的小苗",
+        "最喜欢荷瓣花型，花瓣圆润饱满好看",
+        "追求四季持续开花，单次花期久的品种",
+        "花色要浅黄淡雅，拒绝大红大紫艳丽款",
+        "喜欢叶片细长飘逸，造型美观的春兰",
+        "优先带花苞发货，到手就能赏花",
+        "偏爱老种铭品，不考虑科技激素苗",
+        "开花多、花箭密集的建兰更合我心意"
+      ],
+      "negative_examples": [
+        "“预算三百。”（budget）",
+        "“想买来送人。”（purchase_purpose）",
+        "预算不超过 300，太贵的不入手（budget）",
+        "买一盆兰花送给长辈祝寿（purchase_purpose）",
+        "北方暖气房干燥，兰花容易干尖（growing_environment）",
+        "纯新手，完全没有养兰基础（experience_level）",
+        "之前养兰总烂根，很难养活开花（pain_and_outcome）",
+        "广东阳台潮湿，需要耐闷根的品种（growing_environment）",
+        "多少钱一苗，两盆打包能不能优惠（price、discount）",
+        "高温运输花苞容易闷坏，有点担心（care_confidence）",
+        "楼顶暴晒，选耐高温不容易焦尖的（recommendation_fit）",
+        "送人礼盒款，包装好看带紫砂盆（purchase_purpose）"
+      ],
+      "confusable": [
+        "product_information",
+        "purchase_purpose"
+      ],
+      "slots": [
+        "color_preference",
+        "fragrance_preference",
+        "size_preference",
+        "variety_preference"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "budget",
+      "name": "预算",
+      "definition": "用户可接受的购买金额区间或预算上限。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“预算两百左右。”",
+        "“最好不要超过五百。”",
+        "单盆预算控制在 200 以内，超了不考虑",
+        "整套送礼组合总价最高 300 元",
+        "一苗单价不能超过 80，只敢入平价小苗",
+        "预算 150 左右，找一盆勤花好养的建兰",
+        "最多花 500 入手一盆收藏级老种",
+        "新手试水，100 以内最便宜的兰花就行",
+        "两盆打包总预算不超 400 元",
+        "单苗心理价位五六十，贵的承受不起",
+        "打算花 260 左右搭配一套带盆套装",
+        "预算有限，优先选三苗弱苗降低成本"
+      ],
+      "negative_examples": [
+        "“这个卖多少钱？”（price）",
+        "“能便宜点吗？”（discount）",
+        "这款程梅一苗现在卖多少钱？（price）",
+        "买两盆能不能便宜一点、抹个零（discount）",
+        "满两百有没有优惠券可以抵扣？（discount）",
+        "这款荷瓣兰花性价比怎么样？（product_value）",
+        "偏远地区下单可以包邮吗？（discount）",
+        "多买几盆有没有老客户折扣？（discount）",
+        "两盆加起来一共需要支付多少？（price）",
+        "现在店铺有什么满减活动？（discount）",
+        "能不能送一包植料，给我优惠点？（discount）",
+        "这款大苗标价三百，能不能少五十？（discount）"
+      ],
+      "confusable": [
+        "price",
+        "discount"
+      ],
+      "slots": [
+        "budget_min",
+        "budget_max",
+        "currency"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "pain_and_outcome",
+      "name": "困难与期望结果",
+      "definition": "用户过去或当前的核心困难，以及希望通过商品或服务达到的结果。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“以前买的总养不活。”",
+        "“想找一个能稳定开花的。”",
+        "之前十几盆兰花全部烂根枯死，想找不容易腐根的品种",
+        "养大半年一直不长花箭，希望能稳定开花",
+        "一到供暖期叶片就干尖，想要适配干燥环境的兰花",
+        "每次花苞刚冒头就发黑消苞，想解决保花问题",
+        "新手养啥死啥，希望入手随便打理都能活的品种",
+        "南方梅雨季容易黑斑病害，想要抗病性强的苗",
+        "家里光照不足，多数兰花不开花，求耐阴勤花款",
+        "出差没人浇水，希望耐旱不用频繁打理的兰花",
+        "买回来激素苗容易枯萎，想要皮实好服盆老种",
+        "期望一年四季持续开花，不用精细管理"
+      ],
+      "negative_examples": [
+        "“叶子现在发黄怎么办？”（具体问题可用 symptom_disease_recovery）",
+        "“我喜欢红色。”（preference）",
+        "叶片出现黑斑要怎么救治？（symptom_disease_recovery）",
+        "我偏爱浓香型素心兰花（preference）",
+        "北方室内有暖气，空气干燥（growing_environment）",
+        "纯新手，完全没有养兰经验（experience_level）",
+        "多久浇一次水能避免烂根？（watering_fertilizing）",
+        "预算两百以内，想要便宜好养的（budget）",
+        "楼顶露天高温暴晒，适合什么兰花（recommendation_fit）",
+        "换盆用哪种植料不容易闷根？（medium_repotting）",
+        "室内弱光环境，每天只有一小时阳光（growing_environment）",
+        "兰花夏天需要遮阴多少时间？（environment_care）"
+      ],
+      "confusable": [
+        "experience_level",
+        "care_confidence",
+        "symptom_disease_recovery"
+      ],
+      "slots": [
+        "pain_point",
+        "desired_outcome",
+        "past_failure"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "product_information",
+      "name": "商品信息",
+      "definition": "商品的品种、花色、苗情、尺寸、规格、包装及其他客观属性。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“这是什么品种？”",
+        "“这盆苗有多大？”",
+        "这款富山奇蝶一盆有几苗壮苗？",
+        "程梅蕙兰开花是什么香型，花期多久？",
+        "苗子是裸根发货还是带原盆原土寄出？",
+        "这款建兰花箭能开多少朵花？",
+        "花盆配的是紫砂盆还是塑料简易盆？",
+        "老种宋梅叶片宽度大概多少厘米？",
+        "现在下单带花苞还是无花苞小苗？",
+        "一苗的高度大概多高，株型大不大？",
+        "荷瓣和梅瓣花瓣形态有什么区别？",
+        "苗子是今年新苗还是多年老苗？"
+      ],
+      "negative_examples": [
+        "“哪款适合新手？”（recommendation_fit）",
+        "“还有库存吗？”（stock_availability）",
+        "这款适合北方暖气房新手养护吗？（recommendation_fit）",
+        "富山奇蝶和市长红哪个更好养？（product_comparison）",
+        "红色花苞款现在还有库存吗？（stock_availability）",
+        "预算三百，室内散光推荐一款兰花（recommendation_fit）",
+        "大苗和小苗开花速度差别大吗？（product_comparison）",
+        "楼顶暴晒耐高温的兰花还有货吗？（stock_availability）",
+        "新手弱光环境选什么品种更容易开花（recommendation_fit）",
+        "三苗规格现在能拍几盆？（stock_availability）",
+        "素心建兰和色花建兰哪个香味浓？（product_comparison）",
+        "两百预算适合入手大苗还是中苗？（recommendation_fit）"
+      ],
+      "confusable": [
+        "recommendation_fit",
+        "product_comparison",
+        "stock_availability"
+      ],
+      "slots": [
+        "product_id",
+        "variety",
+        "color",
+        "seedling_size",
+        "specification"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "recommendation_fit",
+      "name": "推荐与适配",
+      "definition": "商品是否适合用户的经验、环境、预算、用途和偏好，以及基于这些条件的推荐。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“这款适合新手吗？”",
+        "“广东阳台推荐哪一种？”",
+        "这款建兰适合北方暖气干燥室内养护吗？",
+        "预算 200，纯新手阳台散光推荐哪款兰花？",
+        "楼顶露天高温暴晒，什么品种不容易焦尖？",
+        "送长辈祝寿，三百左右选什么兰花合适？",
+        "室内几乎无光照，有没有耐阴勤花的品种？",
+        "梅雨季南方潮湿，推荐不容易烂根的铭品",
+        "出差半月没人浇水，选哪种耐旱兰花？",
+        "收藏老种，五百预算有什么荷瓣推荐？",
+        "办公室密闭弱光，适合入手春兰还是建兰？",
+        "新手怕养死，哪款皮实容错率高？"
+      ],
+      "negative_examples": [
+        "“这盆多大？”（product_information）",
+        "“这两款有什么区别？”（product_comparison）",
+        "这款元字蕙兰一盆有几苗，带花苞吗？（product_information）",
+        "程梅和元字哪个香味更浓、开花多？（product_comparison）",
+        "我家住广东封闭阳台，预算两百（growing_environment\\+budget）",
+        "富山奇蝶一年能开几次花，花期多长？（product_information）",
+        "大苗和中苗差价一百，苗情差别在哪？（product_comparison）",
+        "纯新手，之前养兰全部烂根枯死（experience_level\\+pain_and_outcome）",
+        "红色花苞款现在还有现货库存吗？（stock_availability）",
+        "楼顶全天暴晒，夏天温度四十度（growing_environment）",
+        "这款荷瓣花瓣宽度大概多少厘米？（product_information）",
+        "素心和色花哪个养护难度更低？（product_comparison）"
+      ],
+      "confusable": [
+        "product_information",
+        "product_comparison",
+        "growing_environment"
+      ],
+      "slots": [
+        "fit_dimensions",
+        "recommended_product_ids",
+        "fit_reason"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "product_comparison",
+      "name": "商品比较",
+      "definition": "两个或多个商品、品种、规格或方案之间的差异、优势和适用性比较。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“这两款哪个更香？”",
+        "“中苗和大苗差别是什么？”",
+        "富山奇蝶和市长红哪个香味更浓、开花更勤？",
+        "大苗和中苗哪种更容易当年出花苞？",
+        "老种春兰和科技苗哪个不容易黄叶烂根？",
+        "荷瓣和梅瓣哪个观赏性更高、养护更简单？",
+        "裸根小苗和带盆成品苗哪个服盆速度更快？",
+        "程梅和元字蕙兰，北方室内哪个适配度更高？",
+        "素心建兰和色花建兰花期长短差多少？",
+        "三苗弱苗和四苗壮苗哪个发新芽速度更快？",
+        "室内养护春兰对比建兰，哪个不需要强光？",
+        "送礼选单盆大苗还是两盆组合套装更好看？"
+      ],
+      "negative_examples": [
+        "“推荐一个香的。”（recommendation_fit）",
+        "“这款是什么品种？”（product_information）",
+        "新手室内弱光 200 预算推荐一款兰花（recommendation_fit）",
+        "这款建兰一年开几次，一盆有几苗？（product_information）",
+        "我在山东供暖室内，预算三百（growing_environment\\+budget）",
+        "楼顶耐高温不容易焦尖的兰花推荐几款（recommendation_fit）",
+        "素心兰花一苗多少钱，带花苞加价多少？（product_information）",
+        "偏爱浓香素花，室内散光自养（preference\\+growing_environment）",
+        "这款蕙兰花型是什么瓣型，花期多久？（product_information）",
+        "南方梅雨季高湿，适合什么兰花（growing_environment）",
+        "给长辈送礼省心好养的兰花推荐（recommendation_fit）",
+        "阳台每天两小时散光，想要四季开花（growing_environment\\+preference）"
+      ],
+      "confusable": [
+        "recommendation_fit",
+        "product_information",
+        "product_value"
+      ],
+      "slots": [
+        "comparison_product_ids",
+        "comparison_dimensions"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "stock_availability",
+      "name": "库存与可选规格",
+      "definition": "商品、颜色、规格或数量当前是否可售。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“红色的还有货吗？”",
+        "“大苗现在能买几盆？”",
+        "红色花苞款现在还有现货库存吗？",
+        "四苗壮苗规格现在最多能拍几盆？",
+        "老种宋梅现在还有裸根小苗吗？",
+        "紫砂盆礼盒套装目前有没有货？",
+        "三苗弱苗这款是不是已经断货了？",
+        "带花箭的建兰现在库存充足吗？",
+        "素心荷瓣现在一单最多能拍五盆吗？",
+        "大号株型的程梅蕙兰还有苗吗？",
+        "中秋送礼组合套装现在能不能正常下单？",
+        "浅黄花色的市长红是不是缺货了？"
+      ],
+      "negative_examples": [
+        "“红色的多少钱？”（price）",
+        "“我想要红色的。”（preference 或 sku_quantity）",
+        "红色花苞这款我很喜欢，打算入手两盆（preference\\+sku_quantity）",
+        "这款大苗一苗现在标价多少钱？（price）",
+        "我想要红色花苞款，送礼用（preference\\+purchase_purpose）",
+        "确定要四苗壮苗，直接下单两盆（sku_quantity）",
+        "素心兰花香味浓，更符合我的喜好（preference）",
+        "两盆大苗总价多少，能不能包邮？（price\\+discount）",
+        "锁定紫砂盆套装，现在付款（sku_quantity\\+payment）",
+        "偏爱浅黄素花，不想要艳红色（preference）",
+        "三苗弱苗来一盆，直接发链接（sku_quantity）",
+        "这款荷瓣兰花性价比很高，我打算入手（product_value）"
+      ],
+      "confusable": [
+        "product_information",
+        "sku_quantity",
+        "preference"
+      ],
+      "slots": [
+        "product_id",
+        "sku_id",
+        "requested_quantity",
+        "stock_status"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "care_general",
+      "name": "综合养护",
+      "definition": "没有聚焦具体操作或症状的综合性养护问题，例如怎么养、是否好养。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“这个平时怎么养？”",
+        "“这款好不好养？”",
+        "这款建兰平时整体要怎么养护？",
+        "新手养这款春兰难度高不高，好不好活？",
+        "楼顶露天养兰花整体需要注意什么？",
+        "室内弱光环境，这款兰花整体养护要点？",
+        "老种蕙兰整体打理麻烦吗？",
+        "送礼给老人，这款兰花养护复杂吗？",
+        "南方梅雨季养兰整体要怎么管控？",
+        "激素苗整体养护和老种有什么差别？",
+        "四季建兰整体养护简单吗，适合懒人吗？",
+        "北方供暖室内，兰花整体养护注意事项？"
+      ],
+      "negative_examples": [
+        "“多久浇一次水？”（watering_fertilizing）",
+        "“叶子黄了怎么办？”（symptom_disease_recovery）",
+        "兰花室内一般几天浇一次水？（watering_fertilizing）",
+        "叶片黑斑烂根要怎么救治？（symptom_disease_recovery）",
+        "夏天需要遮阴几个小时？（environment_care）",
+        "收到兰花要不要立刻脱盆换植料？（medium_repotting）",
+        "兰花花期能不能施加肥料？（watering_fertilizing）",
+        "室内光照不足怎么补光促花？（environment_care）",
+        "腐苗根系怎么修剪消毒？（medium_repotting）",
+        "梅雨季怎么通风避免闷根？（environment_care）",
+        "黄叶干尖是什么病害，怎么处理？（symptom_disease_recovery）",
+        "换盆用树皮还是陶粒植料更好？（medium_repotting）"
+      ],
+      "confusable": [
+        "其他养护 Issue、care_confidence"
+      ],
+      "slots": [
+        "product_id",
+        "variety",
+        "experience_level"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "watering_fertilizing",
+      "name": "水肥管理",
+      "definition": "浇水、施肥、水质、肥料类型、浓度和频率相关问题。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“几天浇一次水？”",
+        "“什么时候可以施肥？”",
+        "室内暖气房兰花大概几天浇一次水？",
+        "兰花适合用什么肥料，多久施一次？",
+        "自来水需要晾晒多久才能浇兰花？",
+        "花期能不能施肥，施肥会不会消苞？",
+        "夏天高温是不是要减少浇水频次？",
+        "小苗弱苗施肥浓度要稀释多少倍？",
+        "梅雨季空气潮湿，需要少浇水吗？",
+        "促花用磷钾肥还是通用营养液？",
+        "冬天低温休眠，多久浇一次水合适？",
+        "长期出差半个月，怎么控水保苗？"
+      ],
+      "negative_examples": [
+        "“冬天放哪里？”（environment_care）",
+        "“用什么植料？”（medium_repotting）",
+        "北方冬天室内养护温度控制多少合适？（environment_care）",
+        "收到兰花需要马上换盆换植料吗？（medium_repotting）",
+        "这款兰花整体养护难度高不高？（care_general）",
+        "叶片黑斑腐烂要怎么抢救？（symptom_disease_recovery）",
+        "楼顶夏天正午暴晒怎么遮阴降温？（environment_care）",
+        "养兰用树皮植料还是石子植料？（medium_repotting）",
+        "新手室内养这款兰花整体要注意什么？（care_general）",
+        "新芽不长、根系干瘪是什么病害？（symptom_disease_recovery）",
+        "封闭阳台通风差怎么改善环境？（environment_care）",
+        "兰花烂根后怎么脱盆修剪根系？（medium_repotting）"
+      ],
+      "confusable": [
+        "environment_care",
+        "medium_repotting",
+        "care_general"
+      ],
+      "slots": [
+        "watering_frequency",
+        "water_type",
+        "fertilizer_type",
+        "fertilizing_frequency"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "environment_care",
+      "name": "环境管理",
+      "definition": "养护方法中的光照、温度、湿度、通风、遮阴和季节环境管理。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“需要晒太阳吗？”",
+        "“北方冬天温度怎么控制？”",
+        "室内兰花每天需要几小时散射光照？",
+        "北方冬天低温，兰花室内温度多少合适？",
+        "梅雨季高湿，怎么加强通风防闷根？",
+        "楼顶夏天暴晒，几点开始遮阴最合适？",
+        "室内干燥，怎么增加空气湿度养兰花？",
+        "北向无光房间，需要补光灯多久一次？",
+        "秋天降温后要不要搬到室外通风？",
+        "兰花能不能长期放在空调风口底下？",
+        "南方三伏天高温，怎么降温保护花苞？",
+        "密闭阳台通风差，有什么改善办法？"
+      ],
+      "negative_examples": [
+        "“我在北京室内养。”（growing_environment）",
+        "“这款适合北京吗？”（recommendation_fit）",
+        "我家住辽宁高层，冬天室内全天供暖（growing_environment）",
+        "兰花室内一般几天浇一次水、施什么肥？（watering_fertilizing）",
+        "这款春兰整体养护简单吗，适合新手？（care_general）",
+        "收到兰花要换盆，用哪种植料合适？（medium_repotting）",
+        "叶片干尖黑斑，是什么病害怎么治？（symptom_disease_recovery）",
+        "广东封闭阳台，通风一般光照充足（growing_environment）",
+        "花期施肥会不会导致花苞发黑消苞？（watering_fertilizing）",
+        "楼顶露天高温，推荐耐晒兰花品种（recommendation_fit）",
+        "腐苗根系修剪后怎么上盆养护？（medium_repotting）",
+        "新手养这款兰花整体需要注意什么？（care_general）"
+      ],
+      "confusable": [
+        "growing_environment",
+        "recommendation_fit",
+        "care_general"
+      ],
+      "slots": [
+        "light",
+        "temperature",
+        "humidity",
+        "ventilation",
+        "season"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "medium_repotting",
+      "name": "植料与换盆",
+      "definition": "植料、盆器、排水、换盆、修根和上盆等操作。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“用什么植料比较好？”",
+        "“收到后要不要马上换盆？”",
+        "新手养兰用什么植料配比不容易烂根？",
+        "收到裸根兰花需要立刻脱盆换植料吗？",
+        "兰花适合紫砂盆还是塑料种植盆？",
+        "几年需要给兰花换一次盆，最佳季节？",
+        "烂根修剪后，用什么植料重新上盆？",
+        "楼顶露天兰花，植料颗粒要大一点吗？",
+        "上盆底部要不要铺陶粒做排水层？",
+        "激素苗脱盆后需要清理原有营养土吗？",
+        "素心兰花换盆后多久才能正常浇水？",
+        "小弱苗适合浅盆还是深盆养护？"
+      ],
+      "negative_examples": [
+        "“根已经烂了怎么救？”（symptom_disease_recovery）",
+        "“放阳台合适吗？”（environment_care）",
+        "兰花黄叶黑斑，根系腐烂怎么抢救？（symptom_disease_recovery）",
+        "室内暖气房几天浇一次水、施什么肥？（watering_fertilizing）",
+        "这款兰花整体养护难度高不高？（care_general）",
+        "夏天暴晒怎么遮阴降温、控制光照？（environment_care）",
+        "花苞发黑消苞是什么原因怎么处理？（symptom_disease_recovery）",
+        "梅雨季怎么通风降低环境湿度？（environment_care）",
+        "小苗施肥浓度稀释多少，多久一次？（watering_fertilizing）",
+        "室内无光怎么补光促兰花开花？（environment_care）",
+        "叶片虫洞粘液虫害，用什么药根除？（symptom_disease_recovery）",
+        "北方冬天室内温度维持多少合适？（environment_care）"
+      ],
+      "confusable": [
+        "symptom_disease_recovery",
+        "care_general"
+      ],
+      "slots": [
+        "medium_type",
+        "pot_type",
+        "repot_timing",
+        "root_action"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "symptom_disease_recovery",
+      "name": "异常、病害与恢复",
+      "definition": "黄叶、烂根、干尖、萎蔫、不开花、病虫害、抢救和服盆恢复等具体问题。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“叶子一直发黄怎么办？”",
+        "“烂根了还能救吗？”",
+        "兰花叶片大面积黑斑新芽不长，怎么救治？",
+        "根系全部腐烂，这盆兰花还能救活吗？",
+        "花苞刚冒头就发黑消苞，怎么保住花箭？",
+        "叶片出现虫洞粘液，是什么虫害怎么根除？",
+        "养半年完全不长新芽，僵苗怎么恢复？",
+        "叶片频繁干尖焦边，是什么问题怎么解决？",
+        "整株叶片发黄发软，根系干瘪怎么补救？",
+        "叶片出现白色霉斑，病害用什么方法处理？",
+        "长期无花箭不开花，怎么催花促花苞？",
+        "新芽出土就发黑枯萎，是什么原因？"
+      ],
+      "negative_examples": [
+        "“这个平时怎么养？”（care_general）",
+        "“收到时叶子已经折了。”（received_problem）",
+        "这款兰花平时整体养护简单吗？（care_general）",
+        "收到快递苗子根部全部断裂破损（received_problem）",
+        "室内兰花几天浇一次水，施什么肥料？（watering_fertilizing）",
+        "收到后要不要立刻换盆换植料？（medium_repotting）",
+        "楼顶夏天暴晒怎么遮阴控温？（environment_care）",
+        "快递运输花苞折断，申请售后补偿（received_problem）",
+        "梅雨季通风差怎么降低环境湿度？（environment_care）",
+        "买前咨询运输损坏有没有赔付保障（service_guarantee）",
+        "换盆用树皮还是石子植料更合适？（medium_repotting）",
+        "室内弱光怎么补光让兰花开花？（environment_care）"
+      ],
+      "confusable": [
+        "care_general",
+        "received_problem",
+        "medium_repotting"
+      ],
+      "slots": [
+        "symptom",
+        "affected_part",
+        "duration",
+        "suspected_disease",
+        "recovery_stage"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "price",
+      "name": "价格",
+      "definition": "商品正常售价、报价、价格高低和总金额。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“这盆多少钱？”",
+        "“两盆一共什么价格？”",
+        "程梅蕙兰一苗现在正常售价多少钱？",
+        "四苗富山奇蝶整套带盆总价多少？",
+        "紫砂盆礼盒套装比裸根款贵多少钱？",
+        "带花苞的市长红一苗标价是多少？",
+        "三苗弱苗和四苗壮苗差价多少？",
+        "两盆素心建兰加起来一共多少钱？",
+        "老种宋梅单苗市场价现在多少？",
+        "裸根小苗单盆基础标价是多少？",
+        "中秋送礼组合套装整套报价多少？",
+        "荷瓣铭品一苗常规售价区间？"
+      ],
+      "negative_examples": [
+        "“预算不超过三百。”（budget）",
+        "“能便宜点吗？”（discount）",
+        "单盆预算控制在 200 以内，太贵不入手（budget）",
+        "买两盆能不能便宜三十，帮我包邮（discount）",
+        "满两百有没有优惠券可以抵扣金额？（discount）",
+        "老客户回购能不能给专属折扣价？（discount）",
+        "总价 286 能不能抹零只收 280？（discount）",
+        "最多花 300 入手一套带盆兰花（budget）",
+        "多买五苗能不能单苗再优惠一点？（discount）",
+        "新手试水，100 以内最便宜的兰花就行（budget）",
+        "偏远地区下单能不能免快递运费？（discount）",
+        "两套送礼组合一起拍能不能打九五折？（discount）"
+      ],
+      "confusable": [
+        "budget",
+        "discount",
+        "product_value"
+      ],
+      "slots": [
+        "product_id",
+        "sku_id",
+        "quoted_price",
+        "quantity"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "discount",
+      "name": "优惠",
+      "definition": "折扣、优惠券、满减、赠品、议价、包邮等优惠权益。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“有优惠吗？”",
+        "“买两盆能不能包邮？”",
+        "一次性拿三盆，能不能全部帮我包邮？",
+        "老客户经常回购，给我一个专属折扣价",
+        "下单两盆能不能额外送一包专用肥料？",
+        "总价 286，麻烦抹掉零头只收 280",
+        "两套送礼组合一起拍，打个九五折行吗？",
+        "现在有没有满 200 减 30 的优惠券？",
+        "买这款大苗，赠送一小袋种植植料可以吗？",
+        "一次性拿五苗，单苗价格再优惠一点",
+        "偏远地区运费太贵，多买一盆免快递费？",
+        "两盆打包能不能送养护教程手册？"
+      ],
+      "negative_examples": [
+        "“这个多少钱？”（price）",
+        "“为什么这么贵？”（可能 product_value）",
+        "这款蕙兰单苗现在标价多少钱？（price）",
+        "这款价格偏高，对比别家性价比一般（product_value）",
+        "单盆预算最多两百，太贵承受不起（budget）",
+        "这款荷瓣为什么比普通建兰贵这么多？（product_value）",
+        "三苗壮苗整套带盆总价多少？（price）",
+        "预算有限，只敢入手百元以内小苗（budget）",
+        "老种铭品贵在哪，优势是什么？（product_value）",
+        "裸根小苗单盆基础售价多少？（price）",
+        "最多花 300 搭配一套紫砂盆礼盒（budget）",
+        "同款苗情别家卖得更便宜，有点犹豫（product_value）",
+        "**易混淆标签**：price, product_value, delivery"
+      ],
+      "confusable": [],
+      "slots": [
+        "promotion_id",
+        "requested_discount",
+        "requested_benefit",
+        "quantity"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "product_value",
+      "name": "商品价值",
+      "definition": "客户对商品为什么值得购买、价格依据、品质优势和方案价值的关注或认可。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“为什么这款比普通的贵？”",
+        "“这款主要好在哪里？”",
+        "程梅蕙兰为什么比普通建兰贵这么多？",
+        "老种苗对比科技苗，优势和价值在哪？",
+        "这款荷瓣卖三百，贵的地方体现在哪里？",
+        "你们家苗子比别家贵，好在什么地方？",
+        "带花苞款贵五十，多花的钱值不值得？",
+        "四苗壮苗对比三苗弱苗，性价比更高吗？",
+        "紫砂盆套装溢价一百，优势是什么？",
+        "这款富山奇蝶值得入手的核心优点？",
+        "老种宋梅收藏价值高在哪？",
+        "同样价格，荷瓣比普通色花好在哪？"
+      ],
+      "negative_examples": [
+        "“现在卖多少钱？”（price）",
+        "“能便宜五十吗？”（discount）",
+        "这款建兰一苗现在卖多少钱？（price）",
+        "买两盆能不能优惠一点、包邮送肥料？（discount）",
+        "能保证品种对版，苗情没有问题吗？（quality_trust）",
+        "总价 260，能不能抹零只收 250？（discount）",
+        "三苗弱苗整套带盆标价多少？（price）",
+        "运输收到不对版，商家怎么赔付？（service_guarantee）",
+        "满三百有没有优惠券抵扣货款？（discount）",
+        "苗子收到瘦弱，怕不值这个价钱（quality_trust）",
+        "老客户回购能不能给更低单价？（discount）",
+        "高温运输损坏苗子，有没有售后保障？（service_guarantee）"
+      ],
+      "confusable": [
+        "price",
+        "quality_trust",
+        "product_comparison"
+      ],
+      "slots": [
+        "value_dimensions",
+        "selected_product_id"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "quality_trust",
+      "name": "品质与信任",
+      "definition": "客户对苗情、品种真实性、商家可信度、对版和描述真实性的关注。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“能保证品种对版吗？”",
+        "“你们家的苗情靠谱吗？”",
+        "你们能保证品种百分百对版吗，怕买到假货？",
+        "直播间实拍苗子收到会不会缩水、苗情变差？",
+        "很多商家卖激素苗，你们是自然老种吗？",
+        "这款荷瓣看着苗弱，会不会很难养活开花？",
+        "图片花苞很多，收到会不会光秃秃无花箭？",
+        "线上买兰容易货不对板，你们这边靠谱吗？",
+        "苗子根系实拍是不是发货原样，会不会修根隐瞒？",
+        "低价苗是不是淘汰弱苗，后期容易枯萎？",
+        "宣传四苗壮苗，会不会发三苗弱苗糊弄？",
+        "花色描述素雅，收到会不会颜色艳丽不符？"
+      ],
+      "negative_examples": [
+        "“收到的苗已经断了。”（received_problem）",
+        "“这款有什么优势？”（product_value）",
+        "收到苗子根部断裂叶片破损，申请售后（received_problem）",
+        "这款老种荷瓣贵在哪，价值优势是什么？（product_value）",
+        "买前运输损坏有补发赔付保障吗？（service_guarantee）",
+        "收到货品种不对版，怎么申请退款退货？（refund_return）",
+        "大苗对比小苗，开花速度、苗情差别在哪？（product_comparison）",
+        "售前养死包赔政策有效期多久？（after_sale_policy）",
+        "花苞运输闷坏，商家会怎么补偿处理？（service_guarantee）",
+        "收到货少发肥料，要求商家补发（received_problem）",
+        "老种苗对比科技苗，养护存活率差别？（product_comparison）",
+        "售后质保 30 天包含哪些损坏情况？（after_sale_policy）"
+      ],
+      "confusable": [
+        "product_value",
+        "service_guarantee",
+        "received_problem"
+      ],
+      "slots": [
+        "trust_concern",
+        "quality_dimension",
+        "evidence_requested"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "care_confidence",
+      "name": "养护信心",
+      "definition": "用户因为担心不会养、养不好或养死而产生的购买顾虑。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“我怕买回去养死。”",
+        "“新手能不能养得住？”",
+        "纯新手，怕买回来养护不当直接养死",
+        "这款蕙兰养护难度高，我没信心养活",
+        "经常出差半个月，没人浇水怕苗子枯萎",
+        "听说荷瓣容易消苞，我担心养不出花",
+        "激素苗很难服盆，我怕入手没多久就枯死",
+        "室内光照不足，担心长期不开花",
+        "北方供暖干燥，怕叶片持续干尖养不好",
+        "梅雨季高湿环境，怕控制不好烂根",
+        "没时间精细打理，怕疏忽管理养坏兰花",
+        "苗子看着偏弱，担心很难养壮出花苞"
+      ],
+      "negative_examples": [
+        "“多久浇一次水？”（watering_fertilizing）",
+        "“以前养死过好几盆。”（也可能 pain_and_outcome）",
+        "之前十几盆兰花全部烂根枯死，总养不活（pain_and_outcome）",
+        "兰花室内几天浇一次水，施肥周期？（watering_fertilizing）",
+        "叶片黑斑烂根怎么急救恢复？（symptom_disease_recovery）",
+        "这款兰花整体养护简单吗，适合懒人？（care_general）",
+        "阳台光照不足怎么补光促开花？（environment_care）",
+        "换盆用哪种颗粒植料不容易闷根？（medium_repotting）",
+        "养兰总消苞，是什么原因怎么解决？（pain_and_outcome）",
+        "楼顶暴晒怎么遮阴避免焦尖？（environment_care）",
+        "小苗施肥稀释多少倍，多久施一次？（watering_fertilizing）",
+        "室内干燥怎么增湿养护兰花？（environment_care）"
+      ],
+      "confusable": [
+        "care_general",
+        "recommendation_fit",
+        "pain_and_outcome"
+      ],
+      "slots": [
+        "care_concern",
+        "past_failure",
+        "support_expected"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "service_guarantee",
+      "name": "服务与保障",
+      "definition": "购买前对养护指导、对版、到货保障、服务承诺和责任边界的关注。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“买了以后有人指导吗？”",
+        "“运输坏了有保障吗？”",
+        "买完兰花之后有专人一对一养护指导吗？",
+        "运输路上花苞闷坏、苗子折断，商家包补发吗？",
+        "收到货品种不对版，商家全额退款赔付吗？",
+        "新手养死苗子，店铺有养死包赔服务吗？",
+        "发货前会实拍苗情确认，避免货不对板吗？",
+        "高温运输闷坏整株，有没有免费补发保障？",
+        "收到根系腐烂，店铺负责补偿或者重发吗？",
+        "下单后终身能咨询养护问题吗？",
+        "花苞运输破损，店铺承担补发运费吗？",
+        "苗情与直播间不符，支持无理由退换吗？"
+      ],
+      "negative_examples": [
+        "“收到已经坏了，帮我处理。”（received_problem）",
+        "“售后申请期限是多久？”（可按语境判 after_sale_policy）",
+        "收到苗子根系全部断裂，申请售后退款（received_problem\\+refund_return）",
+        "售后质保期限 30 天，包含哪些损坏情况？（after_sale_policy）",
+        "收到货少发配套肥料，要求商家补发（received_problem）",
+        "订单签收后叶片发黄，怎么走售后流程？（received_problem）",
+        "售后申请需要提供哪些照片凭证？（after_sale_policy）",
+        "收到花苞全部发黑消苞，协商补偿（received_problem）",
+        "质保期内养死，走售后赔付流程是什么？（after_sale_policy）",
+        "货不对板已经签收，申请退货退款（received_problem\\+refund_return）",
+        "售后处理时效多久，一般几天解决？（after_sale_policy）",
+        "收到整株腐烂枯萎，要求全额退款（received_problem\\+refund_return）"
+      ],
+      "confusable": [
+        "quality_trust",
+        "after_sale_policy",
+        "received_problem"
+      ],
+      "slots": [
+        "guarantee_topic",
+        "support_type",
+        "policy_requested"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "sku_quantity",
+      "name": "规格与数量",
+      "definition": "成交阶段对具体商品规格、颜色、苗型和购买数量的选择或确认。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“红色中苗要两盆。”",
+        "“大苗给我来一盆。”",
+        "确定要红色花苞中苗，一次性拍两盆",
+        "四苗壮苗规格来一盆，裸根发货不要盆",
+        "紫砂盆礼盒套装两套，用来送礼",
+        "三苗弱苗不要，只拍四苗壮苗这款",
+        "素心浅黄花色，一单拍三盆自养",
+        "带花苞大苗一盆，搭配肥料套装一起下单",
+        "不要彩色花，只选素心荷瓣规格两盆",
+        "大号株型程梅蕙兰一苗，单独下单",
+        "两盆富山奇蝶，都要带原盆成品苗",
+        "中秋送礼组合三套，全部带礼盒包装"
+      ],
+      "negative_examples": [
+        "“红色的还有货吗？”（stock_availability）",
+        "“喜欢红色的。”（preference）",
+        "红色花苞款现在还有现货库存吗？（stock_availability）",
+        "我偏爱素心浅黄兰花，不喜欢艳色（preference）",
+        "这款四苗壮苗一盆有多少叶片？（product_information）",
+        "大号株型程梅现在能不能正常下单？（stock_availability）",
+        "喜欢带花苞的款式，到手直接赏花（preference）",
+        "三苗弱苗这款是不是已经断货了？（stock_availability）",
+        "紫砂盆套装苗情实拍是什么样子？（product_information）",
+        "只想要裸根小苗，不想要带盆款（preference）",
+        "素心荷瓣现在一单最多能拍几盆？（stock_availability）",
+        "带花苞大苗花期大概持续多久？（product_information）"
+      ],
+      "confusable": [
+        "stock_availability",
+        "preference",
+        "product_information"
+      ],
+      "slots": [
+        "product_id",
+        "sku_id",
+        "color",
+        "specification",
+        "quantity"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "order_process",
+      "name": "下单流程",
+      "definition": "如何购买、创建订单、获取购买入口、填写收货信息和确认订单。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“怎么买，发个链接。”",
+        "“帮我创建订单。”",
+        "怎么下单，麻烦发一下购买链接给我",
+        "能不能帮我手动创建订单，我不会拍单",
+        "下单需要填写哪些收货信息？",
+        "寄养苗子怎么下单，流程是什么？",
+        "直播间小黄车怎么点开拍兰花？",
+        "多盆组合套装要分开拍还是合并一单？",
+        "改收货地址在哪里修改订单信息？",
+        "线下微信预留苗子，怎么线上补单？",
+        "送礼礼盒款下单备注在哪里填写？",
+        "批量采购十几盆，有没有批量下单通道？"
+      ],
+      "negative_examples": [
+        "“微信怎么付款？”（payment）",
+        "“订单发货了吗？”（delivery/状态查询）",
+        "微信怎么付款，发付款码给我（payment）",
+        "昨天下单的订单发货了吗，查物流（delivery）",
+        "两盆兰花整套总价多少钱？（price）",
+        "支付页面加载失败，换渠道付款可以吗？（payment）",
+        "快递几天能送到新疆偏远地区？（delivery）",
+        "扣款成功没生成订单，怎么处理？（payment）",
+        "下单后多久安排打包发货？（delivery）",
+        "平台余额不足，能不能货到付款？（payment）",
+        "物流停滞四天，帮我查包裹位置（delivery）",
+        "扫码付款后多久同步订单信息？（payment）"
+      ],
+      "confusable": [
+        "payment",
+        "delivery"
+      ],
+      "slots": [
+        "purchase_link_requested",
+        "recipient",
+        "phone",
+        "address",
+        "order_id"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "payment",
+      "name": "支付",
+      "definition": "支付方式、付款入口、支付异常、支付声明和支付状态。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“微信怎么付？”",
+        "“我付了但订单没显示。”"
+      ],
+      "negative_examples": [
+        "“怎么下单？”（order_process）",
+        "“总价多少？”（price）",
+        "微信付款入口在哪，发一下付款码",
+        "支付宝扣款成功，页面没生成订单怎么办？",
+        "能不能直接微信转账，不走平台拍单？",
+        "付款码发我，我现在直接扫码支付全款",
+        "支付页面加载失败，换抖音支付可以吗？",
+        "刚付完两套礼盒全款，核对一下订单",
+        "平台余额不够，能不能货到再付款？",
+        "扫码付款后多久能同步订单发货信息？",
+        "支付失败重复扣款，怎么申请退回？",
+        "大额订单能不能分开两笔支付？"
+      ],
+      "confusable": [
+        "order_process",
+        "price",
+        "delivery"
+      ],
+      "slots": [
+        "payment_method",
+        "payment_status",
+        "transaction_id",
+        "payment_problem"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "delivery",
+      "name": "配送服务",
+      "definition": "统一承载运费、包邮、发货时间、预计到货、物流查询和配送异常，第一版不继续细分。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“运费多少？”",
+        "“我的快递到哪里了？”",
+        "什么时候发货",
+        "怎么还多运费呀",
+        "新疆几天能到？",
+        "天气这么热，在路上耽误了几天没事吧"
+      ],
+      "negative_examples": [
+        "“收到时苗已经断了。”（received_problem）",
+        "“能便宜一点吗？”（通常 discount）",
+        "偏远地区可以包邮吗？"
+      ],
+      "confusable": [
+        "discount",
+        "received_problem",
+        "order_process"
+      ],
+      "slots": [
+        "delivery_topic（shipping_fee/dispatch_time/tracking/delivery_time/exception）",
+        "order_id",
+        "tracking_no"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "after_sale_policy",
+      "name": "售后政策",
+      "definition": "售后范围、申请方式、有效期限、责任条件和处理规则。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“售后期限是多久？”",
+        "“需要什么凭证才能申请售后？”",
+        "30天售后期也太短了吧",
+        "养死了你们包赔吗？",
+        "怎么查看订单",
+        "抖音和微信一样的质保期吗？",
+        "养死了是找你还是找客服？"
+      ],
+      "negative_examples": [
+        "“买回去养死包赔吗？”（购买前更偏 service_guarantee）",
+        "“收到坏了，我要退款。”（received_problem \\+ refund_return）",
+        "和直播间看到的不太一样",
+        "直播间看着那么大，收到怎么那么小",
+        "不对版怎么办"
+      ],
+      "confusable": [
+        "service_guarantee",
+        "received_problem",
+        "refund_return"
+      ],
+      "slots": [
+        "policy_topic",
+        "policy_condition",
+        "order_id"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "received_problem",
+      "name": "收货问题",
+      "definition": "商品到货后的损坏、状态差、错发、少发、货不对板等事实性问题。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“收到时叶子和根都断了。”",
+        "“我买两盆只收到一盆。”",
+        "买的时候说带盆，收到只有苗子，盆呢？",
+        "说送的植料呢？收到啥呀没有呀，怎么栽？",
+        "答应的送肥料也没有呀",
+        "图片看的是红色的，怎么花苞不红呀？",
+        "买的3苗，收到只有2苗呀",
+        "花剑都折断了，本来就是赏花的，现在什么都没有了",
+        "花苞都黑了，这还能开吗？",
+        "这个不是我的，标签不是我的名字"
+      ],
+      "negative_examples": [
+        "“运输坏了有保障吗？”（售前 service_guarantee）",
+        "“自己养了一周后黄叶了。”（可能 symptom_disease_recovery）",
+        "才收到几天呀就消苞了",
+        "刚养了几天，叶子就黄了，焦尖怎么回事？",
+        "收到几天，什么时候该浇水呀？",
+        "买回来就腐苗了，给闭门退回去吧"
+      ],
+      "confusable": [
+        "service_guarantee",
+        "symptom_disease_recovery",
+        "refund_return"
+      ],
+      "slots": [
+        "order_id",
+        "problem_type",
+        "affected_quantity",
+        "received_at",
+        "evidence_available"
+      ],
+      "stage_effect": ""
+    },
+    {
+      "kind": "issue",
+      "id": "refund_return",
+      "name": "退款退货",
+      "definition": "退款、退货及其原因、申请和进度，第一版暂不细分多个售后动作。",
+      "include": "",
+      "exclude": "",
+      "positive_examples": [
+        "“这个订单我要退款。”",
+        "“商品怎么退回去？”",
+        "我不要了，怎么退？",
+        "寄养的我不要了，退款给我吧",
+        "收到不满意"
+      ],
+      "negative_examples": [
+        "“坏了可以退款吗？”（售前政策/保障咨询）",
+        "“我不买了。”（不存在订单时为 decline_purchase）",
+        "从哪里找到申请退款？",
+        "退货包运费吗？",
+        "不能补发一个吗？",
+        "从哪看订单？"
+      ],
+      "confusable": [
+        "after_sale_policy",
+        "received_problem",
+        "decline_purchase"
+      ],
+      "slots": [
+        "order_id",
+        "resolution_type",
+        "reason",
+        "refund_status",
+        "return_tracking_no"
+      ],
+      "stage_effect": ""
+    }
+  ]
+}

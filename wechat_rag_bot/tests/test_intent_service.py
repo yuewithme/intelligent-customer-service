@@ -128,17 +128,26 @@ async def test_explicit_sales_and_human_requests_still_route_to_templates_or_hum
 
 
 @pytest.mark.asyncio
-async def test_clear_soft_rule_bypasses_llm(monkeypatch):
+async def test_enabled_llm_precedes_soft_keyword_rules(monkeypatch):
     from app.config import get_settings
     from app.services import intent_service
 
-    async def fail_classify_by_llm(message, user_state, candidates=None):
+    async def fake_classify_by_llm(message, user_state, candidates=None):
         del message, user_state, candidates
-        raise AssertionError("clear existing soft rules should bypass the LLM")
+        return IntentResult(
+            route="rag_answer",
+            primary_intent="care_question",
+            primary_domain="care_service",
+            primary_goal="ask_information",
+            issues=["watering_fertilizing"],
+            confidence=0.91,
+            need_rag=True,
+            reason="llm_dgi",
+        )
 
     monkeypatch.setenv("INTENT_LLM_ENABLED", "true")
     get_settings.cache_clear()
-    monkeypatch.setattr(intent_service, "classify_by_llm", fail_classify_by_llm)
+    monkeypatch.setattr(intent_service, "classify_by_llm", fake_classify_by_llm)
 
     try:
         intent = await classify_intent(
@@ -150,7 +159,9 @@ async def test_clear_soft_rule_bypasses_llm(monkeypatch):
 
     assert intent.route == "rag_answer"
     assert intent.primary_intent == "care_question"
-    assert intent.reason == "soft_rule_care"
+    assert intent.reason == "llm_dgi"
+    assert intent.primary_domain == "care_service"
+    assert intent.issues == ["watering_fertilizing"]
 
 
 @pytest.mark.asyncio
@@ -258,21 +269,23 @@ def test_llm_prompt_requires_complete_intent_schema():
 
     prompt = _build_prompt("老师，下一次浇水需要多少天？")
 
-    assert '"route"' in prompt
-    assert '"primary_intent"' in prompt
+    assert '"primary_domain"' in prompt
+    assert '"primary_goal"' in prompt
+    assert '"issues"' in prompt
+    assert '"scope"' in prompt
+    assert '"evidence"' in prompt
     assert '"confidence"' in prompt
-    assert '"need_rag"' in prompt
     assert "slots.decision_blocker" in prompt
     assert '"sales_signals"' in prompt
     assert "payment_claimed" in prompt
-    assert "禁止输出 `purchased`" in prompt
+    assert "禁止输出 purchased" in prompt
     assert "price | trust | care_risk | product_fit | choice | timing | other" in prompt
     assert "浇水需要多少天" in prompt
-    assert "分类优先级" in prompt
-    assert "重要边界" in prompt
-    assert "confidence 规则" in prompt
+    assert "request_material" in prompt
+    assert "after_sale_policy" in prompt
+    assert "received_problem" in prompt
     assert "名贵兰花" in prompt
-    assert "换盆修根" in prompt
+    assert "不要输出 route" in prompt
 
 
 def test_llm_intent_cannot_self_confirm_a_purchase():

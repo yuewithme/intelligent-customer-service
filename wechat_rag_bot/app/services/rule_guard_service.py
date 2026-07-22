@@ -17,10 +17,15 @@ async def check_rules(
     if not text:
         raise AppError(ErrorCode.MESSAGE_EMPTY)
 
-    if _contains_any(text, ("人工", "转人工", "客服")):
+    if _contains_any(
+        text,
+        ("转人工", "找人工", "人工客服", "真人客服", "转客服", "找客服", "客服介入"),
+    ):
         return IntentResult(
             route="human",
             primary_intent="human_request",
+            primary_domain="customer_service",
+            primary_goal="request_human",
             confidence=0.98,
             need_human=True,
             reason="rule_guard_human_request",
@@ -29,6 +34,9 @@ async def check_rules(
         return IntentResult(
             route="human",
             primary_intent="refund_request",
+            primary_domain="customer_service",
+            primary_goal="request_refund_return",
+            issues=["refund_return"],
             confidence=0.98,
             need_human=True,
             reason="rule_guard_refund",
@@ -37,6 +45,8 @@ async def check_rules(
         return IntentResult(
             route="human",
             primary_intent="complaint",
+            primary_domain="customer_service",
+            primary_goal="complain",
             confidence=0.98,
             need_human=True,
             reason="rule_guard_complaint",

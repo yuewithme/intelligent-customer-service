@@ -113,19 +113,37 @@ def normalize_sales_signals(
         _add_signal(signals, evidence, signal, "message")
 
     intents = {intent.primary_intent, *intent.secondary_intents}
-    if intents & SERVICE_INTENTS:
+    domains = {
+        value
+        for value in {intent.primary_domain, *intent.secondary_domains}
+        if value
+    }
+    goals = {
+        value for value in {intent.primary_goal, *intent.secondary_goals} if value
+    }
+    issues = set(intent.issues)
+    if intents & SERVICE_INTENTS or "care_service" in domains or "request_material" in goals:
         _add_signal(signals, evidence, CustomerSignal.SERVICE_NEED, "message")
-    if intents & PRODUCT_INTENTS:
+    if intents & PRODUCT_INTENTS or domains & {
+        "customer_need",
+        "product_solution",
+        "commercial_decision",
+        "purchase_transaction",
+    }:
         _add_signal(signals, evidence, CustomerSignal.PRODUCT_NEED, "message")
-    if intents & PRICE_INTENTS:
+    if intents & PRICE_INTENTS or issues & {"price", "discount"}:
         _add_signal(signals, evidence, CustomerSignal.PRICE_INTEREST, "message")
-    if intents & OBJECTION_INTENTS:
+    if intents & OBJECTION_INTENTS or goals & {
+        "express_objection",
+        "negotiate",
+        "defer_decision",
+    }:
         _add_signal(signals, evidence, CustomerSignal.OBJECTION, "message")
-    if intents & READY_TO_BUY_INTENTS:
+    if intents & READY_TO_BUY_INTENTS or goals & {"confirm_choice", "purchase", "pay"}:
         _add_signal(signals, evidence, CustomerSignal.READY_TO_BUY, "message")
     if intents & PAYMENT_CLAIM_INTENTS:
         _add_signal(signals, evidence, CustomerSignal.PAYMENT_CLAIMED, "message")
-    if intents & REJECTION_INTENTS:
+    if intents & REJECTION_INTENTS or "decline_purchase" in goals:
         _add_signal(signals, evidence, CustomerSignal.PURCHASE_REJECTED, "message")
 
     text = str(getattr(message, "message", "") or "").strip()

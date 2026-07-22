@@ -14,10 +14,26 @@ RouteName = Literal[
 ]
 
 
+IntentScope = Literal["in_scope", "ambiguous", "out_of_scope"]
+
+
+class IntentEvidence(BaseModel):
+    text: str
+    dimension: Literal["domain", "goal", "issue"]
+    label: str
+
+
 class IntentResult(BaseModel):
     route: RouteName
     primary_intent: str
     secondary_intents: list[str] = Field(default_factory=list)
+    primary_domain: str | None = None
+    secondary_domains: list[str] = Field(default_factory=list)
+    primary_goal: str | None = None
+    secondary_goals: list[str] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
+    scope: IntentScope = "in_scope"
+    evidence: list[IntentEvidence] = Field(default_factory=list)
     sales_stage: str = "unknown"
     sales_signals: list[str] = Field(default_factory=list)
     customer_sentiment: str | None = None
