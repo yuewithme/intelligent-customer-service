@@ -1,10 +1,13 @@
 import json
+from datetime import timedelta
 
 import anyio
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.config import get_settings
+from app.db.models import ConversationMessageModel
 from app.main import app
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
@@ -232,6 +235,15 @@ def test_historical_conversation_gap_is_reconciled_and_locatable(
             status="ai_waiting",
             route="inbound_text",
         )
+        await record_customer_message(
+            channel="wechat",
+            user_id="customer-gap",
+            session_id="default",
+            content="直播间说有师傅教，有视频资料免费领取",
+            message_id="provider-material",
+            status="ai_waiting",
+            route="inbound_text",
+        )
         await record_intent_observation(
             message=NormalizedMessage(
                 trace_id="trace-captured",
@@ -256,16 +268,33 @@ def test_historical_conversation_gap_is_reconciled_and_locatable(
     from app.services import intent_observation_service as service
 
     factory = service._sessionmakers[get_settings().chat_log_db_url]
+    with factory() as session:
+        material_message = session.scalar(
+            select(ConversationMessageModel).where(
+                ConversationMessageModel.message_id == "provider-material"
+            )
+        )
+        material_message.created_at -= timedelta(days=2)
+        session.commit()
     service._backfill_observation_locators_and_gaps(factory)
     result = TestClient(app).get("/api/v1/admin/intent-observations").json()["data"]
 
-    assert result["total"] == 2
+    assert result["total"] == 3
     captured = next(item for item in result["items"] if item["trace_id"] == "trace-captured")
     gap = next(item for item in result["items"] if item["classifier_source"] == "capture_gap")
+    material = next(
+        item
+        for item in result["items"]
+        if item["classifier_source"] == "historical_rule"
+    )
     assert captured["conversation_id"] == "wechat:customer-gap:default"
     assert len(captured["conversation_message_ids"]) == 1
     assert gap["user_message"] == "中午好"
     assert gap["needs_review"] is True
+    assert material["primary_domain"] == "care_service"
+    assert material["primary_goal"] == "request_material"
+    assert material["issues"] == ["care_general"]
+    assert material["needs_review"] is False
 
 
 def test_invalid_corrected_label_is_rejected(monkeypatch, tmp_path):

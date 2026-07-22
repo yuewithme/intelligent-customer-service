@@ -22,6 +22,7 @@ from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
 from app.schemas.intent_observation import IntentAnnotationRequest
 from app.services.intent_taxonomy_service import normalize_taxonomy_value
+from app.services.orchid_material_service import is_orchid_material_request
 
 
 logger = logging.getLogger("wechat_rag_bot.intent_observations")
@@ -43,6 +44,7 @@ INTERNAL_OPERATOR_TITLES = {
     "转人工设置 - 销售 Agent",
     "模型配置 - 销售 Agent",
 }
+HISTORICAL_RULE_BACKFILL_DAYS = 7
 
 
 def is_intent_capture_noise(message: str) -> bool:
@@ -919,7 +921,7 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
             linked_message_ids.update(matches)
 
         earliest = min(row.created_at for row in observations) - timedelta(minutes=30)
-        missing_messages = session.scalars(
+        recent_missing_messages = session.scalars(
             select(ConversationMessageModel)
             .where(
                 ConversationMessageModel.sender_type == "customer",
@@ -931,6 +933,34 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                 ConversationMessageModel.id.asc(),
             )
         ).all()
+        historical_material_messages = [
+            message
+            for message in session.scalars(
+                select(ConversationMessageModel)
+                .where(
+                    ConversationMessageModel.sender_type == "customer",
+                    ConversationMessageModel.route == "inbound_text",
+                    ConversationMessageModel.created_at
+                    >= _utcnow() - timedelta(days=HISTORICAL_RULE_BACKFILL_DAYS),
+                    ConversationMessageModel.created_at < earliest,
+                )
+                .order_by(
+                    ConversationMessageModel.created_at.asc(),
+                    ConversationMessageModel.id.asc(),
+                )
+            ).all()
+            if is_orchid_material_request(message.content)
+        ]
+        missing_messages = sorted(
+            {
+                message.id: message
+                for message in [
+                    *recent_missing_messages,
+                    *historical_material_messages,
+                ]
+            }.values(),
+            key=lambda message: (message.created_at, message.id),
+        )
         for message in missing_messages:
             if (
                 message.id in linked_message_ids
@@ -948,6 +978,7 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                 )
             ) is not None:
                 continue
+            is_material_request = is_orchid_material_request(message.content)
             session.add(
                 IntentObservationModel(
                     trace_id=trace_id,
@@ -962,20 +993,48 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                     user_message=message.content,
                     context_json="[]",
                     taxonomy_version="1.0",
-                    classifier_source="capture_gap",
-                    raw_prediction_json="{}",
+                    classifier_source=(
+                        "historical_rule" if is_material_request else "capture_gap"
+                    ),
+                    raw_prediction_json=_json_dumps(
+                        {"backfill_rule": "orchid_material_request"}
+                        if is_material_request
+                        else {}
+                    ),
                     candidate_labels_json="[]",
-                    primary_domain="conversation",
+                    primary_domain=(
+                        "care_service" if is_material_request else "conversation"
+                    ),
                     secondary_domains_json="[]",
-                    primary_goal="unclear",
+                    primary_goal=(
+                        "request_material" if is_material_request else "unclear"
+                    ),
                     secondary_goals_json="[]",
-                    issues_json="[]",
-                    scope="ambiguous",
-                    evidence_json="[]",
-                    confidence=0.0,
-                    intent_reason="historical_capture_gap",
-                    predicted_route="clarify",
-                    final_route="capture_gap",
+                    issues_json=_json_dumps(
+                        ["care_general"] if is_material_request else []
+                    ),
+                    scope="in_scope" if is_material_request else "ambiguous",
+                    evidence_json=_json_dumps(
+                        [
+                            {
+                                "text": "明确提及资料领取",
+                                "dimension": "goal",
+                                "label": "request_material",
+                            }
+                        ]
+                        if is_material_request
+                        else []
+                    ),
+                    confidence=1.0 if is_material_request else 0.0,
+                    intent_reason=(
+                        "historical_material_request_rule"
+                        if is_material_request
+                        else "historical_capture_gap"
+                    ),
+                    predicted_route=(
+                        "rag_answer" if is_material_request else "clarify"
+                    ),
+                    final_route=_historical_response_route(session, message),
                     primary_intent="unknown",
                     status="observed",
                     created_at=message.created_at,
@@ -983,6 +1042,26 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                 )
             )
         session.commit()
+
+
+def _historical_response_route(
+    session: Session, message: ConversationMessageModel
+) -> str:
+    response = session.scalar(
+        select(ConversationMessageModel)
+        .where(
+            ConversationMessageModel.conversation_id == message.conversation_id,
+            ConversationMessageModel.sender_type.in_(("ai", "operator")),
+            ConversationMessageModel.created_at >= message.created_at,
+            ConversationMessageModel.created_at
+            <= message.created_at + timedelta(minutes=5),
+        )
+        .order_by(
+            ConversationMessageModel.created_at.asc(),
+            ConversationMessageModel.id.asc(),
+        )
+    )
+    return str(response.route or "capture_gap") if response else "capture_gap"
 
 
 def _parse_datetime(value: Any) -> datetime:

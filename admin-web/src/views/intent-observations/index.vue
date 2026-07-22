@@ -47,6 +47,7 @@
         <ElOption label="兜底规则" value="fallback_rule" />
         <ElOption label="大模型低置信度后规则兜底" value="llm_fallback_rule" />
         <ElOption label="历史漏采待补标" value="capture_gap" />
+        <ElOption label="历史规则补录" value="historical_rule" />
       </ElSelect>
       <ElSelect v-model="filters.max_confidence" clearable placeholder="低置信度" @change="search">
         <ElOption label="低于 0.60" :value="0.6" />
@@ -349,7 +350,7 @@ const cardText = (id?: string | null) => {
 }
 const confidenceText = (value?: number | null) => value == null ? '—' : `${(value * 100).toFixed(0)}%`
 const formatTime = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false })
-const sourceText = (value: string) => ({ llm: '大模型', rule_guard: '安全规则', hard_rule: '高精度规则', context_rule: '上下文规则', fallback_rule: '兜底规则', llm_fallback_rule: '大模型低置信度后规则兜底', state_guard: '会话状态', bypass_route: '固定旁路', pipeline_error: '管线异常', capture_gap: '历史漏采待补标' }[value] || value)
+const sourceText = (value: string) => ({ llm: '大模型', rule_guard: '安全规则', hard_rule: '高精度规则', context_rule: '上下文规则', fallback_rule: '兜底规则', llm_fallback_rule: '大模型低置信度后规则兜底', state_guard: '会话状态', bypass_route: '固定旁路', pipeline_error: '管线异常', capture_gap: '历史漏采待补标', historical_rule: '历史规则补录' }[value] || value)
 const annotationText = (value: AnnotationStatus | string) => ({ pending: '待修正', confirmed: '预测正确', corrected: '已修正', uncertain: '不确定', excluded: '排除训练' }[value] || value)
 const annotationType = (value: AnnotationStatus) => ({ pending: 'warning', confirmed: 'success', corrected: 'primary', uncertain: 'info', excluded: 'danger' }[value] as any)
 
