@@ -199,6 +199,30 @@ async def test_canary_requires_latest_passing_human_approved_gate(memory_db):
 
 
 @pytest.mark.asyncio
+async def test_explicit_gate_bypass_allows_full_canary_without_gate(memory_db):
+    _configure(memory_db, MEMORY_V2_WRITE_ENABLED=True)
+    _write_event()
+    _configure(
+        memory_db,
+        MEMORY_V2_WRITE_ENABLED=False,
+        MEMORY_V2_SHADOW_ENABLED=False,
+        MEMORY_V2_CANARY_ENABLED=True,
+        MEMORY_V2_CANARY_PERCENT=100,
+        MEMORY_V2_GATE_BYPASS_ENABLED=True,
+    )
+
+    context, trace = await prepare_memory_context_for_request(
+        _message("trace_gate_bypass")
+    )
+
+    assert context is not None
+    assert trace["status"] == "canary"
+    assert trace["injected"] is True
+    assert trace["gate_passed"] is True
+    assert trace["gate_bypassed"] is True
+
+
+@pytest.mark.asyncio
 async def test_runtime_violation_blocks_canary_even_after_gate(memory_db, monkeypatch):
     from app.services import memory_rollout_service
 

@@ -131,6 +131,9 @@ class Settings(BaseSettings):
     memory_v2_canary_percent: int = Field(
         default=0, ge=0, le=100, alias="MEMORY_V2_CANARY_PERCENT"
     )
+    memory_v2_gate_bypass_enabled: bool = Field(
+        default=False, alias="MEMORY_V2_GATE_BYPASS_ENABLED"
+    )
     memory_v2_shadow_min_samples: int = Field(
         default=100, ge=1, alias="MEMORY_V2_SHADOW_MIN_SAMPLES"
     )

@@ -11,6 +11,7 @@ MEMORY_V2_WRITE_ENABLED=false
 MEMORY_V2_SHADOW_ENABLED=false
 MEMORY_V2_CANARY_ENABLED=false
 MEMORY_V2_CANARY_PERCENT=0
+MEMORY_V2_GATE_BYPASS_ENABLED=false
 ```
 
 Qdrant `customer_memory` is a derived index. SQL remains authoritative during
@@ -32,6 +33,23 @@ normal operation, incidents, rebuilds, and deletion.
 
 No gate is created automatically from telemetry. A reviewer must explicitly
 submit the evaluated metrics.
+
+## Explicit direct activation
+
+An operator may deliberately activate Memory 2.0 without a recorded rollout
+gate by setting all of the following values and restarting the API:
+
+```text
+MEMORY_V2_SHADOW_ENABLED=false
+MEMORY_V2_CANARY_ENABLED=true
+MEMORY_V2_CANARY_PERCENT=100
+MEMORY_V2_GATE_BYPASS_ENABLED=true
+```
+
+This is an explicit risk acceptance, not an evaluation result. It bypasses only
+the rollout-gate record. Tenant/subject scope validation and verified-business
+fact validation still fail closed. Set `MEMORY_V2_CANARY_ENABLED=false` or
+`MEMORY_V2_CANARY_PERCENT=0` for immediate rollback.
 
 ## Monitoring
 

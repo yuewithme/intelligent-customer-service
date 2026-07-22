@@ -189,7 +189,7 @@ def _record_shadow_run_safely(**kwargs) -> None:
 
 
 async def prepare_memory_context_for_request(message) -> tuple[MemoryContext | None, dict]:
-    """Run shadow recall and return context only for a gated canary subject."""
+    """Run recall and return context for a gated or explicitly bypassed canary."""
     settings = get_settings()
     if not (settings.memory_v2_shadow_enabled or settings.memory_v2_canary_enabled):
         return None, {"status": "disabled", "injected": False}
@@ -253,11 +253,15 @@ async def prepare_memory_context_for_request(message) -> tuple[MemoryContext | N
         fact.source_type != "verified_business_system"
         for fact in context.verified_business_facts
     )
-    try:
-        gate_passed = has_passed_memory_rollout_gate(message.tenant_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Memory rollout gate read failed: %s", type(exc).__name__)
-        gate_passed = False
+    gate_bypassed = settings.memory_v2_gate_bypass_enabled
+    if gate_bypassed:
+        gate_passed = True
+    else:
+        try:
+            gate_passed = has_passed_memory_rollout_gate(message.tenant_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Memory rollout gate read failed: %s", type(exc).__name__)
+            gate_passed = False
     injected = (
         not scope_violation
         and not verified_violation
@@ -291,5 +295,6 @@ async def prepare_memory_context_for_request(message) -> tuple[MemoryContext | N
         "unknown_count": len(context.unknowns),
         "latency_ms": latency_ms,
         "gate_passed": gate_passed,
+        "gate_bypassed": gate_bypassed,
     }
     return (context if injected else None), trace
