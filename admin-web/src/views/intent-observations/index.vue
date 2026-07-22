@@ -3,17 +3,18 @@
     <div class="page-head">
       <div>
         <h1>意图识别日志</h1>
-        <p>逐轮查看 Domain / Goal / Issue 预测，人工确认或修正后可导出训练数据。</p>
+        <p>默认接受高置信度预测，仅需处理低置信度记录；可定位到销售工作台核对上下文。</p>
       </div>
       <div class="head-actions">
-        <ElButton :loading="exporting" @click="exportDataset">导出已审核 JSONL</ElButton>
+        <ElButton :loading="exporting" @click="exportDataset">导出可训练 JSONL</ElButton>
         <ElButton type="primary" @click="load">刷新</ElButton>
       </div>
     </div>
 
     <div class="metrics">
-      <div><span>待审核</span><strong>{{ summary.pending }}</strong></div>
-      <div><span>已审核</span><strong>{{ summary.reviewed }}</strong></div>
+      <div><span>待修正（低置信度）</span><strong>{{ summary.pending }}</strong></div>
+      <div><span>预测正确</span><strong>{{ summary.accepted }}</strong></div>
+      <div><span>人工已修正</span><strong>{{ summary.corrected }}</strong></div>
       <div><span>当前筛选</span><strong>{{ total }}</strong></div>
     </div>
 
@@ -26,7 +27,7 @@
         @keyup.enter="search"
       />
       <ElSelect v-model="filters.annotation_status" clearable placeholder="审核状态" @change="search">
-        <ElOption label="待审核" value="pending" />
+        <ElOption label="待修正" value="pending" />
         <ElOption label="预测正确" value="confirmed" />
         <ElOption label="已修正" value="corrected" />
         <ElOption label="不确定" value="uncertain" />
@@ -45,6 +46,7 @@
         <ElOption label="上下文规则" value="context_rule" />
         <ElOption label="兜底规则" value="fallback_rule" />
         <ElOption label="大模型低置信度后规则兜底" value="llm_fallback_rule" />
+        <ElOption label="历史漏采待补标" value="capture_gap" />
       </ElSelect>
       <ElSelect v-model="filters.max_confidence" clearable placeholder="低置信度" @change="search">
         <ElOption label="低于 0.60" :value="0.6" />
@@ -61,6 +63,7 @@
         <template #default="{ row }">
           <div class="message-cell">{{ row.user_message }}</div>
           <small>{{ row.user_id }} · {{ row.channel }}</small>
+          <small v-if="row.conversation_message_ids.length > 1"> · 本轮合并 {{ row.conversation_message_ids.length }} 条消息</small>
         </template>
       </ElTableColumn>
       <ElTableColumn label="Domain / Goal" min-width="260">
@@ -81,10 +84,14 @@
       <ElTableColumn label="审核" width="110">
         <template #default="{ row }">
           <ElTag :type="annotationType(row.annotation_status)">{{ annotationText(row.annotation_status) }}</ElTag>
+          <small v-if="row.annotation_origin === 'automatic' && !row.needs_review" class="status-note">系统默认</small>
         </template>
       </ElTableColumn>
+      <ElTableColumn label="定位" width="80">
+        <template #default="{ row }"><ElButton link type="primary" @click.stop="locateConversation(row)">定位</ElButton></template>
+      </ElTableColumn>
       <ElTableColumn label="操作" width="100" fixed="right">
-        <template #default="{ row }"><ElButton link type="primary" @click="openDetail(row)">审核</ElButton></template>
+        <template #default="{ row }"><ElButton link type="primary" @click="openDetail(row)">{{ row.needs_review ? '修正' : '查看/修改' }}</ElButton></template>
       </ElTableColumn>
     </ElTable>
 
@@ -103,7 +110,7 @@
     <ElDrawer v-model="drawerVisible" title="意图审核" size="760px">
       <template v-if="detail">
         <section class="detail-card">
-          <h3>本轮用户消息</h3>
+          <div class="detail-title"><h3>本轮用户消息</h3><ElButton link type="primary" @click="locateConversation(detail)">定位到会话</ElButton></div>
           <p class="customer-message">{{ detail.user_message }}</p>
           <div v-if="detail.context.length" class="context-list">
             <h4>分类时使用的最近上下文</h4>
@@ -207,6 +214,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import {
   annotateIntentObservation,
   downloadIntentTrainingData,
@@ -230,10 +238,11 @@ const cards = ref<TaxonomyCard[]>([])
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
-const summary = reactive({ pending: 0, reviewed: 0 })
+const summary = reactive({ pending: 0, accepted: 0, corrected: 0 })
+const router = useRouter()
 const readOnly = isTestGate()
 const filters = reactive({
-  keyword: '', annotation_status: '', primary_domain: '', primary_goal: '',
+  keyword: '', annotation_status: 'pending', primary_domain: '', primary_goal: '',
   classifier_source: '', max_confidence: undefined as number | undefined
 })
 const form = reactive({
@@ -262,7 +271,8 @@ const load = async () => {
     items.value = result.items
     total.value = result.total
     summary.pending = result.pending_count
-    summary.reviewed = result.reviewed_count
+    summary.accepted = result.accepted_count
+    summary.corrected = result.corrected_count
   } finally { loading.value = false }
 }
 
@@ -271,7 +281,7 @@ const search = () => { page.value = 1; load() }
 const openDetail = async (row: IntentObservation) => {
   detail.value = await getIntentObservation(row.trace_id)
   const latest = detail.value.latest_annotation
-  form.status = latest?.status || 'confirmed'
+  form.status = latest?.status || (detail.value.needs_review ? 'corrected' : 'confirmed')
   const useCorrection = latest?.status === 'corrected'
   form.primary_domain = (useCorrection ? latest.primary_domain : detail.value.primary_domain) || ''
   form.secondary_domains = [...(useCorrection ? latest.secondary_domains : detail.value.secondary_domains)]
@@ -320,6 +330,18 @@ const exportDataset = async () => {
   } finally { exporting.value = false }
 }
 
+const locateConversation = (row: IntentObservation) => {
+  if (!row.conversation_id) return ElMessage.warning('该记录暂未关联到销售工作台会话')
+  const messageId = row.conversation_message_ids.at(-1)
+  void router.push({
+    path: '/workbench',
+    query: {
+      conversation_id: row.conversation_id,
+      ...(messageId ? { message_id: String(messageId) } : {})
+    }
+  })
+}
+
 const cardText = (id?: string | null) => {
   if (!id) return '未识别'
   const card = cards.value.find((item) => item.id === id)
@@ -327,8 +349,8 @@ const cardText = (id?: string | null) => {
 }
 const confidenceText = (value?: number | null) => value == null ? '—' : `${(value * 100).toFixed(0)}%`
 const formatTime = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false })
-const sourceText = (value: string) => ({ llm: '大模型', rule_guard: '安全规则', hard_rule: '高精度规则', context_rule: '上下文规则', fallback_rule: '兜底规则', llm_fallback_rule: '大模型低置信度后规则兜底', state_guard: '会话状态', bypass_route: '固定旁路', pipeline_error: '管线异常' }[value] || value)
-const annotationText = (value: AnnotationStatus | string) => ({ pending: '待审核', confirmed: '预测正确', corrected: '已修正', uncertain: '不确定', excluded: '排除训练' }[value] || value)
+const sourceText = (value: string) => ({ llm: '大模型', rule_guard: '安全规则', hard_rule: '高精度规则', context_rule: '上下文规则', fallback_rule: '兜底规则', llm_fallback_rule: '大模型低置信度后规则兜底', state_guard: '会话状态', bypass_route: '固定旁路', pipeline_error: '管线异常', capture_gap: '历史漏采待补标' }[value] || value)
+const annotationText = (value: AnnotationStatus | string) => ({ pending: '待修正', confirmed: '预测正确', corrected: '已修正', uncertain: '不确定', excluded: '排除训练' }[value] || value)
 const annotationType = (value: AnnotationStatus) => ({ pending: 'warning', confirmed: 'success', corrected: 'primary', uncertain: 'info', excluded: 'danger' }[value] as any)
 
 onMounted(async () => {
@@ -339,5 +361,5 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.page-head,.head-actions,.filters,.metrics,.form-grid{display:flex;align-items:center;gap:12px}.page-head{justify-content:space-between;margin-bottom:18px}.page-head h1{margin:0 0 6px;font-size:24px}.page-head p{margin:0;color:#64748b}.metrics{margin-bottom:16px}.metrics>div{min-width:150px;padding:14px 18px;border:1px solid #e5e7eb;border-radius:12px;background:#fff}.metrics span{display:block;color:#64748b;font-size:13px}.metrics strong{font-size:24px}.filters{flex-wrap:wrap;margin-bottom:16px}.filters .el-input{width:260px}.filters .el-select{width:180px}.message-cell{line-height:1.6;white-space:normal}.message-cell+small,.el-table small{color:#94a3b8}.label-line{margin:3px 0}.label-line b{display:inline-grid;place-items:center;width:20px;height:20px;margin-right:7px;border-radius:5px;background:#eff6ff;color:#2563eb}.issue-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.pagination{display:flex;justify-content:flex-end;margin-top:18px}.detail-card{margin-bottom:16px;padding:16px;border:1px solid #e5e7eb;border-radius:12px}.detail-card h3{margin:0 0 12px}.detail-card h4{margin:12px 0 8px}.customer-message{padding:14px;border-radius:8px;background:#f8fafc;line-height:1.7}.context-list p{display:flex;gap:10px;margin:7px 0;color:#475569}.context-list b{flex:0 0 36px}.predicted dl{display:grid;grid-template-columns:90px 1fr;gap:8px 12px;margin:0}.predicted dt{color:#64748b}.predicted dd{margin:0}.form-grid>*{flex:1}.technical-detail pre{overflow:auto;max-height:420px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-size:12px}.el-select{width:100%}
+.page-head,.head-actions,.filters,.metrics,.form-grid{display:flex;align-items:center;gap:12px}.page-head{justify-content:space-between;margin-bottom:18px}.page-head h1{margin:0 0 6px;font-size:24px}.page-head p{margin:0;color:#64748b}.metrics{margin-bottom:16px}.metrics>div{min-width:150px;padding:14px 18px;border:1px solid #e5e7eb;border-radius:12px;background:#fff}.metrics span{display:block;color:#64748b;font-size:13px}.metrics strong{font-size:24px}.filters{flex-wrap:wrap;margin-bottom:16px}.filters .el-input{width:260px}.filters .el-select{width:180px}.message-cell{line-height:1.6;white-space:normal}.message-cell+small,.el-table small{color:#94a3b8}.label-line{margin:3px 0}.label-line b{display:inline-grid;place-items:center;width:20px;height:20px;margin-right:7px;border-radius:5px;background:#eff6ff;color:#2563eb}.issue-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.pagination{display:flex;justify-content:flex-end;margin-top:18px}.detail-card{margin-bottom:16px;padding:16px;border:1px solid #e5e7eb;border-radius:12px}.detail-card h3{margin:0 0 12px}.detail-title{display:flex;align-items:flex-start;justify-content:space-between}.detail-card h4{margin:12px 0 8px}.customer-message{padding:14px;border-radius:8px;background:#f8fafc;line-height:1.7}.context-list p{display:flex;gap:10px;margin:7px 0;color:#475569}.context-list b{flex:0 0 36px}.predicted dl{display:grid;grid-template-columns:90px 1fr;gap:8px 12px;margin:0}.predicted dt{color:#64748b}.predicted dd{margin:0}.form-grid>*{flex:1}.technical-detail pre{overflow:auto;max-height:420px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-size:12px}.status-note{display:block;margin-top:4px}.el-select{width:100%}
 </style>

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import random
@@ -36,7 +37,10 @@ from app.services.conversation_service import (
 )
 from app.services.customer_reply_formatter import plain_customer_text, split_customer_messages
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
-from app.services.intent_observation_service import record_bypassed_intent_observation
+from app.services.intent_observation_service import (
+    is_intent_capture_noise,
+    record_bypassed_intent_observation,
+)
 from app.services.orchid_material_service import (
     orchid_material_chat_result,
     orchid_material_video_issue_chat_result,
@@ -656,6 +660,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
             batch_data["batch_key"],
             created_after=batch_data["created_at"],
         )
+        observation_metadata = _intent_observation_metadata(
+            session, batch_data, inbound_payloads
+        )
+        observation_trace_id = str(observation_metadata["source_trace_id"])
         customer_snapshot = _latest_customer_snapshot(session, batch_data["batch_key"])
         is_first_inbound = is_first_eyun_inbound_message(session, batch_data["batch_key"])
         has_sent_orchid_material = _has_sent_orchid_material(
@@ -667,6 +675,9 @@ async def _process_inbound_batch(batch_id: int) -> None:
 
     try:
         if batch_data["from_group"]:
+            _mark_batch(batch_id, "skipped")
+            return
+        if _only_intent_capture_noise(inbound_payloads):
             _mark_batch(batch_id, "skipped")
             return
 
@@ -692,13 +703,14 @@ async def _process_inbound_batch(batch_id: int) -> None:
 
         if _conversation_blocks_ai(batch_data):
             await record_bypassed_intent_observation(
-                trace_id=batch_data["batch_key"],
+                trace_id=observation_trace_id,
                 channel="wechat",
                 user_id=user_id,
                 session_id=batch_data["from_group"],
                 user_message=batch_data["content"],
                 final_route="human",
                 reason="human_conversation_locked",
+                metadata=observation_metadata,
             )
             _mark_batch(batch_id, "skipped")
             return
@@ -716,7 +728,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
         if has_sent_orchid_material and video_issue_result is not None:
             chat_result = video_issue_result
             await record_bypassed_intent_observation(
-                trace_id=batch_data["batch_key"],
+                trace_id=observation_trace_id,
                 channel="wechat",
                 user_id=user_id,
                 session_id=batch_data["from_group"],
@@ -725,11 +737,12 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 primary_domain="customer_service",
                 primary_goal="request_service",
                 reason="fixed_material_video_issue",
+                metadata=observation_metadata,
             )
         elif material_result is not None:
             chat_result = material_result
             await record_bypassed_intent_observation(
-                trace_id=batch_data["batch_key"],
+                trace_id=observation_trace_id,
                 channel="wechat",
                 user_id=user_id,
                 session_id=batch_data["from_group"],
@@ -740,6 +753,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 issues=["care_general"],
                 scope="in_scope",
                 reason="fixed_material_delivery",
+                metadata=observation_metadata,
             )
         elif all_images_failed:
             if wrong_store_order_count == image_count:
@@ -748,7 +762,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     "route": "unsupported_store_order",
                 }
                 await record_bypassed_intent_observation(
-                    trace_id=batch_data["batch_key"],
+                    trace_id=observation_trace_id,
                     channel="wechat",
                     user_id=user_id,
                     session_id=batch_data["from_group"],
@@ -758,16 +772,18 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     primary_goal="unclear",
                     scope="out_of_scope",
                     reason="unsupported_store_order",
+                    metadata=observation_metadata,
                 )
             else:
                 await record_bypassed_intent_observation(
-                    trace_id=batch_data["batch_key"],
+                    trace_id=observation_trace_id,
                     channel="wechat",
                     user_id=user_id,
                     session_id=batch_data["from_group"],
                     user_message=batch_data["content"],
                     final_route="human",
                     reason="image_recognition_failed",
+                    metadata=observation_metadata,
                 )
                 await _handoff_image_failure(
                     batch_id=batch_id,
@@ -779,13 +795,14 @@ async def _process_inbound_batch(batch_id: int) -> None:
         elif is_first_inbound and image_count == 0:
             chat_result = _opening_chat_result()
             await record_bypassed_intent_observation(
-                trace_id=batch_data["batch_key"],
+                trace_id=observation_trace_id,
                 channel="wechat",
                 user_id=user_id,
                 session_id=batch_data["from_group"],
                 user_message=batch_data["content"],
                 final_route=str(chat_result.get("route") or "opening"),
                 reason="first_inbound_opening",
+                metadata=observation_metadata,
             )
             await _record_opening_memories(batch_data, chat_result.get("answer", ""))
         else:
@@ -809,6 +826,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "image_count": image_count,
                         "recognized_image_count": recognized_image_count,
                         "verified_order_count": verified_order_count,
+                        **observation_metadata,
                         **customer_snapshot,
                     },
                 )
@@ -874,6 +892,69 @@ def _batch_inbound_payloads(
     return payloads
 
 
+def _intent_observation_metadata(
+    session: Session,
+    batch: dict[str, Any],
+    payloads: list[dict[str, Any]],
+) -> dict[str, Any]:
+    user_id = str(batch.get("from_user") or batch.get("target_wc_id") or "")
+    conversation_id = make_conversation_id(
+        "wechat", user_id, batch.get("from_group")
+    )
+    provider_message_ids = []
+    for payload in payloads:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        message_id = str(data.get("newMsgId") or data.get("msgId") or "").strip()
+        if message_id and message_id not in provider_message_ids:
+            provider_message_ids.append(message_id)
+    conversation_message_ids: list[int] = []
+    if provider_message_ids:
+        conversation_message_ids = list(
+            session.scalars(
+                select(ConversationMessageModel.id)
+                .where(
+                    ConversationMessageModel.conversation_id == conversation_id,
+                    ConversationMessageModel.sender_type == "customer",
+                    ConversationMessageModel.message_id.in_(provider_message_ids),
+                )
+                .order_by(
+                    ConversationMessageModel.created_at.asc(),
+                    ConversationMessageModel.id.asc(),
+                )
+            ).all()
+        )
+    identity = "|".join(
+        [
+            str(batch.get("batch_key") or ""),
+            *provider_message_ids,
+            str(batch.get("created_at") or ""),
+        ]
+    )
+    source_trace_id = "eyun_" + hashlib.sha256(
+        identity.encode("utf-8")
+    ).hexdigest()[:40]
+    return {
+        "source_trace_id": source_trace_id,
+        "conversation_id": conversation_id,
+        "conversation_message_ids": conversation_message_ids,
+        "provider_message_ids": provider_message_ids,
+        "message_id": provider_message_ids[-1] if provider_message_ids else None,
+        "source_message_count": len(provider_message_ids),
+    }
+
+
+def _only_intent_capture_noise(payloads: list[dict[str, Any]]) -> bool:
+    text_values = []
+    for payload in payloads:
+        if str(payload.get("messageType") or "") != "60001":
+            return False
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        content = str(data.get("content") or "").strip()
+        if content:
+            text_values.append(content)
+    return bool(text_values) and all(is_intent_capture_noise(value) for value in text_values)
+
+
 def _has_sent_orchid_material(
     session: Session,
     *,
@@ -917,7 +998,7 @@ async def _prepare_inbound_content(
         message_type = str(payload.get("messageType") or "")
         if message_type == "60001":
             text_content = str(data.get("content") or "").strip()
-            if text_content:
+            if text_content and not is_intent_capture_noise(text_content):
                 parts.append(text_content)
             continue
         if message_type != "60002":

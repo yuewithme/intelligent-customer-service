@@ -267,9 +267,47 @@ async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
     assert attempted == 1
     assert len(calls) == 1
     assert calls[0].message == "first\nsecond"
+    assert calls[0].metadata["source_trace_id"].startswith("eyun_")
+    assert calls[0].metadata["provider_message_ids"] == ["1", "2"]
+    assert calls[0].metadata["source_message_count"] == 2
     assert calls[0].metadata["remark_name"] == "兰友张姐"
     assert calls[0].metadata["avatar_url"] == "https://example.com/avatar.jpg"
     assert outbound[0]["content"] == "merged reply"
+
+
+@pytest.mark.asyncio
+async def test_internal_workbench_title_is_not_sent_to_ai(monkeypatch):
+    from app.services.message_risk_control_service import (
+        _get_session,
+        enqueue_eyun_inbound,
+        process_due_eyun_inbound_batches,
+    )
+
+    monkeypatch.setenv("EYUN_INBOUND_DEBOUNCE_SECONDS", "0")
+    get_settings.cache_clear()
+
+    async def fail_handle_chat(request):
+        pytest.fail(f"internal title must not call AI: {request.message}")
+
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.handle_chat", fail_handle_chat
+    )
+    batch = await enqueue_eyun_inbound(
+        {
+            "messageType": "60001",
+            "wcId": "bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "customer",
+                "content": "销售工作台 - 销售 Agent",
+                "newMsgId": 9002,
+            },
+        }
+    )
+
+    assert await process_due_eyun_inbound_batches(limit=5) == 1
+    with _get_session() as session:
+        assert session.get(EyunInboundBatchModel, batch["id"]).status == "skipped"
 
 
 @pytest.mark.asyncio

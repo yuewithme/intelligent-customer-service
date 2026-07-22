@@ -98,6 +98,36 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
     ]
 
 
+def test_internal_workbench_title_callback_is_ignored(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fail(**kwargs):
+        pytest.fail(f"internal workbench title must be ignored: {kwargs}")
+
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fail)
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "messageType": "60001",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": "销售工作台 - 销售 Agent",
+                "newMsgId": 102,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+
+
 def test_private_non_text_callback_uses_external_user_id(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 

@@ -24,6 +24,9 @@ export interface IntentObservation {
   channel: string
   user_id: string
   session_id?: string | null
+  message_id?: string | null
+  conversation_id?: string | null
+  conversation_message_ids: number[]
   user_message: string
   taxonomy_version: string
   classifier_source: string
@@ -43,6 +46,8 @@ export interface IntentObservation {
   primary_intent?: string | null
   sales_stage?: string | null
   annotation_status: AnnotationStatus
+  annotation_origin: 'automatic' | 'human'
+  needs_review: boolean
   latest_annotation?: IntentAnnotation | null
   created_at: string
   updated_at: string
@@ -62,6 +67,8 @@ export interface IntentObservationList {
   page_size: number
   pending_count: number
   reviewed_count: number
+  accepted_count: number
+  corrected_count: number
 }
 
 export interface TaxonomyCard {

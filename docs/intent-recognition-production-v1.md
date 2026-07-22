@@ -37,7 +37,7 @@ flowchart LR
 
 “要资料”属于 `Goal=request_material`。命中陪伴养兰固定资料时直接执行资源发送，同时写入意图观测；退款、投诉和明确人工请求的安全优先级高于资料发送。
 
-未进入分类器的固定欢迎语、图片失败、人工锁定等旁路消息也会产生观测记录，并标记为 `classifier_source=bypass_route`，默认等待人工审核，不会自动进入训练集。
+未进入分类器的固定欢迎语、图片失败、人工锁定等旁路消息也会产生观测记录，并标记为 `classifier_source=bypass_route`。销售工作台、微信客户端等人工发送消息，以及后台页面标题等内部噪声不会进入意图观测。
 
 ## 3. 日志模型
 
@@ -52,6 +52,7 @@ flowchart LR
 - 模型原始 JSON；
 - 最终 Domain、Goal、Issue、scope、证据与置信度；
 - 分类器建议路由、策略最终路由、旧意图和销售阶段。
+- 对应销售工作台会话 ID 和原始客户消息主键，可从日志直接定位到会话位置。
 
 该表是事实快照。重新审核不会修改当时的模型预测。
 
@@ -61,11 +62,13 @@ flowchart LR
 
 | 状态 | 含义 | 是否进入训练集 |
 | --- | --- | --- |
-| `confirmed` | 模型预测完全正确 | 是，使用模型预测标签 |
+| `confirmed` | 模型预测正确；置信度不低于 0.75 时系统默认该状态，人工仍可修改 | 是，使用模型预测标签并区分自动/人工来源 |
 | `corrected` | 人工填写了正确 D/G/I | 是，使用人工修正标签 |
 | `uncertain` | 当前信息仍无法可靠判断 | 否 |
 | `excluded` | 噪声、隐私风险或不适合训练 | 否 |
-| `pending` | 尚未审核，没有 annotation 记录 | 否 |
+| `pending` | 低于 0.75 且尚未处理 | 否 |
+
+默认审核策略是“高置信度预测正确，低置信度进入待修正”。任何人工结论都优先于系统默认状态；人工标记为 `uncertain` 或 `excluded` 后，即使原置信度较高也不会进入训练集。
 
 ## 4. 后台操作
 
@@ -73,6 +76,7 @@ flowchart LR
 
 - 按审核状态、Domain、Goal、识别来源、置信度和关键词筛选；
 - 查看当前消息、分类时上下文、候选标签、证据和模型原始输出；
+- 一键定位到销售工作台中的对应客户消息并高亮；
 - 快速确认预测，或修正主/次 Domain、主/次 Goal、Issue 与 scope；
 - 查看完整审核历史；
 - 一键导出已审核 JSONL。
@@ -116,6 +120,7 @@ flowchart LR
 ```dotenv
 INTENT_LLM_ENABLED=true
 INTENT_OBSERVATION_ENABLED=true
+INTENT_AUTO_CONFIRM_THRESHOLD=0.75
 CHAT_LOG_ENABLED=true
 ```
 

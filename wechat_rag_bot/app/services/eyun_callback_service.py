@@ -19,6 +19,7 @@ from app.services.eyun_contact_service import (
     get_eyun_contact_snapshot,
     schedule_eyun_contact_refresh,
 )
+from app.services.intent_observation_service import is_intent_capture_noise
 from app.services.message_risk_control_service import (
     enqueue_eyun_inbound,
 )
@@ -132,6 +133,12 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             route="self_outbound",
             metadata={**metadata, "origin": "wechat_client"},
         )
+        return eyun_success()
+
+    if (
+        is_eyun_private_text_message(payload)
+        and is_intent_capture_noise(str(data.get("content") or ""))
+    ):
         return eyun_success()
 
     metadata = await _eyun_workbench_metadata(payload, data)

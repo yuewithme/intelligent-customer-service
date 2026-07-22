@@ -4,14 +4,19 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, func, or_, select
+from sqlalchemy import and_, create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
-from app.db.models import Base, IntentAnnotationModel, IntentObservationModel
+from app.db.models import (
+    Base,
+    ConversationMessageModel,
+    IntentAnnotationModel,
+    IntentObservationModel,
+)
 from app.schemas.common import AppError, ErrorCode
 from app.schemas.event import NormalizedMessage
 from app.schemas.intent import IntentResult
@@ -21,9 +26,41 @@ from app.services.intent_taxonomy_service import normalize_taxonomy_value
 
 logger = logging.getLogger("wechat_rag_bot.intent_observations")
 _sessionmakers: dict[str, sessionmaker] = {}
+_initialized_urls: set[str] = set()
 ANNOTATION_STATUSES = {"confirmed", "corrected", "uncertain", "excluded"}
 TRAINING_STATUSES = {"confirmed", "corrected"}
 SENSITIVE_KEYS = {"token", "password", "api_key", "secret", "authorization"}
+INTERNAL_OPERATOR_TITLES = {
+    "销售工作台 - 销售 Agent",
+    "意图识别日志 - 销售 Agent",
+    "首单销售流程 - 销售 Agent",
+    "标签管理 - 销售 Agent",
+    "产品信息 - 销售 Agent",
+    "养护手册 - 销售 Agent",
+    "销售活动 - 销售 Agent",
+    "未购 SOP - 销售 Agent",
+    "服务 SOP - 销售 Agent",
+    "转人工设置 - 销售 Agent",
+    "模型配置 - 销售 Agent",
+}
+
+
+def is_intent_capture_noise(message: str) -> bool:
+    return str(message or "").strip() in INTERNAL_OPERATOR_TITLES
+
+
+def _should_capture_message(message: Any) -> bool:
+    if is_intent_capture_noise(str(getattr(message, "message", "") or "")):
+        return False
+    metadata = getattr(message, "metadata", None)
+    if not isinstance(metadata, dict):
+        return True
+    if metadata.get("self") is True:
+        return False
+    return str(metadata.get("origin") or "") not in {
+        "sales_workbench",
+        "wechat_client",
+    }
 
 
 async def record_intent_observation(
@@ -33,7 +70,10 @@ async def record_intent_observation(
     candidates: list[dict] | None = None,
     context: list[dict] | None = None,
 ) -> None:
-    if not get_settings().intent_observation_enabled:
+    if (
+        not get_settings().intent_observation_enabled
+        or not _should_capture_message(message)
+    ):
         return
     try:
         now = _utcnow()
@@ -109,6 +149,7 @@ async def record_bypassed_intent_observation(
         channel=channel,
         user_id=user_id,
         session_id=session_id or "default",
+        message_id=(metadata or {}).get("message_id"),
         message=user_message,
         kb_id=get_settings().wechat_default_kb_id,
         metadata=metadata or {},
@@ -178,6 +219,7 @@ async def list_intent_observations(
 ) -> dict:
     page = max(page, 1)
     page_size = max(min(page_size, 200), 1)
+    threshold = get_settings().intent_auto_confirm_threshold
     with _get_session() as session:
         filters = _observation_filters(
             primary_domain=primary_domain,
@@ -191,8 +233,23 @@ async def list_intent_observations(
             end_time=end_time,
         )
         latest_status = _latest_annotation_status_subquery()
+        unannotated = latest_status.is_(None)
+        auto_confirmed = and_(
+            unannotated,
+            IntentObservationModel.confidence.is_not(None),
+            IntentObservationModel.confidence >= threshold,
+        )
+        needs_review = and_(
+            unannotated,
+            or_(
+                IntentObservationModel.confidence.is_(None),
+                IntentObservationModel.confidence < threshold,
+            ),
+        )
         if annotation_status == "pending":
-            filters.append(latest_status.is_(None))
+            filters.append(needs_review)
+        elif annotation_status == "confirmed":
+            filters.append(or_(latest_status == "confirmed", auto_confirmed))
         elif annotation_status in ANNOTATION_STATUSES:
             filters.append(latest_status == annotation_status)
 
@@ -207,16 +264,39 @@ async def list_intent_observations(
             .limit(page_size)
         ).all()
         annotations = _latest_annotations(session, [row.id for row in rows])
-        overall_total = int(
-            session.scalar(select(func.count()).select_from(IntentObservationModel)) or 0
-        )
+        visibility_filters = _visible_observation_filters()
         reviewed_count = int(
             session.scalar(
-                select(func.count()).select_from(
-                    select(IntentAnnotationModel.observation_id)
-                    .group_by(IntentAnnotationModel.observation_id)
-                    .subquery()
+                select(func.count())
+                .select_from(IntentObservationModel)
+                .where(*visibility_filters, latest_status.is_not(None))
+            )
+            or 0
+        )
+        pending_count = int(
+            session.scalar(
+                select(func.count())
+                .select_from(IntentObservationModel)
+                .where(*visibility_filters, needs_review)
+            )
+            or 0
+        )
+        accepted_count = int(
+            session.scalar(
+                select(func.count())
+                .select_from(IntentObservationModel)
+                .where(
+                    *visibility_filters,
+                    or_(latest_status == "confirmed", auto_confirmed),
                 )
+            )
+            or 0
+        )
+        corrected_count = int(
+            session.scalar(
+                select(func.count())
+                .select_from(IntentObservationModel)
+                .where(*visibility_filters, latest_status == "corrected")
             )
             or 0
         )
@@ -227,8 +307,10 @@ async def list_intent_observations(
         "total": int(total or 0),
         "page": page,
         "page_size": page_size,
-        "pending_count": max(overall_total - reviewed_count, 0),
+        "pending_count": pending_count,
         "reviewed_count": reviewed_count,
+        "accepted_count": accepted_count,
+        "corrected_count": corrected_count,
     }
 
 
@@ -319,7 +401,8 @@ async def build_training_dataset(
         .group_by(IntentAnnotationModel.observation_id)
         .subquery()
     )
-    filters = [IntentAnnotationModel.status.in_(TRAINING_STATUSES)]
+    threshold = settings.intent_auto_confirm_threshold
+    filters = _visible_observation_filters()
     if start_time:
         filters.append(IntentObservationModel.created_at >= _parse_datetime(start_time))
     if end_time:
@@ -327,11 +410,24 @@ async def build_training_dataset(
     with _get_session() as session:
         rows = session.execute(
             select(IntentObservationModel, IntentAnnotationModel)
-            .join(
+            .outerjoin(
                 IntentAnnotationModel,
-                IntentAnnotationModel.observation_id == IntentObservationModel.id,
+                and_(
+                    IntentAnnotationModel.observation_id == IntentObservationModel.id,
+                    IntentAnnotationModel.id.in_(select(latest_ids.c.id)),
+                ),
             )
-            .where(IntentAnnotationModel.id.in_(select(latest_ids.c.id)), *filters)
+            .where(
+                *filters,
+                or_(
+                    IntentAnnotationModel.status.in_(TRAINING_STATUSES),
+                    and_(
+                        IntentAnnotationModel.id.is_(None),
+                        IntentObservationModel.confidence.is_not(None),
+                        IntentObservationModel.confidence >= threshold,
+                    ),
+                ),
+            )
             .order_by(IntentObservationModel.created_at.asc())
             .limit(limit)
         ).all()
@@ -352,14 +448,27 @@ def _observation_payload(
     trace_id = str(getattr(message, "trace_id", "") or "").strip()
     if not trace_id:
         raise ValueError("trace_id is required")
+    metadata = getattr(message, "metadata", None)
+    metadata = metadata if isinstance(metadata, dict) else {}
+    channel = str(getattr(message, "channel", "unknown") or "unknown")
+    user_id = str(getattr(message, "user_id", "unknown") or "unknown")
+    session_id = getattr(message, "session_id", None)
+    conversation_id = str(metadata.get("conversation_id") or "").strip()
+    if not conversation_id and user_id != "unknown":
+        conversation_id = _make_conversation_id(channel, user_id, session_id)
+    conversation_message_ids = _integer_list(
+        metadata.get("conversation_message_ids")
+    )
     return {
         "trace_id": trace_id,
         "request_id": trace_id,
-        "channel": str(getattr(message, "channel", "unknown") or "unknown"),
-        "user_id": str(getattr(message, "user_id", "unknown") or "unknown"),
-        "session_id": getattr(message, "session_id", None),
+        "channel": channel,
+        "user_id": user_id,
+        "session_id": session_id,
         "message_id": getattr(message, "message_id", None),
         "tenant_id": getattr(message, "tenant_id", None),
+        "conversation_id": conversation_id or None,
+        "conversation_message_ids_json": _json_dumps(conversation_message_ids),
         "user_message": str(getattr(message, "message", "") or "")[
             : settings.chat_log_max_message_length
         ],
@@ -393,6 +502,7 @@ def _observation_to_item(
     row: IntentObservationModel,
     annotation: IntentAnnotationModel | None,
 ) -> dict:
+    status = _effective_annotation_status(row, annotation)
     return {
         "id": row.id,
         "trace_id": row.trace_id,
@@ -401,6 +511,10 @@ def _observation_to_item(
         "session_id": row.session_id,
         "message_id": row.message_id,
         "tenant_id": row.tenant_id,
+        "conversation_id": row.conversation_id,
+        "conversation_message_ids": _json_loads(
+            row.conversation_message_ids_json, []
+        ),
         "user_message": row.user_message,
         "taxonomy_version": row.taxonomy_version,
         "classifier_source": row.classifier_source,
@@ -419,7 +533,9 @@ def _observation_to_item(
         "final_route": row.final_route,
         "primary_intent": row.primary_intent,
         "sales_stage": row.sales_stage,
-        "annotation_status": annotation.status if annotation else "pending",
+        "annotation_status": status,
+        "annotation_origin": "human" if annotation else "automatic",
+        "needs_review": status == "pending",
         "latest_annotation": _annotation_to_item(annotation) if annotation else None,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
@@ -446,11 +562,11 @@ def _annotation_to_item(row: IntentAnnotationModel) -> dict:
 
 def _training_record(
     observation: IntentObservationModel,
-    annotation: IntentAnnotationModel,
+    annotation: IntentAnnotationModel | None,
     *,
     redact_pii: bool,
 ) -> dict:
-    corrected = annotation.status == "corrected"
+    corrected = annotation is not None and annotation.status == "corrected"
     context = _json_loads(observation.context_json, [])
     message = observation.user_message
     if redact_pii:
@@ -495,13 +611,18 @@ def _training_record(
             "scope": annotation.scope if corrected else observation.scope,
         },
         "annotation": {
-            "status": annotation.status,
-            "annotator_id": annotation.annotator_id,
-            "annotated_at": annotation.created_at.isoformat(),
+            "status": annotation.status if annotation else "auto_confirmed",
+            "origin": "human" if annotation else "confidence_threshold",
+            "annotator_id": annotation.annotator_id if annotation else "system",
+            "annotated_at": (
+                annotation.created_at.isoformat()
+                if annotation
+                else observation.updated_at.isoformat()
+            ),
             "note": (
                 _redact_pii(annotation.note or "")
-                if redact_pii and annotation.note
-                else annotation.note
+                if annotation and redact_pii and annotation.note
+                else annotation.note if annotation else None
             ),
         },
     }
@@ -565,7 +686,7 @@ def _latest_annotations(
 
 
 def _observation_filters(**kwargs) -> list:
-    filters = []
+    filters = _visible_observation_filters()
     for field in ("primary_domain", "primary_goal", "scope", "classifier_source"):
         value = kwargs.get(field)
         if value:
@@ -591,6 +712,27 @@ def _observation_filters(**kwargs) -> list:
             IntentObservationModel.created_at <= _parse_datetime(kwargs["end_time"])
         )
     return filters
+
+
+def _visible_observation_filters() -> list:
+    return [
+        IntentObservationModel.user_message.not_in(INTERNAL_OPERATOR_TITLES)
+    ]
+
+
+def _effective_annotation_status(
+    row: IntentObservationModel,
+    annotation: IntentAnnotationModel | None,
+) -> str:
+    if annotation is not None:
+        return annotation.status
+    confidence = row.confidence
+    if (
+        confidence is not None
+        and confidence >= get_settings().intent_auto_confirm_threshold
+    ):
+        return "confirmed"
+    return "pending"
 
 
 def _compact_context(context: list[dict] | None) -> list[dict]:
@@ -648,6 +790,26 @@ def _stable_group_id(*values: str | None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:20]
 
 
+def _make_conversation_id(
+    channel: str, user_id: str, session_id: str | None
+) -> str:
+    return f"{channel}:{user_id}:{session_id or 'default'}"
+
+
+def _integer_list(value: Any) -> list[int]:
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    result: list[int] = []
+    for item in value:
+        try:
+            parsed = int(item)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0 and parsed not in result:
+            result.append(parsed)
+    return result
+
+
 def _get_session() -> Session:
     settings = get_settings()
     if settings.chat_log_provider != "sqlite":
@@ -666,7 +828,161 @@ def _get_session() -> Session:
         )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[settings.chat_log_db_url] = factory
+    if settings.chat_log_db_url not in _initialized_urls:
+        _ensure_intent_observation_columns(factory)
+        _backfill_observation_locators_and_gaps(factory)
+        _initialized_urls.add(settings.chat_log_db_url)
     return factory()
+
+
+def _ensure_intent_observation_columns(factory: sessionmaker) -> None:
+    with factory() as session:
+        bind = session.get_bind()
+        columns = {
+            column["name"]
+            for column in inspect(bind).get_columns("intent_observations")
+        }
+        if "conversation_id" not in columns:
+            session.execute(
+                text(
+                    "ALTER TABLE intent_observations "
+                    "ADD COLUMN conversation_id VARCHAR(256)"
+                )
+            )
+        if "conversation_message_ids_json" not in columns:
+            session.execute(
+                text(
+                    "ALTER TABLE intent_observations "
+                    "ADD COLUMN conversation_message_ids_json TEXT DEFAULT '[]'"
+                )
+            )
+        session.commit()
+
+
+def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
+    """Link existing observations to workbench messages and expose historical gaps."""
+
+    with factory() as session:
+        bind = session.get_bind()
+        if not inspect(bind).has_table("conversation_messages"):
+            return
+        observations = session.scalars(
+            select(IntentObservationModel).order_by(IntentObservationModel.id.asc())
+        ).all()
+        if not observations:
+            return
+
+        linked_message_ids: set[int] = set()
+        for row in observations:
+            conversation_id = row.conversation_id or _make_conversation_id(
+                row.channel, row.user_id, row.session_id
+            )
+            row.conversation_id = conversation_id
+            existing_ids = _integer_list(
+                _json_loads(row.conversation_message_ids_json, [])
+            )
+            if existing_ids:
+                linked_message_ids.update(existing_ids)
+                continue
+
+            start = min(row.created_at, row.updated_at) - timedelta(minutes=20)
+            end = max(row.created_at, row.updated_at) + timedelta(minutes=2)
+            candidates = session.scalars(
+                select(ConversationMessageModel)
+                .where(
+                    ConversationMessageModel.conversation_id == conversation_id,
+                    ConversationMessageModel.sender_type == "customer",
+                    ConversationMessageModel.created_at >= start,
+                    ConversationMessageModel.created_at <= end,
+                )
+                .order_by(
+                    ConversationMessageModel.created_at.asc(),
+                    ConversationMessageModel.id.asc(),
+                )
+            ).all()
+            parts = {
+                part.strip()
+                for part in str(row.user_message or "").splitlines()
+                if part.strip()
+            }
+            matches = [
+                message.id
+                for message in candidates
+                if (
+                    row.message_id
+                    and message.message_id == row.message_id
+                )
+                or str(message.content or "").strip() in parts
+                or str(message.content or "").strip() == str(row.user_message or "").strip()
+            ]
+            row.conversation_message_ids_json = _json_dumps(matches)
+            linked_message_ids.update(matches)
+
+        earliest = min(row.created_at for row in observations) - timedelta(minutes=30)
+        missing_messages = session.scalars(
+            select(ConversationMessageModel)
+            .where(
+                ConversationMessageModel.sender_type == "customer",
+                ConversationMessageModel.route == "inbound_text",
+                ConversationMessageModel.created_at >= earliest,
+            )
+            .order_by(
+                ConversationMessageModel.created_at.asc(),
+                ConversationMessageModel.id.asc(),
+            )
+        ).all()
+        for message in missing_messages:
+            if (
+                message.id in linked_message_ids
+                or is_intent_capture_noise(message.content)
+            ):
+                continue
+            parts = str(message.conversation_id or "").split(":", 2)
+            if len(parts) != 3:
+                continue
+            channel, user_id, session_id = parts
+            trace_id = f"capture_gap_{message.id}"
+            if session.scalar(
+                select(IntentObservationModel.id).where(
+                    IntentObservationModel.trace_id == trace_id
+                )
+            ) is not None:
+                continue
+            session.add(
+                IntentObservationModel(
+                    trace_id=trace_id,
+                    request_id=trace_id,
+                    channel=channel,
+                    user_id=user_id,
+                    session_id=session_id,
+                    message_id=message.message_id,
+                    tenant_id="tenant_default",
+                    conversation_id=message.conversation_id,
+                    conversation_message_ids_json=_json_dumps([message.id]),
+                    user_message=message.content,
+                    context_json="[]",
+                    taxonomy_version="1.0",
+                    classifier_source="capture_gap",
+                    raw_prediction_json="{}",
+                    candidate_labels_json="[]",
+                    primary_domain="conversation",
+                    secondary_domains_json="[]",
+                    primary_goal="unclear",
+                    secondary_goals_json="[]",
+                    issues_json="[]",
+                    scope="ambiguous",
+                    evidence_json="[]",
+                    confidence=0.0,
+                    intent_reason="historical_capture_gap",
+                    predicted_route="clarify",
+                    final_route="capture_gap",
+                    primary_intent="unknown",
+                    status="observed",
+                    created_at=message.created_at,
+                    updated_at=_utcnow(),
+                )
+            )
+        session.commit()
 
 
 def _parse_datetime(value: Any) -> datetime:

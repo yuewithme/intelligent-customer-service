@@ -43,10 +43,11 @@
       <div
         v-for="message in detail?.messages || []"
         :key="message.id"
+        :data-message-id="message.id"
         class="message-row"
         :class="[
           message.sender_type,
-          { selectable: canSelectMessage(message), selected: selectedMessageIds.has(message.id) }
+          { selectable: canSelectMessage(message), selected: selectedMessageIds.has(message.id), focused: focusedMessageId === message.id }
         ]"
         @click="toggleSelectedMessage(message)"
         @contextmenu.prevent="!readOnly && startSelection(message)"
@@ -120,7 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
@@ -146,7 +147,11 @@ interface MediaMetadata {
   name?: string
 }
 
-const props = defineProps<{ conversationId: string; conversationIds: string[] }>()
+const props = defineProps<{
+  conversationId: string
+  conversationIds: string[]
+  focusMessageId?: number
+}>()
 const readOnly = isTestGate()
 const emit = defineEmits<{ loaded: [conversation: ConversationItem | undefined] }>()
 
@@ -158,6 +163,8 @@ const failedMediaIds = ref(new Set<number>())
 const selectedMessageIds = ref(new Set<number>())
 const selectionMode = ref(false)
 const saveDialogVisible = ref(false)
+const focusedMessageId = ref<number>()
+let focusTimer: number | undefined
 let reloadPending = false
 let requesting = false
 
@@ -199,7 +206,17 @@ const load = async (options: { silent?: boolean } = {}) => {
     }
     emit('loaded', detail.value.conversation)
     await nextTick()
-    if (wasNearBottom && timelineRef.value) {
+    if (props.focusMessageId && timelineRef.value) {
+      const target = timelineRef.value.querySelector<HTMLElement>(
+        `[data-message-id="${props.focusMessageId}"]`
+      )
+      if (target) {
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        focusedMessageId.value = props.focusMessageId
+        if (focusTimer) window.clearTimeout(focusTimer)
+        focusTimer = window.setTimeout(() => { focusedMessageId.value = undefined }, 3000)
+      }
+    } else if (wasNearBottom && timelineRef.value) {
       timelineRef.value.scrollTop = timelineRef.value.scrollHeight
     }
     autoResolvePendingVideos(detail.value.messages)
@@ -370,13 +387,16 @@ const avatarText = (conversation: ConversationItem) =>
 const formatTime = formatChinaTime
 
 watch(
-  () => [props.conversationId, props.conversationIds.join('|')],
+  () => [props.conversationId, props.conversationIds.join('|'), props.focusMessageId],
   () => {
     clearSelection()
     void load()
   }
 )
 onMounted(load)
+onBeforeUnmount(() => {
+  if (focusTimer) window.clearTimeout(focusTimer)
+})
 
 defineExpose({ load })
 </script>
@@ -462,6 +482,11 @@ p {
 .message-row.selected .bubble {
   border-color: #2563eb;
   box-shadow: 0 0 0 2px rgb(37 99 235 / 16%);
+}
+
+.message-row.focused .bubble {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 4px rgb(245 158 11 / 22%);
 }
 
 .bubble {

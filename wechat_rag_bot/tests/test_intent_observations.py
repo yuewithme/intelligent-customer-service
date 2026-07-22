@@ -68,13 +68,15 @@ def test_observation_annotation_history_and_training_export(monkeypatch, tmp_pat
     anyio.run(_record_sample)
     client = TestClient(app)
 
-    pending = client.get(
+    accepted = client.get(
         "/api/v1/admin/intent-observations",
-        params={"annotation_status": "pending"},
+        params={"annotation_status": "confirmed"},
     ).json()["data"]
-    assert pending["total"] == 1
-    assert pending["items"][0]["primary_goal"] == "express_objection"
-    assert pending["items"][0]["annotation_status"] == "pending"
+    assert accepted["total"] == 1
+    assert accepted["items"][0]["primary_goal"] == "express_objection"
+    assert accepted["items"][0]["annotation_status"] == "confirmed"
+    assert accepted["items"][0]["annotation_origin"] == "automatic"
+    assert accepted["items"][0]["needs_review"] is False
 
     confirmed = client.post(
         "/api/v1/admin/intent-observations/trace-intent-1/annotations",
@@ -121,6 +123,149 @@ def test_observation_annotation_history_and_training_export(monkeypatch, tmp_pat
     jsonl = client.get("/api/v1/admin/intent-training-data/export")
     assert jsonl.status_code == 200
     assert json.loads(jsonl.text.strip())["sample_id"] == "trace-intent-1"
+
+
+def test_only_low_confidence_prediction_needs_review(monkeypatch, tmp_path):
+    _reset(monkeypatch, tmp_path)
+
+    async def record_low_confidence():
+        message = NormalizedMessage(
+            trace_id="trace-low-confidence",
+            channel="wechat",
+            user_id="customer-low",
+            session_id="default",
+            message="都想看，可以发给我吗？",
+            kb_id="kb_default",
+            metadata={
+                "conversation_id": "wechat:customer-low:default",
+                "conversation_message_ids": [42],
+            },
+        )
+        await record_intent_observation(
+            message=message,
+            intent=IntentResult(
+                route="clarify",
+                primary_intent="unknown",
+                primary_domain="conversation",
+                primary_goal="unclear",
+                confidence=0.45,
+                reason="low confidence",
+            ),
+        )
+
+    anyio.run(record_low_confidence)
+    result = TestClient(app).get(
+        "/api/v1/admin/intent-observations",
+        params={"annotation_status": "pending"},
+    ).json()["data"]
+
+    assert result["total"] == 1
+    assert result["pending_count"] == 1
+    assert result["accepted_count"] == 0
+    assert result["items"][0]["needs_review"] is True
+    assert result["items"][0]["conversation_id"] == "wechat:customer-low:default"
+    assert result["items"][0]["conversation_message_ids"] == [42]
+
+
+def test_high_confidence_prediction_is_exported_with_automatic_origin(
+    monkeypatch, tmp_path
+):
+    _reset(monkeypatch, tmp_path)
+    anyio.run(_record_sample)
+
+    result = TestClient(app).get("/api/v1/admin/intent-training-data").json()["data"]
+
+    assert result["total"] == 1
+    assert result["items"][0]["annotation"]["status"] == "auto_confirmed"
+    assert result["items"][0]["annotation"]["origin"] == "confidence_threshold"
+
+
+def test_internal_workbench_title_is_not_captured(monkeypatch, tmp_path):
+    _reset(monkeypatch, tmp_path)
+
+    async def record_title():
+        message = NormalizedMessage(
+            trace_id="trace-workbench-title",
+            channel="wechat",
+            user_id="customer-1",
+            session_id="default",
+            message="销售工作台 - 销售 Agent",
+            kb_id="kb_default",
+        )
+        await record_intent_observation(
+            message=message,
+            intent=IntentResult(
+                route="chitchat",
+                primary_intent="unknown",
+                confidence=0.95,
+            ),
+        )
+
+    anyio.run(record_title)
+    result = TestClient(app).get("/api/v1/admin/intent-observations").json()["data"]
+    assert result["total"] == 0
+
+
+def test_historical_conversation_gap_is_reconciled_and_locatable(
+    monkeypatch, tmp_path
+):
+    _reset(monkeypatch, tmp_path)
+
+    async def arrange():
+        from app.services.conversation_service import record_customer_message
+
+        await record_customer_message(
+            channel="wechat",
+            user_id="customer-gap",
+            session_id="default",
+            content="中午好",
+            message_id="provider-1",
+            status="ai_waiting",
+            route="inbound_text",
+        )
+        await record_customer_message(
+            channel="wechat",
+            user_id="customer-gap",
+            session_id="default",
+            content="想买一盆好养的兰花",
+            message_id="provider-2",
+            status="ai_waiting",
+            route="inbound_text",
+        )
+        await record_intent_observation(
+            message=NormalizedMessage(
+                trace_id="trace-captured",
+                channel="wechat",
+                user_id="customer-gap",
+                session_id="default",
+                message="想买一盆好养的兰花",
+                kb_id="kb_default",
+            ),
+            intent=IntentResult(
+                route="rag_answer",
+                primary_intent="recommend_product",
+                primary_domain="customer_need",
+                primary_goal="seek_recommendation",
+                confidence=0.9,
+                reason="购买推荐",
+            ),
+        )
+
+    anyio.run(arrange)
+
+    from app.services import intent_observation_service as service
+
+    factory = service._sessionmakers[get_settings().chat_log_db_url]
+    service._backfill_observation_locators_and_gaps(factory)
+    result = TestClient(app).get("/api/v1/admin/intent-observations").json()["data"]
+
+    assert result["total"] == 2
+    captured = next(item for item in result["items"] if item["trace_id"] == "trace-captured")
+    gap = next(item for item in result["items"] if item["classifier_source"] == "capture_gap")
+    assert captured["conversation_id"] == "wechat:customer-gap:default"
+    assert len(captured["conversation_message_ids"]) == 1
+    assert gap["user_message"] == "中午好"
+    assert gap["needs_review"] is True
 
 
 def test_invalid_corrected_label_is_rejected(monkeypatch, tmp_path):

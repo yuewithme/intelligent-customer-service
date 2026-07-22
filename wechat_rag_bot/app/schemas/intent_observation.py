@@ -57,6 +57,8 @@ class IntentObservationItem(BaseModel):
     session_id: str | None = None
     message_id: str | None = None
     tenant_id: str | None = None
+    conversation_id: str | None = None
+    conversation_message_ids: list[int] = Field(default_factory=list)
     user_message: str
     taxonomy_version: str
     classifier_source: str
@@ -76,6 +78,8 @@ class IntentObservationItem(BaseModel):
     primary_intent: str | None = None
     sales_stage: str | None = None
     annotation_status: str = "pending"
+    annotation_origin: str = "automatic"
+    needs_review: bool = True
     latest_annotation: IntentAnnotationItem | None = None
     created_at: str
     updated_at: str
@@ -95,3 +99,5 @@ class IntentObservationListResponse(BaseModel):
     page_size: int
     pending_count: int = 0
     reviewed_count: int = 0
+    accepted_count: int = 0
+    corrected_count: int = 0

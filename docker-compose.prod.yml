@@ -9,6 +9,7 @@ services:
       CHAT_LOG_ENABLED: "true"
       INTENT_LLM_ENABLED: "true"
       INTENT_OBSERVATION_ENABLED: "true"
+      INTENT_AUTO_CONFIRM_THRESHOLD: "0.75"
       CHAT_LOG_PROVIDER: sqlite
       CHAT_LOG_DB_URL: sqlite:////app/data/chat_logs.db
       UPLOAD_DIR: /app/data/uploads

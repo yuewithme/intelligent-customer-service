@@ -9,8 +9,13 @@ async def normalize_chat_request(request: ChatRequest) -> NormalizedMessage:
     session_id = request.session_id or metadata.get("session_id")
     if not session_id:
         session_id = "default" if metadata.get("provider") == "eyun" else generate_id("session")
+    source_trace_id = (
+        str(metadata.get("source_trace_id") or "").strip()
+        if metadata.get("provider") == "eyun"
+        else ""
+    )
     return NormalizedMessage(
-        trace_id=generate_id("request"),
+        trace_id=source_trace_id or generate_id("request"),
         channel=request.channel,
         user_id=request.user_id,
         session_id=session_id,

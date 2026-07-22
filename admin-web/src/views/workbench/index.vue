@@ -12,6 +12,7 @@
       class="panel messages"
       :conversation-id="selectedId"
       :conversation-ids="selectedIds"
+      :focus-message-id="focusMessageId"
       @loaded="handleConversationLoaded"
     />
     <SupervisionPanel
@@ -28,7 +29,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { markConversationRead, type ConversationItem } from '@/api/admin/conversations'
+import {
+  getConversationDetail,
+  markConversationRead,
+  type ConversationItem
+} from '@/api/admin/conversations'
 import { getUserProfileBundle, type UserProfile } from '@/api/user-profile'
 import type { ConversationGroupItem } from './conversationGrouping'
 import ConversationList from './components/ConversationList.vue'
@@ -45,6 +50,7 @@ const route = useRoute()
 const selectedIds = ref<string[]>([])
 const selectedGroupKey = ref('')
 const selectedUnreadCount = ref(0)
+const focusMessageId = ref<number>()
 const conversation = ref<ConversationItem>()
 const profile = ref<UserProfile>()
 const profileLoading = ref(false)
@@ -56,6 +62,7 @@ let markingReadKey = ''
 let profileRequestKey = 0
 
 const selectConversation = (item: ConversationGroupItem) => {
+  focusMessageId.value = undefined
   selectedId.value = item.conversation_id
   selectedIds.value = item.conversation_ids
   selectedGroupKey.value = item.group_key
@@ -166,9 +173,19 @@ const restoreRouteConversation = async () => {
   const conversationId =
     typeof route.query.conversation_id === 'string' ? route.query.conversation_id : ''
   if (!conversationId) return
+  const messageId = Number(route.query.message_id)
   await conversationListRef.value?.load({ silent: true })
   const item = conversationListRef.value?.getItemByConversationId(conversationId)
-  if (item) selectConversation(item)
+  if (item) {
+    selectConversation(item)
+  } else {
+    const detail = await getConversationDetail(conversationId)
+    selectedId.value = detail.conversation.conversation_id
+    selectedIds.value = [detail.conversation.conversation_id]
+    selectedGroupKey.value = ''
+    selectedUnreadCount.value = detail.conversation.unread_count
+  }
+  focusMessageId.value = Number.isInteger(messageId) && messageId > 0 ? messageId : undefined
 }
 
 const handleVisibilityChange = () => {

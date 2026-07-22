@@ -216,6 +216,10 @@ class IntentObservationModel(Base):
     session_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     tenant_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    conversation_id: Mapped[str | None] = mapped_column(
+        String(256), index=True, nullable=True
+    )
+    conversation_message_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     user_message: Mapped[str] = mapped_column(Text)
     context_json: Mapped[str] = mapped_column(Text, default="[]")
 
