@@ -70,6 +70,7 @@
           <span>自动附加</span>
           <code>转人工用户昵称：客户昵称</code>
           <code>转人工用户微信号：客户微信号</code>
+          <code>需要转人工的信息：触发转人工的客户消息或人工填写原因</code>
         </div>
       </section>
     </div>

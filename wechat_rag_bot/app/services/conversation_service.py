@@ -318,6 +318,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
             customer_wc_id=message.user_id,
             metadata=message.metadata,
             fallback_nickname=fallback_nickname,
+            handoff_info=message.message,
             source_reference=message.trace_id or conversation_id,
         )
 
@@ -327,6 +328,7 @@ async def _notify_handoff_safely(
     customer_wc_id: str,
     metadata: dict[str, Any],
     fallback_nickname: str | None,
+    handoff_info: str,
     source_reference: str,
 ) -> None:
     try:
@@ -345,6 +347,7 @@ async def _notify_handoff_safely(
                 metadata,
                 ("alias_name", "wechat_id", "wechatId", "alias"),
             ),
+            handoff_info=handoff_info,
             source_reference=source_reference,
         )
     except Exception as exc:  # noqa: BLE001
@@ -509,6 +512,7 @@ async def record_customer_message(
             customer_wc_id=user_id,
             metadata=metadata,
             fallback_nickname=result.get("user_display_name"),
+            handoff_info=content,
             source_reference=message_id or result.get("handoff_ticket_id") or conversation_id,
         )
     return result
@@ -989,6 +993,10 @@ async def force_handoff(
             customer_wc_id=result["user_id"],
             metadata={},
             fallback_nickname=result.get("user_display_name"),
+            handoff_info=(
+                str(reason or result.get("last_message") or "未填写").strip()
+                or "未填写"
+            ),
             source_reference=result.get("handoff_ticket_id") or conversation_id,
         )
     return result

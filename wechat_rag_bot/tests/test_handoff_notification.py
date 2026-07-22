@@ -6,6 +6,7 @@ from app.schemas.handoff_notification import HandoffNotificationSettingsUpdateRe
 from app.services.conversation_service import (
     AI_WAITING,
     HANDOFF_PENDING,
+    force_handoff,
     record_customer_message,
 )
 from app.services.handoff_notification_service import (
@@ -113,5 +114,49 @@ async def test_handoff_transition_queues_notification_once_with_customer_identit
     assert queued[0]["content"] == (
         "请及时接待这位客户。\n\n"
         "转人工用户昵称：兰友小王\n"
-        "转人工用户微信号：orchid_wang"
+        "转人工用户微信号：orchid_wang\n"
+        "需要转人工的信息：请转人工"
+    )
+
+
+@pytest.mark.asyncio
+async def test_forced_handoff_uses_operator_reason_as_handoff_info(
+    monkeypatch, tmp_path
+):
+    contact_id = await _create_contact(monkeypatch, tmp_path)
+    update_handoff_notification_settings(
+        HandoffNotificationSettingsUpdateRequest(
+            recipient_contact_ids=[contact_id],
+            message_text="请及时接待这位客户。",
+        )
+    )
+    queued: list[dict] = []
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+
+    monkeypatch.setattr(
+        "app.services.message_risk_control_service.enqueue_wechat_outbound",
+        fake_enqueue,
+    )
+    conversation = await record_customer_message(
+        channel="wechat",
+        user_id="customer-wxid",
+        session_id="default",
+        content="商品收到后有破损",
+        message_id="msg-force-1",
+        status=AI_WAITING,
+        metadata={"nickname": "兰友小王", "alias_name": "orchid_wang"},
+    )
+
+    await force_handoff(
+        conversation["conversation_id"],
+        operator_id="operator-1",
+        reason="请人工核实破损补发",
+    )
+
+    assert len(queued) == 1
+    assert queued[0]["content"].endswith(
+        "需要转人工的信息：请人工核实破损补发"
     )

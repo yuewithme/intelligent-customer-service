@@ -101,6 +101,7 @@ async def enqueue_handoff_notification(
     customer_wc_id: str,
     nickname: str | None = None,
     wechat_id: str | None = None,
+    handoff_info: str | None = None,
     source_reference: str | None = None,
 ) -> dict[str, Any]:
     with _get_session() as session:
@@ -154,6 +155,7 @@ async def enqueue_handoff_notification(
         message_text=message_text,
         nickname=customer_nickname,
         wechat_id=customer_wechat_id,
+        handoff_info=(handoff_info or "").strip() or "未填写",
     )
 
     from app.services.message_risk_control_service import enqueue_wechat_outbound
@@ -188,12 +190,13 @@ async def enqueue_handoff_notification(
 
 
 def _render_notification_message(
-    *, message_text: str, nickname: str, wechat_id: str
+    *, message_text: str, nickname: str, wechat_id: str, handoff_info: str
 ) -> str:
     return (
         f"{message_text.strip()}\n\n"
         f"转人工用户昵称：{nickname}\n"
-        f"转人工用户微信号：{wechat_id}"
+        f"转人工用户微信号：{wechat_id}\n"
+        f"需要转人工的信息：{handoff_info}"
     )
 
 
