@@ -8,7 +8,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = APP_ROOT.parent
-REPOSITORY_ROOT = PROJECT_ROOT.parents[1]
 
 
 class Settings(BaseSettings):

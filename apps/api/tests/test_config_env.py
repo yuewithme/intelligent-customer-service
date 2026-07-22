@@ -51,6 +51,14 @@ def test_env_file_is_resolved_from_backend_root():
     assert configured.is_absolute()
 
 
+def test_config_module_does_not_require_repository_parents():
+    source = (PROJECT_ROOT / "app" / "core" / "config.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "PROJECT_ROOT.parents[" not in source
+
+
 def test_backend_example_is_the_complete_settings_contract():
     keys = _read_env_keys(PROJECT_ROOT / ".env.example")
 
