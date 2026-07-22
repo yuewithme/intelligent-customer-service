@@ -24,7 +24,7 @@ def test_admin_gate_uses_api_key_when_password_is_not_configured(monkeypatch):
 
     protected = client.get(
         "/api/v1/admin/conversations?page=1&page_size=1",
-        headers={"Authorization": "Bearer vercel-proxy"},
+        headers={"Authorization": "Bearer nginx-proxy"},
     )
     assert protected.status_code == 200
 

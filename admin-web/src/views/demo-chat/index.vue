@@ -9,7 +9,7 @@
         </div>
         <a
           class="admin-link"
-          href="http://124.160.45.66:21873/gate?redirect=/workbench"
+          href="/gate?redirect=/workbench"
         >进入管理后台</a>
       </header>
 

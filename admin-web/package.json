@@ -6,10 +6,10 @@
   "author": "yuewithme",
   "license": "UNLICENSED",
   "scripts": {
-    "dev": "vite --mode env.local",
+    "dev": "vite --mode development",
     "ts:check": "vue-tsc --noEmit",
-    "build:local": "vite build --mode env.local",
-    "build:prod": "vite build --mode prod",
+    "build:local": "vite build --mode development",
+    "build:prod": "vite build --mode production",
     "preview": "vite preview"
   },
   "dependencies": {

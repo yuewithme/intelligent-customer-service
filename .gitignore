@@ -7,7 +7,16 @@
 **/chat_logs.db
 runtime-data/
 tmp/
-deploy/env/backend.prod.env
+var/
+.codex/
+.tmp/
+deploy/env/backend.prod.env*
+!deploy/env/backend.prod.env.example
+evaluation_dataset_work/
+evaluation_results/**
+extracted_chat_images/
+outputs/
+wechat_rag_bot/.tmp/
 admin-web/node_modules/
 admin-web/dist/
 admin-web/dist-ssr/

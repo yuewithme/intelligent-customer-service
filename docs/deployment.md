@@ -1,78 +1,69 @@
-# 线上部署说明
+# 云服务器生产部署
 
-当前里程碑建议先用单机 Docker Compose 部署：
+生产环境只使用腾讯云服务器上的 Docker Compose，不再维护 Render、Vercel 或内网穿透部署。
 
-- `admin-web`: Nginx 托管 Vue 静态资源，并反代 `/api`、`/wechat`、`/health` 到后端。
-- `api`: FastAPI 后端。
-- `backend-data`: Docker volume，保存 SQLite 数据库和上传文件。
-
-## 服务器准备
-
-安装 Docker 和 Docker Compose 插件后，拉取仓库：
-
-```bash
-git clone https://github.com/yuewithme/intelligent-customer-service.git
-cd intelligent-customer-service
-```
-
-## 配置环境变量
-
-```bash
-mkdir -p deploy/env
-cp deploy/env/backend.prod.env.example deploy/env/backend.prod.env
-```
-
-编辑 `deploy/env/backend.prod.env`，至少修改：
-
-- `API_KEY`
-- `WECHAT_TOKEN`
-- `WECHAT_APP_ID`
-- `WECHAT_APP_SECRET`
-- `DEEPSEEK_API_KEY` 或实际使用的模型供应商 key
-- `QDRANT_URL` / `QDRANT_API_KEY`，如果启用知识库检索
-
-## 启动
-
-```bash
-docker compose -p smart-customer-service -f docker-compose.prod.yml up -d --build
-```
-
-检查：
-
-```bash
-docker compose -p smart-customer-service -f docker-compose.prod.yml ps
-curl http://127.0.0.1/health
-```
-
-访问后台：
+## 目录边界
 
 ```text
-http://服务器IP/
+/home/ubuntu/intelligent-customer-service/  # Git 代码，只允许 fast-forward 更新
+/etc/intelligent-customer-service/backend.env
+/srv/intelligent-customer-service/data/    # SQLite、上传文件、运行时媒体
+/srv/intelligent-customer-service/cache/huggingface/
+/srv/intelligent-customer-service/backups/
+/srv/intelligent-customer-service/logs/
 ```
 
-登录时输入 `backend.prod.env` 中的 `API_KEY`。
+生产密钥、数据库、上传文件、缓存、备份和日志都不得放入 Git checkout。
 
-## 反向代理与域名
+## 服务入口
 
-如果服务器上已有 Nginx，可以让外层 Nginx 反代到本 Compose 暴露的 `80` 端口，或把 `docker-compose.prod.yml` 的端口改成 `127.0.0.1:8080:80`。
+| 用途 | 地址 |
+| --- | --- |
+| 管理后台 | `http://150.158.52.233/gate?redirect=/workbench` |
+| API 基地址 | `http://150.158.52.233` |
+| 微信回调 | `http://150.158.52.233/wechat/callback` |
+| 健康检查 | `http://150.158.52.233/health` |
 
-微信回调地址示例：
+`admin-web` 容器中的 Nginx 承载 Vue 静态资源，并把 `/api/`、`/wechat/`、`/youzan/`、`/static/` 和 `/health` 转发给 FastAPI。
 
-```text
-https://你的域名/wechat/callback
-```
-
-## 数据持久化
-
-当前 SQLite 和上传文件保存在 Docker volume `backend-data`：
+## 首次准备
 
 ```bash
-docker volume ls
-docker volume inspect intelligent-customer-service_backend-data
+sudo install -d -m 755 /etc/intelligent-customer-service
+sudo install -d -o ubuntu -g ubuntu \
+  /srv/intelligent-customer-service/data \
+  /srv/intelligent-customer-service/cache/huggingface \
+  /srv/intelligent-customer-service/backups \
+  /srv/intelligent-customer-service/logs
+sudo install -m 600 deploy/env/backend.prod.env.example \
+  /etc/intelligent-customer-service/backend.env
+sudo chown root:root /etc/intelligent-customer-service/backend.env
 ```
 
-正式生产建议后续升级：
+编辑 `backend.env`，至少配置 API、MCP、微信、易云和实际使用的模型供应商密钥。生产配置文件只能由 root 读取，不进入 Git。
 
-- SQLite -> PostgreSQL
-- 本地上传目录 -> 对象存储
-- 单机 Docker Compose -> 云厂商容器服务或 Kubernetes
+## 手动部署
+
+```bash
+cd /home/ubuntu/intelligent-customer-service
+bash deploy/auto-deploy.sh --force
+```
+
+部署脚本只接受 `origin/main` 的 fast-forward 更新，会验证配置和数据目录、构建两个容器并等待 `/health` 成功。
+
+## 自动部署
+
+服务器的 `ubuntu` 用户使用以下 cron，每五分钟检查一次：
+
+```cron
+*/5 * * * * bash /home/ubuntu/intelligent-customer-service/deploy/auto-deploy.sh >/dev/null 2>&1
+```
+
+部署日志写入 `/srv/intelligent-customer-service/logs/auto-deploy.log`。
+
+## 数据备份
+
+- `data/` 是必须备份的生产数据。
+- `cache/huggingface/` 可重新生成，不进入普通业务备份。
+- SQLite 备份应使用 SQLite backup API 或在暂停 API 写入后复制，不得直接复制正在写入的数据库文件。
+- 禁止执行 `docker compose down -v`，也禁止在未验证备份的情况下删除 `/srv/intelligent-customer-service/data`。

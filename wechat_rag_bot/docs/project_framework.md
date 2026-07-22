@@ -650,63 +650,11 @@ LLM_PROVIDER=mock
 INTENT_LLM_PROVIDER=mock
 ```
 
-### 13.1 本机 Docker 部署模块
+### 13.1 云服务器 Docker 部署模块
 
-本机生产形态由根目录的 `docker-compose.prod.yml` 统一编排，包含后端 API、管理后台和持久化数据卷。
+生产环境由腾讯云服务器上的根目录 `docker-compose.prod.yml` 统一编排，只包含 `api` 和 `admin-web` 两个服务。公网流量通过服务器 `80` 端口进入 Nginx，FastAPI 的 `8000` 端口不直接暴露。
 
-```mermaid
-flowchart LR
-  Browser["公网用户<br/>124.160.45.66:21873"] --> Tunnel["内网穿透"]
-  Tunnel --> Nginx["admin-web<br/>Nginx :80"]
-  Local["本机运维<br/>localhost:21873"] --> Nginx
-  Nginx -->|"/api、/wechat、/health"| API["api<br/>FastAPI :8000"]
-  API --> Volume["backend-data<br/>/app/data"]
-  Volume --> MainDB["rag.db"]
-  Volume --> ChatDB["chat_logs.db"]
-  Volume --> Uploads["uploads/"]
-```
-
-| Compose 服务 | 职责 | 端口与访问方式 |
-| --- | --- | --- |
-| `admin-web` | 构建 Vue 管理后台，并由 Nginx 提供静态页面和反向代理 | 宿主机 `21873` 映射到容器 `80`；公网入口为 `http://124.160.45.66:21873` |
-| `api` | 运行 FastAPI、微信回调、聊天及后台管理接口 | 容器内部 `8000`，不直接暴露到宿主机 |
-| `backend-data` | 持久保存 SQLite 数据库和上传文件 | 挂载到 API 容器 `/app/data` |
-
-本机敏感配置文件为 `deploy/env/backend.prod.env`。该文件不提交 Git，可从现有后端 `.env` 准备；Compose 会强制覆盖以下容器内存储路径：
-
-```dotenv
-DATABASE_URL=sqlite:////app/data/rag.db
-CHAT_LOG_ENABLED=true
-CHAT_LOG_PROVIDER=sqlite
-CHAT_LOG_DB_URL=sqlite:////app/data/chat_logs.db
-UPLOAD_DIR=/app/data/uploads
-```
-
-常用操作：
-
-```powershell
-# 构建并启动
-docker compose -p intelligent-customer-service -f docker-compose.prod.yml up -d --build
-
-# 查看容器状态
-docker compose -p intelligent-customer-service -f docker-compose.prod.yml ps
-
-# 查看日志
-docker compose -p intelligent-customer-service -f docker-compose.prod.yml logs --tail 100
-
-# 停止服务，保留 backend-data 数据卷
-docker compose -p intelligent-customer-service -f docker-compose.prod.yml down
-```
-
-统一生产入口如下：
-
-- 管理后台：`http://124.160.45.66:21873/gate?redirect=/workbench`
-- API 基地址：`http://124.160.45.66:21873`
-- 微信回调：`http://124.160.45.66:21873/wechat/callback`
-- 健康检查：`http://124.160.45.66:21873/health`
-- 本机运维入口：`http://localhost:21873`
-
-健康检查正常响应为 HTTP `200`，且 `data.status` 为 `ok`。不要使用 `down -v`，否则会同时删除 `backend-data` 数据卷。
+生产密钥位于 `/etc/intelligent-customer-service/backend.env`；SQLite、上传文件、缓存、备份和日志位于 `/srv/intelligent-customer-service/`，不再存放于 Git checkout。唯一权威运维说明为仓库根目录的 `docs/deployment.md`。
 
 客服工作台的实时消息更新使用 SSE：
 

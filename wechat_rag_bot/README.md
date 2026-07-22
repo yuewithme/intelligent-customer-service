@@ -441,7 +441,7 @@ MCP 地址为 `/mcp`，使用 `Authorization: Bearer <MCP_API_KEY>`。真实 AI/
 
 ### 生产数据目录
 
-生产 Compose 将云服务器项目目录下的 `runtime-data/` bind mount 到容器 `/app/data`。`rag.db`、`chat_logs.db`、上传文件和后续本地数据库统一放在该目录，目录不进入 Git。数据库仍由 Docker 内的应用访问，但文件、备份和迁移由云服务器明确管理。
+生产 Compose 将云服务器的 `/srv/intelligent-customer-service/data/` bind mount 到容器 `/app/data`，并把 Hugging Face 缓存单独挂载到 `/app/data/huggingface`。生产配置位于 `/etc/intelligent-customer-service/backend.env`；代码 checkout 不保存密钥、数据库、上传文件、缓存、备份或部署日志。完整运维说明见仓库根目录的 `docs/deployment.md`。
 
 ## 云服务配置
 

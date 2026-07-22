@@ -29,20 +29,14 @@ class Settings(BaseSettings):
         "localhost",
         "localhost:*",
         "testserver",
-        "124.160.45.66",
-        "124.160.45.66:*",
-        "intelligent-customer-service-r63g.onrender.com",
+        "150.158.52.233",
+        "150.158.52.233:*",
     ]
     mcp_allowed_origins: list[str] = []
     admin_gate_enabled: bool = True
     admin_gate_password: str = ""
     admin_gate_test_password: str = ""
     admin_gate_secret: str = ""
-    demo_upstream_base_url: str = ""
-    demo_upstream_timeout_seconds: float = Field(
-        default=200, ge=1, alias="DEMO_UPSTREAM_TIMEOUT_SECONDS"
-    )
-
     wechat_token: str = "change_me"
     wechat_app_id: str = "change_me"
     wechat_app_secret: str = "change_me"

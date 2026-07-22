@@ -3,36 +3,37 @@ services:
     build:
       context: ./wechat_rag_bot
     env_file:
-      - ./deploy/env/backend.prod.env
+      - ${BACKEND_ENV_FILE:-./deploy/env/backend.prod.env}
     environment:
       DATABASE_URL: sqlite:////app/data/rag.db
-      CHAT_LOG_ENABLED: "true"
-      INTENT_LLM_ENABLED: "true"
-      INTENT_OBSERVATION_ENABLED: "true"
-      INTENT_AUTO_CONFIRM_THRESHOLD: "0.75"
-      CHAT_LOG_PROVIDER: sqlite
       CHAT_LOG_DB_URL: sqlite:////app/data/chat_logs.db
       UPLOAD_DIR: /app/data/uploads
-      APP_PUBLIC_BASE_URL: http://150.158.52.233
       HF_HOME: /app/data/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
     expose:
       - "8000"
     volumes:
-      - ./runtime-data:/app/data
+      - ${APP_DATA_DIR:-./runtime-data}:/app/data
+      - ${HF_CACHE_DIR:-./runtime-data/huggingface}:/app/data/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 8
+      start_period: 30s
     restart: unless-stopped
 
   admin-web:
     build:
       context: ./admin-web
     env_file:
-      - ./deploy/env/backend.prod.env
+      - ${BACKEND_ENV_FILE:-./deploy/env/backend.prod.env}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
       - "80:80"
-      - "21873:80"
     volumes:
       - ./admin-web/nginx.conf:/etc/nginx/templates/default.conf.template:ro
     restart: unless-stopped
