@@ -36,6 +36,7 @@ from app.services.conversation_service import (
 )
 from app.services.customer_reply_formatter import split_customer_messages
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
+from app.services.intent_observation_service import record_bypassed_intent_observation
 from app.services.orchid_material_service import (
     orchid_material_chat_result,
     orchid_material_video_issue_chat_result,
@@ -690,6 +691,15 @@ async def _process_inbound_batch(batch_id: int) -> None:
             customer_snapshot["customer_tags"] = profile.get("customer_tags", [])
 
         if _conversation_blocks_ai(batch_data):
+            await record_bypassed_intent_observation(
+                trace_id=batch_data["batch_key"],
+                channel="wechat",
+                user_id=user_id,
+                session_id=batch_data["from_group"],
+                user_message=batch_data["content"],
+                final_route="human",
+                reason="human_conversation_locked",
+            )
             _mark_batch(batch_id, "skipped")
             return
 
@@ -705,15 +715,60 @@ async def _process_inbound_batch(batch_id: int) -> None:
         material_result = orchid_material_chat_result(batch_data["content"])
         if has_sent_orchid_material and video_issue_result is not None:
             chat_result = video_issue_result
+            await record_bypassed_intent_observation(
+                trace_id=batch_data["batch_key"],
+                channel="wechat",
+                user_id=user_id,
+                session_id=batch_data["from_group"],
+                user_message=batch_data["content"],
+                final_route="orchid_material_video_issue",
+                primary_domain="customer_service",
+                primary_goal="request_service",
+                reason="fixed_material_video_issue",
+            )
         elif material_result is not None:
             chat_result = material_result
+            await record_bypassed_intent_observation(
+                trace_id=batch_data["batch_key"],
+                channel="wechat",
+                user_id=user_id,
+                session_id=batch_data["from_group"],
+                user_message=batch_data["content"],
+                final_route="orchid_material_delivery",
+                primary_domain="care_service",
+                primary_goal="request_material",
+                issues=["care_general"],
+                scope="in_scope",
+                reason="fixed_material_delivery",
+            )
         elif all_images_failed:
             if wrong_store_order_count == image_count:
                 chat_result = {
                     "answer": WRONG_STORE_ORDER_REPLY,
                     "route": "unsupported_store_order",
                 }
+                await record_bypassed_intent_observation(
+                    trace_id=batch_data["batch_key"],
+                    channel="wechat",
+                    user_id=user_id,
+                    session_id=batch_data["from_group"],
+                    user_message=batch_data["content"],
+                    final_route="unsupported_store_order",
+                    primary_domain="out_of_scope",
+                    primary_goal="unclear",
+                    scope="out_of_scope",
+                    reason="unsupported_store_order",
+                )
             else:
+                await record_bypassed_intent_observation(
+                    trace_id=batch_data["batch_key"],
+                    channel="wechat",
+                    user_id=user_id,
+                    session_id=batch_data["from_group"],
+                    user_message=batch_data["content"],
+                    final_route="human",
+                    reason="image_recognition_failed",
+                )
                 await _handoff_image_failure(
                     batch_id=batch_id,
                     batch=batch_data,
@@ -723,6 +778,15 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 return
         elif is_first_inbound and image_count == 0:
             chat_result = _opening_chat_result()
+            await record_bypassed_intent_observation(
+                trace_id=batch_data["batch_key"],
+                channel="wechat",
+                user_id=user_id,
+                session_id=batch_data["from_group"],
+                user_message=batch_data["content"],
+                final_route=str(chat_result.get("route") or "opening"),
+                reason="first_inbound_opening",
+            )
             await _record_opening_memories(batch_data, chat_result.get("answer", ""))
         else:
             chat_result = await handle_chat(

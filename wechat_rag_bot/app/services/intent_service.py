@@ -407,7 +407,14 @@ async def classify_by_llm(
             candidates=candidates,
         )
     )
-    return _validated_intent(raw)
+    model_config = llm_service.get_model_config("intent")
+    enriched = {
+        **raw,
+        "classifier_source": "llm",
+        "classifier_provider": model_config.provider,
+        "classifier_model": model_config.model,
+    }
+    return _validated_intent(enriched, raw_prediction=raw)
 
 
 async def classify_intent(
@@ -472,6 +479,14 @@ async def classify_intent(
             llm_intent = await classify_by_llm(message, user_state, candidates)
             if llm_intent.confidence >= confidence_threshold:
                 return _with_decision_blocker(llm_intent, message.message)
+            rule_intent = rule_intent.model_copy(
+                update={
+                    "classifier_source": "llm_fallback_rule",
+                    "classifier_provider": llm_intent.classifier_provider,
+                    "classifier_model": llm_intent.classifier_model,
+                    "raw_prediction": llm_intent.raw_prediction,
+                }
+            )
         except AppError:
             pass
 
@@ -534,7 +549,15 @@ def _knowledge_primary_intent(text: str) -> str:
     return "knowledge_question"
 
 
-def _validated_intent(raw: dict) -> IntentResult:
+def _validated_intent(
+    raw: dict,
+    *,
+    raw_prediction: dict | None = None,
+) -> IntentResult:
+    raw = dict(raw)
+    raw.setdefault("classifier_source", _classifier_source(raw.get("reason")))
+    if raw_prediction is not None:
+        raw["raw_prediction"] = raw_prediction
     raw = prepare_intent_payload(raw)
     try:
         intent = IntentResult.model_validate(raw)
@@ -1138,3 +1161,14 @@ def _build_prompt(
 
 不要输出 route、primary_intent、need_template、need_rag、need_human 或 sales_stage；这些由确定性策略根据 D/G/I 计算。
 """
+
+
+def _classifier_source(reason: object) -> str:
+    value = str(reason or "")
+    if value.startswith("soft_rule_"):
+        return "fallback_rule"
+    if value.startswith("rule_"):
+        return "hard_rule"
+    if value.startswith(("contextual_", "opening_", "pending_", "structured_")):
+        return "context_rule"
+    return "unknown"

@@ -205,6 +205,67 @@ class ChatLogModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class IntentObservationModel(Base):
+    __tablename__ = "intent_observations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    channel: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(256), index=True)
+    session_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    user_message: Mapped[str] = mapped_column(Text)
+    context_json: Mapped[str] = mapped_column(Text, default="[]")
+
+    taxonomy_version: Mapped[str] = mapped_column(String(32), index=True, default="1.0")
+    classifier_source: Mapped[str] = mapped_column(String(64), index=True, default="unknown")
+    classifier_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    classifier_model: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    raw_prediction_json: Mapped[str] = mapped_column(Text, default="{}")
+    candidate_labels_json: Mapped[str] = mapped_column(Text, default="[]")
+
+    primary_domain: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    secondary_domains_json: Mapped[str] = mapped_column(Text, default="[]")
+    primary_goal: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    secondary_goals_json: Mapped[str] = mapped_column(Text, default="[]")
+    issues_json: Mapped[str] = mapped_column(Text, default="[]")
+    scope: Mapped[str] = mapped_column(String(32), index=True, default="ambiguous")
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    confidence: Mapped[float | None] = mapped_column(Float, index=True, nullable=True)
+    intent_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    predicted_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    final_route: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    primary_intent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    sales_stage: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="observed")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class IntentAnnotationModel(Base):
+    __tablename__ = "intent_annotations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    observation_id: Mapped[int] = mapped_column(
+        ForeignKey("intent_observations.id"), index=True
+    )
+    trace_id: Mapped[str] = mapped_column(String(128), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    primary_domain: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    secondary_domains_json: Mapped[str] = mapped_column(Text, default="[]")
+    primary_goal: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    secondary_goals_json: Mapped[str] = mapped_column(Text, default="[]")
+    issues_json: Mapped[str] = mapped_column(Text, default="[]")
+    scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    annotator_id: Mapped[str] = mapped_column(String(128), index=True)
+    taxonomy_version: Mapped[str] = mapped_column(String(32), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class EyunInboundBatchModel(Base):
     __tablename__ = "eyun_inbound_batches"
 

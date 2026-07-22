@@ -16,7 +16,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'workbench', component: () => import('@/views/workbench/index.vue'), meta: { title: '销售工作台' } },
       { path: 'sales-flow', component: () => import('@/views/sales-flow/index.vue'), meta: { title: '首单销售流程' } },
       { path: 'sales-scripts', component: () => import('@/views/sales-scripts/index.vue'), meta: { title: '销售话术' } },
-      { path: 'operations/chat-logs', component: PlaceholderPage, props: { title: '销售对话日志' }, meta: { title: '销售对话日志' } },
+      { path: 'operations/chat-logs', component: () => import('@/views/intent-observations/index.vue'), meta: { title: '意图识别日志' } },
       { path: 'operations/handoff', component: PlaceholderPage, props: { title: '人工接管' }, meta: { title: '人工接管' } },
       { path: 'operations/user-profile', component: PlaceholderPage, props: { title: '客户画像' }, meta: { title: '客户画像' } },
       { path: 'operations/tags', component: () => import('@/views/tag-management/index.vue'), meta: { title: '标签管理' } },

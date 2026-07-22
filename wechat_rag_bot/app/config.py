@@ -291,6 +291,8 @@ class Settings(BaseSettings):
     chat_log_retention_days: int = Field(default=30, ge=1)
     chat_log_max_message_length: int = Field(default=2000, ge=1)
     chat_log_max_answer_length: int = Field(default=4000, ge=1)
+    intent_observation_enabled: bool = True
+    intent_training_export_max_rows: int = Field(default=10000, ge=1, le=100000)
 
 
 @lru_cache

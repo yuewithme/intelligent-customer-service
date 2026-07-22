@@ -51,7 +51,7 @@ const navigation = [
     { label: '销售话术', to: '/sales-scripts' }
   ] },
   { title: '销售运营', items: [
-    { label: '对话日志', to: '/operations/chat-logs' },
+    { label: '意图标注日志', to: '/operations/chat-logs' },
     { label: '人工接管', to: '/operations/handoff' },
     { label: '客户画像', to: '/operations/user-profile' },
     { label: '标签管理', to: '/operations/tags' },

@@ -16,6 +16,7 @@ from app.routers import (
     admin_eyun_materials,
     admin_gate,
     admin_handoff_notification,
+    admin_intent_observations,
     admin_logs,
     admin_memory,
     admin_products,
@@ -106,6 +107,7 @@ app.include_router(admin_conversations.router)
 app.include_router(admin_eyun_materials.router)
 app.include_router(admin_gate.router)
 app.include_router(admin_handoff_notification.router)
+app.include_router(admin_intent_observations.router)
 app.include_router(admin_tags.router)
 app.include_router(chat.router)
 app.include_router(knowledge.router)

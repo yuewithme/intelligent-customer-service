@@ -34,6 +34,11 @@ class IntentResult(BaseModel):
     issues: list[str] = Field(default_factory=list)
     scope: IntentScope = "in_scope"
     evidence: list[IntentEvidence] = Field(default_factory=list)
+    taxonomy_version: str = "1.0"
+    classifier_source: str = "unknown"
+    classifier_provider: str | None = None
+    classifier_model: str | None = None
+    raw_prediction: dict = Field(default_factory=dict, exclude=True)
     sales_stage: str = "unknown"
     sales_signals: list[str] = Field(default_factory=list)
     customer_sentiment: str | None = None

@@ -22,6 +22,10 @@ from app.services.customer_reply_formatter import (
     split_customer_messages,
 )
 from app.services.intent_example_service import retrieve_intent_examples
+from app.services.intent_observation_service import (
+    finalize_intent_observation,
+    record_intent_observation,
+)
 from app.services.intent_service import classify_intent
 from app.services.memory_rollout_service import prepare_memory_context_for_request
 from app.services.policy_service import decide_route
@@ -61,6 +65,8 @@ async def handle_chat(request: ChatRequest) -> dict:
     tag_result = None
     rich_decision = None
     reply = None
+    is_evaluation = False
+    intent_observation_recorded = False
 
     try:
         stage_started = time.perf_counter()
@@ -89,11 +95,22 @@ async def handle_chat(request: ChatRequest) -> dict:
             routed_intent = IntentResult(
                 route="human",
                 primary_intent="human_handoff_active",
+                primary_domain="conversation",
+                primary_goal="unclear",
+                scope="ambiguous",
+                classifier_source="state_guard",
                 confidence=1.0,
                 need_human=True,
                 reason="human_handoff_locked",
             )
             intent = routed_intent
+            await record_intent_observation(
+                message=message,
+                intent=routed_intent,
+                candidates=[],
+                context=[],
+            )
+            intent_observation_recorded = True
             decision = PolicyDecision(
                 route="human",
                 reason="human_handoff_locked",
@@ -196,6 +213,15 @@ async def handle_chat(request: ChatRequest) -> dict:
             stage_latencies["intent_examples_ms"] = 0
             stage_latencies["intent_ms"] = 0
 
+        if not is_evaluation:
+            await record_intent_observation(
+                message=message,
+                intent=intent,
+                candidates=candidates,
+                context=user_state.metadata.get("recent_turns", []),
+            )
+            intent_observation_recorded = True
+
         stage_started = time.perf_counter()
         decision = await decide_route(intent, user_state, message)
         stage_latencies["policy_ms"] = _elapsed_ms(stage_started)
@@ -285,6 +311,8 @@ async def handle_chat(request: ChatRequest) -> dict:
                 },
             }
         )
+        if not is_evaluation:
+            await finalize_intent_observation(message.trace_id, routed_intent)
         sales_action = decide_sales_action(
             user_state=user_state,
             intent=routed_intent,
@@ -408,6 +436,27 @@ async def handle_chat(request: ChatRequest) -> dict:
         )
         raise
     finally:
+        if message is not None and not is_evaluation and not intent_observation_recorded:
+            fallback_intent = intent or routed_intent or IntentResult(
+                route="clarify",
+                primary_intent="unknown",
+                primary_domain="conversation",
+                primary_goal="unclear",
+                scope="ambiguous",
+                classifier_source="pipeline_error",
+                confidence=0.0,
+                reason="pipeline_failed_before_intent",
+            )
+            await record_intent_observation(
+                message=message,
+                intent=fallback_intent,
+                candidates=candidates,
+                context=(
+                    user_state.metadata.get("recent_turns", [])
+                    if user_state is not None
+                    else []
+                ),
+            )
         if log_payload:
             log_payload["latency_ms"] = _elapsed_ms(started)
             log_payload["stage_latencies"] = stage_latencies
