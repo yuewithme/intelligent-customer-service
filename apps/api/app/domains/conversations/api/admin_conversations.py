@@ -1,0 +1,153 @@
+import asyncio
+import json
+
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
+
+from app.core.config import get_settings
+from app.domains.conversations.schemas.chat import APIResponse
+from app.domains.conversations.schemas.conversation import ClaimRequest, ReplyRequest, StatusActionRequest
+from app.domains.conversations.services.conversation_event_service import conversation_event_broker
+from app.domains.conversations.services.conversation_service import (
+    claim_conversation,
+    force_handoff,
+    get_conversation_detail,
+    hide_conversation,
+    list_conversations,
+    mark_conversation_read,
+    release_to_ai,
+    reply_conversation,
+    resolve_message_media,
+    resolve_conversation,
+    unhide_conversation,
+)
+from app.core.auth import require_admin_access
+
+
+router = APIRouter(
+    prefix="/api/v1/admin/conversations",
+    tags=["admin-conversations"],
+    dependencies=[Depends(require_admin_access)],
+)
+
+
+@router.get("/events")
+async def conversation_events(request: Request) -> StreamingResponse:
+    async def stream():
+        queue = conversation_event_broker.subscribe()
+        try:
+            yield 'data: {"type":"connected"}\n\n'
+            while not await request.is_disconnected():
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15)
+                    payload = json.dumps(
+                        {"type": "conversation.changed", **event},
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {payload}\n\n"
+                except TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            conversation_event_broker.unsubscribe(queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("", response_model=APIResponse)
+async def conversations(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    status: str | None = None,
+    owner_id: str | None = None,
+    keyword: str | None = None,
+    channel: str | None = None,
+) -> APIResponse:
+    material_group_wc_id = get_settings().eyun_material_group_wc_id.strip()
+    data = await list_conversations(
+        page=page,
+        page_size=page_size,
+        status=status,
+        owner_id=owner_id,
+        keyword=keyword,
+        channels=(channel,) if channel else None,
+        wechat_group_allowlist=(material_group_wc_id,) if material_group_wc_id else (),
+    )
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/claim", response_model=APIResponse)
+async def claim(conversation_id: str, request: ClaimRequest) -> APIResponse:
+    data = await claim_conversation(conversation_id, request.operator_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/reply", response_model=APIResponse)
+async def reply(conversation_id: str, request: ReplyRequest) -> APIResponse:
+    data = await reply_conversation(
+        conversation_id, request.operator_id, request.content
+    )
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/read", response_model=APIResponse)
+async def mark_read(conversation_id: str) -> APIResponse:
+    data = await mark_conversation_read(conversation_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/hide", response_model=APIResponse)
+async def hide(conversation_id: str) -> APIResponse:
+    data = await hide_conversation(conversation_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/unhide", response_model=APIResponse)
+async def unhide(conversation_id: str) -> APIResponse:
+    data = await unhide_conversation(conversation_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/messages/{message_id}/resolve-media", response_model=APIResponse)
+async def resolve_media(message_id: int) -> APIResponse:
+    data = await resolve_message_media(message_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/force-handoff", response_model=APIResponse)
+async def force_handoff_route(
+    conversation_id: str, request: StatusActionRequest
+) -> APIResponse:
+    data = await force_handoff(conversation_id, request.operator_id, request.reason)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/release-to-ai", response_model=APIResponse)
+async def release_to_ai_route(
+    conversation_id: str, request: StatusActionRequest
+) -> APIResponse:
+    data = await release_to_ai(conversation_id, request.operator_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/resolve", response_model=APIResponse)
+async def resolve_route(
+    conversation_id: str, request: StatusActionRequest
+) -> APIResponse:
+    data = await resolve_conversation(
+        conversation_id, request.operator_id, request.reason
+    )
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.get("/{conversation_id:path}", response_model=APIResponse)
+async def conversation_detail(conversation_id: str) -> APIResponse:
+    data = await get_conversation_detail(conversation_id)
+    return APIResponse(code=0, message="success", data=data)

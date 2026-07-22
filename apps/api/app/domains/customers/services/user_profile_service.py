@@ -1,0 +1,1327 @@
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.core.config import get_settings
+from app.infrastructure.database.models import (
+    Base,
+    ConversationMemoryModel,
+    ProfileEventModel,
+    UserProfileModel,
+)
+from app.integrations.ai.services.llm_service import generate_json
+from app.domains.sales.services.sales_action_service import evolve_opportunity
+from app.domains.sales.services.sales_stage_catalog import (
+    get_sales_stage_definition,
+    normalize_sales_stage_reference,
+)
+from app.domains.sales.services.tag_catalog import (
+    get_profile_tag_categories,
+    get_tag_categories,
+    is_allowed_system_tag,
+    normalize_system_value,
+)
+
+
+_sessionmakers: dict[str, sessionmaker] = {}
+_profile_tables = [
+    UserProfileModel.__table__,
+    ConversationMemoryModel.__table__,
+    ProfileEventModel.__table__,
+]
+_basic_info_fields = {
+    "owner_wc_id",
+    "nickname",
+    "remark_name",
+    "alias_name",
+    "avatar_url",
+    "label_ids",
+    "recipient_name",
+    "mobile",
+    "shipping_address",
+    "shipping_city",
+}
+_allowed_patch_fields = {
+    "current_stage",
+    "risk_level",
+    "customer_tags",
+    "product_interests",
+    "preference_summary",
+    "pain_points",
+    "is_human_handoff",
+    "human_ticket_id",
+    "human_handoff_status",
+    "human_handoff_reason",
+}
+
+PROFILE_RECORD_FORMAT_INSTRUCTION = (
+    "请读取每条记录的 `role` 和 `content` 字段；`content` 会以双大括号包裹。"
+    "`customer` 是客户原话，是画像事实来源；`assistant` 和 `human` 是客服回复，"
+    "只能用于理解客户追问、指代关系和上下文，不能当作客户事实。"
+)
+PROFILE_STABILITY_INSTRUCTION = (
+    "画像必须优先保留地区、规模、偏好、预算、购买意向、长期痛点等稳定事实。"
+    "短期情绪、抱怨、辱骂或催促不能覆盖长期稳定事实，也不能被提取为长期痛点。"
+)
+
+DEFAULT_PROFILE_ANALYSIS_PROMPT = """你是兰花私域客服的用户画像分析助手。
+
+你的唯一输入是【用户消息原文记录】。只能依据这些用户亲自发送的内容生成画像。
+
+严禁使用或输出路由、意图、模板编号、AI 回复、系统判断、知识库命中结果等中间字段。
+
+输出要求：
+1. 只输出 JSON 对象，不要 Markdown、解释或代码块。
+2. 使用中文自然语言总结，不能照抄后台字段。
+3. `customer_tags` 必须从【标签库】里选择，严禁自造标签。
+4. `pain_points` 是中文数组，每项概括一个明确痛点，要包含对象、问题和用户顾虑。
+5. 没有明确内容时输出空数组。
+
+JSON 格式：
+{
+  "risk_level": "normal | medium | high",
+  "customer_tags": [],
+  "product_interests": [],
+  "pain_points": []
+}
+"""
+
+
+async def get_profile_bundle(user_id: str) -> dict:
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        session.commit()
+        bundle = {
+            "profile": _profile_to_dict(profile),
+            "recent_memories": _list_memories(session, user_id, 10),
+            "events": _list_events(session, user_id, 20),
+        }
+    return bundle
+
+
+async def patch_user_profile(user_id: str, updates: dict) -> dict:
+    metadata = updates.get("metadata") if isinstance(updates.get("metadata"), dict) else {}
+    reason = metadata.get("reason") or "manual_patch"
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        before = _profile_to_dict(profile)
+        for field, value in updates.items():
+            if field not in _allowed_patch_fields:
+                continue
+            _set_profile_field(profile, field, value)
+        profile.updated_at = _now()
+        after = _profile_to_dict(profile)
+        changed_before, changed_after = _changed_fields(before, after)
+        if changed_after:
+            session.add(
+                ProfileEventModel(
+                    user_id=profile.user_id,
+                    tenant_id=profile.tenant_id,
+                    event_type="profile_patched",
+                    before_json=_json_dumps(changed_before),
+                    after_json=_json_dumps(changed_after),
+                    reason=str(reason),
+                    trace_id=metadata.get("trace_id"),
+                    created_at=_now(),
+                )
+            )
+        session.commit()
+        return _profile_to_dict(profile)
+
+
+async def get_sales_opportunity(user_id: str) -> dict:
+    bundle = await get_profile_bundle(user_id)
+    return _sales_opportunity_view(bundle["profile"])
+
+
+async def adjust_sales_opportunity_stage(
+    user_id: str,
+    *,
+    stage: str,
+    reason: str,
+    operator_id: str,
+) -> dict:
+    definition = get_sales_stage_definition(stage)
+    if definition is None:
+        raise ValueError("非法销售阶段")
+    if not reason.strip() or not operator_id.strip():
+        raise ValueError("操作人和调整原因不能为空")
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        before = _profile_to_dict(profile)
+        opportunity = _json_loads(profile.active_opportunity_json, {})
+        if not opportunity or opportunity.get("status") != "active":
+            raise ValueError("仅允许调整进行中的销售机会")
+        if isinstance(opportunity.get("interruption"), dict):
+            raise ValueError("销售机会处于中断状态，请先处理售后或人工接管")
+        previous_stage = opportunity.get("current_stage") or profile.current_stage
+        opportunity.update(
+            {
+                "previous_stage": normalize_system_value("sales_stage", previous_stage, fallback="rapport"),
+                "current_stage": definition.stage.value,
+                "sales_stage": definition.stage.value,
+                "stage_reason": f"manual:{reason.strip()}",
+                "transition_type": "manual",
+                "last_active_at": _now().isoformat(),
+                "manual_adjustment": {
+                    "operator_id": operator_id.strip(),
+                    "reason": reason.strip(),
+                    "updated_at": _now().isoformat(),
+                },
+            }
+        )
+        profile.current_stage = definition.stage.value
+        profile.active_opportunity_json = _json_dumps(opportunity)
+        profile.updated_at = _now()
+        after = _profile_to_dict(profile)
+        _add_event(
+            session,
+            profile,
+            "sales_stage_manually_adjusted",
+            before,
+            after,
+            f"operator={operator_id.strip()}; reason={reason.strip()}",
+            None,
+        )
+        session.commit()
+        return _sales_opportunity_view(_profile_to_dict(profile))
+
+
+async def close_sales_opportunity(
+    user_id: str,
+    *,
+    status: str,
+    reason: str,
+    operator_id: str,
+) -> dict:
+    if status not in {"lost", "expired"}:
+        raise ValueError("人工关闭只允许 lost 或 expired，不能伪造成交")
+    if not reason.strip() or not operator_id.strip():
+        raise ValueError("操作人和关闭原因不能为空")
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        before = _profile_to_dict(profile)
+        opportunity = _json_loads(profile.active_opportunity_json, {})
+        if not opportunity or opportunity.get("status") != "active":
+            raise ValueError("仅允许关闭进行中的销售机会")
+        now = _now()
+        opportunity.update(
+            {
+                "status": status,
+                "close_reason": reason.strip(),
+                "closed_at": now.isoformat(),
+                "last_active_at": now.isoformat(),
+                "asked_slots": [],
+                "recommended_product_ids": [],
+                "manual_close": {"operator_id": operator_id.strip(), "reason": reason.strip()},
+            }
+        )
+        opportunity.pop("decision_blocker", None)
+        profile.active_opportunity_json = _json_dumps(opportunity)
+        profile.updated_at = now
+        after = _profile_to_dict(profile)
+        _add_event(
+            session,
+            profile,
+            "sales_opportunity_manually_closed",
+            before,
+            after,
+            f"operator={operator_id.strip()}; status={status}; reason={reason.strip()}",
+            None,
+        )
+        session.commit()
+        return _sales_opportunity_view(_profile_to_dict(profile))
+
+
+async def add_verified_customer_tag(
+    user_id: str,
+    tag: str,
+    *,
+    reason: str,
+    trace_id: str | None = None,
+) -> dict:
+    normalized_tag = _normalize_customer_tag(tag)
+    if not normalized_tag:
+        raise ValueError(f"unknown customer tag: {tag}")
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        before = _profile_to_dict(profile)
+        current_tags = _json_loads(profile.customer_tags_json, [])
+        profile.customer_tags_json = _json_dumps(
+            _merge_customer_tags(current_tags, [normalized_tag])
+        )
+        profile.updated_at = _now()
+        after = _profile_to_dict(profile)
+        changed_before, changed_after = _changed_fields(before, after)
+        if changed_after:
+            session.add(
+                ProfileEventModel(
+                    user_id=profile.user_id,
+                    tenant_id=profile.tenant_id,
+                    event_type="verified_customer_tag_added",
+                    before_json=_json_dumps(changed_before),
+                    after_json=_json_dumps(changed_after),
+                    reason=reason,
+                    trace_id=trace_id,
+                    created_at=_now(),
+                )
+            )
+        session.commit()
+        return _profile_to_dict(profile)
+
+
+async def get_recent_memories(user_id: str, limit: int = 10) -> dict:
+    limit = _clamp_limit(limit, default=10, maximum=50)
+    with _get_session() as session:
+        _get_or_create_profile(session, user_id)
+        session.commit()
+        return {"items": _list_memories(session, user_id, limit), "limit": limit}
+
+
+async def ensure_user_profile(
+    user_id: str,
+    *,
+    tenant_id: str = "tenant_default",
+    channel: str = "api",
+    basic_info: dict | None = None,
+) -> dict:
+    with _get_session() as session:
+        profile = _get_or_create_profile(
+            session, user_id, tenant_id=tenant_id, channel=channel
+        )
+        if basic_info:
+            current = _json_loads(profile.basic_info_json, {})
+            profile.basic_info_json = _json_dumps(
+                {
+                    **current,
+                    **{
+                        key: value
+                        for key, value in basic_info.items()
+                        if key in _basic_info_fields and value not in (None, "", [])
+                    },
+                }
+            )
+            profile.updated_at = _now()
+        session.commit()
+        return _profile_to_dict(profile)
+
+
+async def save_shipping_contact(
+    user_id: str,
+    contact: dict[str, str],
+    *,
+    tenant_id: str = "tenant_default",
+    channel: str = "api",
+) -> dict:
+    allowed = {
+        key: value.strip()
+        for key, value in contact.items()
+        if key in {"recipient_name", "mobile", "shipping_address", "shipping_city"}
+        and isinstance(value, str)
+        and value.strip()
+    }
+    if not allowed:
+        return {}
+    with _get_session() as session:
+        profile = _get_or_create_profile(
+            session,
+            user_id,
+            tenant_id=tenant_id,
+            channel=channel,
+        )
+        basic_info = _json_loads(profile.basic_info_json, {})
+        basic_info.update(allowed)
+        profile.basic_info_json = _json_dumps(basic_info)
+        profile.updated_at = _now()
+        session.commit()
+        return allowed
+
+
+async def refresh_profile_from_memory(user_id: str) -> None:
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        records = _list_profile_context_records(
+            session, user_id, current_message="", limit=18
+        )
+        tenant_id = profile.tenant_id
+    if not records:
+        return
+    analysis = await _build_profile_analysis(records)
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id, tenant_id=tenant_id)
+        _apply_profile_analysis(profile, analysis)
+        profile.updated_at = _now()
+        session.commit()
+
+
+async def get_profile_events(user_id: str, limit: int = 20) -> dict:
+    limit = _clamp_limit(limit, default=20, maximum=100)
+    with _get_session() as session:
+        _get_or_create_profile(session, user_id)
+        session.commit()
+        return {"items": _list_events(session, user_id, limit), "limit": limit}
+
+
+async def append_conversation_memory(
+    *,
+    user_id: str,
+    tenant_id: str = "tenant_default",
+    session_id: str | None,
+    role: str,
+    content: str,
+    intent: str | None = None,
+    route: str | None = None,
+    template_id: str | None = None,
+    trace_id: str | None = None,
+    channel: str = "legacy",
+    owner_external_id: str = "",
+    source_id: str | None = None,
+) -> None:
+    if not content:
+        return
+    created_at = _now()
+    with _get_session() as session:
+        _get_or_create_profile(session, user_id, tenant_id=tenant_id)
+        row = ConversationMemoryModel(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            session_id=session_id,
+            role=role,
+            content=content,
+            intent=intent,
+            route=route,
+            template_id=template_id,
+            trace_id=trace_id,
+            created_at=created_at,
+        )
+        session.add(row)
+        session.flush()
+        durable_source_id = source_id or f"legacy_conversation_memory:{row.id}"
+        session.commit()
+    from app.domains.customers.services.memory_dual_write_service import dual_write_conversation_event
+
+    dual_write_conversation_event(
+        tenant_id=tenant_id,
+        channel=channel,
+        external_user_id=user_id,
+        owner_external_id=owner_external_id,
+        session_id=session_id,
+        role=role,
+        content=content,
+        source_id=durable_source_id,
+        trace_id=trace_id,
+        occurred_at=created_at,
+    )
+
+
+async def update_profile_after_chat(message, intent, reply) -> None:
+    await apply_deterministic_profile_update(message, intent, reply)
+    with _get_session() as session:
+        user_records = _list_profile_context_records(
+            session,
+            message.user_id,
+            current_message=message.message,
+            limit=18,
+        )
+    profile_analysis = await _build_profile_analysis(user_records)
+    with _get_session() as session:
+        profile = _get_or_create_profile(
+            session,
+            message.user_id,
+            tenant_id=message.tenant_id,
+            channel=message.channel,
+        )
+        _apply_profile_analysis(profile, profile_analysis)
+        profile.updated_at = _now()
+        session.commit()
+
+
+async def apply_deterministic_profile_update(message, intent, reply) -> None:
+    with _get_session() as session:
+        profile = _get_or_create_profile(
+            session,
+            message.user_id,
+            tenant_id=message.tenant_id,
+            channel=message.channel,
+        )
+        before = _profile_to_dict(profile)
+        sales_stage = normalize_system_value(
+            "sales_stage", getattr(intent, "sales_stage", None), fallback="unknown"
+        )
+        if sales_stage != "unknown":
+            profile.current_stage = sales_stage
+        profile.last_intent = normalize_system_value(
+            "intent", getattr(intent, "primary_intent", None), fallback="unknown"
+        )
+        profile.last_route = reply.route
+        profile.last_template_id = reply.template_id
+        profile.last_active_at = _now()
+        _apply_tag_result(profile, reply.metadata.get("tag_result"))
+        _apply_sales_action(
+            profile,
+            intent,
+            reply.metadata.get("sales_action"),
+            reply.metadata.get("sales_stage_decision"),
+        )
+        profile.updated_at = _now()
+        if reply.route == "human" or reply.need_human:
+            handoff = reply.metadata.get("handoff", {})
+            profile.is_human_handoff = True
+            profile.human_ticket_id = handoff.get("ticket_id")
+            profile.human_handoff_status = "pending"
+            profile.human_handoff_reason = (
+                handoff.get("reason")
+                or getattr(intent, "reason", None)
+                or reply.metadata.get("reason")
+                or "human_route"
+            )
+            _add_event(
+                session,
+                profile,
+                "handoff_created",
+                before,
+                _profile_to_dict(profile),
+                profile.human_handoff_reason,
+                message.trace_id,
+            )
+        session.commit()
+
+
+async def clear_human_handoff(user_id: str) -> None:
+    """Clear the profile lock only after an operator explicitly returns the chat to AI."""
+    with _get_session() as session:
+        profile = session.scalar(
+            select(UserProfileModel).where(UserProfileModel.user_id == user_id)
+        )
+        if profile is None:
+            return
+        profile.is_human_handoff = False
+        profile.human_ticket_id = None
+        profile.human_handoff_status = None
+        profile.human_handoff_reason = None
+        profile.updated_at = _now()
+        session.commit()
+
+
+def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
+    if not isinstance(tag_result, dict):
+        return
+    risk_level = tag_result.get("risk_level")
+    normalized_risk = normalize_system_value(
+        "risk_level", risk_level, fallback="normal"
+    )
+    if normalized_risk:
+        profile.risk_level = normalized_risk
+    labels = _string_list(tag_result.get("labels"))
+    if not labels:
+        return
+    customer_tags = _json_loads(profile.customer_tags_json, [])
+    incoming_customer_tags: list[str] = []
+    product_interests = _json_loads(profile.product_interests_json, [])
+    pain_points = _json_loads(profile.pain_points_json, [])
+    for label in labels:
+        if label.startswith("product_interest:") and is_allowed_system_tag(
+            label, "product_interest"
+        ):
+            product_interests = _append_unique(product_interests, label.split(":", 1)[1])
+        elif label.startswith("pain_point:") and is_allowed_system_tag(
+            label, "pain_point"
+        ):
+            pain_points = _append_unique(pain_points, label.split(":", 1)[1])
+        elif label.startswith("customer_tag:"):
+            incoming_customer_tags.append(label)
+        elif label.startswith(("region:", "plant_count:", "preference:")):
+            incoming_customer_tags.append(label)
+    profile.customer_tags_json = _json_dumps(
+        _merge_customer_tags(
+            customer_tags,
+            _ai_assignable_customer_tags(incoming_customer_tags),
+        )
+    )
+    profile.product_interests_json = _json_dumps(product_interests)
+    profile.pain_points_json = _json_dumps(pain_points)
+
+
+def _apply_sales_action(
+    profile: UserProfileModel,
+    intent,
+    sales_action: Any,
+    stage_decision: Any = None,
+) -> None:
+    if not isinstance(sales_action, dict):
+        return
+    profile.active_opportunity_json = _json_dumps(
+        evolve_opportunity(
+            _json_loads(profile.active_opportunity_json, {}),
+            sales_stage=normalize_system_value(
+                "sales_stage", intent.sales_stage, fallback="unknown"
+            ),
+            sales_action=sales_action,
+            stage_decision=stage_decision if isinstance(stage_decision, dict) else None,
+        )
+    )
+
+
+async def _build_profile_analysis(user_records: list[dict]) -> dict:
+    prompt = _build_profile_analysis_prompt(user_records)
+    try:
+        analysis = await generate_json(prompt, purpose="profile")
+    except Exception:
+        return _fallback_profile_analysis(user_records)
+    if not _is_valid_profile_analysis(analysis):
+        return _fallback_profile_analysis(user_records)
+    return analysis
+
+
+def _build_profile_analysis_prompt(user_records: list[dict]) -> str:
+    settings = get_settings()
+    prompt = _profile_prompt_with_record_format(
+        settings.profile_analysis_prompt.strip() or DEFAULT_PROFILE_ANALYSIS_PROMPT
+    )
+    prompt_records = _wrap_prompt_record_content(user_records)
+    return (
+        f"{prompt}\n\n【标签库】\n{_json_dumps(_profile_tag_catalog_prompt())}"
+        f"\n\n【聊天上下文记录】\n{_json_dumps(prompt_records)}"
+    )
+
+
+def _profile_prompt_with_record_format(prompt: str) -> str:
+    result = prompt.rstrip()
+    if not (
+        "读取每条记录的 `role` 和 `content` 字段" in prompt
+        and "customer" in prompt
+        and "assistant" in prompt
+    ):
+        result = f"{result}\n{PROFILE_RECORD_FORMAT_INSTRUCTION}"
+    if "短期情绪、抱怨、辱骂或催促不能覆盖长期稳定事实" not in result:
+        result = f"{result}\n{PROFILE_STABILITY_INSTRUCTION}"
+    return result
+
+
+def _wrap_prompt_record_content(user_records: list[dict]) -> list[dict]:
+    wrapped_records = []
+    for record in user_records:
+        if not isinstance(record, dict):
+            continue
+        wrapped = dict(record)
+        wrapped["role"] = _profile_context_role(wrapped.get("role"))
+        content = wrapped.get("content")
+        if isinstance(content, str):
+            wrapped["content"] = f"{{{{{content}}}}}"
+        wrapped_records.append(wrapped)
+    return wrapped_records
+
+
+def _is_valid_profile_analysis(value: Any) -> bool:
+    return isinstance(value, dict) and any(
+        isinstance(value.get(key), expected)
+        for key, expected in {
+            "customer_tags": list,
+            "product_interests": list,
+            "pain_points": list,
+        }.items()
+    )
+
+
+def _apply_profile_analysis(
+    profile: UserProfileModel,
+    analysis: dict,
+) -> None:
+    risk_level = _risk_value(analysis.get("risk_level"))
+    if risk_level and _risk_rank(risk_level) > _risk_rank(profile.risk_level):
+        profile.risk_level = risk_level
+
+    profile.customer_tags_json = _json_dumps(
+        _merge_customer_tags(
+            _json_loads(profile.customer_tags_json, []),
+            _ai_assignable_customer_tags(
+                _string_list(analysis.get("customer_tags"))
+            ),
+        )
+    )
+    profile.product_interests_json = _json_dumps(
+        _dedupe(
+            [
+                *_json_loads(profile.product_interests_json, []),
+                *_string_list(analysis.get("product_interests")),
+            ]
+        )
+    )
+    profile.pain_points_json = _json_dumps(
+        _merge_descriptive_list(
+            _json_loads(profile.pain_points_json, []),
+            _string_list(analysis.get("pain_points")),
+        )
+    )
+def _risk_rank(value: str | None) -> int:
+    return {"normal": 0, "medium": 1, "high": 2}.get(value or "", 0)
+
+
+def _merge_descriptive_list(existing: list[str], incoming: list[str]) -> list[str]:
+    merged = _dedupe(existing)
+    for value in incoming:
+        if any(value in item for item in merged):
+            continue
+        merged = [item for item in merged if item not in value]
+        merged.append(value)
+    return merged
+
+
+def _fallback_profile_analysis(user_records: list[dict]) -> dict:
+    texts = [
+        str(record.get("content") or "")
+        for record in user_records
+        if isinstance(record, dict)
+        and record.get("content")
+        and record.get("role", "customer") == "customer"
+    ]
+    combined = "\n".join(texts)
+    customer_tags: list[str] = []
+    region = _region_from_text(combined)
+    budget = _budget_from_text(combined)
+    plant_count = _plant_count_from_text(combined)
+    if region:
+        customer_tags.append(f"region:{region}")
+    if budget:
+        customer_tags.append(f"budget:{budget}")
+    if plant_count:
+        customer_tags.append(f"plant_count:{plant_count}")
+
+    product_interests: list[str] = []
+    if _contains_any(combined, ("兰花", "蘭花", "orchid")):
+        product_interests.append("兰花养护")
+
+    pain_points: list[str] = []
+    for text in texts:
+        pain_point = _pain_point_from_text(text)
+        if pain_point:
+            pain_points = _append_or_replace_specific(pain_points, pain_point)
+
+    return {
+        "risk_level": "normal",
+        "customer_tags": customer_tags,
+        "product_interests": product_interests,
+        "pain_points": pain_points,
+    }
+
+
+def _render_profile_summary(profile: UserProfileModel) -> str:
+    tags = _merge_customer_tags(_json_loads(profile.customer_tags_json, []), [])
+    interests = _json_loads(profile.product_interests_json, [])
+    pain_points = _json_loads(profile.pain_points_json, [])
+    opportunity = _json_loads(profile.active_opportunity_json, {})
+    if not tags and not interests and not pain_points:
+        return ""
+    action_advice = {
+        "build_rapport": "自然回应并了解客户来意。",
+        "discover_need_track": "判断客户是服务需求、产品需求还是复合需求。",
+        "discover_pain": "确认客户最想解决的问题或期望结果。",
+        "recommend_solution": "基于明确痛点直接给出合适方案，减少重复追问。",
+        "build_value": "说明方案价值并确认客户是否认可。",
+        "trial_close": "给出可信方案并确认客户购买意愿。",
+        "resolve_blocker": "针对客户异议给出直接说明，避免重复询问。",
+        "close_order": "确认规格、数量和收货信息，推进下单。",
+        "provide_service": "优先解决售后问题，暂停销售推进。",
+        "handoff_to_human": "优先由人工接管并解决当前问题，暂停销售推进。",
+    }
+    if profile.is_human_handoff:
+        advice = "优先由人工接管并解决当前问题，暂停销售推进。"
+    elif profile.last_intent in {"ask_after_sale", "refund_request", "complaint"}:
+        advice = "优先解决售后问题，暂停销售推进。"
+    else:
+        advice = action_advice.get(opportunity.get("last_sales_action")) or {
+            "pain_discovery": "确认客户最想解决的问题或期望结果。",
+            "solution_recommended": "基于客户信息推荐合适方案。",
+            "value_built": "说明方案价值并确认客户是否认可。",
+            "trial_close": "给出可信方案并确认客户购买意愿。",
+            "closing": "针对最后阻碍推进真实下单。",
+        }.get(profile.current_stage, "补充一个最关键的缺失信息，再推进下一步。")
+    blocker = opportunity.get("decision_blocker")
+    blocker_text = (
+        blocker.get("detail")
+        if isinstance(blocker, dict) and blocker.get("detail")
+        else "暂未发现明确阻碍"
+    )
+    return (
+        f"客户情况：{'、'.join(tags) or '信息待补充'}；"
+        f"产品兴趣：{'、'.join(interests) or '待确认'}。\n"
+        f"当前诉求：{'；'.join(pain_points) or '待确认'}。\n"
+        f"成交阻碍：{blocker_text}。\n"
+        f"跟进建议：{advice}"
+    )
+
+
+def _pain_point_from_text(text: str) -> str:
+    if not text:
+        return ""
+
+    issues: list[str] = []
+    if _contains_any(text, ("烂根", "爛根", "root rot")):
+        issues.append("烂根")
+    if _contains_any(text, ("黄叶", "黃葉", "叶子发黄", "葉子發黃")):
+        issues.append("黄叶")
+    if _contains_any(text, ("黑腐", "腐烂", "腐爛")) and "烂根" not in issues:
+        issues.append("腐烂")
+    if _contains_any(text, ("不开花", "不来花", "没花", "沒有花")):
+        issues.append("不开花")
+    if _contains_any(text, ("虫", "病虫害", "介壳虫", "蚧壳虫")):
+        issues.append("病虫害")
+    if _contains_any(text, ("不会养", "新手", "第一次养", "怕养死", "养死", "養死")):
+        concern = "担心养死"
+    elif _contains_any(text, ("怎么救", "救回来", "急救")):
+        concern = "需要救治方案"
+    else:
+        concern = ""
+
+    if not issues:
+        return ""
+
+    subject = "兰花" if _contains_any(text, ("兰花", "蘭花", "orchid")) else "植物"
+    issue_text = "、".join(_dedupe(issues))
+    suffixes = [concern] if concern else []
+    if _contains_any(text, ("怎么救", "救回来", "急救", "咋办", "怎么办")):
+        suffixes.append("需要救治方案")
+    suffix_text = f"，{'，'.join(_dedupe(suffixes))}" if suffixes else ""
+    return f"{subject}{issue_text}{suffix_text}"
+
+
+def _region_from_text(text: str) -> str:
+    known_regions = (
+        "北京", "上海", "天津", "重庆", "河北", "山西", "辽宁", "吉林", "黑龙江",
+        "江苏", "浙江", "安徽", "福建", "江西", "山东", "河南", "湖北", "湖南",
+        "广东", "海南", "四川", "贵州", "云南", "陕西", "甘肃", "青海", "台湾",
+        "内蒙古", "广西", "西藏", "宁夏", "新疆", "香港", "澳门",
+        "杭州", "广州", "深圳", "成都", "南京", "苏州", "宁波",
+    )
+    for region in known_regions:
+        if region in text:
+            return region
+    return ""
+
+
+def _budget_from_text(text: str) -> str:
+    import re
+
+    match = re.search(r"(?:预算|預算|budget|价格|價位|价位)[^\d]{0,8}(\d{2,6})", text, re.I)
+    return match.group(1) if match else ""
+
+
+def _plant_count_from_text(text: str) -> str:
+    import re
+
+    match = re.search(r"(?:养了|養了|养|養|有)[^\d]{0,6}(\d{1,5})\s*(盆|棵|株)", text)
+    return f"{match.group(1)}{match.group(2)}" if match else ""
+
+
+def _contains_any(text: str, words: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(word.lower() in lowered for word in words)
+
+
+def _is_more_specific_pain_point(candidate: str, existing: str) -> bool:
+    return bool(candidate and existing and existing in candidate and candidate != existing)
+
+
+def _append_or_replace_specific(values: list[str], value: str) -> list[str]:
+    compacted = [
+        item
+        for item in values
+        if item and not _is_more_specific_pain_point(value, item)
+    ]
+    return _append_unique(compacted, value)
+
+
+def _risk_value(value: Any) -> str:
+    return normalize_system_value("risk_level", value, fallback="")
+
+
+def _merge_customer_tags(existing: list[str], incoming: list[str]) -> list[str]:
+    candidates = [
+        normalized_tag
+        for tag in [*existing, *incoming]
+        for normalized_tag in [_normalize_customer_tag(tag)]
+        if isinstance(tag, str) and tag.strip()
+        if normalized_tag
+    ]
+    latest_by_key: dict[str, tuple[int, str]] = {}
+    for index, tag in enumerate(candidates):
+        latest_by_key[_tag_replace_key(tag)] = (index, tag)
+    selected = [
+        (index, tag)
+        for key, (index, tag) in latest_by_key.items()
+        if key and tag
+    ]
+    selected.sort(key=lambda item: (_tag_order(item[1]), item[0]))
+    return [tag for _, tag in selected]
+
+
+def _normalize_customer_tag(tag: str) -> str:
+    tag = tag.strip()
+    if tag.startswith("customer_tag:"):
+        tag = tag.split(":", 1)[1].strip()
+    if _is_catalog_tag_value(tag):
+        return tag
+    if tag.startswith("region:"):
+        return _catalog_province_value(tag.split(":", 1)[1])
+    if tag.startswith("plant_count:"):
+        return _catalog_quantity_value(tag.split(":", 1)[1])
+    if tag.startswith("preference:"):
+        return _catalog_orchid_type_value(tag.split(":", 1)[1])
+    return ""
+
+
+def _tag_replace_key(tag: str) -> str:
+    category_id = _catalog_category_for_tag(tag)
+    categories = get_profile_tag_categories()
+    if category_id and categories[category_id].exclusive:
+        return category_id
+    return tag
+
+
+def _ai_assignable_customer_tags(tags: list[str]) -> list[str]:
+    categories = get_profile_tag_categories()
+    result: list[str] = []
+    for tag in tags:
+        normalized = _normalize_customer_tag(tag)
+        category_id = _catalog_category_for_tag(normalized)
+        if category_id and categories[category_id].ai_assignable:
+            result.append(normalized)
+    return result
+
+
+def _tag_order(tag: str) -> int:
+    order = {
+        "province": 10,
+        "orchid_quantity": 20,
+        "customer_level": 30,
+        "favorite_orchid_type": 40,
+    }
+    return order.get(_catalog_category_for_tag(tag), 100)
+
+
+def _profile_tag_catalog_prompt() -> dict[str, list[str]]:
+    return {
+        category.name: [value.name for value in category.values]
+        for category in get_profile_tag_categories().values()
+        if category.ai_assignable
+    }
+
+
+def _catalog_tag_values() -> set[str]:
+    return {
+        value.name
+        for category in get_profile_tag_categories().values()
+        for value in category.values
+    }
+
+
+def _is_catalog_tag_value(tag: str) -> bool:
+    return tag in _catalog_tag_values()
+
+
+def _catalog_category_for_tag(tag: str) -> str:
+    for category in get_profile_tag_categories().values():
+        if any(value.name == tag for value in category.values):
+            return category.id
+    return ""
+
+
+def _catalog_province_value(raw: str) -> str:
+    raw = raw.strip()
+    aliases = {
+        "北京": "北京市",
+        "天津": "天津市",
+        "上海": "上海市",
+        "重庆": "重庆市",
+        "广西": "广西省",
+        "西藏": "西藏自治区",
+        "杭州": "浙江省",
+    }
+    if raw in aliases:
+        return aliases[raw]
+    if _is_catalog_tag_value(raw):
+        return raw
+    for suffix in ("省", "市", "自治区"):
+        candidate = f"{raw}{suffix}"
+        if _is_catalog_tag_value(candidate):
+            return candidate
+    return ""
+
+
+def _catalog_quantity_value(raw: str) -> str:
+    import re
+
+    match = re.search(r"(\d+)", raw)
+    if not match:
+        return ""
+    count = int(match.group(1))
+    if count > 10000:
+        return ""
+    if count <= 10:
+        return "1-10盆"
+    if count <= 30:
+        return "10-30盆"
+    if count <= 50:
+        return "30-50盆"
+    if count < 100:
+        return "50-100盆"
+    if count <= 200:
+        return "100-200盆"
+    if count < 1000:
+        return "200+盆"
+    return "1000+盆"
+
+
+def _catalog_orchid_type_value(raw: str) -> str:
+    raw = raw.strip()
+    return raw if _is_catalog_tag_value(raw) else ""
+
+
+def _append_unique(values: list[str], value: str) -> list[str]:
+    if value and value not in values:
+        return [*values, value]
+    return values
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
+
+
+def _get_session() -> Session:
+    # Seed the live tag catalog before opening a profile write transaction.
+    # SQLite cannot create/seed the catalog from a second connection once the
+    # profile transaction has acquired its write lock.
+    get_tag_categories()
+    url = get_settings().database_url
+    factory = _sessionmakers.get(url)
+    if factory is None:
+        engine = create_engine(url)
+        Base.metadata.create_all(engine, tables=_profile_tables)
+        _ensure_profile_columns(engine)
+        factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        _sessionmakers[url] = factory
+    return factory()
+
+
+def _get_or_create_profile(
+    session: Session,
+    user_id: str,
+    *,
+    tenant_id: str = "tenant_default",
+    channel: str = "api",
+) -> UserProfileModel:
+    profile = session.scalar(
+        select(UserProfileModel).where(UserProfileModel.user_id == user_id)
+    )
+    if profile is None:
+        now = _now()
+        profile = UserProfileModel(
+            user_id=user_id,
+            tenant_id=tenant_id or "tenant_default",
+            channel=channel or "api",
+            current_stage="unknown",
+            risk_level="normal",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(profile)
+        session.flush()
+    return profile
+
+
+def _list_memories(session: Session, user_id: str, limit: int) -> list[dict]:
+    rows = session.scalars(
+        select(ConversationMemoryModel)
+        .where(ConversationMemoryModel.user_id == user_id)
+        .order_by(ConversationMemoryModel.created_at.desc(), ConversationMemoryModel.id.desc())
+        .limit(limit)
+    ).all()
+    return [_memory_to_dict(row) for row in reversed(rows)]
+
+
+def _list_profile_context_records(
+    session: Session,
+    user_id: str,
+    *,
+    current_message: str,
+    limit: int,
+) -> list[dict]:
+    rows = session.scalars(
+        select(ConversationMemoryModel)
+        .where(
+            ConversationMemoryModel.user_id == user_id,
+            ConversationMemoryModel.role.in_(("user", "assistant", "human")),
+        )
+        .order_by(ConversationMemoryModel.created_at.desc(), ConversationMemoryModel.id.desc())
+        .limit(limit)
+    ).all()
+    records = [
+        {
+            "created_at": _datetime_to_iso(row.created_at),
+            "role": _profile_context_role(row.role),
+            "content": row.content,
+        }
+        for row in reversed(rows)
+        if row.content
+    ]
+    if current_message and (not records or records[-1].get("content") != current_message):
+        records.append({"created_at": None, "role": "customer", "content": current_message})
+    return records[-limit:]
+
+
+def _profile_context_role(role: str | None) -> str:
+    if role == "user":
+        return "customer"
+    if role in {"assistant", "human"}:
+        return role
+    return "customer"
+
+
+def _list_events(session: Session, user_id: str, limit: int) -> list[dict]:
+    rows = session.scalars(
+        select(ProfileEventModel)
+        .where(ProfileEventModel.user_id == user_id)
+        .order_by(ProfileEventModel.created_at.desc(), ProfileEventModel.id.desc())
+        .limit(limit)
+    ).all()
+    return [_event_to_dict(row) for row in rows]
+
+
+def _set_profile_field(profile: UserProfileModel, field: str, value: Any) -> None:
+    if field == "customer_tags":
+        profile.customer_tags_json = _json_dumps(
+            _merge_customer_tags([], _string_list(value))
+        )
+    elif field == "current_stage":
+        profile.current_stage = normalize_system_value(
+            "sales_stage", value, fallback="unknown"
+        )
+    elif field == "risk_level":
+        profile.risk_level = normalize_system_value(
+            "risk_level", value, fallback="normal"
+        )
+    elif field == "last_intent":
+        profile.last_intent = normalize_system_value(
+            "intent", value, fallback="unknown"
+        )
+    elif field == "product_interests":
+        profile.product_interests_json = _json_dumps(_string_list(value))
+    elif field == "pain_points":
+        profile.pain_points_json = _json_dumps(_string_list(value))
+    elif hasattr(profile, field):
+        setattr(profile, field, value)
+
+
+def _profile_to_dict(profile: UserProfileModel) -> dict:
+    return {
+        "user_id": profile.user_id,
+        "tenant_id": profile.tenant_id,
+        "channel": profile.channel,
+        "current_stage": normalize_system_value(
+            "sales_stage", profile.current_stage, fallback="unknown"
+        ),
+        "risk_level": normalize_system_value(
+            "risk_level", profile.risk_level, fallback="normal"
+        ),
+        "is_human_handoff": profile.is_human_handoff,
+        "human_ticket_id": profile.human_ticket_id,
+        "human_handoff_status": profile.human_handoff_status,
+        "human_handoff_reason": profile.human_handoff_reason,
+        "customer_tags": _merge_customer_tags(
+            _json_loads(profile.customer_tags_json, []),
+            [],
+        ),
+        "product_interests": _json_loads(profile.product_interests_json, []),
+        "ai_summary": _render_profile_summary(profile),
+        "preference_summary": profile.preference_summary,
+        "pain_points": _json_loads(profile.pain_points_json, []),
+        "active_opportunity": _json_loads(profile.active_opportunity_json, {}),
+        "basic_info": _json_loads(profile.basic_info_json, {}),
+        "last_intent": normalize_system_value(
+            "intent", profile.last_intent, fallback="unknown"
+        ) if profile.last_intent else None,
+        "last_route": profile.last_route,
+        "last_template_id": profile.last_template_id,
+        "last_active_at": _datetime_to_iso(profile.last_active_at),
+        "friend_added_at": _datetime_to_iso(profile.friend_added_at),
+        "created_at": _datetime_to_iso(profile.created_at),
+        "updated_at": _datetime_to_iso(profile.updated_at),
+    }
+
+
+def _sales_opportunity_view(profile: dict) -> dict:
+    opportunity = profile.get("active_opportunity")
+    opportunity = dict(opportunity) if isinstance(opportunity, dict) else {}
+    stage = opportunity.get("current_stage") or profile.get("current_stage")
+    normalized_stage = normalize_sales_stage_reference(stage).stage
+    stage = normalized_stage.value if normalized_stage else stage
+    definition = get_sales_stage_definition(stage)
+    slots = opportunity.get("slots") if isinstance(opportunity.get("slots"), dict) else {}
+    missing_slots: list[str] = []
+    if definition and definition.required_slot_groups:
+        groups = [
+            [slot for slot in group if slots.get(slot) in (None, "", [])]
+            for group in definition.required_slot_groups
+        ]
+        if groups and not any(not group for group in groups):
+            missing_slots = min(groups, key=len)
+    return {
+        "user_id": profile.get("user_id"),
+        "status": opportunity.get("status"),
+        "current_stage": definition.stage.value if definition else stage,
+        "previous_stage": opportunity.get("previous_stage"),
+        "stage_display_name": definition.display_name if definition else "未知阶段",
+        "stage_objective": definition.objective if definition else None,
+        "stage_reason": opportunity.get("stage_reason"),
+        "stage_evidence": opportunity.get("stage_evidence", []),
+        "known_slots": slots,
+        "missing_slots": missing_slots,
+        "asked_slots": opportunity.get("asked_slots", []),
+        "decision_blocker": opportunity.get("decision_blocker"),
+        "recommended_product_ids": opportunity.get("recommended_product_ids", []),
+        "next_action": opportunity.get("last_sales_action"),
+        "reply_goal": opportunity.get("last_reply_goal"),
+        "interruption": opportunity.get("interruption"),
+        "updated_at": profile.get("updated_at"),
+        "opportunity": opportunity,
+    }
+
+
+def _ensure_profile_columns(engine) -> None:
+    columns = {column["name"] for column in inspect(engine).get_columns("user_profiles")}
+    if "active_opportunity_json" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE user_profiles "
+                    "ADD COLUMN active_opportunity_json TEXT DEFAULT '{}'"
+                )
+            )
+    if "basic_info_json" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE user_profiles "
+                    "ADD COLUMN basic_info_json TEXT DEFAULT '{}'"
+                )
+            )
+    if "friend_added_at" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE user_profiles "
+                    "ADD COLUMN friend_added_at DATETIME"
+                )
+            )
+
+
+def _memory_to_dict(row: ConversationMemoryModel) -> dict:
+    return {
+        "id": row.id,
+        "user_id": row.user_id,
+        "tenant_id": row.tenant_id,
+        "session_id": row.session_id,
+        "role": row.role,
+        "content": row.content,
+        "intent": row.intent,
+        "route": row.route,
+        "template_id": row.template_id,
+        "trace_id": row.trace_id,
+        "created_at": _datetime_to_iso(row.created_at),
+    }
+
+
+def _event_to_dict(row: ProfileEventModel) -> dict:
+    return {
+        "id": row.id,
+        "user_id": row.user_id,
+        "tenant_id": row.tenant_id,
+        "event_type": row.event_type,
+        "before": _json_loads(row.before_json, {}),
+        "after": _json_loads(row.after_json, {}),
+        "reason": row.reason,
+        "trace_id": row.trace_id,
+        "created_at": _datetime_to_iso(row.created_at),
+    }
+
+
+def _add_event(
+    session: Session,
+    profile: UserProfileModel,
+    event_type: str,
+    before: dict,
+    after: dict,
+    reason: str | None,
+    trace_id: str | None,
+) -> None:
+    changed_before, changed_after = _changed_fields(before, after)
+    if not changed_after:
+        return
+    session.add(
+        ProfileEventModel(
+            user_id=profile.user_id,
+            tenant_id=profile.tenant_id,
+            event_type=event_type,
+            before_json=_json_dumps(changed_before),
+            after_json=_json_dumps(changed_after),
+            reason=reason,
+            trace_id=trace_id,
+            created_at=_now(),
+        )
+    )
+
+
+def _changed_fields(before: dict, after: dict) -> tuple[dict, dict]:
+    changed_before = {}
+    changed_after = {}
+    for key, value in after.items():
+        if before.get(key) != value:
+            changed_before[key] = before.get(key)
+            changed_after[key] = value
+    return changed_before, changed_after
+
+
+def _clamp_limit(value: int, *, default: int, maximum: int) -> int:
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        limit = default
+    return max(1, min(limit, maximum))
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _json_loads(value: str | None, default: Any) -> Any:
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
+
+
+def _datetime_to_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat()
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)

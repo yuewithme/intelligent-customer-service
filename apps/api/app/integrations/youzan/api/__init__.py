@@ -1,0 +1,1 @@
+"""Youzan callback endpoints."""

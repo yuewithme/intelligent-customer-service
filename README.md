@@ -1,26 +1,54 @@
-# AI Sales Agent
+# 智能客服 / AI Sales Agent
 
-面向微信私域销售场景的 AI 销售 Agent，包含 FastAPI 销售编排后端和自主开发的 Vue 运营管理后台。
+面向微信私域销售场景的智能客服系统，由 FastAPI 后端与 Vue 运营后台组成。
 
-## Structure
+## 仓库结构
 
-- `wechat_rag_bot/`: FastAPI 后端服务，提供销售对话编排、微信回调、客户记忆、会话日志和受控人工接管 API。
-- `admin-web/`: 自主开发的 Vue 3 + TypeScript 销售运营后台，包含销售工作台、活动管理和受控人工接管。
-- `docs/`: 产品计划、开发计划和测试记录。
-
-## Local Checks
-
-Backend:
-
-```powershell
-cd wechat_rag_bot
-python -m pytest tests/test_admin_conversations.py tests/test_wechat.py tests/test_chat_logs.py tests/test_handoff_fallbacks.py tests/test_chat_api.py -q
+```text
+apps/
+  api/                 FastAPI、领域逻辑、外部渠道集成
+  admin/               Vue 3 运营后台与生产 Nginx
+datasets/
+  evaluation/          可复现的评测集与已确认基线
+  test-samples/        人工维护的测试样本
+deploy/                生产环境变量模板与自动部署脚本
+docs/                  架构、部署、参考资料与历史归档
+var/                   本地数据库、缓存、评测结果、导入和临时产物（不进 Git）
+docker-compose.prod.yml
 ```
 
-Frontend:
+完整边界与模块依赖规则见 [docs/architecture.md](docs/architecture.md)，生产部署见
+[docs/deployment.md](docs/deployment.md)。
+
+## 本地开发
+
+后端：
 
 ```powershell
-cd admin-web
+cd apps/api
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+uvicorn app.main:app --reload
+```
+
+前端：
+
+```powershell
+cd apps/admin
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+## 最小验证
+
+```powershell
+cd apps/api
+python -m pytest tests/test_contracts.py tests/test_config_env.py tests/test_admin_web_deployment.py -q
+
+cd ../admin
 pnpm ts:check
-pnpm build:local
+pnpm build:prod
 ```
+
+生产环境只有一条发布链路：提交到 GitHub `main` 后，由云服务器执行根目录的
+`docker-compose.prod.yml`。Render/Vercel 不再属于项目架构。

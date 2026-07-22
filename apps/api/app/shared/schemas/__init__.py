@@ -1,0 +1,1 @@
+"""Cross-domain API contracts."""

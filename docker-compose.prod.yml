@@ -1,7 +1,7 @@
 services:
   api:
     build:
-      context: ./wechat_rag_bot
+      context: ./apps/api
     env_file:
       - ${BACKEND_ENV_FILE:-./deploy/env/backend.prod.env}
     environment:
@@ -14,8 +14,8 @@ services:
     expose:
       - "8000"
     volumes:
-      - ${APP_DATA_DIR:-./runtime-data}:/app/data
-      - ${HF_CACHE_DIR:-./runtime-data/huggingface}:/app/data/huggingface
+      - ${APP_DATA_DIR:-./var/runtime/data}:/app/data
+      - ${HF_CACHE_DIR:-./var/runtime/cache/huggingface}:/app/data/huggingface
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
       interval: 15s
@@ -26,7 +26,7 @@ services:
 
   admin-web:
     build:
-      context: ./admin-web
+      context: ./apps/admin
     env_file:
       - ${BACKEND_ENV_FILE:-./deploy/env/backend.prod.env}
     depends_on:
@@ -35,5 +35,5 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./admin-web/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - ./apps/admin/nginx.conf:/etc/nginx/templates/default.conf.template:ro
     restart: unless-stopped
