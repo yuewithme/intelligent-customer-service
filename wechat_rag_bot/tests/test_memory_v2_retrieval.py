@@ -11,6 +11,7 @@ from app.services.memory_event_service import append_memory_event
 from app.services.memory_identity_service import resolve_or_create_subject
 from app.services.memory_retrieval_service import retrieve_memory_context
 from app.services.memory_vector_service import (
+    ensure_memory_collection,
     index_memory_episode,
     reset_memory_vector_cache,
     search_memory_episodes,
@@ -46,6 +47,41 @@ def _subject(tenant_id="tenant_alpha", external_user_id="user_1"):
         identity_source="eyun_contact",
         verified=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_ensure_memory_collection_adds_required_filter_indexes(
+    monkeypatch,
+):
+    from app.services import memory_vector_service
+
+    class ExistingCollection:
+        payload_schema = {"tenant_id": object()}
+
+    class FakeClient:
+        def __init__(self):
+            self.created_indexes = []
+
+        async def collection_exists(self, collection_name):
+            return True
+
+        async def get_collection(self, collection_name):
+            return ExistingCollection()
+
+        async def create_payload_index(self, **kwargs):
+            self.created_indexes.append(kwargs)
+
+    client = FakeClient()
+    monkeypatch.setattr(memory_vector_service, "_is_memory_mode", lambda: False)
+    monkeypatch.setattr(memory_vector_service, "_client", lambda: client)
+
+    await ensure_memory_collection()
+
+    assert [item["field_name"] for item in client.created_indexes] == [
+        "subject_id",
+        "status",
+    ]
+    assert all(item["wait"] is True for item in client.created_indexes)
 
 
 def _event(

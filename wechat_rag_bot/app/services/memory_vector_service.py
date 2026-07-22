@@ -46,17 +46,36 @@ async def ensure_memory_collection() -> None:
     if _is_memory_mode():
         return
     try:
-        from qdrant_client.models import Distance, VectorParams
+        from qdrant_client.models import Distance, PayloadSchemaType, VectorParams
 
         settings = get_settings()
         client = _client()
-        if not await client.collection_exists(settings.qdrant_memory_collection):
+        collection_exists = await client.collection_exists(
+            settings.qdrant_memory_collection
+        )
+        if not collection_exists:
             await client.create_collection(
                 collection_name=settings.qdrant_memory_collection,
                 vectors_config=VectorParams(
                     size=settings.qdrant_vector_size,
                     distance=getattr(Distance, settings.qdrant_distance.upper()),
                 ),
+            )
+            indexed_fields: set[str] = set()
+        else:
+            collection = await client.get_collection(
+                settings.qdrant_memory_collection
+            )
+            indexed_fields = set((collection.payload_schema or {}).keys())
+
+        for field_name in ("tenant_id", "subject_id", "status"):
+            if field_name in indexed_fields:
+                continue
+            await client.create_payload_index(
+                collection_name=settings.qdrant_memory_collection,
+                field_name=field_name,
+                field_schema=PayloadSchemaType.KEYWORD,
+                wait=True,
             )
     except Exception as exc:
         raise AppError(ErrorCode.QDRANT_FAILED, status_code=502) from exc
