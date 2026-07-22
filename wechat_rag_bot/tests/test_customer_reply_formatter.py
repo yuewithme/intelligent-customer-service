@@ -1,4 +1,10 @@
-from app.services.customer_reply_formatter import split_customer_messages
+from app.services.customer_reply_formatter import plain_customer_text, split_customer_messages
+
+
+def test_all_customer_text_removes_special_punctuation():
+    text = "推荐您看看“芽黄素”（田黄玉）——花色清雅，适合阳台。"
+
+    assert plain_customer_text(text) == "推荐您看看芽黄素田黄玉花色清雅，适合阳台。"
 
 
 def test_long_reply_groups_every_two_sentences():

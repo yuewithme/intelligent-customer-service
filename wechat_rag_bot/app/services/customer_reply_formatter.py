@@ -11,6 +11,7 @@ _MARKDOWN_PREFIX_RE = re.compile(
 )
 _SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[。！？!?])")
 _CLAUSE_BOUNDARY_RE = re.compile(r"(?<=[，、；;：:])")
+_SPECIAL_SYMBOLS = str.maketrans("", "", "“”‘’\"'「」『』【】[]（）()—–")
 
 
 def plain_customer_text(text: str) -> str:
@@ -32,6 +33,7 @@ def plain_customer_text(text: str) -> str:
         line = _MARKDOWN_LINK_RE.sub(r"\1", line)
         line = re.sub(r"(\*\*|__|~~|`)", "", line)
         line = re.sub(r"(?<!\w)[*_](?!\s)|(?<!\s)[*_](?!\w)", "", line)
+        line = line.translate(_SPECIAL_SYMBOLS)
         line = re.sub(r"\s+", " ", line).strip()
         if line:
             lines.append(line)

@@ -86,6 +86,19 @@ ORDER_QUERY_WORDS = (
     "快递到哪",
     "物流到哪",
 )
+PRODUCT_IMAGE_QUERY_WORDS = (
+    "商品图片",
+    "商品图",
+    "实拍图",
+    "发张图",
+    "发图片",
+    "看看图片",
+    "看看照片",
+    "有图片吗",
+    "图片吗",
+    "照片吗",
+    "长什么样",
+)
 PRODUCT_QUERY_WORDS = (
     "商品链接",
     "购买链接",
@@ -93,7 +106,7 @@ PRODUCT_QUERY_WORDS = (
     "发我链接",
     "发一下链接",
     "有没有",
-)
+) + PRODUCT_IMAGE_QUERY_WORDS
 MOBILE_ONLY_PATTERN = re.compile(r"^1[3-9]\d{9}$")
 PLANT_COUNT_PATTERN = re.compile(r"(?:养了|養了|养|養|有)?[^\d]{0,6}\d{1,5}\s*(?:盆|棵|株)")
 ORCHID_VARIETY_WORDS = ("建兰", "春兰", "蕙兰", "墨兰", "寒兰", "春剑", "莲瓣兰")
@@ -210,6 +223,18 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                     "resource_type": "orchid_material",
                 },
                 "reason": "rule_material_request",
+            }
+        )
+
+    if hit_any(text, PRODUCT_IMAGE_QUERY_WORDS):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "product_query",
+                "sales_stage": "closing",
+                "confidence": 0.99,
+                "need_template": True,
+                "reason": "rule_product_image_request",
             }
         )
 

@@ -48,6 +48,23 @@ def test_product_keyword_reuses_previous_customer_product_request():
     ) == "白色大花蝴蝶兰"
 
 
+def test_product_image_keyword_removes_image_request_words():
+    from app.services.commerce_query_service import _product_keyword
+
+    assert _product_keyword("能给我发一下芽黄素的图片吗", {}) == "芽黄素"
+    assert _product_keyword("发张芽黄素实拍图", {}) == "芽黄素"
+
+
+def test_product_image_followup_reuses_previous_customer_product():
+    from app.services.commerce_query_service import _product_keyword
+
+    assert _product_keyword(
+        "刚才那款有图片吗",
+        {},
+        [{"role": "user", "content": "我想看看芽黄素"}],
+    ) == "芽黄素"
+
+
 @pytest.mark.asyncio
 async def test_stage_allowlist_blocks_product_database_query():
     from app.services.commerce_query_service import build_commerce_context
@@ -289,6 +306,35 @@ async def test_product_query_returns_first_product_as_mini_program_card():
 
 
 @pytest.mark.asyncio
+async def test_product_image_request_marks_image_delivery():
+    from app.services.commerce_query_service import build_commerce_context
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert keyword == "芽黄素"
+            return [
+                YouzanProduct(
+                    item_id="123",
+                    title="建兰芽黄素",
+                    alias="abc",
+                    price_cent=6800,
+                    stock=8,
+                    image_url="https://cdn.example.com/yahuangsu.jpg",
+                    page_path="pages/goods/detail?alias=abc",
+                )
+            ]
+
+    facts = await build_commerce_context(
+        _message("能给我发一下芽黄素的图片吗"),
+        UserState(user_id="wxid-customer"),
+        _intent("product_query"),
+        product_service=FakeProductService(),
+    )
+
+    assert facts.tool_state["send_product_image"] is True
+
+
+@pytest.mark.asyncio
 async def test_product_link_request_without_product_asks_for_product():
     from app.services.commerce_query_service import build_commerce_context
 
@@ -434,7 +480,7 @@ async def test_product_renderer_returns_one_coherent_customer_message():
     reply = await render_business_reply(_message("我喜欢绿色的素花"), facts)
 
     assert reply.answer == (
-        "推荐您看看建兰“芽黄素”，当前售价68元，"
+        "推荐您看看建兰芽黄素，当前售价68元，"
         "新苗时期新芽呈淡黄色，随着生长逐渐转为黄绿色；"
         "花朵呈淡黄色素花，清秀雅致。点击下方商品卡片就可以查看详情和下单。"
     )
@@ -470,6 +516,42 @@ async def test_product_renderer_prefers_prebuilt_sales_copy():
 
     assert "新芽由明亮的淡黄色" in reply.answer
     assert "旧特征" not in reply.answer
+
+
+@pytest.mark.asyncio
+async def test_product_image_renderer_sends_text_image_and_card_without_symbols():
+    from app.services.business_reply_renderer import render_business_reply
+
+    facts = BusinessFacts(
+        tool_state={
+            "commerce_type": "product",
+            "status": "found",
+            "send_product_image": True,
+            "products": [
+                {
+                    "title": "建兰芽黄素",
+                    "price_cent": 6800,
+                    "image_url": "https://cdn.example.com/yahuangsu.jpg",
+                    "h5_url": "https://h5.youzan.com/goods/yahuangsu",
+                    "knowledge": {
+                        "product_name": "芽黄素（田黄玉）",
+                        "category": "建兰",
+                    },
+                }
+            ],
+        }
+    )
+
+    reply = await render_business_reply(_message("发张图片"), facts)
+
+    assert reply.answer == "可以的，这是建兰芽黄素的商品图片，您可以看看花色和株型。"
+    assert not any(symbol in reply.answer for symbol in "“”‘’（）()—–")
+    assert [item.type for item in reply.outbound_messages] == [
+        "text",
+        "image",
+        "link_card",
+    ]
+    assert reply.outbound_messages[1].content == "https://cdn.example.com/yahuangsu.jpg"
 
 
 @pytest.mark.asyncio

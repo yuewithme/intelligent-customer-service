@@ -94,6 +94,15 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             return None
         else:
             first = products[0]
+            if state.get("send_product_image"):
+                if first.get("image_url"):
+                    answer = (
+                        f"可以的，这是{_product_display_name(first)}的商品图片，"
+                        "您可以看看花色和株型。"
+                    )
+                else:
+                    answer = "暂时没有同步到这款商品的图片，您可以先查看商品卡片。"
+                return _commerce_final_reply(answer, state)
             price = first.get("price_cent") if isinstance(first, dict) else None
             price_text = f"，当前售价{price / 100:g}元" if isinstance(price, int) else ""
             card = state.get("mini_program")
@@ -141,7 +150,7 @@ def _product_knowledge_text(product: dict) -> str:
     sales_copy = re.sub(r"\s+", "", str(knowledge.get("sales_copy") or "")).strip()
     sales_copy = sales_copy.rstrip("。！？!?；; ")
     if sales_copy:
-        return f"。{sales_copy}"
+        return f"。{_without_special_symbols(sales_copy)}"
     features = str(knowledge.get("highlighted_features") or "").strip()
     if features:
         feature_items = [
@@ -172,12 +181,26 @@ def _product_display_name(product: dict) -> str:
         name = str(knowledge.get("product_name") or "").strip()
         category = str(knowledge.get("category") or "").strip()
         if name:
-            return f"{category}“{name}”" if category else f"“{name}”"
-    return f"“{str(product.get('title') or '这款商品').strip()}”"
+            name = re.sub(r"[（(].*?[）)]", "", name).strip()
+            return f"{category}{name}" if category else name
+    return _without_special_symbols(str(product.get("title") or "这款商品").strip())
+
+
+def _without_special_symbols(text: str) -> str:
+    return str(text or "").translate(
+        str.maketrans("", "", "“”‘’\"'「」『』【】[]（）()—–")
+    )
 
 
 def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
     outbound_messages = [{"type": "text", "content": answer, "split": False}]
+    if state.get("send_product_image") and state.get("commerce_type") == "product":
+        products = state.get("products") if isinstance(state.get("products"), list) else []
+        first = products[0] if products and isinstance(products[0], dict) else {}
+        if first.get("image_url"):
+            outbound_messages.append(
+                {"type": "image", "content": str(first["image_url"]).strip()}
+            )
     card = state.get("mini_program")
     if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
         outbound_messages.append(

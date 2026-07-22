@@ -541,6 +541,26 @@ def test_outbound_text_messages_are_plain_short_messages():
     ]
 
 
+def test_outbound_unsplit_text_also_removes_special_punctuation():
+    from app.services.message_risk_control_service import _outbound_messages
+
+    messages = _outbound_messages(
+        {
+            "outbound_messages": [
+                {
+                    "type": "text",
+                    "content": "这是“芽黄素”（田黄玉）——您可以先看看图片。",
+                    "split": False,
+                }
+            ]
+        }
+    )
+
+    assert messages == [
+        {"type": "text", "content": "这是芽黄素田黄玉您可以先看看图片。"}
+    ]
+
+
 def test_outbound_bare_link_is_removed_from_text_and_sent_as_card():
     from app.services.message_risk_control_service import _outbound_messages
 

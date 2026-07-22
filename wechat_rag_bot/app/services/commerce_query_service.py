@@ -12,6 +12,15 @@ from app.services.product_knowledge_service import search_catalog_products
 
 MOBILE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
 logger = logging.getLogger("wechat_rag_bot.commerce_query")
+PRODUCT_IMAGE_REQUEST_WORDS = (
+    "图片",
+    "照片",
+    "商品图",
+    "实拍图",
+    "发张图",
+    "长什么样",
+)
+PRODUCT_REFERENCE_WORDS = {"这款", "这个", "刚才那款", "刚刚那款", "上面那款"}
 CATALOG_KNOWLEDGE_FIELDS = {
     "product_name",
     "aliases",
@@ -106,6 +115,7 @@ async def build_commerce_context(
             "commerce_type": "product",
             "status": "found" if product_data else "not_found",
             "products": product_data,
+            "send_product_image": _wants_product_image(message.message),
         }
         if product_data and product_data[0].get("page_path"):
             tool_state["mini_program"] = {
@@ -283,7 +293,9 @@ def _product_keyword(text: str, slots: dict, recent_turns=None) -> str:
     for key in ("product_keyword", "product", "name"):
         value = slots.get(key) if isinstance(slots, dict) else None
         if isinstance(value, str) and value.strip():
-            return value.strip()
+            keyword = _clean_product_keyword(value)
+            if keyword:
+                return keyword
     keyword = _clean_product_keyword(text)
     if keyword:
         return keyword
@@ -299,14 +311,36 @@ def _product_keyword(text: str, slots: dict, recent_turns=None) -> str:
 
 def _clean_product_keyword(text: str) -> str:
     keyword = str(text or "").strip()
-    keyword = re.sub(r"^(?:请问|麻烦|帮我|我想买|我想要|有没有)+", "", keyword)
+    keyword = re.sub(
+        r"^(?:请问|麻烦|帮我|我想买|我想要|我想看看|我想看|有没有)+",
+        "",
+        keyword,
+    )
     keyword = re.sub(
         r"[，,。！？!?\s]*(?:发我|发一下|给我|帮我发)?(?:一下)?(?:商品|购买|下单)?链接[。！？!?]*$",
         "",
         keyword,
     )
+    keyword = re.sub(
+        r"[，,。！？!?\s]*(?:的)?(?:有)?(?:商品)?(?:图片|照片|实拍图|商品图)"
+        r"(?:可以吗|有吗|吗|呢)?[。！？!?]*$",
+        "",
+        keyword,
+    )
+    keyword = re.sub(r"[，,。！？!?\s]*(?:长什么样|有图吗)[。！？!?]*$", "", keyword)
+    keyword = re.sub(
+        r"^(?:(?:能不能|可以|能)?(?:给我)?(?:发|看看?|看)(?:一下|一张|张)?)",
+        "",
+        keyword,
+    )
     keyword = re.sub(r"[？?]+$", "", keyword)
-    return keyword.strip()
+    keyword = keyword.strip()
+    return "" if keyword in PRODUCT_REFERENCE_WORDS else keyword
+
+
+def _wants_product_image(text: str) -> bool:
+    value = str(text or "")
+    return any(word in value for word in PRODUCT_IMAGE_REQUEST_WORDS)
 
 
 def _mini_program_base(settings) -> dict[str, str]:

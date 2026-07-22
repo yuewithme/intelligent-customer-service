@@ -92,6 +92,17 @@ async def test_duration_questions_do_not_match_price_intent(
 
 
 @pytest.mark.asyncio
+async def test_explicit_product_image_request_uses_product_query_rule():
+    intent = await classify_intent(
+        _message("能给我发一下芽黄素的图片吗"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.primary_intent == "product_query"
+    assert intent.reason == "rule_product_image_request"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("text", "route", "primary_intent"),
     [

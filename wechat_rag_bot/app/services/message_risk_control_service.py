@@ -34,7 +34,7 @@ from app.services.conversation_service import (
     record_customer_message,
     update_outbound_message_delivery,
 )
-from app.services.customer_reply_formatter import split_customer_messages
+from app.services.customer_reply_formatter import plain_customer_text, split_customer_messages
 from app.services.eyun_contact_service import get_eyun_contact_snapshot
 from app.services.intent_observation_service import record_bypassed_intent_observation
 from app.services.orchid_material_service import (
@@ -1109,7 +1109,14 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
         if valid:
             formatted: list[dict[str, str]] = []
             for message in valid:
-                if message["type"] != "text" or message.get("split") is False:
+                if message["type"] != "text":
+                    message.pop("split", None)
+                    formatted.append(message)
+                    continue
+                message["content"] = plain_customer_text(message["content"]).strip()
+                if not message["content"]:
+                    continue
+                if message.get("split") is False:
                     message.pop("split", None)
                     formatted.append(message)
                     continue
