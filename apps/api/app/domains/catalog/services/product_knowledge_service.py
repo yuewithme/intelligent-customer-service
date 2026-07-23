@@ -8,7 +8,11 @@ from typing import Any
 from sqlalchemy import func, or_, select
 
 from app.core.config import get_settings
-from app.infrastructure.database.models import YouzanProductKnowledgeModel, YouzanProductModel
+from app.infrastructure.database.models import (
+    YouzanProductKnowledgeModel,
+    YouzanProductModel,
+    YouzanProductSkuModel,
+)
 from app.integrations.youzan.services.youzan_product_sync_service import _session
 
 
@@ -357,9 +361,29 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
         ranked.sort(
             key=lambda item: (item[0], -item[1], item[2].sort_order, item[2].id)
         )
+        selected = ranked[:limit]
+        item_ids = [product.item_id for _, _, product, _ in selected]
+        sku_image_urls: dict[str, list[str]] = {}
+        if item_ids:
+            for item_id, image_url in session.execute(
+                select(
+                    YouzanProductSkuModel.item_id,
+                    YouzanProductSkuModel.image_url,
+                ).where(
+                    YouzanProductSkuModel.item_id.in_(item_ids),
+                    YouzanProductSkuModel.image_url.is_not(None),
+                )
+            ):
+                value = str(image_url or "").strip()
+                if value:
+                    sku_image_urls.setdefault(item_id, []).append(value)
         return [
-            _serialize_ai_product(product, knowledge)
-            for _, _, product, knowledge in ranked[:limit]
+            _serialize_ai_product(
+                product,
+                knowledge,
+                image_urls=sku_image_urls.get(product.item_id),
+            )
+            for _, _, product, knowledge in selected
         ]
 
 
@@ -685,6 +709,8 @@ def _serialize(
 def _serialize_ai_product(
     product: YouzanProductModel,
     knowledge: YouzanProductKnowledgeModel,
+    *,
+    image_urls: list[str] | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
     values = {
@@ -696,6 +722,11 @@ def _serialize_ai_product(
         page_path = settings.youzan_product_page_path_template.format(**values)
     except KeyError:
         page_path = product.page_url or ""
+    gallery = []
+    for image_url in [product.image_url, *(image_urls or [])]:
+        value = str(image_url or "").strip()
+        if value and value not in gallery:
+            gallery.append(value)
     return {
         "item_id": product.item_id,
         "title": product.title,
@@ -703,6 +734,7 @@ def _serialize_ai_product(
         "price_cent": product.price_cent,
         "stock": product.stock,
         "image_url": product.image_url or "",
+        "image_urls": gallery,
         "page_path": page_path or product.page_url or "",
         "h5_url": product.h5_url,
         "knowledge": {field: getattr(knowledge, field) for field in _FIELDS},

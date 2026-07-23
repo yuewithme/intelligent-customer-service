@@ -197,9 +197,18 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
     if state.get("send_product_image") and state.get("commerce_type") == "product":
         products = state.get("products") if isinstance(state.get("products"), list) else []
         first = products[0] if products and isinstance(products[0], dict) else {}
-        if first.get("image_url"):
+        image_urls = first.get("image_urls")
+        if not isinstance(image_urls, list):
+            image_urls = []
+        image_urls = [first.get("image_url"), *image_urls]
+        unique_image_urls = []
+        for image_url in image_urls:
+            value = str(image_url or "").strip()
+            if value and value not in unique_image_urls:
+                unique_image_urls.append(value)
+        for image_url in unique_image_urls[:3]:
             outbound_messages.append(
-                {"type": "image", "content": str(first["image_url"]).strip()}
+                {"type": "image", "content": image_url}
             )
     card = state.get("mini_program")
     if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):

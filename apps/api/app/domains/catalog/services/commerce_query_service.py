@@ -18,9 +18,24 @@ PRODUCT_IMAGE_REQUEST_WORDS = (
     "商品图",
     "实拍图",
     "发张图",
+    "发图",
+    "看图",
+    "图册",
+    "图集",
+    "相册",
     "长什么样",
 )
-PRODUCT_REFERENCE_WORDS = {"这款", "这个", "刚才那款", "刚刚那款", "上面那款"}
+PRODUCT_REFERENCE_WORDS = {
+    "这款",
+    "这个",
+    "这个花",
+    "这盆花",
+    "这株花",
+    "这款花",
+    "刚才那款",
+    "刚刚那款",
+    "上面那款",
+}
 CATALOG_KNOWLEDGE_FIELDS = {
     "product_name",
     "aliases",
@@ -242,7 +257,15 @@ def _restrict_product_data(
         restricted = {
             key: value
             for key, value in product.items()
-            if key in {"item_id", "title", "alias", "image_url", "knowledge"}
+            if key
+            in {
+                "item_id",
+                "title",
+                "alias",
+                "image_url",
+                "image_urls",
+                "knowledge",
+            }
         }
         knowledge = product.get("knowledge")
         if isinstance(knowledge, dict):
@@ -312,17 +335,19 @@ def _product_keyword(text: str, slots: dict, recent_turns=None) -> str:
 def _clean_product_keyword(text: str) -> str:
     keyword = str(text or "").strip()
     keyword = re.sub(
-        r"^(?:请问|麻烦|帮我|我想买|我想要|我想看看|我想看|有没有)+",
+        r"^(?:请问|麻烦|帮我|我想买|我想要|我想看看|我想看|我对|有没有)+",
         "",
         keyword,
     )
+    keyword = re.sub(r"(?:比较)?感兴趣[。！？!?]*$", "", keyword)
     keyword = re.sub(
         r"[，,。！？!?\s]*(?:发我|发一下|给我|帮我发)?(?:一下)?(?:商品|购买|下单)?链接[。！？!?]*$",
         "",
         keyword,
     )
     keyword = re.sub(
-        r"[，,。！？!?\s]*(?:的)?(?:有)?(?:商品)?(?:图片|照片|实拍图|商品图)"
+        r"[，,。！？!?\s]*(?:的)?(?:有)?(?:商品)?"
+        r"(?:图片|照片|实拍图|商品图|图册|图集|相册)"
         r"(?:可以吗|有吗|吗|呢)?[。！？!?]*$",
         "",
         keyword,

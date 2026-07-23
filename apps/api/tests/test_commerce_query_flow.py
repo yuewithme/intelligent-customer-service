@@ -53,6 +53,7 @@ def test_product_image_keyword_removes_image_request_words():
 
     assert _product_keyword("能给我发一下芽黄素的图片吗", {}) == "芽黄素"
     assert _product_keyword("发张芽黄素实拍图", {}) == "芽黄素"
+    assert _product_keyword("我想看芽黄素的图册", {}) == "芽黄素"
 
 
 def test_product_image_followup_reuses_previous_customer_product():
@@ -62,6 +63,11 @@ def test_product_image_followup_reuses_previous_customer_product():
         "刚才那款有图片吗",
         {},
         [{"role": "user", "content": "我想看看芽黄素"}],
+    ) == "芽黄素"
+    assert _product_keyword(
+        "给我看一下这个花的图册",
+        {},
+        [{"role": "user", "content": "我对芽黄素感兴趣"}],
     ) == "芽黄素"
 
 
@@ -532,6 +538,10 @@ async def test_product_image_renderer_sends_text_image_and_card_without_symbols(
                     "title": "建兰芽黄素",
                     "price_cent": 6800,
                     "image_url": "https://cdn.example.com/yahuangsu.jpg",
+                    "image_urls": [
+                        "https://cdn.example.com/yahuangsu.jpg",
+                        "https://cdn.example.com/yahuangsu-detail.jpg",
+                    ],
                     "h5_url": "https://h5.youzan.com/goods/yahuangsu",
                     "knowledge": {
                         "product_name": "芽黄素（田黄玉）",
@@ -549,9 +559,14 @@ async def test_product_image_renderer_sends_text_image_and_card_without_symbols(
     assert [item.type for item in reply.outbound_messages] == [
         "text",
         "image",
+        "image",
         "link_card",
     ]
     assert reply.outbound_messages[1].content == "https://cdn.example.com/yahuangsu.jpg"
+    assert (
+        reply.outbound_messages[2].content
+        == "https://cdn.example.com/yahuangsu-detail.jpg"
+    )
 
 
 @pytest.mark.asyncio

@@ -103,6 +103,17 @@ async def test_explicit_product_image_request_uses_product_query_rule():
 
 
 @pytest.mark.asyncio
+async def test_product_gallery_request_uses_product_query_rule():
+    intent = await classify_intent(
+        _message("我想看刚才那款的图册"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.primary_intent == "product_query"
+    assert intent.reason == "rule_product_image_request"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("text", "route", "primary_intent"),
     [

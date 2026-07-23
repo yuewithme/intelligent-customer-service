@@ -121,6 +121,7 @@ class FakeYouzanClient:
                             "price": 3290,
                             "stock_num": 5,
                             "sku_no": "JL-3-POT",
+                            "image_url": "https://cdn.example.com/1001-sku.jpg",
                         }
                     ],
                 }
@@ -275,6 +276,10 @@ async def test_knowledge_is_editable_and_drives_local_ai_catalog(monkeypatch, tm
     assert imported.status_code == 200
     assert updated.status_code == 200
     assert products[0]["item_id"] == "1001"
+    assert products[0]["image_urls"] == [
+        "https://cdn.example.com/1001.jpg",
+        "https://cdn.example.com/1001-sku.jpg",
+    ]
     assert "适合新手" in products[0]["knowledge"]["highlighted_features"]
     assert recommendation[0]["item_id"] == "1001"
 
