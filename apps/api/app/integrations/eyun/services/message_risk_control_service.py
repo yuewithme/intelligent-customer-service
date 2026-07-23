@@ -793,18 +793,46 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 _mark_batch(batch_id, "processed")
                 return
         elif is_first_inbound and image_count == 0:
-            chat_result = _opening_chat_result()
-            await record_bypassed_intent_observation(
-                trace_id=observation_trace_id,
-                channel="wechat",
-                user_id=user_id,
-                session_id=batch_data["from_group"],
-                user_message=batch_data["content"],
-                final_route=str(chat_result.get("route") or "opening"),
-                reason="first_inbound_opening",
-                metadata=observation_metadata,
+            opening_result = _opening_chat_result()
+            chat_result = await handle_chat(
+                ChatRequest(
+                    channel="wechat",
+                    user_id=batch_data["from_user"] or batch_data["target_wc_id"],
+                    session_id=batch_data["from_group"],
+                    message=batch_data["content"],
+                    kb_id=get_settings().wechat_default_kb_id,
+                    metadata={
+                        "provider": "eyun",
+                        "account": batch_data["account"],
+                        "message_type": batch_data["message_type"],
+                        "wc_id": batch_data["wc_id"],
+                        "w_id": batch_data["w_id"],
+                        "from_user": batch_data["from_user"],
+                        "from_group": batch_data["from_group"],
+                        "batch_key": batch_data["batch_key"],
+                        "message_count": batch_data["message_count"],
+                        "image_count": image_count,
+                        "recognized_image_count": recognized_image_count,
+                        "verified_order_count": verified_order_count,
+                        "skip_conversation_memory": True,
+                        **observation_metadata,
+                        **customer_snapshot,
+                    },
+                )
             )
-            await _record_opening_memories(batch_data, chat_result.get("answer", ""))
+            await _record_first_inbound_memories(
+                batch_data,
+                opening_result.get("answer", ""),
+                chat_result,
+            )
+            outbound_messages = [
+                *_outbound_messages(opening_result),
+                *_outbound_messages(chat_result),
+            ]
+            for message in outbound_messages:
+                if message["type"] == "text":
+                    message["split"] = False
+            chat_result["outbound_messages"] = outbound_messages
         else:
             chat_result = await handle_chat(
                 ChatRequest(
@@ -1090,6 +1118,29 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
             owner_external_id=str(batch.get("w_id") or ""),
             source_id=f"{batch['batch_key']}:assistant",
         )
+
+
+async def _record_first_inbound_memories(
+    batch: dict[str, Any], opening_answer: str, chat_result: dict[str, Any]
+) -> None:
+    await _record_opening_memories(batch, opening_answer)
+    answer = str(chat_result.get("answer") or "").strip()
+    if not answer:
+        return
+    intent = chat_result.get("intent") or {}
+    await append_conversation_memory(
+        user_id=batch["from_user"] or batch["target_wc_id"],
+        tenant_id="tenant_default",
+        session_id=batch["from_group"] or "default",
+        role="assistant",
+        content=answer,
+        intent=str(intent.get("primary_intent") or "") or None,
+        route=str(chat_result.get("route") or "") or None,
+        trace_id=str(chat_result.get("trace_id") or "") or None,
+        channel="wechat",
+        owner_external_id=str(batch.get("w_id") or ""),
+        source_id=f"{batch['batch_key']}:first-reply",
+    )
 
 
 async def _handoff_image_failure(

@@ -358,7 +358,7 @@ async def handle_chat(request: ChatRequest) -> dict:
             routed_intent,
             reply,
         )
-        if not is_evaluation:
+        if not is_evaluation and not message.metadata.get("skip_conversation_memory"):
             await append_conversation_memory(
                 user_id=message.user_id,
                 tenant_id=message.tenant_id,

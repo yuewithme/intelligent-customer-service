@@ -34,6 +34,12 @@ async def test_first_inbound_persists_user_and_opening_memories(monkeypatch):
 
     now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
     memories = []
+    chat_requests = []
+    queued = []
+    monkeypatch.setenv("EYUN_OPENING_TEXT", "opening-message")
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "")
+    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "0")
+    get_settings.cache_clear()
 
     async def capture_memory(**kwargs):
         memories.append(kwargs)
@@ -42,7 +48,17 @@ async def test_first_inbound_persists_user_and_opening_memories(monkeypatch):
         return {}
 
     async def capture_outbound(**kwargs):
+        queued.append(kwargs)
         return kwargs
+
+    async def answer_first_message(request):
+        chat_requests.append(request)
+        return {
+            "answer": "first-message-answer",
+            "route": "rag_answer",
+            "trace_id": "req_first_message",
+            "intent": {"primary_intent": "care_question"},
+        }
 
     monkeypatch.setattr(service, "utcnow", lambda: now)
     monkeypatch.setattr(
@@ -50,6 +66,7 @@ async def test_first_inbound_persists_user_and_opening_memories(monkeypatch):
     )
     monkeypatch.setattr(service, "get_eyun_contact_snapshot", empty_contact)
     monkeypatch.setattr(service, "enqueue_wechat_outbound", capture_outbound)
+    monkeypatch.setattr(service, "handle_chat", answer_first_message)
 
     with service._get_session() as session:
         batch = EyunInboundBatchModel(
@@ -86,6 +103,14 @@ async def test_first_inbound_persists_user_and_opening_memories(monkeypatch):
     assert [(item["role"], item["content"]) for item in memories] == [
         ("user", "我是兰亭"),
         ("assistant", get_settings().eyun_opening_text),
+        ("assistant", "first-message-answer"),
+    ]
+    assert len(chat_requests) == 1
+    assert chat_requests[0].message == "我是兰亭"
+    assert chat_requests[0].metadata["skip_conversation_memory"] is True
+    assert [item["content"] for item in queued] == [
+        "opening-message",
+        "first-message-answer",
     ]
 
 
