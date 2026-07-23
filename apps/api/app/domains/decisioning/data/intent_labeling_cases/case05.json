@@ -1,0 +1,25 @@
+{
+  "case_id": "case05",
+  "customer_id": "C60615",
+  "customer_name": "捕风汉子",
+  "source_file": "docs/case05.md",
+  "turns": [
+    {"role": "customer", "messages": ["老师，资料在哪里领取？我养了几盆建兰和金边达摩，最担心的是以后不开花。"]},
+    {"role": "merchant", "messages": ["请问您在哪里？这些兰花养了多久？目前有没有遇到什么问题？"]},
+    {"role": "customer", "messages": ["我在四川泸州，养了两个月左右，目前没什么问题，就是怕以后不开花。"]},
+    {"role": "merchant", "messages": ["只要苗子健康、苗龄够、环境合适，正常养护都可以开花。请问这些兰花在哪里买的？有没有人指导您？"]},
+    {"role": "customer", "messages": ["都是抖音买的，没有师傅指导，平时都是看直播学习，也没有系统资料。"]},
+    {"role": "merchant", "messages": ["直播内容未必适合每个地区和品种。我先发您养兰资料学习，不过真正养好兰花，更重要的是有人手把手指导和长期实践。"]},
+    {"role": "customer", "messages": ["好的，谢谢。"]},
+    {"role": "merchant", "messages": ["除了资料，我们还有上百节视频课程，针对不开花、夏季养护等问题都有详细讲解，并提供一对一指导。"]},
+    {"role": "customer", "messages": ["我觉得养兰确实会上瘾，我愿意继续学习。"]},
+    {"role": "merchant", "messages": ["如果您想系统学习，可以加入陪伴养兰会员。\n\n会员包含：\n\n- 一对一指导\n- 百节视频课程\n- 夏季养护课程\n- 开花管理课程\n- 60天养死包赔\n- 赠送建兰《七仙女》\n\n活动价39.9元，终身有效。"]},
+    {"role": "customer", "messages": ["40元加入还送兰花吗？"]},
+    {"role": "merchant", "messages": ["是的，赠送的品种价值已经超过会员费用，我们主要希望更多兰友体验专业指导和长期服务。"]},
+    {"role": "customer", "messages": ["愿意加入。"]},
+    {"role": "merchant", "messages": ["我发送会员专属链接，填写地址即可下单。"]},
+    {"role": "customer", "messages": ["已经下单。"]},
+    {"role": "merchant", "messages": ["收到。我先为您开通视频课程，并发送《七仙女》养护资料，以及服盆、浇水、定根水、6月养护等课程。后续请把养兰环境拍给我，我会根据当地环境继续指导您养护。"]},
+    {"role": "customer", "messages": ["好的，白天拍给您。"]}
+  ]
+}

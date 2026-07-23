@@ -1,0 +1,18 @@
+{
+  "case_id": "case07",
+  "customer_id": "苹果",
+  "customer_name": "苹果",
+  "source_file": "docs/case07.md",
+  "turns": [
+    {"role": "customer", "messages": ["老师，我养的兰花从根部开始烂叶，请帮我看看。"]},
+    {"role": "merchant", "messages": ["从照片来看，已经出现严重烂根和腐苗。\n\n主要原因是植料透气性不足，加上夏季没有根据气温调整盆内湿度，导致根部长期闷湿，引起病菌感染。"]},
+    {"role": "merchant", "messages": ["家里一共养了多少盆？都是这种情况吗？"]},
+    {"role": "customer", "messages": ["一共9盆，目前有2盆这样。"]},
+    {"role": "merchant", "messages": ["养多久了？是不是不太懂夏季养护？"]},
+    {"role": "customer", "messages": ["去年开始养，是的，不太懂。"]},
+    {"role": "merchant", "messages": ["没关系，我们长期指导兰友养兰，遇到很多和您一样的问题。\n\n您现在最重要的是：\n\n- 及时杀菌处理；\n- 更换透气植料；\n- 避免病菌继续传播。"]},
+    {"role": "merchant", "messages": ["这些处理方法您知道吗？"]},
+    {"role": "customer", "messages": ["不知道。", "另外端午节会员活动还有吗？如果可以，我想参加学习。"]},
+    {"role": "merchant", "messages": ["活动已经结束，不过我可以帮您申请活动价格。\n\n加入会员后，我们会：\n\n- 一对一指导处理烂根、腐苗；\n- 提供病害处理视频课程；\n- 教您夏季养护、植料搭配和浇水方法；\n- 长期跟踪指导，避免再次发生类似问题。"]}
+  ]
+}

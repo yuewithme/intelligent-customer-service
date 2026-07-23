@@ -1,0 +1,23 @@
+{
+  "case_id": "case03",
+  "customer_id": "C60617",
+  "customer_name": "李允会",
+  "source_file": "docs/case03.md",
+  "turns": [
+    {"role": "customer", "messages": ["家里已经有几盆兰花了，没人教，养不开花，等学会了再买。"]},
+    {"role": "merchant", "messages": ["很多兰友都遇到过类似问题，养兰不仅要会养，更要选对适合当地的品种。我们提供一对一指导，帮助兰友把兰花养好。"]},
+    {"role": "customer", "messages": ["我买你家的兰花，不是说有教程吗？"]},
+    {"role": "merchant", "messages": ["请把订单截图发给我，我先确认购买记录，并根据购买品种发送对应资料。"]},
+    {"role": "merchant", "messages": ["经核实，您购买的是其他店铺的兰花，不是我们店。不过没关系，我先发您养兰资料学习，后续也欢迎体验我们的苗子和指导服务。"]},
+    {"role": "customer", "messages": ["原来如此，那麻烦您推荐几种适合我的兰花，最好能视频教学。"]},
+    {"role": "merchant", "messages": ["您在河南，比较适合建兰。建兰耐热耐旱，非常适合新手。请告诉我预算以及喜欢的花色和香味。"]},
+    {"role": "customer", "messages": ["喜欢花色艳丽、香味浓郁，不想买太贵。"]},
+    {"role": "merchant", "messages": ["推荐两款：\n\n- 建兰《天地之华》：2-3苗带花，32.8元。\n- 建兰《市长红》：2-3苗带花，39.9元。\n\n两盆一起优惠70元，并提供养护资料、视频课程和一对一指导。"]},
+    {"role": "customer", "messages": ["家里盆和植料不够。"]},
+    {"role": "merchant", "messages": ["塑料盆可以继续使用，我再送您一些植料，并帮您挑选壮苗。"]},
+    {"role": "customer", "messages": ["好的，我下单。"]},
+    {"role": "merchant", "messages": ["请通过专属链接下单，下单后我安排发货，并开通课程权限。"]},
+    {"role": "customer", "messages": ["已下单成功，不过周末要回老家，请晚一天发货。"]},
+    {"role": "merchant", "messages": ["没问题，我按您的时间安排发货。收到后有任何问题都可以联系我，我会持续指导养护。"]}
+  ]
+}

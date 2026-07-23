@@ -14,6 +14,7 @@ from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.services.intent_observation_service import record_intent_observation
 from app.domains.decisioning.services.intent_case_import_service import (
     import_intent_labeling_case,
+    list_intent_labeling_cases,
     normalize_case_turns,
 )
 
@@ -430,3 +431,60 @@ def test_case_turn_normalization_merges_message_fragments_and_adjacent_roles():
             "content": "建兰\n还有春兰\n都是直播间买的",
         },
     ]
+
+
+def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path):
+    _reset(monkeypatch, tmp_path)
+    expected_counts = {
+        "case01": 7,
+        "case02": 10,
+        "case03": 7,
+        "case04": 7,
+        "case05": 9,
+        "case06": 8,
+        "case07": 4,
+        "case08": 8,
+        "case09": 5,
+        "case10": 5,
+    }
+
+    async def import_all():
+        return {
+            case_id: await import_intent_labeling_case(case_id)
+            for case_id in list_intent_labeling_cases()
+        }
+
+    results = anyio.run(import_all)
+    client = TestClient(app)
+    observations = client.get(
+        "/api/v1/admin/intent-observations",
+        params={"annotation_status": "pending", "classifier_source": "case_import"},
+    ).json()["data"]
+
+    assert list_intent_labeling_cases() == list(expected_counts)
+    assert {
+        case_id: result["observation_count"]
+        for case_id, result in results.items()
+    } == expected_counts
+    assert observations["total"] == sum(expected_counts.values()) == 70
+
+    merged_customer_turn = client.get(
+        "/api/v1/admin/intent-observations/intent-case-case07-004"
+    ).json()["data"]
+    assert merged_customer_turn["user_message"] == (
+        "不知道。\n另外端午节会员活动还有吗？如果可以，我想参加学习。"
+    )
+    assert merged_customer_turn["raw_prediction"]["source_message_count"] == 2
+
+    merged_merchant_context = client.get(
+        "/api/v1/admin/intent-observations/intent-case-case03-003"
+    ).json()["data"]["context"][-1]["content"]
+    assert "请把订单截图发给我" in merged_merchant_context
+    assert "经核实，您购买的是其他店铺的兰花" in merged_merchant_context
+
+    reconstructed = client.get(
+        "/api/v1/admin/intent-observations/intent-case-case10-002"
+    ).json()["data"]
+    assert reconstructed["raw_prediction"]["content_quality"] == (
+        "reconstructed_from_summary"
+    )

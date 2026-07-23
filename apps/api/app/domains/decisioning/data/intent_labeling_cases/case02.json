@@ -1,0 +1,28 @@
+{
+  "case_id": "case02",
+  "customer_id": "C60615",
+  "customer_name": "勇于攀登",
+  "source_file": "docs/case02.md",
+  "turns": [
+    {"role": "merchant", "messages": ["兰友您好，我是萧兰苑养兰老师（兰悦），专业养兰20年。请问您目前养了几盆兰花？都是什么品种？所在省份？"]},
+    {"role": "customer", "messages": ["我在西安，刚入门，养了几盆，都不是好品种。"]},
+    {"role": "merchant", "messages": ["这些兰花养多久了？有没有遇到黑斑、黄叶、腐苗等问题？"]},
+    {"role": "customer", "messages": ["昨天狗碰烂了一盆，发现很多黑根、空根，我已经修剪重新栽上了。"]},
+    {"role": "merchant", "messages": ["建议检查其他盆，既然养护环境一致，很可能也存在烂根、空根问题。您知道造成这些问题的原因吗？"]},
+    {"role": "customer", "messages": ["是不是植料太湿？应该怎么预防？"]},
+    {"role": "merchant", "messages": ["烂根、空根主要与浇水频率、养护环境和植料透气性有关。如果这些基础知识不了解，后续还会反复出现。"]},
+    {"role": "customer", "messages": ["最近天气热，我基本两三天浇一次水，可能浇得太勤了。"]},
+    {"role": "merchant", "messages": ["养兰先养根。浇水要根据植料和当地环境调整，不能固定几天一次。如果继续这样养，天气再热就容易出现腐苗。"]},
+    {"role": "customer", "messages": ["麻烦您教教我怎么才能养好根。"]},
+    {"role": "merchant", "messages": ["除了养护方法，品种选择也很重要。很多商家只卖苗不教学，所以很多兰友都是自己摸索，最后养不好。\n\n我们会手把手指导：\n\n- 如何配植料\n- 如何控制浇水\n- 如何选择适合当地的品种\n- 如何预防烂根、空根"]},
+    {"role": "customer", "messages": ["怎么加入会员？"]},
+    {"role": "merchant", "messages": ["陪伴养兰会员活动价39.9元，终身有效。\n\n包含：\n\n- 一对一指导\n- 百节视频课程\n- 常见病害教学\n- 新手养护课程\n- 60天养死包赔\n- 赠送建兰名品《七仙女》"]},
+    {"role": "customer", "messages": ["39.9元加入会员吗？"]},
+    {"role": "merchant", "messages": ["是的，还赠送七仙女，我们希望让更多兰友体验专业指导，把兰花养好。"]},
+    {"role": "customer", "messages": ["好的，现在付款吗？"]},
+    {"role": "merchant", "messages": ["我发您专属会员链接，下单即可。"]},
+    {"role": "customer", "messages": ["已经下单了。"]},
+    {"role": "merchant", "messages": ["欢迎加入会员。我会安排挑选壮苗，开通课程，并发送七仙女养护资料。后续您把养兰环境拍给我，我继续一对一指导。"]},
+    {"role": "customer", "messages": ["好的，我下班后拍给您。"]}
+  ]
+}

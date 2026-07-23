@@ -19,6 +19,10 @@ CASE_DATA_DIR = (
 ROLE_MAP = {"customer": "user", "merchant": "assistant"}
 
 
+def list_intent_labeling_cases() -> list[str]:
+    return sorted(path.stem for path in CASE_DATA_DIR.glob("case*.json"))
+
+
 def load_intent_labeling_case(case_id: str) -> dict[str, Any]:
     normalized_case_id = str(case_id or "").strip().lower()
     if not normalized_case_id or not normalized_case_id.replace("_", "").isalnum():
@@ -92,6 +96,9 @@ async def import_intent_labeling_case(case_id: str) -> dict[str, Any]:
             raw_prediction={
                 "source_case": case_id,
                 "source_file": payload.get("source_file"),
+                "content_quality": payload.get(
+                    "content_quality", "verbatim_case_transcript"
+                ),
                 "customer_turn": customer_turn_number,
                 "source_message_count": len(turn["messages"]),
             },

@@ -1,0 +1,23 @@
+{
+  "case_id": "case06",
+  "customer_id": "C60615",
+  "customer_name": "大力秦",
+  "source_file": "docs/case06.md",
+  "turns": [
+    {"role": "customer", "messages": ["老师，怎么领取养兰资料？我养了四种兰花，花谢以后一直不开花，希望您指导。"]},
+    {"role": "merchant", "messages": ["根据您描述，这几种并不是传统国兰，而是温室杂交大花蕙兰。请问养了多久？有没有黄叶、焦尖等情况？"]},
+    {"role": "customer", "messages": ["有两盆已经养了三年，还有一盆一年多，经常黄叶，而且都是开过一次花以后就不开了。"]},
+    {"role": "merchant", "messages": ["这是很多新手都会遇到的问题。温室苗养护要求较高，加上没人指导，很容易出现不开花、黄叶等情况。"]},
+    {"role": "customer", "messages": ["确实一直都是自己摸索养，现在这些还能开花吗？"]},
+    {"role": "merchant", "messages": ["问题主要有两个：\n\n- 品种没有选对；\n- 没有专业指导。\n\n浇水、植料、病虫害处理、夏季养护等都直接影响后期开花。"]},
+    {"role": "customer", "messages": ["所以我才来找老师，希望把花养好。"]},
+    {"role": "merchant", "messages": ["如果您愿意系统学习，可以加入陪伴养兰会员，我们会手把手指导，包括：\n\n- 黄叶处理\n- 植料选择\n- 浇水技巧\n- 开花管理\n- 品种选择\n\n并配套视频课程。"]},
+    {"role": "customer", "messages": ["怎么加入？"]},
+    {"role": "merchant", "messages": ["会员活动价39.9元，终身有效，赠送建兰《七仙女》，同时享受：\n\n- 一对一指导\n- 百节视频课程\n- 常见病害教学\n- 60天养死包赔"]},
+    {"role": "customer", "messages": ["挺好的，是39.9元吗？"]},
+    {"role": "merchant", "messages": ["是的，我发您会员专属链接。"]},
+    {"role": "customer", "messages": ["已经下单了。"]},
+    {"role": "merchant", "messages": ["收到订单。我会安排挑苗、发货，同时立即开通视频课程，并发送《七仙女》养护资料。后续欢迎把养兰环境发给我，我会继续指导。"]},
+    {"role": "customer", "messages": ["好的，谢谢老师。"]}
+  ]
+}

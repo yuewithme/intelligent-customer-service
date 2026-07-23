@@ -119,6 +119,12 @@
             <h3>本轮用户消息</h3>
             <ElButton v-if="detail.conversation_id" link type="primary" @click="locateConversation(detail)">定位到会话</ElButton>
           </div>
+          <ElAlert
+            v-if="detail.raw_prediction.content_quality === 'reconstructed_from_summary'"
+            title="该消息根据案例摘要还原，并非逐字聊天原文"
+            type="warning"
+            :closable="false"
+          />
           <p class="customer-message">{{ detail.user_message }}</p>
           <div v-if="detail.context.length" class="context-list">
             <h4>分类时使用的最近上下文</h4>
