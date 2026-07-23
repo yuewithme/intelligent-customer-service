@@ -104,14 +104,31 @@ PRODUCT_IMAGE_QUERY_WORDS = (
     "照片吗",
     "长什么样",
 )
-PRODUCT_QUERY_WORDS = (
+PRODUCT_LINK_QUERY_WORDS = (
     "商品链接",
     "购买链接",
     "下单链接",
     "发我链接",
     "发一下链接",
+    "链接在哪",
+    "链接在哪里",
+    "哪里下单",
+    "怎么下单",
+    "怎么买",
+)
+PRODUCT_REFERENCE_PURCHASE_PATTERNS = (
+    re.compile(
+        r"(?:想|要|准备|决定|就|直接)?买"
+        r"(?:这个|这款|这盆|这株|刚才那款|刚刚那款|上面那款)"
+    ),
+    re.compile(
+        r"(?:这个|这款|这盆|这株|刚才那款|刚刚那款|上面那款)"
+        r".*(?:购买|下单|链接)"
+    ),
+)
+PRODUCT_QUERY_WORDS = (
     "有没有",
-) + PRODUCT_IMAGE_QUERY_WORDS
+) + PRODUCT_LINK_QUERY_WORDS + PRODUCT_IMAGE_QUERY_WORDS
 MOBILE_ONLY_PATTERN = re.compile(r"^1[3-9]\d{9}$")
 PLANT_COUNT_PATTERN = re.compile(r"(?:养了|養了|养|養|有)?[^\d]{0,6}\d{1,5}\s*(?:盆|棵|株)")
 ORCHID_VARIETY_WORDS = ("建兰", "春兰", "蕙兰", "墨兰", "寒兰", "春剑", "莲瓣兰")
@@ -163,6 +180,12 @@ def match_price_intent(text: str) -> str | None:
     if hit_any(text, PRICE_ASK_WORDS):
         return "ask_price"
     return None
+
+
+def match_product_purchase_query(text: str) -> bool:
+    return hit_any(text, PRODUCT_LINK_QUERY_WORDS) or any(
+        pattern.search(text) for pattern in PRODUCT_REFERENCE_PURCHASE_PATTERNS
+    )
 
 
 def classify_by_hard_rules(text: str) -> IntentResult | None:
@@ -240,6 +263,18 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                 "confidence": 0.99,
                 "need_template": True,
                 "reason": "rule_product_image_request",
+            }
+        )
+
+    if match_product_purchase_query(text):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "product_query",
+                "sales_stage": "closing",
+                "confidence": 0.99,
+                "need_template": True,
+                "reason": "rule_product_purchase_query",
             }
         )
 

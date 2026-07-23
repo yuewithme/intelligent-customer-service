@@ -114,6 +114,19 @@ async def test_product_gallery_request_uses_product_query_rule():
 
 
 @pytest.mark.asyncio
+async def test_referential_purchase_link_request_uses_product_query_rule():
+    intent = await classify_intent(
+        _message("那我想买这个，链接在哪里？"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.route == "template_reply"
+    assert intent.primary_intent == "product_query"
+    assert intent.need_human is False
+    assert intent.reason == "rule_product_purchase_query"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("text", "route", "primary_intent"),
     [

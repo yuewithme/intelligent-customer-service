@@ -324,9 +324,15 @@ def _product_keyword(text: str, slots: dict, recent_turns=None) -> str:
         return keyword
     if isinstance(recent_turns, list):
         for turn in reversed(recent_turns):
-            if not isinstance(turn, dict) or turn.get("role") not in {"user", "customer"}:
+            if not isinstance(turn, dict):
                 continue
-            keyword = _clean_product_keyword(str(turn.get("content") or ""))
+            content = str(turn.get("content") or "")
+            if turn.get("role") in {"assistant", "ai"}:
+                keyword = _assistant_product_keyword(content)
+            elif turn.get("role") in {"user", "customer"}:
+                keyword = _clean_product_keyword(content)
+            else:
+                continue
             if keyword:
                 return keyword
     return ""
@@ -335,6 +341,11 @@ def _product_keyword(text: str, slots: dict, recent_turns=None) -> str:
 def _clean_product_keyword(text: str) -> str:
     keyword = str(text or "").strip()
     keyword = re.sub(
+        r"^(?:那|那么)?(?:我)?(?:想|要|准备|决定|就|直接)*(?:买|购买|下单)(?:一下)?",
+        "",
+        keyword,
+    )
+    keyword = re.sub(
         r"^(?:请问|麻烦|帮我|我想买|我想要|我想看看|我想看|我对|有没有)+",
         "",
         keyword,
@@ -342,6 +353,12 @@ def _clean_product_keyword(text: str) -> str:
     keyword = re.sub(r"(?:比较)?感兴趣[。！？!?]*$", "", keyword)
     keyword = re.sub(
         r"[，,。！？!?\s]*(?:发我|发一下|给我|帮我发)?(?:一下)?(?:商品|购买|下单)?链接[。！？!?]*$",
+        "",
+        keyword,
+    )
+    keyword = re.sub(
+        r"[，,。！？!?\s]*(?:商品|购买|下单)?链接"
+        r"(?:在哪里|在哪儿|在哪|呢|吗)?[。！？!?]*$",
         "",
         keyword,
     )
@@ -361,6 +378,18 @@ def _clean_product_keyword(text: str) -> str:
     keyword = re.sub(r"[？?]+$", "", keyword)
     keyword = keyword.strip()
     return "" if keyword in PRODUCT_REFERENCE_WORDS else keyword
+
+
+def _assistant_product_keyword(text: str) -> str:
+    value = str(text or "").strip()
+    for pattern in (
+        r"这是(.{1,40}?)的商品图片",
+        r"推荐您看看(.{1,40}?)(?:，当前售价|，|。)",
+    ):
+        match = re.search(pattern, value)
+        if match:
+            return match.group(1).strip()
+    return ""
 
 
 def _wants_product_image(text: str) -> bool:

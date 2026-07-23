@@ -71,6 +71,75 @@ def test_product_image_followup_reuses_previous_customer_product():
     ) == "芽黄素"
 
 
+def test_purchase_followup_reuses_product_named_in_previous_ai_reply():
+    from app.domains.catalog.services.commerce_query_service import _product_keyword
+
+    assert _product_keyword(
+        "那我想买这个，链接在哪里？",
+        {},
+        [
+            {"role": "user", "content": "我喜欢建兰，你给我发图片我看看"},
+            {
+                "role": "assistant",
+                "content": "可以的，这是建兰红君荷的商品图片，您可以看看花色和株型。",
+            },
+        ],
+    ) == "建兰红君荷"
+
+
+@pytest.mark.asyncio
+async def test_purchase_followup_builds_card_for_previously_shown_product():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert keyword == "建兰红君荷"
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id="4792037787",
+                    title="建兰红君荷",
+                    alias="2x9s4jwps5ulisu",
+                    price_cent=6800,
+                    stock=10,
+                    image_url="https://cdn.example.com/hongjunhe.jpg",
+                    page_path="packages/goods/detail/index?alias=2x9s4jwps5ulisu",
+                )
+            ]
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={
+            "recent_turns": [
+                {"role": "user", "content": "我喜欢建兰，你给我发图片我看看"},
+                {
+                    "role": "assistant",
+                    "content": "可以的，这是建兰红君荷的商品图片，您可以看看花色和株型。",
+                },
+            ]
+        },
+    )
+    facts = await build_commerce_context(
+        _message("那我想买这个，链接在哪里？"),
+        state,
+        _intent("product_query"),
+        product_service=FakeProductService(),
+        mini_program_base={
+            "display_name": "萧岚苑",
+            "app_id": "wx123",
+            "user_name": "gh_123@app",
+            "icon_url": "https://cdn.example.com/icon.jpg",
+        },
+    )
+
+    assert facts.tool_state["status"] == "found"
+    assert facts.tool_state["mini_program"]["title"] == "建兰红君荷"
+    assert (
+        facts.tool_state["mini_program"]["page_path"]
+        == "packages/goods/detail/index?alias=2x9s4jwps5ulisu"
+    )
+
+
 @pytest.mark.asyncio
 async def test_stage_allowlist_blocks_product_database_query():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
