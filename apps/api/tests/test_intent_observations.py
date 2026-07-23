@@ -265,7 +265,7 @@ def test_historical_conversation_gap_is_reconciled_and_locatable(
 
     anyio.run(arrange)
 
-    from app.services import intent_observation_service as service
+    from app.domains.decisioning.services import intent_observation_service as service
 
     factory = service._sessionmakers[get_settings().chat_log_db_url]
     with factory() as session:
@@ -279,9 +279,8 @@ def test_historical_conversation_gap_is_reconciled_and_locatable(
     service._backfill_observation_locators_and_gaps(factory)
     result = TestClient(app).get("/api/v1/admin/intent-observations").json()["data"]
 
-    assert result["total"] == 3
+    assert result["total"] == 2
     captured = next(item for item in result["items"] if item["trace_id"] == "trace-captured")
-    gap = next(item for item in result["items"] if item["classifier_source"] == "capture_gap")
     material = next(
         item
         for item in result["items"]
@@ -289,8 +288,7 @@ def test_historical_conversation_gap_is_reconciled_and_locatable(
     )
     assert captured["conversation_id"] == "wechat:customer-gap:default"
     assert len(captured["conversation_message_ids"]) == 1
-    assert gap["user_message"] == "中午好"
-    assert gap["needs_review"] is True
+    assert all(item["classifier_source"] != "capture_gap" for item in result["items"])
     assert material["primary_domain"] == "care_service"
     assert material["primary_goal"] == "request_material"
     assert material["issues"] == ["care_general"]

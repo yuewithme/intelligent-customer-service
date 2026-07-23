@@ -862,7 +862,7 @@ def _ensure_intent_observation_columns(factory: sessionmaker) -> None:
 
 
 def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
-    """Link existing observations to workbench messages and expose historical gaps."""
+    """Link observations and backfill only explicit historical material requests."""
 
     with factory() as session:
         bind = session.get_bind()
@@ -920,19 +920,6 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
             row.conversation_message_ids_json = _json_dumps(matches)
             linked_message_ids.update(matches)
 
-        earliest = min(row.created_at for row in observations) - timedelta(minutes=30)
-        recent_missing_messages = session.scalars(
-            select(ConversationMessageModel)
-            .where(
-                ConversationMessageModel.sender_type == "customer",
-                ConversationMessageModel.route == "inbound_text",
-                ConversationMessageModel.created_at >= earliest,
-            )
-            .order_by(
-                ConversationMessageModel.created_at.asc(),
-                ConversationMessageModel.id.asc(),
-            )
-        ).all()
         historical_material_messages = [
             message
             for message in session.scalars(
@@ -942,7 +929,6 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                     ConversationMessageModel.route == "inbound_text",
                     ConversationMessageModel.created_at
                     >= _utcnow() - timedelta(days=HISTORICAL_RULE_BACKFILL_DAYS),
-                    ConversationMessageModel.created_at < earliest,
                 )
                 .order_by(
                     ConversationMessageModel.created_at.asc(),
@@ -951,17 +937,7 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
             ).all()
             if is_orchid_material_request(message.content)
         ]
-        missing_messages = sorted(
-            {
-                message.id: message
-                for message in [
-                    *recent_missing_messages,
-                    *historical_material_messages,
-                ]
-            }.values(),
-            key=lambda message: (message.created_at, message.id),
-        )
-        for message in missing_messages:
+        for message in historical_material_messages:
             if (
                 message.id in linked_message_ids
                 or is_intent_capture_noise(message.content)
@@ -978,7 +954,6 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                 )
             ) is not None:
                 continue
-            is_material_request = is_orchid_material_request(message.content)
             session.add(
                 IntentObservationModel(
                     trace_id=trace_id,
@@ -993,27 +968,17 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                     user_message=message.content,
                     context_json="[]",
                     taxonomy_version="1.0",
-                    classifier_source=(
-                        "historical_rule" if is_material_request else "capture_gap"
-                    ),
+                    classifier_source="historical_rule",
                     raw_prediction_json=_json_dumps(
                         {"backfill_rule": "orchid_material_request"}
-                        if is_material_request
-                        else {}
                     ),
                     candidate_labels_json="[]",
-                    primary_domain=(
-                        "care_service" if is_material_request else "conversation"
-                    ),
+                    primary_domain="care_service",
                     secondary_domains_json="[]",
-                    primary_goal=(
-                        "request_material" if is_material_request else "unclear"
-                    ),
+                    primary_goal="request_material",
                     secondary_goals_json="[]",
-                    issues_json=_json_dumps(
-                        ["care_general"] if is_material_request else []
-                    ),
-                    scope="in_scope" if is_material_request else "ambiguous",
+                    issues_json=_json_dumps(["care_general"]),
+                    scope="in_scope",
                     evidence_json=_json_dumps(
                         [
                             {
@@ -1022,18 +987,10 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                                 "label": "request_material",
                             }
                         ]
-                        if is_material_request
-                        else []
                     ),
-                    confidence=1.0 if is_material_request else 0.0,
-                    intent_reason=(
-                        "historical_material_request_rule"
-                        if is_material_request
-                        else "historical_capture_gap"
-                    ),
-                    predicted_route=(
-                        "rag_answer" if is_material_request else "clarify"
-                    ),
+                    confidence=1.0,
+                    intent_reason="historical_material_request_rule",
+                    predicted_route="rag_answer",
                     final_route=_historical_response_route(session, message),
                     primary_intent="unknown",
                     status="observed",
