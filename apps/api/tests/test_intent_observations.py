@@ -12,6 +12,10 @@ from app.main import app
 from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.services.intent_observation_service import record_intent_observation
+from app.domains.decisioning.services.intent_case_import_service import (
+    import_intent_labeling_case,
+    normalize_case_turns,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -359,3 +363,70 @@ def test_chat_pipeline_records_each_classified_user_turn(monkeypatch, tmp_path):
     assert item["primary_domain"] == "commercial_decision"
     assert item["primary_goal"] == "ask_information"
     assert item["issues"] == ["price"]
+
+
+def test_case_import_creates_pending_customer_turns_with_context(
+    monkeypatch, tmp_path
+):
+    _reset(monkeypatch, tmp_path)
+
+    first_result = anyio.run(import_intent_labeling_case, "case01")
+    second_result = anyio.run(import_intent_labeling_case, "case01")
+    client = TestClient(app)
+    observations = client.get(
+        "/api/v1/admin/intent-observations",
+        params={"annotation_status": "pending", "classifier_source": "case_import"},
+    ).json()["data"]
+
+    assert first_result["observation_count"] == 7
+    assert second_result["trace_ids"] == first_result["trace_ids"]
+    assert observations["total"] == 7
+    assert all(item["conversation_id"] is None for item in observations["items"])
+    assert all(item["needs_review"] is True for item in observations["items"])
+
+    first = client.get(
+        "/api/v1/admin/intent-observations/intent-case-case01-001"
+    ).json()["data"]
+    assert first["user_message"] == "我是甘肃天水的，我养的全是建兰。"
+    assert first["context"] == [
+        {
+            "role": "assistant",
+            "content": "兰友您好，我是萧兰苑养兰老师（兰悦），专业养兰20年。"
+            "请问您目前养了几盆兰花？都是什么品种？所在省份？",
+        }
+    ]
+    assert first["primary_domain"] is None
+    assert first["primary_goal"] is None
+    assert first["scope"] == "ambiguous"
+
+    last = client.get(
+        "/api/v1/admin/intent-observations/intent-case-case01-007"
+    ).json()["data"]
+    assert last["user_message"] == "已购买完成。"
+    assert last["context"][-1] == {
+        "role": "assistant",
+        "content": "我发您会员专属链接，填写地址下单即可。",
+    }
+
+
+def test_case_turn_normalization_merges_message_fragments_and_adjacent_roles():
+    turns = normalize_case_turns(
+        [
+            {"role": "merchant", "messages": ["请问您养什么品种？"]},
+            {"role": "customer", "messages": ["建兰", "还有春兰"]},
+            {"role": "customer", "messages": ["都是直播间买的"]},
+        ]
+    )
+
+    assert turns == [
+        {
+            "role": "assistant",
+            "messages": ["请问您养什么品种？"],
+            "content": "请问您养什么品种？",
+        },
+        {
+            "role": "user",
+            "messages": ["建兰", "还有春兰", "都是直播间买的"],
+            "content": "建兰\n还有春兰\n都是直播间买的",
+        },
+    ]

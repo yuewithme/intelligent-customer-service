@@ -455,9 +455,11 @@ def _observation_payload(
     channel = str(getattr(message, "channel", "unknown") or "unknown")
     user_id = str(getattr(message, "user_id", "unknown") or "unknown")
     session_id = getattr(message, "session_id", None)
-    conversation_id = str(metadata.get("conversation_id") or "").strip()
-    if not conversation_id and user_id != "unknown":
-        conversation_id = _make_conversation_id(channel, user_id, session_id)
+    conversation_id = None
+    if metadata.get("skip_conversation_locator") is not True:
+        conversation_id = str(metadata.get("conversation_id") or "").strip()
+        if not conversation_id and user_id != "unknown":
+            conversation_id = _make_conversation_id(channel, user_id, session_id)
     conversation_message_ids = _integer_list(
         metadata.get("conversation_message_ids")
     )
