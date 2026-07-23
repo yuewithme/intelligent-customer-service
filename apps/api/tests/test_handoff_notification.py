@@ -96,6 +96,7 @@ async def test_handoff_transition_queues_notification_once_with_customer_identit
         content="请转人工",
         message_id="msg-2",
         status=HANDOFF_PENDING,
+        handoff_reason="human_request",
         metadata={"nickname": "兰友小王", "alias_name": "orchid_wang"},
     )
     await record_customer_message(
@@ -115,12 +116,51 @@ async def test_handoff_transition_queues_notification_once_with_customer_identit
         "请及时接待这位客户。\n\n"
         "转人工用户昵称：兰友小王\n"
         "转人工用户微信号：orchid_wang\n"
-        "需要转人工的信息：请转人工"
+        "转人工原因：客户明确要求人工客服\n"
+        "触发客户消息：请转人工"
     )
 
 
 @pytest.mark.asyncio
-async def test_forced_handoff_uses_operator_reason_as_handoff_info(
+async def test_unsupported_message_notification_contains_reason_and_message(
+    monkeypatch, tmp_path
+):
+    contact_id = await _create_contact(monkeypatch, tmp_path)
+    update_handoff_notification_settings(
+        HandoffNotificationSettingsUpdateRequest(
+            recipient_contact_ids=[contact_id],
+            message_text="请及时接待这位客户。",
+        )
+    )
+    queued: list[dict] = []
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.enqueue_wechat_outbound",
+        fake_enqueue,
+    )
+
+    await record_customer_message(
+        channel="wechat",
+        user_id="video-customer",
+        session_id="default",
+        content="[视频]",
+        message_id="video-message-1",
+        status=HANDOFF_PENDING,
+        handoff_reason="unsupported_message_type",
+        metadata={"nickname": "企业微信用户（51451）"},
+    )
+
+    assert len(queued) == 1
+    assert "转人工原因：非文本消息需人工处理" in queued[0]["content"]
+    assert "触发客户消息：[视频]" in queued[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_forced_handoff_sends_operator_reason_and_trigger_message(
     monkeypatch, tmp_path
 ):
     contact_id = await _create_contact(monkeypatch, tmp_path)
@@ -157,6 +197,5 @@ async def test_forced_handoff_uses_operator_reason_as_handoff_info(
     )
 
     assert len(queued) == 1
-    assert queued[0]["content"].endswith(
-        "需要转人工的信息：请人工核实破损补发"
-    )
+    assert "转人工原因：请人工核实破损补发" in queued[0]["content"]
+    assert "触发客户消息：商品收到后有破损" in queued[0]["content"]

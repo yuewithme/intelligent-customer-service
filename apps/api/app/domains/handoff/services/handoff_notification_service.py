@@ -17,6 +17,27 @@ from app.domains.handoff.schemas.handoff_notification import (
 logger = logging.getLogger("wechat_rag_bot.handoff_notification")
 SETTING_ID = 1
 DEFAULT_MESSAGE_TEXT = "有客户需要转人工处理，请及时跟进。"
+HANDOFF_REASON_TEXTS = {
+    "manual_force_handoff": "人工主动转接",
+    "human_required": "当前问题需要人工处理",
+    "human_request": "客户明确要求人工客服",
+    "rule_guard_human_request": "客户明确要求人工客服",
+    "clarify": "多轮澄清后仍无法确定客户需求",
+    "clarify_to_handoff": "多轮澄清后仍无法确定客户需求",
+    "rag_no_answer": "知识库未找到可靠答案",
+    "rag_no_answer_to_handoff": "知识库未找到可靠答案",
+    "template_not_found_to_handoff": "未找到适用的回复模板",
+    "business_facts_unanswerable_to_handoff": "业务信息不足，无法可靠回答",
+    "unsupported": "超出自动客服处理范围",
+    "unsupported_to_handoff": "超出自动客服处理范围",
+    "unsupported_message_type": "非文本消息需人工处理",
+    "image_recognition_failure": "图片识别失败，需要人工查看",
+    "advanced_customer_level": "高阶客户需要人工接待",
+    "tag_high_risk_to_human": "高风险客户问题需要人工处理",
+    "invalid_route_to_handoff": "自动处理路线异常",
+    "need_human": "当前问题需要人工处理",
+    "need_human_non_critical": "建议人工介入处理",
+}
 
 _sessionmakers: dict[str, sessionmaker] = {}
 
@@ -101,7 +122,8 @@ async def enqueue_handoff_notification(
     customer_wc_id: str,
     nickname: str | None = None,
     wechat_id: str | None = None,
-    handoff_info: str | None = None,
+    handoff_reason: str | None = None,
+    trigger_message: str | None = None,
     source_reference: str | None = None,
 ) -> dict[str, Any]:
     with _get_session() as session:
@@ -155,7 +177,8 @@ async def enqueue_handoff_notification(
         message_text=message_text,
         nickname=customer_nickname,
         wechat_id=customer_wechat_id,
-        handoff_info=(handoff_info or "").strip() or "未填写",
+        handoff_reason=_handoff_reason_text(handoff_reason),
+        trigger_message=(trigger_message or "").strip() or "未记录",
     )
 
     from app.integrations.eyun.services.message_risk_control_service import enqueue_wechat_outbound
@@ -190,14 +213,27 @@ async def enqueue_handoff_notification(
 
 
 def _render_notification_message(
-    *, message_text: str, nickname: str, wechat_id: str, handoff_info: str
+    *,
+    message_text: str,
+    nickname: str,
+    wechat_id: str,
+    handoff_reason: str,
+    trigger_message: str,
 ) -> str:
     return (
         f"{message_text.strip()}\n\n"
         f"转人工用户昵称：{nickname}\n"
         f"转人工用户微信号：{wechat_id}\n"
-        f"需要转人工的信息：{handoff_info}"
+        f"转人工原因：{handoff_reason}\n"
+        f"触发客户消息：{trigger_message}"
     )
+
+
+def _handoff_reason_text(reason: str | None) -> str:
+    value = str(reason or "").strip()
+    if not value:
+        return HANDOFF_REASON_TEXTS["human_required"]
+    return HANDOFF_REASON_TEXTS.get(value, value)
 
 
 def _get_session() -> Session:
