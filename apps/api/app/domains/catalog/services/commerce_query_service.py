@@ -352,6 +352,12 @@ def _clean_product_keyword(text: str) -> str:
     if PRODUCT_REFERENCE_ORDER_PATTERN.fullmatch(normalized):
         return ""
     keyword = re.sub(
+        r"^(?:给我|帮我)?(?:发)?(?:产品|商品|购买|下单)?链接"
+        r"(?:在哪里|在哪儿|在哪)?[，,。！？!?\s]*",
+        "",
+        keyword,
+    )
+    keyword = re.sub(
         r"^(?:那|那么)?(?:我)?(?:想|要|准备|决定|就|直接)*(?:买|购买|下单)(?:一下)?",
         "",
         keyword,

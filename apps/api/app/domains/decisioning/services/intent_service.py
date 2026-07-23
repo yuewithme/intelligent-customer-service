@@ -106,10 +106,15 @@ PRODUCT_IMAGE_QUERY_WORDS = (
 )
 PRODUCT_LINK_QUERY_WORDS = (
     "商品链接",
+    "产品链接",
     "购买链接",
     "下单链接",
+    "购买入口",
+    "下单入口",
     "发我链接",
     "发一下链接",
+    "商品卡片",
+    "产品卡片",
     "链接在哪",
     "链接在哪里",
     "哪里下单",
@@ -125,6 +130,13 @@ PRODUCT_REFERENCE_PURCHASE_PATTERNS = (
         r"(?:这个|这款|这盆|这株|刚才那款|刚刚那款|上面那款)"
         r".*(?:购买|下单|链接)"
     ),
+)
+EXPLICIT_ORDER_PATTERNS = (
+    re.compile(
+        r"(?:^|[，,。！？!?])(?:那|那么)?(?:我)?"
+        r"(?:想|要|准备|决定|就|直接)(?:买|购买|下单|拍下)"
+    ),
+    re.compile(r"(?:给我|帮我)(?:下单|拍下)"),
 )
 PRODUCT_QUERY_WORDS = (
     "有没有",
@@ -186,6 +198,10 @@ def match_product_purchase_query(text: str) -> bool:
     return hit_any(text, PRODUCT_LINK_QUERY_WORDS) or any(
         pattern.search(text) for pattern in PRODUCT_REFERENCE_PURCHASE_PATTERNS
     )
+
+
+def match_explicit_order_intent(text: str) -> bool:
+    return any(pattern.search(text) for pattern in EXPLICIT_ORDER_PATTERNS)
 
 
 def classify_by_hard_rules(text: str) -> IntentResult | None:
@@ -275,6 +291,18 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                 "confidence": 0.99,
                 "need_template": True,
                 "reason": "rule_product_purchase_query",
+            }
+        )
+
+    if match_explicit_order_intent(text):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "order_intent",
+                "sales_stage": "closing",
+                "confidence": 0.99,
+                "need_template": True,
+                "reason": "rule_explicit_order_intent",
             }
         )
 

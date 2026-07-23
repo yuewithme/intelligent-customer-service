@@ -127,6 +127,32 @@ async def test_referential_purchase_link_request_uses_product_query_rule():
 
 
 @pytest.mark.asyncio
+async def test_live_product_link_purchase_phrase_uses_product_query_rule():
+    intent = await classify_intent(
+        _message("给我发产品链接，我要买"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.route == "template_reply"
+    assert intent.primary_intent == "product_query"
+    assert intent.need_human is False
+    assert intent.reason == "rule_product_purchase_query"
+
+
+@pytest.mark.asyncio
+async def test_explicit_purchase_phrase_uses_order_intent_rule():
+    intent = await classify_intent(
+        _message("我想买红君荷"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.route == "template_reply"
+    assert intent.primary_intent == "order_intent"
+    assert intent.need_human is False
+    assert intent.reason == "rule_explicit_order_intent"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("text", "route", "primary_intent"),
     [
