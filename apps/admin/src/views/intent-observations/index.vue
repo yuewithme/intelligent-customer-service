@@ -64,7 +64,8 @@
       <ElTableColumn label="客户消息" min-width="280">
         <template #default="{ row }">
           <div class="message-cell">{{ row.user_message }}</div>
-          <small>{{ row.user_id }} · {{ row.channel }}</small>
+          <small v-if="row.channel === 'case'">{{ row.session_id }} · {{ row.user_id }} · 案例导入</small>
+          <small v-else>{{ row.user_id }} · {{ row.channel }}</small>
           <small v-if="row.conversation_message_ids.length > 1"> · 本轮合并 {{ row.conversation_message_ids.length }} 条消息</small>
         </template>
       </ElTableColumn>
