@@ -17,6 +17,7 @@ PRODUCT_INTENTS = {
     "product_recommendation",
     "recommend_product",
     "comparison",
+    "order_intent",
 }
 SKU_INTENTS = {
     "ask_price",
@@ -56,6 +57,8 @@ def allowed_knowledge_sources(
 
     if all_intents & PRODUCT_INTENTS:
         allowed.add(SalesKnowledgeSource.PRODUCT_CATALOG.value)
+    if primary == "order_intent":
+        allowed.add(SalesKnowledgeSource.SKU_FACTS.value)
     if all_intents & SKU_INTENTS and definition and (
         SalesKnowledgeSource.SKU_FACTS in definition.allowed_knowledge_sources
         or SalesKnowledgeSource.SKU_FACTS in definition.conditional_knowledge_sources

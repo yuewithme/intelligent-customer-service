@@ -141,6 +141,72 @@ async def test_purchase_followup_builds_card_for_previously_shown_product():
 
 
 @pytest.mark.asyncio
+async def test_any_order_intent_builds_card_for_previously_shown_product():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert keyword == "建兰红君荷"
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id="4792037787",
+                    title="建兰红君荷",
+                    alias="2x9s4jwps5ulisu",
+                    price_cent=6800,
+                    stock=10,
+                    image_url="https://cdn.example.com/hongjunhe.jpg",
+                    page_path="packages/goods/detail/index?alias=2x9s4jwps5ulisu",
+                )
+            ]
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "可以的，这是建兰红君荷的商品图片，您可以看看花色和株型。",
+                }
+            ]
+        },
+    )
+    facts = await build_commerce_context(
+        _message("就按这个下单吧"),
+        state,
+        _intent("order_intent"),
+        product_service=FakeProductService(),
+        mini_program_base={
+            "display_name": "萧岚苑",
+            "app_id": "wx123",
+            "user_name": "gh_123@app",
+            "icon_url": "https://cdn.example.com/icon.jpg",
+        },
+    )
+
+    assert facts.tool_state["status"] == "found"
+    assert facts.tool_state["mini_program"]["title"] == "建兰红君荷"
+
+
+@pytest.mark.asyncio
+async def test_order_intent_without_product_context_keeps_normal_order_flow():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+
+    class UnexpectedProductService:
+        async def search(self, keyword, *, limit):
+            raise AssertionError("order flow without a product must not query the catalog")
+
+    facts = await build_commerce_context(
+        _message("我想下单"),
+        UserState(user_id="wxid-customer"),
+        _intent("order_intent"),
+        product_service=UnexpectedProductService(),
+    )
+
+    assert facts == BusinessFacts()
+
+
+@pytest.mark.asyncio
 async def test_stage_allowlist_blocks_product_database_query():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
 

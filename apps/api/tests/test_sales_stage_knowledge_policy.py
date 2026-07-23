@@ -45,6 +45,13 @@ def test_early_price_question_does_not_release_live_sku_facts():
     assert "sku_facts" not in sources
 
 
+def test_order_intent_always_allows_product_card_facts():
+    sources = allowed_knowledge_sources("need_discovery", _intent("order_intent"))
+
+    assert "product_catalog" in sources
+    assert "sku_facts" in sources
+
+
 def test_trial_and_closing_sources_are_progressively_released():
     trial = allowed_knowledge_sources("trial_close", _intent("ask_activity"))
     closing = allowed_knowledge_sources("closing", _intent("payment_intent"))

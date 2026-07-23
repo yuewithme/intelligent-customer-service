@@ -36,6 +36,12 @@ PRODUCT_REFERENCE_WORDS = {
     "刚刚那款",
     "上面那款",
 }
+PRODUCT_REFERENCE_ORDER_PATTERN = re.compile(
+    r"^(?:那|那么)?(?:我)?"
+    r"(?:就按|按|就选|选|就要|要|想买|买)?"
+    r"(?:这个|这款|这盆|这株|这个花|这盆花|这株花|这款花|刚才那款|刚刚那款|上面那款)"
+    r"(?:就)?(?:下单|购买|买|要)?(?:吧|了)?$"
+)
 CATALOG_KNOWLEDGE_FIELDS = {
     "product_name",
     "aliases",
@@ -104,6 +110,8 @@ async def build_commerce_context(
             user_state.metadata.get("recent_turns"),
         )
         if not keyword:
+            if intent.primary_intent == "order_intent":
+                return BusinessFacts()
             return BusinessFacts(
                 tool_state={
                     "commerce_type": "product",
@@ -233,7 +241,7 @@ async def build_commerce_context(
 
 
 def _commerce_type(primary_intent: str) -> str:
-    if primary_intent == "product_query":
+    if primary_intent in {"product_query", "order_intent"}:
         return "product"
     if primary_intent == "order_query":
         return "order"
@@ -340,6 +348,9 @@ def _product_keyword(text: str, slots: dict, recent_turns=None) -> str:
 
 def _clean_product_keyword(text: str) -> str:
     keyword = str(text or "").strip()
+    normalized = re.sub(r"[\s，,。！？!?]", "", keyword)
+    if PRODUCT_REFERENCE_ORDER_PATTERN.fullmatch(normalized):
+        return ""
     keyword = re.sub(
         r"^(?:那|那么)?(?:我)?(?:想|要|准备|决定|就|直接)*(?:买|购买|下单)(?:一下)?",
         "",
