@@ -116,6 +116,8 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
 
         batch = _get_batch(session, batch_key)
         if batch is None:
+            if not is_image:
+                due_at = now
             batch = EyunInboundBatchModel(
                 batch_key=batch_key,
                 w_id=w_id or None,
@@ -226,6 +228,7 @@ async def enqueue_wechat_outbound(
     depends_on_outbound_id: int | None = None,
     material_id: int | None = None,
     bulk_job_id: int | None = None,
+    priority: int | None = None,
     due_at: datetime | None = None,
     channel: str = "wechat",
     user_id: str | None = None,
@@ -288,6 +291,9 @@ async def enqueue_wechat_outbound(
             material_id=material_id,
             bulk_job_id=bulk_job_id,
             status="queued",
+            priority=priority
+            if priority is not None
+            else _outbound_priority(source_batch_key, bulk_job_id),
             due_at=due_at or now + timedelta(seconds=random_reply_delay_seconds()),
             attempts=0,
             created_at=now,
@@ -314,6 +320,7 @@ async def enqueue_eyun_outbound(
     depends_on_outbound_id: int | None = None,
     material_id: int | None = None,
     bulk_job_id: int | None = None,
+    priority: int | None = None,
     due_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Backward-compatible alias; all Eyun sends still enter the shared queue."""
@@ -327,6 +334,7 @@ async def enqueue_eyun_outbound(
         depends_on_outbound_id=depends_on_outbound_id,
         material_id=material_id,
         bulk_job_id=bulk_job_id,
+        priority=priority,
         due_at=due_at,
     )
 
@@ -399,6 +407,7 @@ async def enqueue_wechat_bulk_send(
                     depends_on_outbound_id=dependency_id,
                     material_id=item.get("material_id"),
                     bulk_job_id=job_id,
+                    priority=10,
                     due_at=due_at,
                     user_id=wc_id,
                     source_type=source_type,
@@ -436,7 +445,11 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 EyunOutboundMessageModel.status == "queued",
                 EyunOutboundMessageModel.due_at <= now,
             )
-            .order_by(EyunOutboundMessageModel.due_at.asc(), EyunOutboundMessageModel.id.asc())
+            .order_by(
+                EyunOutboundMessageModel.priority.desc(),
+                EyunOutboundMessageModel.due_at.asc(),
+                EyunOutboundMessageModel.id.asc(),
+            )
             .limit(limit)
         ).all()
         for row in rows:
@@ -1636,6 +1649,13 @@ def _ensure_risk_control_columns(factory: sessionmaker) -> None:
             session.execute(
                 text("ALTER TABLE eyun_outbound_messages ADD COLUMN bulk_job_id INTEGER")
             )
+        if "priority" not in outbound_columns:
+            session.execute(
+                text(
+                    "ALTER TABLE eyun_outbound_messages "
+                    "ADD COLUMN priority INTEGER NOT NULL DEFAULT 50"
+                )
+            )
         message_columns = {
             column["name"]
             for column in inspect(bind).get_columns("conversation_messages")
@@ -1692,10 +1712,21 @@ def _outbound_to_dict(row: EyunOutboundMessageModel) -> dict[str, Any]:
         "material_id": row.material_id,
         "bulk_job_id": row.bulk_job_id,
         "status": row.status,
+        "priority": row.priority,
         "due_at": _ensure_aware(row.due_at),
         "attempts": row.attempts,
         "last_error": row.last_error,
     }
+
+
+def _outbound_priority(
+    source_batch_key: str | None, bulk_job_id: int | None = None
+) -> int:
+    if bulk_job_id is not None or (source_batch_key or "").startswith("bulk:"):
+        return 10
+    if (source_batch_key or "").startswith(("unpurchased_sop:", "service_sop:")):
+        return 20
+    return 100
 
 
 def _ensure_aware(value: datetime) -> datetime:

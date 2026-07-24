@@ -10,12 +10,18 @@ from app.domains.sales.schemas.sales_flow import CustomerSignal
 from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.services.intent_taxonomy_service import (
     format_candidate_cards,
+    format_candidate_cards_compact,
     prepare_intent_payload,
     taxonomy_values,
 )
 from app.domains.catalog.services.orchid_material_service import is_orchid_material_request
 from app.domains.sales.services.shipping_contact_service import extract_shipping_contact
 from app.domains.sales.services.tag_catalog import normalize_system_value, system_tag_values
+from app.domains.decisioning.services.intent_shadow_service import (
+    record_intent_shadow,
+    schedule_intent_shadow,
+    shadow_selected,
+)
 
 
 HUMAN_WORDS = ("人工", "转人工", "真人", "人工客服")
@@ -486,26 +492,47 @@ def classify_by_rules(text: str) -> IntentResult | None:
     return classify_by_hard_rules(text) or classify_by_soft_rules(text)
 
 
+def classify_by_fast_rule(text: str) -> IntentResult | None:
+    settings = get_settings()
+    if not settings.intent_fast_rules_enabled:
+        return None
+    intent = classify_by_soft_rules(text)
+    if intent.confidence < settings.intent_fast_rule_threshold:
+        return None
+    return _with_decision_blocker(intent, text)
+
+
 async def classify_by_llm(
     message: NormalizedMessage,
     user_state: UserState,
     candidates: list[dict] | None = None,
+    *,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+    shadow: bool = False,
 ) -> IntentResult:
     from app.integrations.ai.services import llm_service
 
+    settings = get_settings()
     raw = await llm_service.classify_intent(
         _build_prompt(
             message.message,
             recent_turns=user_state.metadata.get("recent_turns", []),
             candidates=candidates,
-        )
+        ),
+        model_override=model_override,
+        provider_override=provider_override,
+        shadow=shadow,
+        prompt_version=settings.intent_prompt_version,
     )
     model_config = llm_service.get_model_config("intent")
+    provider = provider_override or model_config.provider
+    model = model_override or model_config.model
     enriched = {
         **raw,
-        "classifier_source": "llm",
-        "classifier_provider": model_config.provider,
-        "classifier_model": model_config.model,
+        "classifier_source": "llm_shadow" if shadow else "llm",
+        "classifier_provider": provider,
+        "classifier_model": model,
     }
     return _validated_intent(enriched, raw_prediction=raw)
 
@@ -567,6 +594,11 @@ async def classify_intent(
     llm_enabled = bool(getattr(settings, "intent_llm_enabled", False))
     confidence_threshold = getattr(settings, "intent_confidence_threshold", 0.6)
     rule_intent = classify_by_soft_rules(message.message)
+    if (
+        settings.intent_fast_rules_enabled
+        and rule_intent.confidence >= settings.intent_fast_rule_threshold
+    ):
+        return _with_decision_blocker(rule_intent, message.message)
     if llm_enabled:
         try:
             llm_intent = await classify_by_llm(message, user_state, candidates)
@@ -588,6 +620,57 @@ async def classify_intent(
             update={"confidence": min(rule_intent.confidence + 0.05, 1.0)}
         )
     return _with_decision_blocker(rule_intent, message.message)
+
+
+def schedule_intent_shadow_evaluation(
+    *,
+    message: NormalizedMessage,
+    user_state: UserState,
+    primary: IntentResult,
+    candidates: list[dict] | None = None,
+) -> None:
+    settings = get_settings()
+    if not shadow_selected(message.trace_id):
+        return
+    recent_turns = list(user_state.metadata.get("recent_turns", []))
+
+    async def run() -> None:
+        shadow_result = None
+        error_class = None
+        try:
+            shadow_candidates = candidates
+            if not shadow_candidates:
+                from app.domains.decisioning.services.intent_example_service import (
+                    retrieve_intent_examples,
+                )
+
+                shadow_candidates = await retrieve_intent_examples(
+                    message.message,
+                    top_k=settings.intent_example_top_k,
+                )
+            shadow_state = user_state.model_copy(
+                update={"metadata": {**user_state.metadata, "recent_turns": recent_turns}}
+            )
+            shadow_result = await classify_by_llm(
+                message,
+                shadow_state,
+                shadow_candidates,
+                model_override=settings.intent_shadow_llm_model,
+                provider_override=settings.intent_shadow_llm_provider,
+                shadow=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            error_class = type(exc).__name__
+        record_intent_shadow(
+            trace_id=message.trace_id,
+            primary=primary,
+            shadow_provider=settings.intent_shadow_llm_provider,
+            shadow_model=settings.intent_shadow_llm_model,
+            shadow=shadow_result,
+            error_class=error_class,
+        )
+
+    schedule_intent_shadow(run())
 
 
 def _with_decision_blocker(intent: IntentResult, text: str) -> IntentResult:
@@ -1185,7 +1268,7 @@ detail 使用中性中文概括，不复述辱骂或攻击性原话；售后问�
 }}"""
 
 
-def _build_prompt(
+def _build_prompt_legacy(
     message: str,
     recent_turns: list[dict] | None = None,
     candidates: list[dict] | None = None,
@@ -1253,6 +1336,54 @@ def _build_prompt(
 旧兼容意图目录（只用于理解历史标注样例，不得作为新输出字段）：{legacy_intent_values}
 
 不要输出 route、primary_intent、need_template、need_rag、need_human 或 sales_stage；这些由确定性策略根据 D/G/I 计算。
+"""
+
+
+def _build_prompt(
+    message: str,
+    recent_turns: list[dict] | None = None,
+    candidates: list[dict] | None = None,
+) -> str:
+    recent_lines = []
+    for turn in (recent_turns or [])[-2:]:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role") or "").strip()
+        content = " ".join(str(turn.get("content") or "").split())[:200]
+        if role in {"user", "assistant"} and content:
+            recent_lines.append(f"{role}: {content}")
+    recent_context = "\n".join(recent_lines) or "none"
+    candidate_text = format_candidate_cards_compact(candidates)
+    issue_values = ",".join(taxonomy_values("issue"))
+    configured_intents = ",".join(system_tag_values("intent")) or "unknown"
+    return f"""You classify Chinese customer-service messages for an orchid seller.
+Return exactly one compact JSON object. Do not answer the customer.
+
+Message: {message[:500]}
+Recent context (最近对话):
+{recent_context}
+
+Allowed candidate labels:
+{candidate_text}
+Configured business intent tags (context only; do not output): {configured_intents}
+
+Required JSON:
+{{
+  "primary_domain": "candidate domain id",
+  "primary_goal": "candidate goal id",
+  "issues": ["zero or more allowed issue ids"],
+  "scope": "in_scope|ambiguous|out_of_scope",
+  "confidence": 0.0,
+  "slots": {{}}
+}}
+
+Rules:
+- Use only candidate domain and goal ids.
+- issues may only contain: {issue_values}
+- Prefer explicit customer actions over inferred motives.
+- Use scope=ambiguous and primary_goal=unclear when context is insufficient.
+- slots only contains explicit structured facts from the message.
+- Output JSON only. No evidence, explanation, route, sales stage, sentiment, or legacy intent fields.
 """
 
 

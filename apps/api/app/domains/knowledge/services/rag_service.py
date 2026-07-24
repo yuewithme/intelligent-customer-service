@@ -130,6 +130,28 @@ def _source(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _rag_model_purpose(
+    policy: PolicyDecision | None,
+    docs: list[dict[str, Any]],
+) -> str:
+    settings = get_settings()
+    if not settings.reply_model_router_enabled:
+        return "rag"
+    retrieval_mode = (
+        str(policy.retrieval_policy.get("mode") or "")
+        if policy and isinstance(policy.retrieval_policy, dict)
+        else ""
+    )
+    if retrieval_mode == "product_recommendation":
+        return "rag"
+    source_files = {
+        str(doc.get("file_name") or doc.get("doc_id") or "")
+        for doc in docs
+        if doc.get("file_name") or doc.get("doc_id")
+    }
+    return "rag_fast" if len(source_files) <= 1 else "rag"
+
+
 def _default_search_kb_ids(kb_id: str) -> list[str]:
     if kb_id == "kb_default":
         return [DEFAULT_ORCHID_KB_ID]
@@ -496,7 +518,10 @@ async def rag_chat(
                 (time.perf_counter() - stage_started) * 1000
             )
             stage_started = time.perf_counter()
-            result = await llm_service.generate_answer(prompt)
+            result = await llm_service.generate_answer(
+                prompt,
+                purpose=_rag_model_purpose(policy, docs),
+            )
             stage_latencies["generation_ms"] = round(
                 (time.perf_counter() - stage_started) * 1000
             )

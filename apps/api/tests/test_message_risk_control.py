@@ -36,8 +36,8 @@ def test_risk_control_defaults():
     assert settings.eyun_send_max_per_minute == 30
     assert settings.eyun_send_min_interval_seconds == 2.1
     assert settings.eyun_send_max_interval_seconds == 3.0
-    assert settings.eyun_reply_jitter_min_seconds == 2
-    assert settings.eyun_reply_jitter_max_seconds == 12
+    assert settings.eyun_reply_jitter_min_seconds == 0
+    assert settings.eyun_reply_jitter_max_seconds == 2
 
 
 def test_risk_control_models_have_table_names():
@@ -104,7 +104,7 @@ async def test_enqueue_eyun_inbound_merges_same_user_window(monkeypatch):
     assert first["batch_key"] == second["batch_key"]
     assert second["content"] == "first\nsecond"
     assert second["message_count"] == 2
-    assert first["due_at"] == now + timedelta(seconds=5)
+    assert first["due_at"] == now
     assert second["due_at"] == now + timedelta(seconds=8)
 
 
@@ -138,7 +138,7 @@ async def test_enqueue_eyun_inbound_caps_rolling_window(monkeypatch):
         )
 
     assert [batch["due_at"] for batch in batches] == [
-        now + timedelta(seconds=5),
+        now,
         now + timedelta(seconds=9),
         now + timedelta(seconds=13),
         now + timedelta(seconds=15),
@@ -464,6 +464,7 @@ async def test_enqueue_outbound_adds_random_due_at(monkeypatch):
 
     assert row["due_at"] == now + timedelta(seconds=7)
     assert row["status"] == "queued"
+    assert row["priority"] == 100
 
 
 @pytest.mark.asyncio

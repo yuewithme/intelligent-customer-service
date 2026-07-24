@@ -76,8 +76,8 @@ class Settings(BaseSettings):
     eyun_send_max_interval_seconds: float = Field(
         default=3.0, ge=0, alias="EYUN_SEND_MAX_INTERVAL_SECONDS"
     )
-    eyun_reply_jitter_min_seconds: int = Field(default=2, alias="EYUN_REPLY_JITTER_MIN_SECONDS")
-    eyun_reply_jitter_max_seconds: int = Field(default=12, alias="EYUN_REPLY_JITTER_MAX_SECONDS")
+    eyun_reply_jitter_min_seconds: int = Field(default=0, alias="EYUN_REPLY_JITTER_MIN_SECONDS")
+    eyun_reply_jitter_max_seconds: int = Field(default=2, alias="EYUN_REPLY_JITTER_MAX_SECONDS")
     eyun_worker_poll_seconds: float = Field(default=1.0, alias="EYUN_WORKER_POLL_SECONDS")
     eyun_contact_refresh_delay_seconds: float = Field(
         default=15.0, ge=0, alias="EYUN_CONTACT_REFRESH_DELAY_SECONDS"
@@ -222,19 +222,46 @@ class Settings(BaseSettings):
     llm_provider: str = "mock"
     llm_model: str = "deepseek-chat"
     llm_timeout_seconds: float = Field(default=180, ge=1)
+    rag_llm_timeout_seconds: float = Field(default=60, ge=1)
     rag_llm_provider: str = ""
     rag_llm_model: str = ""
+    rag_fast_llm_provider: str = ""
+    rag_fast_llm_model: str = "qwen3.6-flash"
+    reply_model_router_enabled: bool = Field(
+        default=True, alias="REPLY_MODEL_ROUTER_ENABLED"
+    )
     business_llm_provider: str = ""
     business_llm_model: str = ""
     intent_llm_provider: str = ""
-    intent_llm_model: str = ""
+    intent_llm_model: str = "qwen3.6-flash"
+    intent_llm_timeout_seconds: float = Field(
+        default=5, ge=1, alias="INTENT_LLM_TIMEOUT_SECONDS"
+    )
     intent_provider: str = "rule"
     intent_llm_enabled: bool = False
     intent_llm_fallback_threshold: float = Field(default=0.5, ge=0, le=1)
+    intent_fast_rules_enabled: bool = Field(
+        default=True, alias="INTENT_FAST_RULES_ENABLED"
+    )
+    intent_fast_rule_threshold: float = Field(
+        default=0.85, ge=0, le=1, alias="INTENT_FAST_RULE_THRESHOLD"
+    )
+    intent_shadow_enabled: bool = Field(
+        default=False, alias="INTENT_SHADOW_ENABLED"
+    )
+    intent_shadow_sample_percent: int = Field(
+        default=100, ge=0, le=100, alias="INTENT_SHADOW_SAMPLE_PERCENT"
+    )
+    intent_shadow_llm_provider: str = "dashscope"
+    intent_shadow_llm_model: str = "qwen3.7-plus"
+    intent_prompt_version: str = Field(default="v2", alias="INTENT_PROMPT_VERSION")
     talk_script_llm_provider: str = ""
     talk_script_llm_model: str = ""
     persona_llm_provider: str = ""
-    persona_llm_model: str = ""
+    persona_llm_model: str = "qwen3.6-flash"
+    persona_llm_timeout_seconds: float = Field(
+        default=15, ge=1, alias="PERSONA_LLM_TIMEOUT_SECONDS"
+    )
     persona_reply_enabled: bool = True
     persona_reply_temperature: float = Field(default=0.3, ge=0, le=1)
     profile_llm_provider: str = ""
@@ -243,7 +270,14 @@ class Settings(BaseSettings):
     review_llm_provider: str = ""
     review_llm_model: str = ""
     intent_confidence_threshold: float = Field(default=0.6, ge=0, le=1)
-    intent_example_top_k: int = Field(default=5, ge=1)
+    intent_example_top_k: int = Field(default=3, ge=1)
+    intent_example_prewarm_enabled: bool = Field(
+        default=True, alias="INTENT_EXAMPLE_PREWARM_ENABLED"
+    )
+    intent_embedding_cache_path: str = Field(
+        default="data/intent_taxonomy_embeddings.json",
+        alias="INTENT_EMBEDDING_CACHE_PATH",
+    )
     deepseek_api_key: str = ""
     openai_api_key: str = ""
     dashscope_api_key: str = ""

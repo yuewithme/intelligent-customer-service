@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,6 +17,12 @@ from app.integrations.youzan.services.youzan_product_sync_service import (
     youzan_product_sync_worker,
 )
 from app.integrations.mcp.server import run_sales_mcp_session_manager
+from app.domains.decisioning.services.intent_example_service import (
+    prewarm_intent_example_index,
+)
+
+
+logger = logging.getLogger("wechat_rag_bot.lifecycle")
 
 
 @asynccontextmanager
@@ -24,6 +31,10 @@ async def lifespan(app: FastAPI):
     if get_settings().evaluation_mode:
         yield
         return
+    try:
+        await prewarm_intent_example_index()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Intent example prewarm failed: %s", type(exc).__name__)
 
     stop_event = asyncio.Event()
     app.state.eyun_risk_control_stop_event = stop_event

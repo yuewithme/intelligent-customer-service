@@ -8,6 +8,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 os.environ["API_AUTH_ENABLED"] = "false"
 os.environ["EMBEDDING_PROVIDER"] = "mock"
+os.environ["INTENT_EXAMPLE_PREWARM_ENABLED"] = "false"
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["QDRANT_URL"] = ""
 os.environ["RAG_KNOWLEDGE_ENABLED"] = "false"

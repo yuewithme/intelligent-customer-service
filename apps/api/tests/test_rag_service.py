@@ -130,9 +130,10 @@ async def test_product_recommendation_uses_new_catalog_only(monkeypatch):
         assert docs[0]["source_table"] == "youzan_product_knowledge"
         return docs[:top_n]
 
-    async def fake_generate(prompt):
+    async def fake_generate(prompt, *, purpose):
         assert "逸红双娇" in prompt
         assert "¥29.90" in prompt
+        assert purpose == "rag"
         return {"answer": "推荐小国魂，别名逸红双娇。", "usage": {}}
 
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
@@ -222,8 +223,9 @@ async def test_rag_chat_orchestrates_services(monkeypatch):
         calls.append(("rerank", question, top_n))
         return docs[:top_n]
 
-    async def fake_generate(prompt):
+    async def fake_generate(prompt, *, purpose):
         calls.append(("llm", prompt))
+        assert purpose == "rag_fast"
         return {
             "answer": "报销需要主管审批。",
             "usage": {"prompt_tokens": 20, "completion_tokens": 8},
@@ -307,8 +309,9 @@ async def test_rag_chat_uses_policy_knowledge_base_and_prompt_blocks(monkeypatch
         calls.append(("prompt", question, policy, context, templates))
         return "policy prompt"
 
-    async def fake_generate(prompt):
+    async def fake_generate(prompt, *, purpose):
         assert prompt == "policy prompt"
+        assert purpose == "rag_fast"
         return {"answer": "policy answer", "usage": {"prompt_tokens": 1}}
 
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
@@ -366,8 +369,9 @@ async def test_rag_chat_uses_clean_orchid_kb_for_default_kb(monkeypatch):
         del question
         return docs[:top_n]
 
-    async def fake_generate(prompt):
+    async def fake_generate(prompt, *, purpose):
         assert "建兰日常养护" in prompt
+        assert purpose == "rag_fast"
         return {"answer": "建兰养护先看通风和植料干湿。", "usage": {}}
 
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
@@ -567,5 +571,5 @@ async def test_volcengine_llm_uses_ark_openai_compatible_endpoint(monkeypatch):
     assert captured["url"] == "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer ark_test_key"
     assert captured["json"]["model"] == "deepseek-chat"
-    assert captured["timeout"] == 180
+    assert captured["timeout"] == 60
     assert result["answer"] == "火山方舟回答"

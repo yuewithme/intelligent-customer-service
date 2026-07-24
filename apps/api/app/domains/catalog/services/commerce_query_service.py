@@ -69,6 +69,8 @@ async def build_commerce_context(
     identity_store=None,
     allowed_source_groups: Collection[str] | None = None,
 ) -> BusinessFacts:
+    if intent.slots.get("conversation_topic") == "order_information":
+        return BusinessFacts()
     commerce_type = _commerce_type(intent.primary_intent)
     if not commerce_type:
         return BusinessFacts()

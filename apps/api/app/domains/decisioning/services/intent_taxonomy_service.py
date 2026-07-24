@@ -179,6 +179,28 @@ def format_candidate_cards(candidates: list[dict] | None) -> str:
     return "\n".join(blocks)
 
 
+def format_candidate_cards_compact(candidates: list[dict] | None) -> str:
+    grouped: dict[str, list[dict]] = {kind: [] for kind in DIMENSIONS}
+    for candidate in candidates or []:
+        kind = candidate.get("kind")
+        if kind in grouped:
+            grouped[kind].append(candidate)
+    if not any(grouped.values()):
+        grouped = {
+            kind: list(taxonomy_cards(kind))[:3]
+            for kind in DIMENSIONS
+        }
+
+    lines: list[str] = []
+    for kind in DIMENSIONS:
+        values = []
+        for card in grouped[kind][:3]:
+            definition = " ".join(str(card.get("definition") or "").split())[:120]
+            values.append(f"{card['id']}={definition}")
+        lines.append(f"{kind}: " + " | ".join(values))
+    return "\n".join(lines)
+
+
 def _normalize_values(kind: str, values: Any, *, exclude: str | None = None) -> list[str]:
     result: list[str] = []
     for value in _as_list(values):

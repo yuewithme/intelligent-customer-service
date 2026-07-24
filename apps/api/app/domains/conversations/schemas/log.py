@@ -40,6 +40,8 @@ class ChatLogDetail(ChatLogItem):
     intent_reason: str | None = None
     stage_latencies: dict = Field(default_factory=dict)
     metadata: dict = Field(default_factory=dict)
+    model_calls: list[dict] = Field(default_factory=list)
+    intent_shadow_runs: list[dict] = Field(default_factory=list)
 
 
 class ChatLogListResponse(BaseModel):
@@ -60,6 +62,8 @@ class ChatLogStats(BaseModel):
     human_count: int = 0
     rag_count: int = 0
     template_count: int = 0
+    stage_avg_ms: dict = Field(default_factory=dict)
+    model_call_stats: list[dict] = Field(default_factory=list)
 
 
 class TalkScriptMatchLogItem(BaseModel):

@@ -26,7 +26,11 @@ from app.domains.decisioning.services.intent_observation_service import (
     finalize_intent_observation,
     record_intent_observation,
 )
-from app.domains.decisioning.services.intent_service import classify_intent
+from app.domains.decisioning.services.intent_service import (
+    classify_by_fast_rule,
+    classify_intent,
+    schedule_intent_shadow_evaluation,
+)
 from app.domains.customers.services.memory_rollout_service import prepare_memory_context_for_request
 from app.domains.decisioning.services.policy_service import decide_route
 from app.domains.decisioning.services.policy_engine import decide_policy
@@ -50,6 +54,7 @@ from app.domains.customers.services.user_profile_service import (
     save_shipping_contact,
 )
 from app.core.logger import log_event
+from app.core.trace_context import reset_trace_id, set_trace_id
 
 
 async def handle_chat(request: ChatRequest) -> dict:
@@ -67,10 +72,12 @@ async def handle_chat(request: ChatRequest) -> dict:
     reply = None
     is_evaluation = False
     intent_observation_recorded = False
+    trace_token = None
 
     try:
         stage_started = time.perf_counter()
         message = await normalize_chat_request(request)
+        trace_token = set_trace_id(message.trace_id)
         is_evaluation = _is_evaluation_request(message)
         stage_latencies["normalize_ms"] = _elapsed_ms(stage_started)
 
@@ -199,21 +206,32 @@ async def handle_chat(request: ChatRequest) -> dict:
         intent = await check_rules(message, user_state)
         stage_latencies["rule_guard_ms"] = _elapsed_ms(stage_started)
         if intent is None:
-            stage_started = time.perf_counter()
-            candidates = await retrieve_intent_examples(
-                message.message,
-                top_k=get_settings().intent_example_top_k,
-            )
-            stage_latencies["intent_examples_ms"] = _elapsed_ms(stage_started)
+            intent = classify_by_fast_rule(message.message)
+            if intent is not None:
+                stage_latencies["intent_examples_ms"] = 0
+                stage_latencies["intent_ms"] = 0
+            else:
+                stage_started = time.perf_counter()
+                candidates = await retrieve_intent_examples(
+                    message.message,
+                    top_k=get_settings().intent_example_top_k,
+                )
+                stage_latencies["intent_examples_ms"] = _elapsed_ms(stage_started)
 
-            stage_started = time.perf_counter()
-            intent = await classify_intent(message, user_state, candidates)
-            stage_latencies["intent_ms"] = _elapsed_ms(stage_started)
+                stage_started = time.perf_counter()
+                intent = await classify_intent(message, user_state, candidates)
+                stage_latencies["intent_ms"] = _elapsed_ms(stage_started)
         else:
             stage_latencies["intent_examples_ms"] = 0
             stage_latencies["intent_ms"] = 0
 
         if not is_evaluation:
+            schedule_intent_shadow_evaluation(
+                message=message,
+                user_state=user_state,
+                primary=intent,
+                candidates=candidates,
+            )
             await record_intent_observation(
                 message=message,
                 intent=intent,
@@ -461,6 +479,8 @@ async def handle_chat(request: ChatRequest) -> dict:
             log_payload["latency_ms"] = _elapsed_ms(started)
             log_payload["stage_latencies"] = stage_latencies
             await record_chat_log(log_payload)
+        if trace_token is not None:
+            reset_trace_id(trace_token)
 
 
 def _to_chat_data(

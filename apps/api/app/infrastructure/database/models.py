@@ -205,6 +205,60 @@ class ChatLogModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class AiModelCallLogModel(Base):
+    __tablename__ = "ai_model_call_logs"
+    __table_args__ = (
+        Index("ix_ai_model_call_trace_purpose", "trace_id", "purpose"),
+        Index("ix_ai_model_call_model_time", "model", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trace_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    purpose: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    model: Mapped[str] = mapped_column(String(256), index=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    prompt_chars: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_hash: Mapped[str] = mapped_column(String(64))
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    shadow: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    error_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    provider_request_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class IntentShadowRunModel(Base):
+    __tablename__ = "intent_shadow_runs"
+    __table_args__ = (
+        UniqueConstraint("trace_id", "shadow_model", name="uq_intent_shadow_trace_model"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(128), index=True)
+    primary_source: Mapped[str] = mapped_column(String(64))
+    primary_domain: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    primary_goal: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    primary_issues_json: Mapped[str] = mapped_column(Text, default="[]")
+    primary_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    primary_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    shadow_provider: Mapped[str] = mapped_column(String(64))
+    shadow_model: Mapped[str] = mapped_column(String(256))
+    shadow_domain: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    shadow_goal: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    shadow_issues_json: Mapped[str] = mapped_column(Text, default="[]")
+    shadow_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    shadow_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    shadow_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    agreement: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    error_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class IntentObservationModel(Base):
     __tablename__ = "intent_observations"
 
@@ -318,6 +372,7 @@ class EyunOutboundMessageModel(Base):
     material_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     bulk_job_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     status: Mapped[str] = mapped_column(String(32), index=True, default="queued")
+    priority: Mapped[int] = mapped_column(Integer, index=True, default=50)
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -8,3 +8,4 @@ rag.db
 chat_logs.db
 data/uploads/*
 !data/uploads/.gitkeep
+data/intent_taxonomy_embeddings.json

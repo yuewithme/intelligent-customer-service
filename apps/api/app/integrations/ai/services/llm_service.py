@@ -1,9 +1,11 @@
 import json
+import time
 from dataclasses import dataclass
 
 import httpx
 
 from app.core.config import get_settings
+from app.integrations.ai.services.model_call_log_service import record_model_call
 from app.shared.schemas.common import AppError, ErrorCode
 
 
@@ -37,64 +39,42 @@ def get_model_config(purpose: str) -> ModelConfig:
     return ModelConfig(provider=provider, model=model)
 
 
-async def generate_answer(prompt: str, purpose: str = "rag") -> dict:
-    config = get_model_config(purpose)
-    provider = config.provider
-    if provider == "mock":
-        if "\n## 参考资料\n" in prompt:
-            context = prompt.split("\n## 参考资料\n", 1)[-1].split(
-                "\n## 用户问题\n", 1
-            )[0]
-        elif "\n【知识库资料】\n" in prompt:
-            context = prompt.split("\n【知识库资料】\n", 1)[-1].split(
-                "\n【用户问题】\n", 1
-            )[0]
-        else:
-            context = prompt.rsplit("【知识库资料】", 1)[-1].split(
-                "【用户问题】", 1
-            )[0]
-        first_line = next(
-            (
-                line.strip()
-                for line in context.splitlines()
-                if line.strip() and not line.strip().startswith("[")
-            ),
-            "__HANDOFF__",
-        )
+async def generate_answer(
+    prompt: str,
+    purpose: str = "rag",
+    *,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+    shadow: bool = False,
+    prompt_version: str | None = None,
+) -> dict:
+    config = _model_config(
+        purpose,
+        model_override=model_override,
+        provider_override=provider_override,
+    )
+    if config.provider == "mock":
+        answer = _mock_answer(prompt)
         return {
-            "answer": first_line,
-            "usage": {"prompt_tokens": len(prompt), "completion_tokens": len(first_line)},
+            "answer": answer,
+            "usage": {
+                "prompt_tokens": len(prompt),
+                "completion_tokens": len(answer),
+            },
         }
-
-    if provider not in PROVIDERS:
-        raise AppError(
-            ErrorCode.LLM_FAILED,
-            f"不支持的 {purpose} LLM Provider: {provider}",
-            status_code=500,
-        )
-
-    base_url, key_name = PROVIDERS[provider]
-    settings = get_settings()
-    api_key = getattr(settings, key_name)
-    try:
-        async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
-            response = await client.post(
-                f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": config.model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0,
-                },
-            )
-            response.raise_for_status()
-            body = response.json()
-            return {
-                "answer": body["choices"][0]["message"]["content"],
-                "usage": body.get("usage", {}),
-            }
-    except Exception as exc:
-        raise AppError(ErrorCode.LLM_FAILED, status_code=502) from exc
+    body = await _chat_completion(
+        config=config,
+        purpose=purpose,
+        prompt=prompt,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,
+        shadow=shadow,
+        prompt_version=prompt_version,
+    )
+    return {
+        "answer": body["choices"][0]["message"]["content"],
+        "usage": body.get("usage", {}),
+    }
 
 
 async def generate_messages(
@@ -102,47 +82,50 @@ async def generate_messages(
     *,
     purpose: str,
     temperature: float = 0,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+    shadow: bool = False,
+    prompt_version: str | None = None,
 ) -> dict:
     """Generate from role-separated messages without flattening system instructions."""
-    config = get_model_config(purpose)
-    provider = config.provider
-    if provider == "mock":
+    config = _model_config(
+        purpose,
+        model_override=model_override,
+        provider_override=provider_override,
+    )
+    if config.provider == "mock":
         return {"answer": "", "usage": {}}
-    if provider not in PROVIDERS:
-        raise AppError(
-            ErrorCode.LLM_FAILED,
-            f"不支持的 {purpose} LLM Provider: {provider}",
-            status_code=500,
-        )
-
-    base_url, key_name = PROVIDERS[provider]
-    settings = get_settings()
-    api_key = getattr(settings, key_name)
-    try:
-        async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
-            response = await client.post(
-                f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": config.model,
-                    "messages": messages,
-                    "temperature": temperature,
-                },
-            )
-            response.raise_for_status()
-            body = response.json()
-            return {
-                "answer": body["choices"][0]["message"]["content"],
-                "usage": body.get("usage", {}),
-            }
-    except Exception as exc:
-        raise AppError(ErrorCode.LLM_FAILED, status_code=502) from exc
+    prompt = json.dumps(messages, ensure_ascii=False, separators=(",", ":"))
+    body = await _chat_completion(
+        config=config,
+        purpose=purpose,
+        prompt=prompt,
+        messages=messages,
+        temperature=temperature,
+        shadow=shadow,
+        prompt_version=prompt_version,
+    )
+    return {
+        "answer": body["choices"][0]["message"]["content"],
+        "usage": body.get("usage", {}),
+    }
 
 
-async def generate_json(prompt: str, purpose: str = "intent") -> dict:
-    config = get_model_config(purpose)
-    provider = config.provider
-    if provider == "mock":
+async def generate_json(
+    prompt: str,
+    purpose: str = "intent",
+    *,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+    shadow: bool = False,
+    prompt_version: str | None = None,
+) -> dict:
+    config = _model_config(
+        purpose,
+        model_override=model_override,
+        provider_override=provider_override,
+    )
+    if config.provider == "mock":
         return {
             "route": "clarify",
             "primary_intent": "unknown",
@@ -150,56 +133,205 @@ async def generate_json(prompt: str, purpose: str = "intent") -> dict:
             "reason": "mock_llm_json",
         }
 
-    if provider not in PROVIDERS:
-        raise AppError(
-            ErrorCode.LLM_FAILED,
-            f"不支持的 {purpose} LLM Provider: {provider}",
-            status_code=500,
-        )
-
-    base_url, key_name = PROVIDERS[provider]
-    settings = get_settings()
-    api_key = getattr(settings, key_name)
     last_error: Exception | None = None
-    for _ in range(2):
+    for attempt in range(1, 3):
         try:
-            request_body = {
-                "model": config.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0,
-            }
-            if provider == "dashscope":
-                request_body.update(
-                    {
-                        "enable_thinking": False,
-                        "response_format": {"type": "json_object"},
-                    }
-                )
-            async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
-                response = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    json=request_body,
-                )
-                response.raise_for_status()
-                body = response.json()
-                content = body["choices"][0]["message"]["content"]
-                return json.loads(content)
+            body = await _chat_completion(
+                config=config,
+                purpose=purpose,
+                prompt=prompt,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                shadow=shadow,
+                prompt_version=prompt_version,
+                attempt=attempt,
+                json_mode=True,
+            )
+            return json.loads(body["choices"][0]["message"]["content"])
         except json.JSONDecodeError as exc:
             last_error = exc
-        except Exception as exc:
-            raise AppError(ErrorCode.LLM_FAILED, status_code=502) from exc
     raise AppError(ErrorCode.INTENT_SCHEMA_INVALID) from last_error
 
 
-async def classify_intent(prompt: str) -> dict:
-    return await generate_json(prompt, purpose="intent")
+async def classify_intent(
+    prompt: str,
+    *,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+    shadow: bool = False,
+    prompt_version: str | None = None,
+) -> dict:
+    return await generate_json(
+        prompt,
+        purpose="intent",
+        model_override=model_override,
+        provider_override=provider_override,
+        shadow=shadow,
+        prompt_version=prompt_version,
+    )
+
+
+async def _chat_completion(
+    *,
+    config: ModelConfig,
+    purpose: str,
+    prompt: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    shadow: bool,
+    prompt_version: str | None,
+    attempt: int = 1,
+    json_mode: bool = False,
+) -> dict:
+    provider = config.provider
+    if provider not in PROVIDERS:
+        raise AppError(
+            ErrorCode.LLM_FAILED,
+            f"Unsupported {purpose} LLM provider: {provider}",
+            status_code=500,
+        )
+
+    settings = get_settings()
+    base_url, key_name = PROVIDERS[provider]
+    request_body = {
+        "model": config.model,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if purpose == "intent":
+        request_body["max_tokens"] = 240
+    if json_mode and provider == "dashscope":
+        request_body.update(
+            {
+                "enable_thinking": False,
+                "response_format": {"type": "json_object"},
+            }
+        )
+
+    started = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=_timeout_for(settings, purpose)) as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {getattr(settings, key_name)}"},
+                json=request_body,
+            )
+            response.raise_for_status()
+            body = response.json()
+            if json_mode:
+                json.loads(body["choices"][0]["message"]["content"])
+        _record_success(
+            purpose=purpose,
+            config=config,
+            prompt=prompt,
+            duration_ms=_elapsed_ms(started),
+            attempt=attempt,
+            body=body,
+            response=response,
+            shadow=shadow,
+            prompt_version=prompt_version,
+        )
+        return body
+    except json.JSONDecodeError as exc:
+        record_model_call(
+            purpose=purpose,
+            provider=provider,
+            model=config.model,
+            prompt=prompt,
+            duration_ms=_elapsed_ms(started),
+            attempt=attempt,
+            status="invalid_json",
+            error_class=type(exc).__name__,
+            shadow=shadow,
+            prompt_version=prompt_version,
+        )
+        raise
+    except Exception as exc:
+        record_model_call(
+            purpose=purpose,
+            provider=provider,
+            model=config.model,
+            prompt=prompt,
+            duration_ms=_elapsed_ms(started),
+            attempt=attempt,
+            status="failed",
+            error_class=type(exc).__name__,
+            shadow=shadow,
+            prompt_version=prompt_version,
+        )
+        if isinstance(exc, AppError):
+            raise
+        raise AppError(ErrorCode.LLM_FAILED, status_code=502) from exc
+
+
+def _record_success(
+    *,
+    purpose: str,
+    config: ModelConfig,
+    prompt: str,
+    duration_ms: int,
+    attempt: int,
+    body: dict,
+    response: httpx.Response,
+    shadow: bool,
+    prompt_version: str | None,
+) -> None:
+    usage = body.get("usage") if isinstance(body, dict) else {}
+    usage = usage if isinstance(usage, dict) else {}
+    record_model_call(
+        purpose=purpose,
+        provider=config.provider,
+        model=config.model,
+        prompt=prompt,
+        duration_ms=duration_ms,
+        attempt=attempt,
+        status="success",
+        input_tokens=_as_int(usage.get("prompt_tokens") or usage.get("input_tokens")),
+        output_tokens=_as_int(
+            usage.get("completion_tokens") or usage.get("output_tokens")
+        ),
+        provider_request_id=str(
+            body.get("request_id")
+            or body.get("id")
+            or getattr(response, "headers", {}).get("x-request-id")
+            or ""
+        ),
+        shadow=shadow,
+        prompt_version=prompt_version,
+    )
+
+
+def _model_config(
+    purpose: str,
+    *,
+    model_override: str | None,
+    provider_override: str | None,
+) -> ModelConfig:
+    default = get_model_config(purpose)
+    return ModelConfig(
+        provider=(provider_override or default.provider).lower(),
+        model=model_override or default.model,
+    )
+
+
+def _timeout_for(settings, purpose: str) -> float:
+    if purpose == "intent":
+        return settings.intent_llm_timeout_seconds
+    if purpose == "persona":
+        return settings.persona_llm_timeout_seconds
+    if purpose in {"rag", "rag_fast", "business"}:
+        return settings.rag_llm_timeout_seconds
+    return settings.llm_timeout_seconds
 
 
 def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
     purpose = purpose.lower()
     chains = {
         "rag": (("rag_llm_provider", "rag_llm_model"),),
+        "rag_fast": (
+            ("rag_fast_llm_provider", "rag_fast_llm_model"),
+            ("rag_llm_provider", "rag_llm_model"),
+        ),
         "business": (
             ("business_llm_provider", "business_llm_model"),
             ("rag_llm_provider", "rag_llm_model"),
@@ -207,7 +339,6 @@ def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
         "intent": (("intent_llm_provider", "intent_llm_model"),),
         "talk_script": (
             ("talk_script_llm_provider", "talk_script_llm_model"),
-            ("intent_llm_provider", "intent_llm_model"),
         ),
         "persona": (
             ("persona_llm_provider", "persona_llm_model"),
@@ -215,13 +346,42 @@ def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
         ),
         "profile": (
             ("profile_llm_provider", "profile_llm_model"),
-            ("intent_llm_provider", "intent_llm_model"),
         ),
         "review": (("review_llm_provider", "review_llm_model"),),
     }
     for provider_name, model_name in chains.get(purpose, ()):
         provider = str(getattr(settings, provider_name, "") or "").strip()
         model = str(getattr(settings, model_name, "") or "").strip()
-        if provider:
-            return provider.lower(), model or settings.llm_model
+        if provider or model:
+            return (provider or settings.llm_provider).lower(), model or settings.llm_model
     return settings.llm_provider.lower(), settings.llm_model
+
+
+def _mock_answer(prompt: str) -> str:
+    context = prompt
+    for start, end in (
+        ("\n## 参考资料\n", "\n## 用户问题\n"),
+        ("\n【知识库资料】\n", "\n【用户问题】\n"),
+    ):
+        if start in prompt:
+            context = prompt.split(start, 1)[-1].split(end, 1)[0]
+            break
+    return next(
+        (
+            line.strip()
+            for line in context.splitlines()
+            if line.strip() and not line.strip().startswith("[")
+        ),
+        "__HANDOFF__",
+    )
+
+
+def _elapsed_ms(started: float) -> int:
+    return round((time.perf_counter() - started) * 1000)
+
+
+def _as_int(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

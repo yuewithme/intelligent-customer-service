@@ -325,7 +325,7 @@ async def test_repeated_question_complaint_adds_other_blocker():
     }
 
 
-def test_llm_prompt_requires_complete_intent_schema():
+def test_llm_prompt_uses_compact_classification_schema():
     from app.domains.decisioning.services.intent_service import _build_prompt
 
     prompt = _build_prompt("老师，下一次浇水需要多少天？")
@@ -334,19 +334,15 @@ def test_llm_prompt_requires_complete_intent_schema():
     assert '"primary_goal"' in prompt
     assert '"issues"' in prompt
     assert '"scope"' in prompt
-    assert '"evidence"' in prompt
     assert '"confidence"' in prompt
-    assert "slots.decision_blocker" in prompt
-    assert '"sales_signals"' in prompt
-    assert "payment_claimed" in prompt
-    assert "禁止输出 purchased" in prompt
-    assert "price | trust | care_risk | product_fit | choice | timing | other" in prompt
-    assert "浇水需要多少天" in prompt
-    assert "request_material" in prompt
+    assert '"slots"' in prompt
+    assert '"evidence":' not in prompt
+    assert '"sales_signals":' not in prompt
+    assert '"route":' not in prompt
+    assert "Output JSON only" in prompt
     assert "after_sale_policy" in prompt
     assert "received_problem" in prompt
-    assert "名贵兰花" in prompt
-    assert "不要输出 route" in prompt
+    assert len(prompt) < 2500
 
 
 def test_llm_intent_cannot_self_confirm_a_purchase():

@@ -11,11 +11,30 @@ services:
       HF_HOME: /app/data/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
+      INTENT_LLM_PROVIDER: dashscope
+      INTENT_LLM_MODEL: qwen3.6-flash
+      INTENT_LLM_TIMEOUT_SECONDS: "5"
+      INTENT_FAST_RULES_ENABLED: "true"
+      INTENT_FAST_RULE_THRESHOLD: "0.85"
+      INTENT_PROMPT_VERSION: v2
+      INTENT_SHADOW_ENABLED: "true"
+      INTENT_SHADOW_SAMPLE_PERCENT: "100"
+      INTENT_SHADOW_LLM_PROVIDER: dashscope
+      INTENT_SHADOW_LLM_MODEL: qwen3.7-plus
+      INTENT_EXAMPLE_PREWARM_ENABLED: "true"
+      INTENT_EMBEDDING_CACHE_PATH: /app/data/intent_taxonomy_embeddings.json
+      PERSONA_LLM_PROVIDER: dashscope
+      PERSONA_LLM_MODEL: qwen3.6-flash
+      RAG_FAST_LLM_PROVIDER: dashscope
+      RAG_FAST_LLM_MODEL: qwen3.6-flash
+      REPLY_MODEL_ROUTER_ENABLED: "true"
+      EYUN_REPLY_JITTER_MIN_SECONDS: "0"
+      EYUN_REPLY_JITTER_MAX_SECONDS: "2"
     expose:
       - "8000"
     volumes:
-      - ${APP_DATA_DIR:-/srv/intelligent-customer-service/data}:/app/data
-      - ${HF_CACHE_DIR:-/srv/intelligent-customer-service/cache/huggingface}:/app/data/huggingface
+      - ${APP_DATA_DIR:-./var/runtime/data}:/app/data
+      - ${HF_CACHE_DIR:-./var/runtime/cache/huggingface}:/app/data/huggingface
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
       interval: 15s

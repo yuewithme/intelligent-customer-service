@@ -113,6 +113,7 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
     monkeypatch.setenv("EYUN_OPENING_TEXT", "欢迎开场")
     monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://example.com/opening.jpg")
     monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "0")
+    monkeypatch.setenv("EYUN_INBOUND_DEBOUNCE_SECONDS", "0")
     get_settings.cache_clear()
     now = datetime(2026, 7, 15, 8, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(risk_control, "utcnow", lambda: now)
@@ -151,20 +152,22 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
 
     assert await risk_control.process_due_eyun_inbound_batches(limit=1) == 1
     detail = await get_conversation_detail("wechat:wxid_customer:default")
-    assert [message["sender_type"] for message in detail["messages"]] == [
-        "customer",
-        "ai",
-        "ai",
-    ]
-    assert detail["messages"][1]["content"] == "欢迎开场"
-    assert detail["messages"][2]["metadata"]["media"] == {
+    opening = next(
+        message for message in detail["messages"] if message["content"] == "欢迎开场"
+    )
+    image = next(
+        message
+        for message in detail["messages"]
+        if message["metadata"].get("media", {}).get("type") == "image"
+    )
+    assert opening["sender_type"] == "ai"
+    assert image["metadata"]["media"] == {
         "type": "image",
         "url": "https://example.com/opening.jpg",
         "fallback": False,
     }
-    assert all(
-        message["delivery_status"] == "queued" for message in detail["messages"][1:]
-    )
+    assert opening["delivery_status"] == "queued"
+    assert image["delivery_status"] == "queued"
 
 
 @pytest.mark.asyncio

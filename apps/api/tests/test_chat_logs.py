@@ -96,6 +96,21 @@ def test_admin_chat_log_apis_return_list_detail_and_stats(monkeypatch, tmp_path)
     import anyio
 
     anyio.run(_record_sample_log)
+    from app.integrations.ai.services.model_call_log_service import record_model_call
+
+    record_model_call(
+        trace_id="req_001",
+        purpose="intent",
+        provider="dashscope",
+        model="qwen3.6-flash",
+        prompt="compact intent prompt",
+        prompt_version="v2",
+        duration_ms=250,
+        input_tokens=100,
+        output_tokens=20,
+        attempt=1,
+        status="success",
+    )
 
     client = TestClient(app)
     list_response = client.get("/api/v1/admin/chat-logs")
@@ -115,6 +130,8 @@ def test_admin_chat_log_apis_return_list_detail_and_stats(monkeypatch, tmp_path)
     assert detail["policy_reason"] == "价格异议走固定模板"
     assert detail["stage_latencies"] == {"intent_ms": 420}
     assert detail["metadata"] == {"safe": "ok"}
+    assert detail["model_calls"][0]["model"] == "qwen3.6-flash"
+    assert detail["model_calls"][0]["duration_ms"] == 250
 
     assert stats_response.status_code == 200
     stats = stats_response.json()["data"]
@@ -126,6 +143,8 @@ def test_admin_chat_log_apis_return_list_detail_and_stats(monkeypatch, tmp_path)
     assert stats["intent_counts"] == {"price_objection": 1}
     assert stats["template_counts"] == {"tpl_price_objection_001": 1}
     assert stats["template_count"] == 1
+    assert stats["stage_avg_ms"] == {"intent_ms": 420}
+    assert stats["model_call_stats"][0]["avg_duration_ms"] == 250
 
 
 def test_admin_chat_logs_support_filters_and_keyword(monkeypatch, tmp_path):

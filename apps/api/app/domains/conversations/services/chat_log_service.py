@@ -1,14 +1,20 @@
 import json
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from math import ceil
 from typing import Any
 
 from sqlalchemy import create_engine, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
-from app.infrastructure.database.models import Base, ChatLogModel
+from app.infrastructure.database.models import (
+    AiModelCallLogModel,
+    Base,
+    ChatLogModel,
+    IntentShadowRunModel,
+)
 
 
 logger = logging.getLogger("wechat_rag_bot.chat_logs")
@@ -126,9 +132,24 @@ async def get_chat_log(trace_id: str) -> dict | None:
         row = session.scalar(
             select(ChatLogModel).where(ChatLogModel.trace_id == trace_id)
         )
+        model_calls = session.scalars(
+            select(AiModelCallLogModel)
+            .where(AiModelCallLogModel.trace_id == trace_id)
+            .order_by(AiModelCallLogModel.created_at.asc(), AiModelCallLogModel.id.asc())
+        ).all()
+        shadow_runs = session.scalars(
+            select(IntentShadowRunModel)
+            .where(IntentShadowRunModel.trace_id == trace_id)
+            .order_by(IntentShadowRunModel.created_at.asc())
+        ).all()
     if row is None:
         return None
-    return _model_to_detail(row)
+    detail = _model_to_detail(row)
+    detail["model_calls"] = [_model_call_to_dict(call) for call in model_calls]
+    detail["intent_shadow_runs"] = [
+        _intent_shadow_to_dict(run) for run in shadow_runs
+    ]
+    return detail
 
 
 async def get_chat_log_stats(
@@ -141,6 +162,12 @@ async def get_chat_log_stats(
     filters = _build_filters(start_time=start_time, end_time=end_time)
     with _get_session() as session:
         rows = session.scalars(select(ChatLogModel).where(*filters)).all()
+        model_filters = _model_call_time_filters(
+            start_time=start_time, end_time=end_time
+        )
+        model_calls = session.scalars(
+            select(AiModelCallLogModel).where(*model_filters)
+        ).all()
     if not rows:
         return _empty_stats()
 
@@ -148,6 +175,11 @@ async def get_chat_log_stats(
     route_counts = Counter(row.route for row in rows if row.route)
     intent_counts = Counter(row.primary_intent for row in rows if row.primary_intent)
     template_counts = Counter(row.template_id for row in rows if row.template_id)
+    stage_values: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        for stage, value in _json_loads(row.stage_latencies_json, {}).items():
+            if isinstance(value, (int, float)):
+                stage_values[str(stage)].append(float(value))
     return {
         "total": len(rows),
         "success_count": sum(1 for row in rows if row.status == "success"),
@@ -159,6 +191,10 @@ async def get_chat_log_stats(
         "human_count": sum(1 for row in rows if row.need_human or row.route == "human"),
         "rag_count": sum(1 for row in rows if row.route == "rag_answer"),
         "template_count": sum(1 for row in rows if row.route == "template_reply"),
+        "stage_avg_ms": {
+            stage: sum(values) / len(values) for stage, values in stage_values.items()
+        },
+        "model_call_stats": _model_call_stats(model_calls),
     }
 
 
@@ -169,7 +205,14 @@ def _get_session() -> Session:
     factory = _sessionmakers.get(settings.chat_log_db_url)
     if factory is None:
         engine = create_engine(settings.chat_log_db_url)
-        Base.metadata.create_all(engine, tables=[ChatLogModel.__table__])
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                ChatLogModel.__table__,
+                AiModelCallLogModel.__table__,
+                IntentShadowRunModel.__table__,
+            ],
+        )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[settings.chat_log_db_url] = factory
     return factory()
@@ -296,7 +339,103 @@ def _empty_stats() -> dict:
         "human_count": 0,
         "rag_count": 0,
         "template_count": 0,
+        "stage_avg_ms": {},
+        "model_call_stats": [],
     }
+
+
+def _model_call_to_dict(row: AiModelCallLogModel) -> dict:
+    return {
+        "purpose": row.purpose,
+        "provider": row.provider,
+        "model": row.model,
+        "prompt_version": row.prompt_version,
+        "prompt_chars": row.prompt_chars,
+        "prompt_hash": row.prompt_hash,
+        "input_tokens": row.input_tokens,
+        "output_tokens": row.output_tokens,
+        "duration_ms": row.duration_ms,
+        "attempt": row.attempt,
+        "shadow": row.shadow,
+        "status": row.status,
+        "error_class": row.error_class,
+        "provider_request_id": row.provider_request_id,
+        "created_at": row.created_at.isoformat(),
+    }
+
+
+def _intent_shadow_to_dict(row: IntentShadowRunModel) -> dict:
+    return {
+        "primary_source": row.primary_source,
+        "primary": {
+            "domain": row.primary_domain,
+            "goal": row.primary_goal,
+            "issues": _json_loads(row.primary_issues_json, []),
+            "scope": row.primary_scope,
+            "route": row.primary_route,
+        },
+        "shadow_provider": row.shadow_provider,
+        "shadow_model": row.shadow_model,
+        "shadow": {
+            "domain": row.shadow_domain,
+            "goal": row.shadow_goal,
+            "issues": _json_loads(row.shadow_issues_json, []),
+            "scope": row.shadow_scope,
+            "route": row.shadow_route,
+            "confidence": row.shadow_confidence,
+        },
+        "agreement": row.agreement,
+        "status": row.status,
+        "error_class": row.error_class,
+        "created_at": row.created_at.isoformat(),
+    }
+
+
+def _model_call_time_filters(
+    *, start_time: str | None, end_time: str | None
+) -> list:
+    filters = []
+    if start_time:
+        filters.append(AiModelCallLogModel.created_at >= _parse_datetime(start_time))
+    if end_time:
+        filters.append(AiModelCallLogModel.created_at <= _parse_datetime(end_time))
+    return filters
+
+
+def _model_call_stats(rows: list[AiModelCallLogModel]) -> list[dict]:
+    groups: dict[tuple[str, str, str, bool], list[AiModelCallLogModel]] = defaultdict(
+        list
+    )
+    for row in rows:
+        groups[(row.purpose, row.provider, row.model, row.shadow)].append(row)
+    result = []
+    for (purpose, provider, model, shadow), calls in sorted(groups.items()):
+        durations = sorted(call.duration_ms for call in calls)
+        result.append(
+            {
+                "purpose": purpose,
+                "provider": provider,
+                "model": model,
+                "shadow": shadow,
+                "count": len(calls),
+                "success_count": sum(call.status == "success" for call in calls),
+                "failed_count": sum(call.status != "success" for call in calls),
+                "avg_duration_ms": sum(durations) / len(durations),
+                "p95_duration_ms": durations[ceil(len(durations) * 0.95) - 1],
+                "avg_input_tokens": _average_optional(
+                    [call.input_tokens for call in calls]
+                ),
+                "avg_output_tokens": _average_optional(
+                    [call.output_tokens for call in calls]
+                ),
+            }
+        )
+    return result
+
+
+def _average_optional(values: list[int | None]) -> float | None:
+    present = [value for value in values if value is not None]
+    return sum(present) / len(present) if present else None
 
 
 def _sanitize_value(value: Any) -> Any:

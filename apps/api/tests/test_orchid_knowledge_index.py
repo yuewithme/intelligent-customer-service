@@ -180,8 +180,9 @@ async def test_rag_chat_searches_persisted_orchid_knowledge(monkeypatch, tmp_pat
         del vector, filters
         return []
 
-    async def fake_generate(prompt):
+    async def fake_generate(prompt, *, purpose):
         assert "建兰喜通风散光" in prompt
+        assert purpose == "rag_fast"
         return {"answer": "建兰放通风散光处，浇水见干见湿。", "usage": {}}
 
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
