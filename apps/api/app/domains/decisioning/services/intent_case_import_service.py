@@ -6,7 +6,12 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.domains.conversations.schemas.event import NormalizedMessage
+from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.schemas.intent import IntentResult
+from app.domains.decisioning.services.intent_example_service import (
+    retrieve_intent_examples,
+)
+from app.domains.decisioning.services.intent_service import classify_by_llm
 from app.domains.decisioning.services.intent_observation_service import (
     get_intent_observation,
     record_intent_observation,
@@ -68,7 +73,11 @@ def normalize_case_turns(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return normalized
 
 
-async def import_intent_labeling_case(case_id: str) -> dict[str, Any]:
+async def import_intent_labeling_case(
+    case_id: str,
+    *,
+    classify_with_ai: bool = True,
+) -> dict[str, Any]:
     payload = load_intent_labeling_case(case_id)
     turns = normalize_case_turns(payload["turns"])
     case_id = payload["case_id"]
@@ -86,25 +95,6 @@ async def import_intent_labeling_case(case_id: str) -> dict[str, Any]:
             {"role": previous["role"], "content": previous["content"]}
             for previous in turns[:turn_index]
         ]
-        intent = IntentResult(
-            route="clarify",
-            primary_intent="unknown",
-            primary_domain=None,
-            primary_goal=None,
-            scope="ambiguous",
-            classifier_source="case_import",
-            raw_prediction={
-                "source_case": case_id,
-                "source_file": payload.get("source_file"),
-                "content_quality": payload.get(
-                    "content_quality", "verbatim_case_transcript"
-                ),
-                "customer_turn": customer_turn_number,
-                "source_message_count": len(turn["messages"]),
-            },
-            confidence=0.0,
-            reason="案例导入，等待人工标注",
-        )
         message = NormalizedMessage(
             trace_id=trace_id,
             channel="case",
@@ -119,10 +109,56 @@ async def import_intent_labeling_case(case_id: str) -> dict[str, Any]:
                 "source_case": case_id,
             },
         )
+        case_metadata = {
+            "source_case": case_id,
+            "source_file": payload.get("source_file"),
+            "content_quality": payload.get(
+                "content_quality", "verbatim_case_transcript"
+            ),
+            "customer_turn": customer_turn_number,
+            "source_message_count": len(turn["messages"]),
+        }
+        candidates = []
+        if classify_with_ai:
+            candidates = await retrieve_intent_examples(
+                message.message,
+                top_k=get_settings().intent_example_top_k,
+            )
+            predicted = await classify_by_llm(
+                message,
+                UserState(
+                    user_id=customer_id,
+                    session_id=case_id,
+                    metadata={"recent_turns": context},
+                ),
+                candidates,
+            )
+            intent = predicted.model_copy(
+                update={
+                    "classifier_source": "case_import",
+                    "raw_prediction": {
+                        **case_metadata,
+                        "prediction_source": predicted.classifier_source,
+                        "prediction": predicted.raw_prediction,
+                    },
+                }
+            )
+        else:
+            intent = IntentResult(
+                route="clarify",
+                primary_intent="unknown",
+                primary_domain=None,
+                primary_goal=None,
+                scope="ambiguous",
+                classifier_source="case_import",
+                raw_prediction=case_metadata,
+                confidence=0.0,
+                reason="案例导入，等待 AI 识别",
+            )
         await record_intent_observation(
             message=message,
             intent=intent,
-            candidates=[],
+            candidates=candidates,
             context=context,
         )
         if await get_intent_observation(trace_id) is None:
@@ -134,6 +170,7 @@ async def import_intent_labeling_case(case_id: str) -> dict[str, Any]:
         "customer_id": customer_id,
         "customer_name": payload.get("customer_name"),
         "observation_count": len(imported_trace_ids),
+        "classified_with_ai": classify_with_ai,
         "trace_ids": imported_trace_ids,
     }
 

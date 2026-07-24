@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1>意图识别日志</h1>
-        <p>默认接受高置信度预测，仅需处理低置信度记录；可定位到销售工作台核对上下文。</p>
+        <p>AI 高置信度预测自动判定正确；仅低置信度进入人工审核，不准确时再修正。</p>
       </div>
       <div class="head-actions">
         <ElButton :loading="exporting" @click="exportDataset">导出可训练 JSONL</ElButton>
@@ -12,7 +12,7 @@
     </div>
 
     <div class="metrics">
-      <div><span>待修正（低置信度）</span><strong>{{ summary.pending }}</strong></div>
+      <div><span>待人工审核（低置信度）</span><strong>{{ summary.pending }}</strong></div>
       <div><span>预测正确</span><strong>{{ summary.accepted }}</strong></div>
       <div><span>人工已修正</span><strong>{{ summary.corrected }}</strong></div>
       <div><span>当前筛选</span><strong>{{ total }}</strong></div>
@@ -27,7 +27,7 @@
         @keyup.enter="search"
       />
       <ElSelect v-model="filters.annotation_status" clearable placeholder="审核状态" @change="search">
-        <ElOption label="待修正" value="pending" />
+        <ElOption label="待审核" value="pending" />
         <ElOption label="预测正确" value="confirmed" />
         <ElOption label="已修正" value="corrected" />
         <ElOption label="不确定" value="uncertain" />
@@ -48,7 +48,7 @@
         <ElOption label="大模型低置信度后规则兜底" value="llm_fallback_rule" />
         <ElOption label="历史漏采待补标" value="capture_gap" />
         <ElOption label="历史规则补录" value="historical_rule" />
-        <ElOption label="案例导入" value="case_import" />
+        <ElOption label="案例 AI 识别" value="case_import" />
       </ElSelect>
       <ElSelect v-model="filters.max_confidence" clearable placeholder="低置信度" @change="search">
         <ElOption label="低于 0.60" :value="0.6" />
@@ -64,7 +64,7 @@
       <ElTableColumn label="客户消息" min-width="280">
         <template #default="{ row }">
           <div class="message-cell">{{ row.user_message }}</div>
-          <small v-if="row.channel === 'case'">{{ row.session_id }} · {{ row.user_id }} · 案例导入</small>
+          <small v-if="row.channel === 'case'">{{ row.session_id }} · {{ row.user_id }} · 案例 AI 识别</small>
           <small v-else>{{ row.user_id }} · {{ row.channel }}</small>
           <small v-if="row.conversation_message_ids.length > 1"> · 本轮合并 {{ row.conversation_message_ids.length }} 条消息</small>
         </template>
@@ -97,7 +97,7 @@
         </template>
       </ElTableColumn>
       <ElTableColumn label="操作" width="100" fixed="right">
-        <template #default="{ row }"><ElButton link type="primary" @click="openDetail(row)">{{ row.needs_review ? '修正' : '查看/修改' }}</ElButton></template>
+        <template #default="{ row }"><ElButton link type="primary" @click="openDetail(row)">{{ row.needs_review ? '审核' : '查看/修改' }}</ElButton></template>
       </ElTableColumn>
     </ElTable>
 
@@ -296,7 +296,10 @@ const search = () => { page.value = 1; load() }
 const openDetail = async (row: IntentObservation) => {
   detail.value = await getIntentObservation(row.trace_id)
   const latest = detail.value.latest_annotation
-  form.status = latest?.status || (detail.value.needs_review ? 'corrected' : 'confirmed')
+  const hasCasePrediction = detail.value.classifier_source === 'case_import'
+    && !!detail.value.primary_domain
+    && !!detail.value.primary_goal
+  form.status = latest?.status || (hasCasePrediction ? 'confirmed' : (detail.value.needs_review ? 'corrected' : 'confirmed'))
   const useCorrection = latest?.status === 'corrected'
   form.primary_domain = (useCorrection ? latest.primary_domain : detail.value.primary_domain) || ''
   form.secondary_domains = [...(useCorrection ? latest.secondary_domains : detail.value.secondary_domains)]
@@ -364,8 +367,8 @@ const cardText = (id?: string | null) => {
 }
 const confidenceText = (value?: number | null) => value == null ? '—' : `${(value * 100).toFixed(0)}%`
 const formatTime = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false })
-const sourceText = (value: string) => ({ llm: '大模型', rule_guard: '安全规则', hard_rule: '高精度规则', context_rule: '上下文规则', fallback_rule: '兜底规则', llm_fallback_rule: '大模型低置信度后规则兜底', state_guard: '会话状态', bypass_route: '固定旁路', pipeline_error: '管线异常', capture_gap: '历史漏采待补标', historical_rule: '历史规则补录', case_import: '案例导入' }[value] || value)
-const annotationText = (value: AnnotationStatus | string) => ({ pending: '待修正', confirmed: '预测正确', corrected: '已修正', uncertain: '不确定', excluded: '排除训练' }[value] || value)
+const sourceText = (value: string) => ({ llm: '大模型', rule_guard: '安全规则', hard_rule: '高精度规则', context_rule: '上下文规则', fallback_rule: '兜底规则', llm_fallback_rule: '大模型低置信度后规则兜底', state_guard: '会话状态', bypass_route: '固定旁路', pipeline_error: '管线异常', capture_gap: '历史漏采待补标', historical_rule: '历史规则补录', case_import: '案例 AI 识别' }[value] || value)
+const annotationText = (value: AnnotationStatus | string) => ({ pending: '待审核', confirmed: '预测正确', corrected: '已修正', uncertain: '不确定', excluded: '排除训练' }[value] || value)
 const annotationType = (value: AnnotationStatus) => ({ pending: 'warning', confirmed: 'success', corrected: 'primary', uncertain: 'info', excluded: 'danger' }[value] as any)
 
 onMounted(async () => {

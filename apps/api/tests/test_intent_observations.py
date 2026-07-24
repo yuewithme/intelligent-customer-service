@@ -35,6 +35,13 @@ def _reset(monkeypatch, tmp_path, *, auth: bool = False):
     get_settings.cache_clear()
 
 
+async def _import_case_without_ai(case_id: str):
+    return await import_intent_labeling_case(
+        case_id,
+        classify_with_ai=False,
+    )
+
+
 async def _record_sample(trace_id: str = "trace-intent-1"):
     message = NormalizedMessage(
         trace_id=trace_id,
@@ -371,8 +378,8 @@ def test_case_import_creates_pending_customer_turns_with_context(
 ):
     _reset(monkeypatch, tmp_path)
 
-    first_result = anyio.run(import_intent_labeling_case, "case01")
-    second_result = anyio.run(import_intent_labeling_case, "case01")
+    first_result = anyio.run(_import_case_without_ai, "case01")
+    second_result = anyio.run(_import_case_without_ai, "case01")
     client = TestClient(app)
     observations = client.get(
         "/api/v1/admin/intent-observations",
@@ -450,7 +457,10 @@ def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path)
 
     async def import_all():
         return {
-            case_id: await import_intent_labeling_case(case_id)
+            case_id: await import_intent_labeling_case(
+                case_id,
+                classify_with_ai=False,
+            )
             for case_id in list_intent_labeling_cases()
         }
 
@@ -488,3 +498,99 @@ def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path)
     assert reconstructed["raw_prediction"]["content_quality"] == (
         "reconstructed_from_summary"
     )
+
+
+def test_high_confidence_case_prediction_is_accepted_until_human_correction(
+    monkeypatch, tmp_path
+):
+    _reset(monkeypatch, tmp_path)
+    from app.domains.decisioning.services import intent_case_import_service as service
+
+    seen_contexts = []
+
+    async def retrieve_candidates(message: str, top_k: int):
+        return [
+            {
+                "kind": "goal",
+                "id": "provide_information",
+                "name": "提供信息",
+                "score": 0.9,
+            }
+        ]
+
+    async def classify(message, user_state, candidates):
+        seen_contexts.append(user_state.metadata["recent_turns"])
+        return IntentResult(
+            route="rag_answer",
+            primary_intent="care_question",
+            primary_domain="customer_need",
+            primary_goal="provide_information",
+            issues=["experience_level"],
+            scope="in_scope",
+            classifier_source="llm",
+            classifier_provider="mock",
+            classifier_model="mock-intent",
+            raw_prediction={
+                "primary_domain": "customer_need",
+                "primary_goal": "provide_information",
+            },
+            confidence=0.96,
+            need_rag=True,
+            reason="客户提供地区和品种",
+        )
+
+    monkeypatch.setattr(service, "retrieve_intent_examples", retrieve_candidates)
+    monkeypatch.setattr(service, "classify_by_llm", classify)
+
+    async def import_with_ai():
+        return await service.import_intent_labeling_case("case01")
+
+    result = anyio.run(import_with_ai)
+    client = TestClient(app)
+    pending = client.get(
+        "/api/v1/admin/intent-observations",
+        params={"annotation_status": "pending", "classifier_source": "case_import"},
+    ).json()["data"]
+    accepted = client.get(
+        "/api/v1/admin/intent-observations",
+        params={"annotation_status": "confirmed", "classifier_source": "case_import"},
+    ).json()["data"]
+    first = client.get(
+        "/api/v1/admin/intent-observations/intent-case-case01-001"
+    ).json()["data"]
+
+    assert result["classified_with_ai"] is True
+    assert pending["total"] == 0
+    assert accepted["total"] == 7
+    assert first["primary_domain"] == "customer_need"
+    assert first["primary_goal"] == "provide_information"
+    assert first["issues"] == ["experience_level"]
+    assert first["confidence"] == pytest.approx(0.96)
+    assert first["classifier_source"] == "case_import"
+    assert first["classifier_provider"] == "mock"
+    assert first["annotation_status"] == "confirmed"
+    assert first["annotation_origin"] == "automatic"
+    assert first["needs_review"] is False
+    assert first["raw_prediction"]["prediction_source"] == "llm"
+    assert first["raw_prediction"]["prediction"]["primary_goal"] == (
+        "provide_information"
+    )
+    assert seen_contexts[0] == first["context"]
+    assert client.get("/api/v1/admin/intent-training-data").json()["data"]["total"] == 7
+
+    corrected = client.post(
+        "/api/v1/admin/intent-observations/intent-case-case01-001/annotations",
+        json={
+            "status": "corrected",
+            "primary_domain": "care_service",
+            "primary_goal": "ask_information",
+            "issues": ["care_general"],
+            "scope": "in_scope",
+            "annotator_id": "reviewer",
+        },
+    )
+    assert corrected.status_code == 200
+    exported = client.get("/api/v1/admin/intent-training-data").json()["data"]
+    assert exported["total"] == 7
+    assert exported["items"][0]["labels"]["primary_domain"] == "care_service"
+    assert exported["items"][0]["labels"]["primary_goal"] == "ask_information"
