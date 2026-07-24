@@ -32,7 +32,7 @@ def image_flow_db(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_image_and_followup_text_share_sixty_second_window(monkeypatch):
+async def test_image_and_followup_text_share_dynamic_window(monkeypatch):
     from app.services import message_risk_control_service as service
 
     now = datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
@@ -52,7 +52,7 @@ async def test_image_and_followup_text_share_sixty_second_window(monkeypatch):
         }
     )
 
-    monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=30))
+    monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=3))
     merged = await service.enqueue_eyun_inbound(
         {
             "account": "acct",
@@ -67,8 +67,8 @@ async def test_image_and_followup_text_share_sixty_second_window(monkeypatch):
         }
     )
 
-    assert image_batch["due_at"] == now + timedelta(seconds=60)
-    assert merged["due_at"] == now + timedelta(seconds=90)
+    assert image_batch["due_at"] == now + timedelta(seconds=5)
+    assert merged["due_at"] == now + timedelta(seconds=8)
     assert merged["content"] == "[图片]\n这个怎么处理？"
 
 

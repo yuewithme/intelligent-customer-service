@@ -61,7 +61,12 @@ class Settings(BaseSettings):
     eyun_material_group_wc_id: str = Field(
         default="", alias="EYUN_MATERIAL_GROUP_WC_ID"
     )
-    eyun_inbound_debounce_seconds: int = Field(default=60, alias="EYUN_INBOUND_DEBOUNCE_SECONDS")
+    eyun_inbound_debounce_seconds: int = Field(
+        default=5, ge=0, alias="EYUN_INBOUND_DEBOUNCE_SECONDS"
+    )
+    eyun_inbound_debounce_max_seconds: int = Field(
+        default=15, ge=0, alias="EYUN_INBOUND_DEBOUNCE_MAX_SECONDS"
+    )
     eyun_send_max_per_minute: int = Field(
         default=30, ge=1, alias="EYUN_SEND_MAX_PER_MINUTE"
     )

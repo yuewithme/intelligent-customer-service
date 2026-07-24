@@ -31,7 +31,8 @@ def risk_control_db(monkeypatch, tmp_path):
 def test_risk_control_defaults():
     settings = get_settings()
 
-    assert settings.eyun_inbound_debounce_seconds == 60
+    assert settings.eyun_inbound_debounce_seconds == 5
+    assert settings.eyun_inbound_debounce_max_seconds == 15
     assert settings.eyun_send_max_per_minute == 30
     assert settings.eyun_send_min_interval_seconds == 2.1
     assert settings.eyun_send_max_interval_seconds == 3.0
@@ -84,7 +85,7 @@ async def test_enqueue_eyun_inbound_merges_same_user_window(monkeypatch):
 
     monkeypatch.setattr(
         "app.integrations.eyun.services.message_risk_control_service.utcnow",
-        lambda: now + timedelta(seconds=30),
+        lambda: now + timedelta(seconds=3),
     )
     second = await enqueue_eyun_inbound(
         {
@@ -103,7 +104,46 @@ async def test_enqueue_eyun_inbound_merges_same_user_window(monkeypatch):
     assert first["batch_key"] == second["batch_key"]
     assert second["content"] == "first\nsecond"
     assert second["message_count"] == 2
-    assert second["due_at"] == now + timedelta(seconds=90)
+    assert first["due_at"] == now + timedelta(seconds=5)
+    assert second["due_at"] == now + timedelta(seconds=8)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_eyun_inbound_caps_rolling_window(monkeypatch):
+    from app.integrations.eyun.services.message_risk_control_service import enqueue_eyun_inbound
+
+    now = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
+    offsets = iter((0, 4, 8, 12))
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.utcnow",
+        lambda: now + timedelta(seconds=next(offsets)),
+    )
+
+    batches = []
+    for message_id in range(1, 5):
+        batches.append(
+            await enqueue_eyun_inbound(
+                {
+                    "account": "acct",
+                    "messageType": "60001",
+                    "wcId": "bot",
+                    "data": {
+                        "wId": "wid",
+                        "fromUser": "user",
+                        "content": f"part-{message_id}",
+                        "newMsgId": message_id,
+                    },
+                }
+            )
+        )
+
+    assert [batch["due_at"] for batch in batches] == [
+        now + timedelta(seconds=5),
+        now + timedelta(seconds=9),
+        now + timedelta(seconds=13),
+        now + timedelta(seconds=15),
+    ]
+    assert batches[-1]["message_count"] == 4
 
 
 @pytest.mark.asyncio
@@ -177,6 +217,7 @@ async def test_enqueue_eyun_inbound_reopens_processed_conversation(monkeypatch):
     assert second["status"] == "pending"
     assert second["content"] == "new"
     assert second["message_count"] == 1
+    assert second["due_at"] == now + timedelta(seconds=5)
 
 
 @pytest.mark.asyncio

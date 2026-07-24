@@ -70,6 +70,23 @@ def build_eyun_batch_key(*, w_id: str, target_wc_id: str, from_user: str) -> str
     return f"{w_id}:{target_wc_id or from_user}"
 
 
+def _inbound_batch_due_at(*, now: datetime, started_at: datetime) -> datetime:
+    settings = get_settings()
+    quiet_seconds = max(0, settings.eyun_inbound_debounce_seconds)
+    max_seconds = max(
+        quiet_seconds,
+        settings.eyun_inbound_debounce_max_seconds,
+    )
+    if started_at.tzinfo is None and now.tzinfo is not None:
+        started_at = started_at.replace(tzinfo=now.tzinfo)
+    elif started_at.tzinfo is not None and now.tzinfo is None:
+        started_at = started_at.replace(tzinfo=None)
+    return min(
+        now + timedelta(seconds=quiet_seconds),
+        started_at + timedelta(seconds=max_seconds),
+    )
+
+
 async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
@@ -84,7 +101,7 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
     batch_key = build_eyun_batch_key(
         w_id=w_id, target_wc_id=target_wc_id, from_user=from_user
     )
-    due_at = now + timedelta(seconds=settings.eyun_inbound_debounce_seconds)
+    due_at = _inbound_batch_due_at(now=now, started_at=now)
     provider_message_id = _provider_message_id(payload, batch_key, now)
 
     with _get_session() as session:
@@ -111,7 +128,7 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
                 content=content,
                 message_count=1,
                 status="pending",
-                due_at=due_at if is_image else now,
+                due_at=due_at,
                 created_at=now,
                 updated_at=now,
             )
@@ -133,7 +150,10 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
         else:
             batch.content = f"{batch.content}\n{content}" if batch.content else content
             batch.message_count = (batch.message_count or 0) + 1
-            batch.due_at = due_at
+            batch.due_at = _inbound_batch_due_at(
+                now=now,
+                started_at=batch.created_at,
+            )
             batch.updated_at = now
 
         session.add(
