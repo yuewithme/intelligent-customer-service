@@ -105,6 +105,59 @@ def test_profile_model_config_prefers_dedicated_provider(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dashscope_json_generation_disables_thinking_and_requests_json(
+    monkeypatch,
+):
+    from app.core.config import get_settings
+    from app.integrations.ai.services import llm_service
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": '{"confidence": 0.9}'}}],
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            del exc_type, exc, tb
+
+        async def post(self, url, headers, json):
+            captured.update({"url": url, "headers": headers, "body": json})
+            return FakeResponse()
+
+    monkeypatch.setenv("INTENT_LLM_PROVIDER", "dashscope")
+    monkeypatch.setenv("INTENT_LLM_MODEL", "qwen3.7-plus")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope_test_key")
+    get_settings.cache_clear()
+    monkeypatch.setattr(llm_service.httpx, "AsyncClient", FakeClient)
+
+    try:
+        result = await llm_service.generate_json(
+            "请以 JSON 格式输出意图。",
+            purpose="intent",
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result == {"confidence": 0.9}
+    assert captured["body"]["enable_thinking"] is False
+    assert captured["body"]["response_format"] == {"type": "json_object"}
+    assert captured["body"]["model"] == "qwen3.7-plus"
+    assert captured["headers"]["Authorization"] == "Bearer dashscope_test_key"
+
+
+@pytest.mark.asyncio
 async def test_talk_script_classifier_uses_talk_script_model(monkeypatch):
     from app.core.config import get_settings
     from app.domains.sales.talk_script import llm_question_classifier

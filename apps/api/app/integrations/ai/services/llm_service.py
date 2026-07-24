@@ -163,15 +163,23 @@ async def generate_json(prompt: str, purpose: str = "intent") -> dict:
     last_error: Exception | None = None
     for _ in range(2):
         try:
+            request_body = {
+                "model": config.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0,
+            }
+            if provider == "dashscope":
+                request_body.update(
+                    {
+                        "enable_thinking": False,
+                        "response_format": {"type": "json_object"},
+                    }
+                )
             async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
                 response = await client.post(
                     f"{base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
-                    json={
-                        "model": config.model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0,
-                    },
+                    json=request_body,
                 )
                 response.raise_for_status()
                 body = response.json()
