@@ -1,0 +1,41 @@
+{
+  "case_id": "case18_2",
+  "customer_id": "intent-case18_2-customer",
+  "source_file": "docs/首单成交案例-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_case_transcript",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "老师怎么送书？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "兰友您好，您家里养的都是什么品种呢？方便的话，可以把你的养兰环境拍个照片、或者告诉我你所在的地区吗？",
+        "因为不同地区、不同品种，养护方法是完全不一样的。你告诉我，我会根据你的情况给你具体的养护建议。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我在西安，我是在凉台上养兰花",
+        "大部分都是建兰还有秋榜",
+        "书怎么送？老师"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "资料是我们指导兰友的其中一种方式，直播间展示是图文版资料，我们以电子档形式给您发放了，请及时参考，我们家是专门教兰友养护兰花的，在我家结缘兰花还会有体系的视频资料。并且遇到问题也还会结合兰友地区手把手教兰友解决"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "哦好的谢谢"
+      ]
+    }
+  ]
+}
