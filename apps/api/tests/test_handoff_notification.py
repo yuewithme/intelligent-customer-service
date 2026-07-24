@@ -10,9 +10,11 @@ from app.domains.conversations.services.conversation_service import (
     record_customer_message,
 )
 from app.domains.handoff.services.handoff_notification_service import (
+    enqueue_handoff_notification,
     get_handoff_notification_settings,
     update_handoff_notification_settings,
 )
+from app.domains.handoff.services import handoff_notification_service
 from app.domains.sales.services.unpurchased_sop_service import (
     _get_session as get_sop_session,
     sync_eyun_contacts,
@@ -28,6 +30,7 @@ def _settings(monkeypatch, tmp_path):
     monkeypatch.setenv("CHAT_LOG_ENABLED", "true")
     monkeypatch.setenv("EYUN_WID", "wid-1")
     monkeypatch.setenv("API_AUTH_ENABLED", "false")
+    monkeypatch.delenv("FEISHU_HANDOFF_WEBHOOK_URL", raising=False)
     get_settings.cache_clear()
 
 
@@ -199,3 +202,75 @@ async def test_forced_handoff_sends_operator_reason_and_trigger_message(
     assert len(queued) == 1
     assert "转人工原因：请人工核实破损补发" in queued[0]["content"]
     assert "触发客户消息：商品收到后有破损" in queued[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_feishu_webhook_receives_same_handoff_notification(
+    monkeypatch, tmp_path
+):
+    contact_id = await _create_contact(monkeypatch, tmp_path)
+    update_handoff_notification_settings(
+        HandoffNotificationSettingsUpdateRequest(
+            recipient_contact_ids=[contact_id],
+            message_text="请及时接待这位客户。",
+        )
+    )
+    monkeypatch.setenv(
+        "FEISHU_HANDOFF_WEBHOOK_URL",
+        "https://open.feishu.cn/open-apis/bot/v2/hook/test-webhook",
+    )
+    get_settings.cache_clear()
+    queued: list[dict] = []
+    posted: list[dict] = []
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"StatusCode": 0, "StatusMessage": "success"}
+
+    class FakeClient:
+        def __init__(self, timeout):
+            assert timeout == 10
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, json):
+            posted.append({"url": url, "json": json})
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.enqueue_wechat_outbound",
+        fake_enqueue,
+    )
+    monkeypatch.setattr(handoff_notification_service.httpx, "AsyncClient", FakeClient)
+
+    result = await enqueue_handoff_notification(
+        customer_wc_id="customer-wxid",
+        nickname="兰友小王",
+        wechat_id="orchid_wang",
+        handoff_reason="human_request",
+        trigger_message="请转人工",
+        source_reference="test-feishu",
+    )
+
+    assert result["feishu_sent"] is True
+    assert len(queued) == 1
+    assert posted == [
+        {
+            "url": "https://open.feishu.cn/open-apis/bot/v2/hook/test-webhook",
+            "json": {
+                "msg_type": "text",
+                "content": {"text": queued[0]["content"]},
+            },
+        }
+    ]

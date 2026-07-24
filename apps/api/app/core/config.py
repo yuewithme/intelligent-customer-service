@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     eyun_contact_refresh_delay_seconds: float = Field(
         default=15.0, ge=0, alias="EYUN_CONTACT_REFRESH_DELAY_SECONDS"
     )
+    feishu_handoff_webhook_url: str = Field(
+        default="", alias="FEISHU_HANDOFF_WEBHOOK_URL"
+    )
     evaluation_mode: bool = Field(default=False, alias="EVALUATION_MODE")
     memory_v2_write_enabled: bool = Field(
         default=False, alias="MEMORY_V2_WRITE_ENABLED"

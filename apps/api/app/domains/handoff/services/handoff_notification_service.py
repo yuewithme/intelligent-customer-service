@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from sqlalchemy import create_engine, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -129,15 +130,16 @@ async def enqueue_handoff_notification(
     with _get_session() as session:
         setting = _get_or_create_setting(session)
         recipient_ids = _recipient_ids(setting)
-        if not recipient_ids:
-            session.commit()
-            return {"queued": 0, "reason": "no_recipients"}
-        recipients = session.scalars(
-            select(EyunContactModel).where(
-                EyunContactModel.id.in_(recipient_ids),
-                EyunContactModel.status == "active",
-            )
-        ).all()
+        recipients = (
+            session.scalars(
+                select(EyunContactModel).where(
+                    EyunContactModel.id.in_(recipient_ids),
+                    EyunContactModel.status == "active",
+                )
+            ).all()
+            if recipient_ids
+            else []
+        )
         recipients_by_id = {contact.id: contact for contact in recipients}
         recipients = [
             recipients_by_id[contact_id]
@@ -209,7 +211,35 @@ async def enqueue_handoff_notification(
                 recipient["id"],
                 exc,
             )
-    return {"queued": len(queued_ids), "outbound_message_ids": queued_ids}
+    feishu_sent = await _send_feishu_handoff_notification(content)
+    return {
+        "queued": len(queued_ids),
+        "outbound_message_ids": queued_ids,
+        "feishu_sent": feishu_sent,
+    }
+
+
+async def _send_feishu_handoff_notification(content: str) -> bool:
+    webhook_url = get_settings().feishu_handoff_webhook_url.strip()
+    if not webhook_url:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                webhook_url,
+                json={"msg_type": "text", "content": {"text": content}},
+            )
+        response.raise_for_status()
+        result = response.json()
+        status_code = result.get("StatusCode", result.get("code"))
+        if status_code not in (0, "0"):
+            raise RuntimeError(
+                str(result.get("StatusMessage") or result.get("msg") or status_code)
+            )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Feishu handoff webhook send failed: %s", exc)
+        return False
 
 
 def _render_notification_message(
