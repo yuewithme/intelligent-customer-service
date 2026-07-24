@@ -6,7 +6,7 @@ from app.core.config import get_settings
 from app.domains.customers.services.memory_consolidation_service import apply_memory_candidate
 from app.domains.customers.services.memory_event_service import (
     get_memory_event_by_id,
-    list_memory_events,
+    list_memory_event_context,
 )
 from app.domains.customers.services.memory_extraction_service import extract_memory_candidates
 from app.domains.customers.services.memory_job_service import (
@@ -29,10 +29,10 @@ async def process_memory_job(job, *, use_llm: bool, min_confidence: float) -> in
     )
     if trigger is None:
         raise ValueError("memory trigger event no longer exists")
-    events = list_memory_events(
+    events = list_memory_event_context(
         tenant_id=job.tenant_id,
         subject_id=job.subject_id,
-        session_id=trigger.session_id,
+        anchor_event_id=trigger.id,
         limit=20,
     )
     candidates = await extract_memory_candidates(

@@ -607,6 +607,34 @@ async def test_worker_restart_after_fact_commit_is_idempotent(memory_db):
 
 
 @pytest.mark.asyncio
+async def test_worker_keeps_old_trigger_inside_long_session_context(memory_db):
+    subject = _subject()
+    started_at = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    trigger = _append(
+        subject,
+        uid="message:worker:old-trigger",
+        text="这次预算三千元",
+        occurred_at=started_at,
+    )
+    for index in range(1, 26):
+        _append(
+            subject,
+            uid=f"message:worker:later:{index}",
+            text=f"后续消息 {index}",
+            occurred_at=started_at + timedelta(seconds=index),
+        )
+    job = enqueue_memory_job(
+        tenant_id=subject.tenant_id,
+        subject_id=subject.id,
+        trigger_event_id=trigger.id,
+    )
+
+    assert await process_memory_job(
+        job, use_llm=False, min_confidence=0.85
+    ) == 1
+
+
+@pytest.mark.asyncio
 async def test_lifespan_starts_memory_worker_only_when_write_flag_enabled(monkeypatch):
     import app.bootstrap.lifecycle as lifecycle_module
 

@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.infrastructure.database.models import MemoryEventModel, MemorySubjectModel
@@ -137,6 +137,86 @@ def list_memory_events(
             )
         )
         return [_event_read(row) for row in reversed(rows)]
+
+
+def list_memory_event_context(
+    *,
+    tenant_id: str,
+    subject_id: str,
+    anchor_event_id: int,
+    limit: int = 20,
+) -> list[MemoryEventRead]:
+    """Return bounded same-session events surrounding one durable trigger."""
+    limit = max(1, min(limit, 100))
+    with get_memory_session() as session:
+        anchor = session.scalar(
+            select(MemoryEventModel).where(
+                MemoryEventModel.id == anchor_event_id,
+                MemoryEventModel.tenant_id == tenant_id,
+                MemoryEventModel.subject_id == subject_id,
+                MemoryEventModel.deleted_at.is_(None),
+            )
+        )
+        if anchor is None:
+            return []
+        scope = [
+            MemoryEventModel.tenant_id == tenant_id,
+            MemoryEventModel.subject_id == subject_id,
+            MemoryEventModel.deleted_at.is_(None),
+        ]
+        if anchor.session_id is None:
+            scope.append(MemoryEventModel.session_id.is_(None))
+        else:
+            scope.append(MemoryEventModel.session_id == anchor.session_id)
+
+        before_limit = min(limit, max(1, (limit + 1) // 2))
+        before_rows = list(
+            session.scalars(
+                select(MemoryEventModel)
+                .where(
+                    *scope,
+                    or_(
+                        MemoryEventModel.occurred_at < anchor.occurred_at,
+                        and_(
+                            MemoryEventModel.occurred_at == anchor.occurred_at,
+                            MemoryEventModel.id <= anchor.id,
+                        ),
+                    ),
+                )
+                .order_by(
+                    MemoryEventModel.occurred_at.desc(),
+                    MemoryEventModel.id.desc(),
+                )
+                .limit(before_limit)
+            )
+        )
+        before_rows.reverse()
+        after_limit = limit - len(before_rows)
+        after_rows = (
+            list(
+                session.scalars(
+                    select(MemoryEventModel)
+                    .where(
+                        *scope,
+                        or_(
+                            MemoryEventModel.occurred_at > anchor.occurred_at,
+                            and_(
+                                MemoryEventModel.occurred_at == anchor.occurred_at,
+                                MemoryEventModel.id > anchor.id,
+                            ),
+                        ),
+                    )
+                    .order_by(
+                        MemoryEventModel.occurred_at.asc(),
+                        MemoryEventModel.id.asc(),
+                    )
+                    .limit(after_limit)
+                )
+            )
+            if after_limit
+            else []
+        )
+        return [_event_read(row) for row in [*before_rows, *after_rows]]
 
 
 def _find_scoped_event(
