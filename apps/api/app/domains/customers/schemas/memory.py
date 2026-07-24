@@ -122,10 +122,20 @@ FACT_VALUE_MODELS: dict[str, type[BaseModel]] = {
 
 FACT_SOURCE_POLICY: dict[str, frozenset[str]] = {
     "identity.display_name": frozenset(
-        {"verified_contact_provider", "customer_explicit", "manual_customer_correction"}
+        {
+            "verified_contact_provider",
+            "customer_explicit",
+            "manual_customer_correction",
+            "legacy_profile",
+        }
     ),
     "location.region": frozenset(
-        {"verified_contact_provider", "customer_explicit", "manual_customer_correction"}
+        {
+            "verified_contact_provider",
+            "customer_explicit",
+            "manual_customer_correction",
+            "legacy_profile",
+        }
     ),
     "communication.preferred_detail": frozenset(
         {"customer_explicit", "manual_customer_correction"}
@@ -142,14 +152,15 @@ FACT_SOURCE_POLICY: dict[str, frozenset[str]] = {
             "customer_explicit",
             "verified_business_system",
             "manual_customer_correction",
+            "legacy_profile",
         }
     ),
     "purchase.status": frozenset({"verified_business_system"}),
     "service.pain_point": frozenset(
-        {"customer_explicit", "manual_customer_correction"}
+        {"customer_explicit", "manual_customer_correction", "legacy_profile"}
     ),
     "service.preference": frozenset(
-        {"customer_explicit", "manual_customer_correction"}
+        {"customer_explicit", "manual_customer_correction", "legacy_profile"}
     ),
     "service.commitment": frozenset(
         {"assistant_commitment", "human_agent_annotation"}

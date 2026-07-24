@@ -138,6 +138,13 @@ def _validate_fact_source(source_type: str, events: list[MemoryEventModel]) -> N
         for event in events
     ):
         raise MemoryValidationError("customer behavior requires observed evidence")
+    if source_type == "legacy_profile" and not any(
+        event.event_type == "contact_snapshot"
+        and event.actor_type == "system"
+        and event.source_type == "legacy_profile"
+        for event in events
+    ):
+        raise MemoryValidationError("legacy fact requires a legacy profile snapshot")
 
 
 def _validate_episode(

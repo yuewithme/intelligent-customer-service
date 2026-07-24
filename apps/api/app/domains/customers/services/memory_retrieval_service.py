@@ -35,6 +35,7 @@ _SOURCE_RELIABILITY = {
     "human_agent_annotation": 0.8,
     "customer_behavior": 0.65,
     "assistant_commitment": 0.65,
+    "legacy_profile": 0.5,
 }
 
 

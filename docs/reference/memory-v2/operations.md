@@ -51,6 +51,23 @@ the rollout-gate record. Tenant/subject scope validation and verified-business
 fact validation still fail closed. Set `MEMORY_V2_CANARY_ENABLED=false` or
 `MEMORY_V2_CANARY_PERCENT=0` for immediate rollback.
 
+Before directly activating an installation with legacy `user_profiles` and
+`conversation_memories`, run the aggregate-only preview and then the idempotent
+backfill inside the API container:
+
+```bash
+python -m app.cli.backfill_memory_v2
+python -m app.cli.backfill_memory_v2 --apply
+```
+
+The backfill creates tenant-scoped subjects and identities, imports safe typed
+profile facts as lower-confidence `legacy_profile` evidence, and imports exact
+legacy turns before scheduling normal extraction jobs. It intentionally excludes
+mobile numbers and full shipping addresses from profile snapshot events. The
+command is resumable: rerunning it must not duplicate subjects, events, facts, or
+jobs. Back up the SQL database before the apply command and do not enable direct
+reads until the command reports zero errors.
+
 ## Monitoring
 
 Use `GET /api/v1/memory/subjects/operations/status?tenant_id=...` to inspect:
