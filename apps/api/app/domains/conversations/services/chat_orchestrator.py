@@ -35,6 +35,9 @@ from app.domains.customers.services.memory_rollout_service import prepare_memory
 from app.domains.decisioning.services.policy_service import decide_route
 from app.domains.decisioning.services.policy_engine import decide_policy
 from app.domains.decisioning.services.reply_planner import resolve_reply_plan
+from app.domains.decisioning.services.reply_shadow_service import (
+    schedule_reply_shadow_evaluation,
+)
 from app.domains.decisioning.services.reply_workflow_graph import execute_reply_plan
 from app.domains.decisioning.services.rule_guard_service import check_rules
 from app.domains.sales.services.sales_action_service import apply_sales_action, decide_sales_action
@@ -368,6 +371,15 @@ async def handle_chat(request: ChatRequest) -> dict:
             reply.metadata["policy_decision"] = rich_decision.model_dump()
         elif decision is not None:
             reply.metadata["policy_decision"] = decision.model_dump()
+
+        if not is_evaluation:
+            schedule_reply_shadow_evaluation(
+                message=message,
+                user_state=user_state,
+                intent=routed_intent,
+                plan=plan,
+                reply=reply,
+            )
 
         stage_started = time.perf_counter()
         await update_user_state(

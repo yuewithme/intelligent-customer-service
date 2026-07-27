@@ -348,6 +348,10 @@ def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
             ("profile_llm_provider", "profile_llm_model"),
         ),
         "review": (("review_llm_provider", "review_llm_model"),),
+        "reply_shadow": (
+            ("reply_shadow_llm_provider", "reply_shadow_llm_model"),
+            ("review_llm_provider", "review_llm_model"),
+        ),
     }
     for provider_name, model_name in chains.get(purpose, ()):
         provider = str(getattr(settings, provider_name, "") or "").strip()

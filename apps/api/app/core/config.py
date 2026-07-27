@@ -254,6 +254,38 @@ class Settings(BaseSettings):
     )
     intent_shadow_llm_provider: str = "dashscope"
     intent_shadow_llm_model: str = "qwen3.7-plus"
+    reply_shadow_enabled: bool = Field(
+        default=False, alias="REPLY_SHADOW_ENABLED"
+    )
+    reply_shadow_sample_percent: int = Field(
+        default=10, ge=0, le=100, alias="REPLY_SHADOW_SAMPLE_PERCENT"
+    )
+    reply_shadow_high_risk_always: bool = Field(
+        default=True, alias="REPLY_SHADOW_HIGH_RISK_ALWAYS"
+    )
+    reply_shadow_llm_provider: str = Field(
+        default="", alias="REPLY_SHADOW_LLM_PROVIDER"
+    )
+    reply_shadow_llm_model: str = Field(
+        default="", alias="REPLY_SHADOW_LLM_MODEL"
+    )
+    reply_shadow_experiment_id: str = Field(
+        default="followup_decision_v1",
+        alias="REPLY_SHADOW_EXPERIMENT_ID",
+    )
+    reply_shadow_candidate_version: str = Field(
+        default="followup_v1",
+        alias="REPLY_SHADOW_CANDIDATE_VERSION",
+    )
+    reply_shadow_prompt_version: str = Field(
+        default="v1", alias="REPLY_SHADOW_PROMPT_VERSION"
+    )
+    reply_shadow_export_max_rows: int = Field(
+        default=10000,
+        ge=1,
+        le=100000,
+        alias="REPLY_SHADOW_EXPORT_MAX_ROWS",
+    )
     intent_prompt_version: str = Field(default="v2", alias="INTENT_PROMPT_VERSION")
     talk_script_llm_provider: str = ""
     talk_script_llm_model: str = ""

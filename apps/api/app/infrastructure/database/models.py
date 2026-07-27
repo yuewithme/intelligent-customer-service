@@ -324,6 +324,54 @@ class IntentAnnotationModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class ReplyShadowRunModel(Base):
+    __tablename__ = "reply_shadow_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "trace_id",
+            "experiment_id",
+            "candidate_version",
+            "prompt_version",
+            name="uq_reply_shadow_trace_experiment_candidate_prompt",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(128), index=True)
+    experiment_id: Mapped[str] = mapped_column(String(128), index=True)
+    candidate_version: Mapped[str] = mapped_column(String(128), index=True)
+    prompt_version: Mapped[str] = mapped_column(String(64))
+    channel: Mapped[str] = mapped_column(String(64), index=True)
+    user_message: Mapped[str] = mapped_column(Text)
+    input_snapshot_json: Mapped[str] = mapped_column(Text, default="{}")
+    primary_json: Mapped[str] = mapped_column(Text, default="{}")
+    shadow_json: Mapped[str] = mapped_column(Text, default="{}")
+    decision_agreement: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
+    auto_issues_json: Mapped[str] = mapped_column(Text, default="[]")
+    review_priority: Mapped[str] = mapped_column(String(32), index=True, default="medium")
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    error_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ReplyShadowAnnotationModel(Base):
+    __tablename__ = "reply_shadow_annotations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reply_shadow_run_id: Mapped[int] = mapped_column(
+        ForeignKey("reply_shadow_runs.id"),
+        index=True,
+    )
+    trace_id: Mapped[str] = mapped_column(String(128), index=True)
+    verdict: Mapped[str] = mapped_column(String(32), index=True)
+    error_tags_json: Mapped[str] = mapped_column(Text, default="[]")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    annotator_id: Mapped[str] = mapped_column(String(128), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class EyunInboundBatchModel(Base):
     __tablename__ = "eyun_inbound_batches"
 

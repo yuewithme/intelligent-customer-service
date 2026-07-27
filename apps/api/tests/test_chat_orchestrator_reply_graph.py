@@ -82,6 +82,9 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
     async def noop(*args, **kwargs):
         del args, kwargs
 
+    def no_shadow(*args, **kwargs):
+        del args, kwargs
+
     monkeypatch.setattr(chat_orchestrator, "normalize_chat_request", normalize_chat_request)
     monkeypatch.setattr(chat_orchestrator, "get_user_state", get_user_state)
     monkeypatch.setattr(chat_orchestrator, "get_profile_bundle", get_profile_bundle)
@@ -106,6 +109,11 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
     )
     monkeypatch.setattr(chat_orchestrator, "record_chat_log", noop)
     monkeypatch.setattr(chat_orchestrator, "record_ai_turn", noop)
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "schedule_reply_shadow_evaluation",
+        no_shadow,
+    )
 
 
 @pytest.mark.asyncio
@@ -132,7 +140,15 @@ async def test_orchestrator_executes_the_single_planned_reply(monkeypatch):
             route="template_reply",
         )
 
+    def capture_shadow(**kwargs):
+        captured["shadow"] = kwargs
+
     monkeypatch.setattr(chat_orchestrator, "execute_reply_plan", execute_reply_plan)
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "schedule_reply_shadow_evaluation",
+        capture_shadow,
+    )
     result = await chat_orchestrator.handle_chat(
         ChatRequest(
             channel="api",
@@ -145,6 +161,8 @@ async def test_orchestrator_executes_the_single_planned_reply(monkeypatch):
     assert result["answer"].startswith("planned answer")
     assert result["answer"].count("？") == 1
     assert captured["plan"].decision_trace
+    assert captured["shadow"]["message"].trace_id == "trace_001"
+    assert captured["shadow"]["reply"].answer.startswith("planned answer")
     assert set(result) == {
         "answer",
         "answer_segments",

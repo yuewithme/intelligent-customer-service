@@ -12,6 +12,7 @@ from app.domains.conversations.api import (
 from app.domains.customers.api import admin_memory, state, user_profile
 from app.domains.decisioning.api import (
     admin_intent_observations,
+    admin_reply_shadows,
     debug,
     intent_examples,
     templates,
@@ -39,6 +40,7 @@ ROUTERS = (
     admin_gate.router,
     admin_handoff_notification.router,
     admin_intent_observations.router,
+    admin_reply_shadows.router,
     admin_tags.router,
     chat.router,
     knowledge.router,
