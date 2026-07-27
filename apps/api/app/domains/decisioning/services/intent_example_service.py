@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import json
 import logging
-from math import fsum
+from math import fsum, log, sqrt
 from pathlib import Path
 from time import monotonic
 
@@ -112,17 +113,19 @@ async def _retrieve_labeled_examples(message: str) -> list[dict]:
     best_by_text: dict[str, tuple[float, dict]] = {}
     message_grams = _character_ngrams(message)
     minimum_shared_grams = 2 if len(message_grams) >= 4 else 1
+    corpus_size, inverse_document_frequency = _example_corpus_statistics(samples)
     for sample in samples:
         text = str(sample.get("text") or "").strip()
         normalized_text = "".join(text.lower().split())
         if not normalized_text:
             continue
-        search_text = _sample_search_text(sample)
         text_grams = _character_ngrams(text)
         shared_grams = len(message_grams & text_grams)
-        base_score = max(
-            _lexical_similarity(message, text),
-            0.85 * _lexical_similarity(message, search_text),
+        base_score = _weighted_ngram_similarity(
+            message_grams,
+            text_grams,
+            inverse_document_frequency,
+            corpus_size,
         )
         if shared_grams < minimum_shared_grams or base_score <= 0.03:
             continue
@@ -139,9 +142,13 @@ async def _retrieve_labeled_examples(message: str) -> list[dict]:
 
     selected: list[dict] = []
     label_pair_counts: dict[tuple[str, str], int] = {}
-    for score, sample in sorted(
+    ranked = sorted(
         best_by_text.values(), key=lambda item: item[0], reverse=True
-    ):
+    )
+    minimum_score = max(0.08, ranked[0][0] * 0.35) if ranked else 1.0
+    for score, sample in ranked:
+        if score < minimum_score:
+            break
         labels = sample["labels"]
         pair = (labels["primary_domain"], labels["primary_goal"])
         if label_pair_counts.get(pair, 0) >= 2:
@@ -234,13 +241,41 @@ def _candidate_from_training_sample(sample: dict, score: float) -> dict:
     }
 
 
-def _sample_search_text(sample: dict) -> str:
-    context = " ".join(
-        str(turn.get("content") or "")
-        for turn in (sample.get("context") or [])[-2:]
-        if isinstance(turn, dict)
-    )
-    return f"{context} {sample.get('text') or ''}".strip()
+def _example_corpus_statistics(
+    samples: list[dict],
+) -> tuple[int, dict[str, float]]:
+    document_frequency: Counter[str] = Counter()
+    for sample in samples:
+        document_frequency.update(
+            _character_ngrams(str(sample.get("text") or ""))
+        )
+    corpus_size = max(len(samples), 1)
+    return corpus_size, {
+        gram: log((corpus_size + 1) / (count + 1)) + 0.2
+        for gram, count in document_frequency.items()
+    }
+
+
+def _weighted_ngram_similarity(
+    query: set[str],
+    document: set[str],
+    inverse_document_frequency: dict[str, float],
+    corpus_size: int,
+) -> float:
+    if not query or not document:
+        return 0.0
+    unseen_weight = log(corpus_size + 1) + 0.2
+
+    def weight(gram: str) -> float:
+        return inverse_document_frequency.get(gram, unseen_weight)
+
+    overlap = query & document
+    if not overlap:
+        return 0.0
+    numerator = fsum(weight(gram) ** 2 for gram in overlap)
+    query_norm = sqrt(fsum(weight(gram) ** 2 for gram in query))
+    document_norm = sqrt(fsum(weight(gram) ** 2 for gram in document))
+    return numerator / (query_norm * document_norm) if query_norm and document_norm else 0.0
 
 
 def _label_evidence(examples: list[dict]) -> dict[tuple[str, str], float]:
@@ -373,7 +408,7 @@ def _lexical_similarity(left: str, right: str) -> float:
 
 
 def _character_ngrams(value: str) -> set[str]:
-    compact = "".join(value.lower().split())
+    compact = "".join(character for character in value.lower() if character.isalnum())
     if len(compact) < 2:
         return {compact} if compact else set()
     return {compact[index : index + 2] for index in range(len(compact) - 1)}
