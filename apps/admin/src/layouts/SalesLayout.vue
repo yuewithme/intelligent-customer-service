@@ -51,6 +51,7 @@ const navigation = [
   ] },
   { title: '销售运营', items: [
     { label: '意图标注日志', to: '/operations/chat-logs' },
+    { label: '影子决策评测', to: '/operations/reply-shadows' },
     { label: '标签管理', to: '/operations/tags' },
     { label: '产品信息', to: '/operations/products' },
     { label: '养护手册', to: '/operations/care-manuals' }
