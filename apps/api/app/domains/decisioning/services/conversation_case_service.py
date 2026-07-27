@@ -22,9 +22,10 @@ from app.integrations.ai.services.llm_service import generate_json
 
 logger = logging.getLogger("wechat_rag_bot.conversation_case")
 _CASE_DIR = Path(__file__).resolve().parents[1] / "data" / "intent_labeling_cases"
-_CASE_CANDIDATE_VERSION = "case_shadow_v2"
-_CASE_PROMPT_VERSION = "conversation_case_v2"
+_CASE_CANDIDATE_VERSION = "case_shadow_v2_1"
+_CASE_PROMPT_VERSION = "conversation_case_v2_1"
 _MAX_REPLY_CHARS = 220
+_MAX_REPAIR_ATTEMPTS = 2
 _REPAIRABLE_ISSUES = {
     "rag_without_evidence",
     "unverified_fact_usage",
@@ -376,23 +377,27 @@ async def _generate_case_shadow_decision(
     )
     decision = ReplyShadowDecision.model_validate(raw)
     issues = _case_auto_issues(decision, verified_facts=[])
-    repairable = sorted(set(issues) & _REPAIRABLE_ISSUES)
-    if not repairable:
-        return decision, issues, False
-    repaired_raw = await generate_json(
-        _case_shadow_repair_prompt(
-            original_prompt=prompt,
-            decision=decision,
-            issues=repairable,
-        ),
-        purpose="reply_shadow",
-        provider_override=settings.reply_shadow_llm_provider,
-        model_override=settings.reply_shadow_llm_model,
-        shadow=True,
-        prompt_version=f"{_CASE_PROMPT_VERSION}_repair",
-    )
-    repaired = ReplyShadowDecision.model_validate(repaired_raw)
-    return repaired, _case_auto_issues(repaired, verified_facts=[]), True
+    repair_attempts = 0
+    while (
+        set(issues) & _REPAIRABLE_ISSUES
+        and repair_attempts < _MAX_REPAIR_ATTEMPTS
+    ):
+        repair_attempts += 1
+        repaired_raw = await generate_json(
+            _case_shadow_repair_prompt(
+                original_prompt=prompt,
+                decision=decision,
+                issues=sorted(set(issues) & _REPAIRABLE_ISSUES),
+            ),
+            purpose="reply_shadow",
+            provider_override=settings.reply_shadow_llm_provider,
+            model_override=settings.reply_shadow_llm_model,
+            shadow=True,
+            prompt_version=f"{_CASE_PROMPT_VERSION}_repair",
+        )
+        decision = ReplyShadowDecision.model_validate(repaired_raw)
+        issues = _case_auto_issues(decision, verified_facts=[])
+    return decision, issues, repair_attempts > 0
 
 
 def _case_shadow_repair_prompt(
@@ -408,7 +413,8 @@ def _case_shadow_repair_prompt(
         + json.dumps(issues, ensure_ascii=False)
         + "\n原候选："
         + json.dumps(decision.model_dump(mode="json"), ensure_ascii=False)
-        + "\n请修正全部违规项，只输出修正后的 JSON 对象。"
+        + "\n请修正全部违规项。若存在 multiple_questions，整段 reply 最多只能出现一个问号，"
+        + "把多个信息要求合并成一个问题。只输出修正后的 JSON 对象。"
     )
 
 
