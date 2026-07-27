@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import create_engine, select
@@ -155,7 +156,11 @@ async def run(
     channels: list[str],
     reclassify_splits: bool,
 ) -> dict[str, Any]:
-    engine = create_engine(get_settings().chat_log_db_url)
+    database_url = get_settings().chat_log_db_url
+    engine = create_engine(
+        database_url,
+        connect_args={"timeout": 30} if database_url.startswith("sqlite") else {},
+    )
     summary = {
         "scanned": 0,
         "mapped": 0,
@@ -165,51 +170,62 @@ async def run(
         "channels": channels,
         "applied": apply,
     }
-    with Session(engine) as session:
-        rows = list(
-            session.scalars(
+    with Session(engine) as read_session:
+        rows = [
+            _snapshot(row)
+            for row in read_session.scalars(
                 select(IntentObservationModel)
                 .where(IntentObservationModel.channel.in_(channels))
                 .order_by(IntentObservationModel.id)
             )
-        )
-        for row in rows:
-            if row.taxonomy_version == "2.0":
+        ]
+
+    plans: list[tuple[int, dict[str, Any], Any, bool]] = []
+    for row in rows:
+        if row.taxonomy_version == "2.0":
+            continue
+        summary["scanned"] += 1
+        old_payload = _row_payload(row)
+        split = requires_v2_reclassification(old_payload)
+        if split and reclassify_splits:
+            predicted = await _reclassify(row)
+            payload = {
+                "primary_domain": predicted.primary_domain,
+                "secondary_domains": predicted.secondary_domains,
+                "primary_goal": predicted.primary_goal,
+                "secondary_goals": predicted.secondary_goals,
+                "issues": predicted.issues,
+                "scope": predicted.scope,
+            }
+            summary["reclassified"] += 1
+        else:
+            predicted = None
+            payload = migrate_dgi_v1_to_v2(old_payload)
+            summary["mapped"] += 1
+            if split:
+                summary["needs_reclassification"] += 1
+        plans.append((row.id, payload, predicted, split))
+
+    if not apply:
+        return summary
+
+    for observation_id, payload, predicted, split in plans:
+        with Session(engine) as session:
+            row = session.get(IntentObservationModel, observation_id)
+            if row is None or row.taxonomy_version == "2.0":
                 continue
-            summary["scanned"] += 1
-            old_payload = _row_payload(row)
-            split = requires_v2_reclassification(old_payload)
-            if split and reclassify_splits:
-                predicted = await _reclassify(row)
-                payload = {
-                    "primary_domain": predicted.primary_domain,
-                    "secondary_domains": predicted.secondary_domains,
-                    "primary_goal": predicted.primary_goal,
-                    "secondary_goals": predicted.secondary_goals,
-                    "issues": predicted.issues,
-                    "scope": predicted.scope,
-                }
-                summary["reclassified"] += 1
-            else:
-                predicted = None
-                payload = migrate_dgi_v1_to_v2(old_payload)
-                summary["mapped"] += 1
-                if split:
-                    summary["needs_reclassification"] += 1
-            if not apply:
-                continue
+            latest_annotation = session.scalar(
+                select(IntentAnnotationModel)
+                .where(IntentAnnotationModel.observation_id == row.id)
+                .order_by(IntentAnnotationModel.id.desc())
+                .limit(1)
+            )
             _update_observation(
                 row,
                 payload,
                 confidence=predicted.confidence if predicted else None,
                 classifier_source="taxonomy_v2_rerun" if predicted else None,
                 raw_prediction=predicted.raw_prediction if predicted else None,
-            )
-            latest_annotation = session.scalar(
-                select(IntentAnnotationModel)
-                .where(IntentAnnotationModel.observation_id == row.id)
-                .order_by(IntentAnnotationModel.id.desc())
-                .limit(1)
             )
             if (
                 latest_annotation is not None
@@ -238,9 +254,17 @@ async def run(
                     ),
                 )
                 summary["annotation_migrated"] += 1
-        if apply:
             session.commit()
     return summary
+
+
+def _snapshot(row: IntentObservationModel) -> SimpleNamespace:
+    return SimpleNamespace(
+        **{
+            column.name: getattr(row, column.name)
+            for column in IntentObservationModel.__table__.columns
+        }
+    )
 
 
 def main() -> None:
