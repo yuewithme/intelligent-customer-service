@@ -3,7 +3,10 @@ import pytest
 from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.schemas.intent import IntentResult
-from app.domains.decisioning.services.intent_service import classify_intent
+from app.domains.decisioning.services.intent_service import (
+    classify_by_hard_rules,
+    classify_intent,
+)
 
 
 def _message(text: str) -> NormalizedMessage:
@@ -49,6 +52,28 @@ async def test_rule_intent_classification_routes(text, route, primary_intent):
 
     assert intent.route == route
     assert intent.primary_intent == primary_intent
+
+
+@pytest.mark.parametrize(
+    ("text", "goal", "kind"),
+    [
+        ("您好🌹", "social", "greeting"),
+        ("好的，谢谢您！", "social", "thanks"),
+        ("再见", "end_conversation", "end"),
+    ],
+)
+def test_pure_chitchat_bypasses_ai_with_high_confidence(text, goal, kind):
+    intent = classify_by_hard_rules(text)
+
+    assert intent is not None
+    assert intent.primary_domain == "conversation"
+    assert intent.primary_goal == goal
+    assert intent.slots["chitchat_kind"] == kind
+    assert intent.confidence == pytest.approx(0.99)
+
+
+def test_greeting_with_business_question_is_not_pure_chitchat():
+    assert classify_by_hard_rules("你好，这个多少钱？") is None
 
 
 @pytest.mark.asyncio

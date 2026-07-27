@@ -81,6 +81,39 @@ KNOWLEDGE_PATTERNS = (
 )
 CARE_WORDS = ("养护", "养不活", "不会养", "新手", "浇水", "施肥", "护理", "怕养死", "怕养不好")
 GREETING_WORDS = ("你好", "您好", "在吗", "hello", "hi", "谢谢", "感谢")
+PURE_GREETING_TEXTS = {
+    "你好",
+    "您好",
+    "在吗",
+    "有人吗",
+    "hello",
+    "hi",
+    "早上好",
+    "中午好",
+    "下午好",
+    "晚上好",
+    "早安",
+    "晚安",
+}
+PURE_THANKS_TEXTS = {
+    "谢谢",
+    "谢谢你",
+    "谢谢您",
+    "感谢",
+    "感谢你",
+    "感谢您",
+    "辛苦了",
+    "麻烦了",
+    "不客气",
+    "好的谢谢",
+    "好谢谢",
+    "好嘞谢谢",
+    "嗯谢谢",
+    "嗯嗯谢谢",
+    "好的感谢",
+    "收到谢谢",
+}
+PURE_END_TEXTS = {"再见", "拜拜", "回头聊", "先这样", "没问题了", "没有问题了"}
 UNSUPPORTED_WORDS = ("写代码", "彩票", "股票推荐", "医疗诊断", "法律意见", "无关业务")
 ORDER_QUERY_WORDS = (
     "查订单",
@@ -192,6 +225,23 @@ def match_identity_question(text: str) -> bool:
     return any(pattern.search(text) for pattern in IDENTITY_QUESTION_PATTERNS)
 
 
+def match_pure_chitchat(text: str) -> tuple[str, str] | None:
+    compact = re.sub(r"[^\w\u4e00-\u9fff]+", "", str(text or "").lower())
+    if compact in PURE_GREETING_TEXTS:
+        return "social", "greeting"
+    if compact in PURE_THANKS_TEXTS or re.fullmatch(
+        r"(?:好的?|好嘞|嗯嗯?|收到)?(?:谢谢|感谢)(?:你|您)?",
+        compact,
+    ):
+        return "social", "thanks"
+    if compact in PURE_END_TEXTS or re.fullmatch(
+        r"(?:好的?)?(?:先这样)?(?:再见|拜拜)",
+        compact,
+    ):
+        return "end_conversation", "end"
+    return None
+
+
 def match_price_intent(text: str) -> str | None:
     if hit_any(text, PRICE_OBJECTION_WORDS) or hit_any(text, HESITATION_WORDS):
         return "price_objection"
@@ -285,6 +335,19 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                 "confidence": 0.99,
                 "need_template": True,
                 "reason": "rule_product_image_request",
+            }
+        )
+
+    chitchat = match_pure_chitchat(text)
+    if chitchat is not None:
+        goal, kind = chitchat
+        return _validated_intent(
+            {
+                "primary_domain": "conversation",
+                "primary_goal": goal,
+                "confidence": 0.99,
+                "slots": {"chitchat_kind": kind},
+                "reason": "rule_pure_chitchat",
             }
         )
 
