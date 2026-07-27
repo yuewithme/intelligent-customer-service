@@ -22,7 +22,7 @@ from app.integrations.ai.services.llm_service import generate_json
 
 logger = logging.getLogger("wechat_rag_bot.conversation_case")
 _CASE_DIR = Path(__file__).resolve().parents[1] / "data" / "intent_labeling_cases"
-_CASE_CANDIDATE_VERSION = "case_shadow_v2_1"
+_CASE_CANDIDATE_VERSION = "case_shadow_v2_2"
 _CASE_PROMPT_VERSION = "conversation_case_v2_1"
 _MAX_REPLY_CHARS = 220
 _MAX_REPAIR_ATTEMPTS = 2
@@ -375,7 +375,9 @@ async def _generate_case_shadow_decision(
         shadow=True,
         prompt_version=_CASE_PROMPT_VERSION,
     )
-    decision = ReplyShadowDecision.model_validate(raw)
+    decision = ReplyShadowDecision.model_validate(
+        _normalize_case_shadow_payload(raw)
+    )
     issues = _case_auto_issues(decision, verified_facts=[])
     repair_attempts = 0
     while (
@@ -395,9 +397,27 @@ async def _generate_case_shadow_decision(
             shadow=True,
             prompt_version=f"{_CASE_PROMPT_VERSION}_repair",
         )
-        decision = ReplyShadowDecision.model_validate(repaired_raw)
+        decision = ReplyShadowDecision.model_validate(
+            _normalize_case_shadow_payload(repaired_raw)
+        )
         issues = _case_auto_issues(decision, verified_facts=[])
     return decision, issues, repair_attempts > 0
+
+
+def _normalize_case_shadow_payload(raw: Any) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    normalized = dict(raw)
+    follow_up = normalized.get("follow_up")
+    if isinstance(follow_up, dict) and not bool(follow_up.get("needed")):
+        normalized["follow_up"] = {
+            **follow_up,
+            "needed": False,
+            "action": None,
+            "due_in_hours": None,
+            "cancel_conditions": [],
+        }
+    return normalized
 
 
 def _case_shadow_repair_prompt(

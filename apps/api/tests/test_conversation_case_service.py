@@ -178,3 +178,49 @@ async def test_case_shadow_harness_repairs_unverified_rag_output(
     assert len(calls) == 2
     assert "rag_without_evidence" in calls[1]
     assert "unverified_fact_usage" in calls[1]
+
+
+@pytest.mark.asyncio
+async def test_case_shadow_harness_normalizes_disabled_follow_up(
+    conversation_case_env,
+    monkeypatch,
+):
+    async def fake_generate_json(*args, **kwargs):
+        return {
+            "sales_stage": "needs_analysis",
+            "route": "clarify",
+            "sales_action": "collect_evidence",
+            "reply": "方便发一张清晰照片吗？",
+            "need_human": False,
+            "next_action": None,
+            "follow_up": {
+                "needed": False,
+                "action": "",
+                "due_in_hours": 0,
+                "cancel_conditions": ["unused"],
+            },
+            "facts_used": [],
+            "confidence": 0.8,
+            "reason": "need evidence",
+        }
+
+    monkeypatch.setattr(
+        conversation_case_service,
+        "generate_json",
+        fake_generate_json,
+    )
+    case = conversation_case_service.get_conversation_case("case2_01")
+    decision, issues, repaired = (
+        await conversation_case_service._generate_case_shadow_decision(
+            case=case,
+            checkpoint=case["checkpoints"][0],
+            candidate_history=[],
+        )
+    )
+
+    assert repaired is False
+    assert issues == []
+    assert decision.follow_up.needed is False
+    assert decision.follow_up.action is None
+    assert decision.follow_up.due_in_hours is None
+    assert decision.follow_up.cancel_conditions == []
