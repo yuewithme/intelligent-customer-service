@@ -110,25 +110,36 @@ async def _retrieve_labeled_examples(message: str) -> list[dict]:
         return []
     samples = await _trusted_training_samples()
     best_by_text: dict[str, tuple[float, dict]] = {}
+    message_grams = _character_ngrams(message)
+    minimum_shared_grams = 2 if len(message_grams) >= 4 else 1
     for sample in samples:
         text = str(sample.get("text") or "").strip()
         normalized_text = "".join(text.lower().split())
         if not normalized_text:
             continue
-        score = max(
-            _lexical_similarity(message, text),
-            0.85 * _lexical_similarity(message, _sample_search_text(sample)),
+        search_text = _sample_search_text(sample)
+        text_grams = _character_ngrams(text)
+        search_grams = _character_ngrams(search_text)
+        shared_grams = max(
+            len(message_grams & text_grams),
+            len(message_grams & search_grams),
         )
+        base_score = max(
+            _lexical_similarity(message, text),
+            0.85 * _lexical_similarity(message, search_text),
+        )
+        if shared_grams < minimum_shared_grams or base_score <= 0.03:
+            continue
+        score = base_score
         annotation = sample.get("annotation") or {}
         if annotation.get("origin") == "human":
             score += 0.02
         if annotation.get("status") == "corrected":
             score += 0.02
-        if score > 0.03:
-            item = (min(score, 1.0), sample)
-            previous = best_by_text.get(normalized_text)
-            if previous is None or item[0] > previous[0]:
-                best_by_text[normalized_text] = item
+        item = (min(score, 1.0), sample)
+        previous = best_by_text.get(normalized_text)
+        if previous is None or item[0] > previous[0]:
+            best_by_text[normalized_text] = item
 
     selected: list[dict] = []
     label_pair_counts: dict[tuple[str, str], int] = {}

@@ -54,6 +54,18 @@ async def test_retrieves_only_normalized_trusted_examples_with_context(
                 },
                 "annotation": {"status": "confirmed", "origin": "human"},
             },
+            {
+                "sample_id": "corrected-but-irrelevant",
+                "text": "我来查一下",
+                "context": [],
+                "labels": {
+                    "primary_domain": "commerce",
+                    "primary_goal": "ask_information",
+                    "issues": ["price_value"],
+                    "scope": "in_scope",
+                },
+                "annotation": {"status": "corrected", "origin": "human"},
+            },
         ]
 
     monkeypatch.setattr(
