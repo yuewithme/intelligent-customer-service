@@ -60,6 +60,8 @@ export interface CaseShadowTurnResult {
   reference_is_gold: false
   status: 'success' | 'failed'
   shadow?: CaseShadowDecision
+  auto_issues?: string[]
+  repair_attempted?: boolean
   error_class?: string
 }
 
@@ -85,6 +87,13 @@ export interface ConversationCaseRun {
   result?: {
     case_id: string
     mode: string
+    summary?: {
+      successful_checkpoints: number
+      failed_checkpoints: number
+      clean_checkpoints: number
+      repair_attempts: number
+      issue_counts: Record<string, number>
+    }
     turn_results: CaseShadowTurnResult[]
   }
 }

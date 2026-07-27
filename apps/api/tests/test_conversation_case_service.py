@@ -102,9 +102,79 @@ async def test_full_case_shadow_run_keeps_candidate_history_independent(
     assert detail["status"] == "completed"
     assert detail["completed_checkpoints"] == 2
     assert len(detail["result"]["turn_results"]) == 2
+    assert detail["result"]["summary"]["clean_checkpoints"] == 2
+    assert detail["result"]["summary"]["repair_attempts"] == 0
     assert "candidate reply 1" in prompts[1]
     assert detail["result"]["turn_results"][0]["reference_is_gold"] is False
     assert (
         detail["result"]["turn_results"][0]["reference_reply"]
         not in prompts[0]
     )
+
+
+@pytest.mark.asyncio
+async def test_case_shadow_harness_repairs_unverified_rag_output(
+    conversation_case_env,
+    monkeypatch,
+):
+    calls = []
+
+    async def fake_generate_json(prompt, **kwargs):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return {
+                "sales_stage": "awareness",
+                "route": "rag_answer",
+                "sales_action": "answer",
+                "reply": "具体用药是什么？剂量是多少？" + ("很长" * 120),
+                "need_human": False,
+                "next_action": None,
+                "follow_up": {
+                    "needed": False,
+                    "action": None,
+                    "due_in_hours": None,
+                    "cancel_conditions": [],
+                },
+                "facts_used": ["invented_fact"],
+                "confidence": 0.8,
+                "reason": "first draft",
+            }
+        return {
+            "sales_stage": "needs_analysis",
+            "route": "clarify",
+            "sales_action": "collect_evidence",
+            "reply": "先隔离病株并保持通风。方便发一张叶片正反面和根部照片吗？",
+            "need_human": False,
+            "next_action": None,
+            "follow_up": {
+                "needed": False,
+                "action": None,
+                "due_in_hours": None,
+                "cancel_conditions": [],
+            },
+            "facts_used": [],
+            "confidence": 0.86,
+            "reason": "no verified evidence",
+        }
+
+    monkeypatch.setattr(
+        conversation_case_service,
+        "generate_json",
+        fake_generate_json,
+    )
+    case = conversation_case_service.get_conversation_case("case2_01")
+    decision, issues, repaired = (
+        await conversation_case_service._generate_case_shadow_decision(
+            case=case,
+            checkpoint=case["checkpoints"][0],
+            candidate_history=[],
+        )
+    )
+
+    assert repaired is True
+    assert issues == []
+    assert decision.route == "clarify"
+    assert decision.facts_used == []
+    assert len(calls) == 2
+    assert "rag_without_evidence" in calls[1]
+    assert "unverified_fact_usage" in calls[1]

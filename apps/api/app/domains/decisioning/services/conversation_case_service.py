@@ -22,6 +22,15 @@ from app.integrations.ai.services.llm_service import generate_json
 
 logger = logging.getLogger("wechat_rag_bot.conversation_case")
 _CASE_DIR = Path(__file__).resolve().parents[1] / "data" / "intent_labeling_cases"
+_CASE_CANDIDATE_VERSION = "case_shadow_v2"
+_CASE_PROMPT_VERSION = "conversation_case_v2"
+_MAX_REPLY_CHARS = 220
+_REPAIRABLE_ISSUES = {
+    "rag_without_evidence",
+    "unverified_fact_usage",
+    "overlong_reply",
+    "multiple_questions",
+}
 _sessionmakers: dict[str, sessionmaker] = {}
 _tasks: set[asyncio.Task] = set()
 
@@ -92,8 +101,8 @@ def start_case_shadow_run(case_id: str) -> dict[str, Any]:
             run_id=run_id,
             case_id=case_id,
             experiment_id=settings.reply_shadow_experiment_id,
-            candidate_version=settings.reply_shadow_candidate_version,
-            prompt_version=settings.reply_shadow_prompt_version,
+            candidate_version=_CASE_CANDIDATE_VERSION,
+            prompt_version=_CASE_PROMPT_VERSION,
             status="pending",
             total_checkpoints=len(case["checkpoints"]),
             completed_checkpoints=0,
@@ -163,22 +172,16 @@ async def _execute_case_shadow_run(
                 "reference_is_gold": False,
             }
             try:
-                raw = await generate_json(
-                    _case_shadow_prompt(
+                decision, auto_issues, repair_attempted = (
+                    await _generate_case_shadow_decision(
                         case=case,
                         checkpoint=checkpoint,
                         candidate_history=candidate_history,
-                    ),
-                    purpose="reply_shadow",
-                    provider_override=get_settings().reply_shadow_llm_provider,
-                    model_override=get_settings().reply_shadow_llm_model,
-                    shadow=True,
-                    prompt_version=(
-                        f"conversation_case_{get_settings().reply_shadow_prompt_version}"
-                    ),
+                    )
                 )
-                decision = ReplyShadowDecision.model_validate(raw)
                 result["shadow"] = decision.model_dump(mode="json")
+                result["auto_issues"] = auto_issues
+                result["repair_attempted"] = repair_attempted
                 result["status"] = "success"
                 candidate_history.extend(
                     [
@@ -205,9 +208,7 @@ async def _execute_case_shadow_run(
                 completed_checkpoints=len(turn_results),
                 failed_checkpoints=failures,
                 result={
-                    "case_id": case["case_id"],
-                    "mode": "historical_reference_vs_independent_shadow",
-                    "turn_results": turn_results,
+                    **_case_run_result(case["case_id"], turn_results),
                 },
             )
         _update_run(
@@ -216,9 +217,7 @@ async def _execute_case_shadow_run(
             completed_checkpoints=len(turn_results),
             failed_checkpoints=failures,
             result={
-                "case_id": case["case_id"],
-                "mode": "historical_reference_vs_independent_shadow",
-                "turn_results": turn_results,
+                **_case_run_result(case["case_id"], turn_results),
             },
             completed=True,
         )
@@ -323,11 +322,13 @@ def _case_shadow_prompt(
     checkpoint: dict[str, Any],
     candidate_history: list[dict[str, str]],
 ) -> str:
+    verified_facts: list[str] = []
     candidate_input = {
         "case_id": case["case_id"],
         "content_quality": case["content_quality"],
         "candidate_history": candidate_history[-16:],
         "customer_message": checkpoint["customer_message"],
+        "verified_facts": verified_facts,
         "business_fact_policy": (
             "This replay provides no verified price, inventory, promotion, order, "
             "logistics, gift, entitlement or service-promise facts. Candidate "
@@ -338,8 +339,12 @@ def _case_shadow_prompt(
         "你是私域兰花销售系统的离线影子决策器。当前任务是整段历史会话回放。"
         "你只能生成候选判断，不能发送消息、写入客户状态、修改订单、安排人工或执行外部动作。"
         "历史客服回复不会提供给你，也不是标准答案；请只依据候选方案自己的历史和本轮客户消息独立决策。"
-        "先回答客户当前问题，不得编造价格、库存、订单、物流、优惠、赠品或服务承诺。"
-        "最多追问一个关键问题。明确拒绝、已成交、退款投诉或人工接管时，不得继续普通销售跟进。"
+        "verified_facts 是本轮唯一可引用的证据集合，facts_used 必须是它的子集；集合为空时 facts_used 必须为空。"
+        "没有检索证据时不得选择 rag_answer，不得给出具体药名、剂量、价格、库存、订单、物流、优惠、赠品或服务承诺。"
+        "可以给低风险的一般性处理方向，但应明确需要照片或更多信息后才能诊断。"
+        f"reply 不超过 {_MAX_REPLY_CHARS} 个字符，最多追问一个关键问题。"
+        "除非客户确有后续销售价值，否则 follow_up.needed=false。"
+        "明确拒绝、已成交、退款投诉或人工接管时，不得继续普通销售跟进。"
         "只输出一个 JSON 对象，字段必须为：sales_stage, route, sales_action, reply, "
         "need_human, next_action, follow_up, facts_used, confidence, reason。"
         "follow_up 必须包含 needed, action, due_in_hours, cancel_conditions。"
@@ -347,6 +352,114 @@ def _case_shadow_prompt(
         "\n输入："
         + json.dumps(candidate_input, ensure_ascii=False, sort_keys=True)
     )
+
+
+async def _generate_case_shadow_decision(
+    *,
+    case: dict[str, Any],
+    checkpoint: dict[str, Any],
+    candidate_history: list[dict[str, str]],
+) -> tuple[ReplyShadowDecision, list[str], bool]:
+    settings = get_settings()
+    prompt = _case_shadow_prompt(
+        case=case,
+        checkpoint=checkpoint,
+        candidate_history=candidate_history,
+    )
+    raw = await generate_json(
+        prompt,
+        purpose="reply_shadow",
+        provider_override=settings.reply_shadow_llm_provider,
+        model_override=settings.reply_shadow_llm_model,
+        shadow=True,
+        prompt_version=_CASE_PROMPT_VERSION,
+    )
+    decision = ReplyShadowDecision.model_validate(raw)
+    issues = _case_auto_issues(decision, verified_facts=[])
+    repairable = sorted(set(issues) & _REPAIRABLE_ISSUES)
+    if not repairable:
+        return decision, issues, False
+    repaired_raw = await generate_json(
+        _case_shadow_repair_prompt(
+            original_prompt=prompt,
+            decision=decision,
+            issues=repairable,
+        ),
+        purpose="reply_shadow",
+        provider_override=settings.reply_shadow_llm_provider,
+        model_override=settings.reply_shadow_llm_model,
+        shadow=True,
+        prompt_version=f"{_CASE_PROMPT_VERSION}_repair",
+    )
+    repaired = ReplyShadowDecision.model_validate(repaired_raw)
+    return repaired, _case_auto_issues(repaired, verified_facts=[]), True
+
+
+def _case_shadow_repair_prompt(
+    *,
+    original_prompt: str,
+    decision: ReplyShadowDecision,
+    issues: list[str],
+) -> str:
+    return (
+        original_prompt
+        + "\n你刚才的候选输出未通过影子 Harness 硬约束。"
+        + "\n违规项："
+        + json.dumps(issues, ensure_ascii=False)
+        + "\n原候选："
+        + json.dumps(decision.model_dump(mode="json"), ensure_ascii=False)
+        + "\n请修正全部违规项，只输出修正后的 JSON 对象。"
+    )
+
+
+def _case_auto_issues(
+    decision: ReplyShadowDecision,
+    *,
+    verified_facts: list[str],
+) -> list[str]:
+    issues = []
+    verified = set(verified_facts)
+    if decision.route == "rag_answer" and not verified:
+        issues.append("rag_without_evidence")
+    if any(fact not in verified for fact in decision.facts_used):
+        issues.append("unverified_fact_usage")
+    if len(decision.reply) > _MAX_REPLY_CHARS:
+        issues.append("overlong_reply")
+    if decision.reply.count("?") + decision.reply.count("？") > 1:
+        issues.append("multiple_questions")
+    return issues
+
+
+def _case_run_result(
+    case_id: str,
+    turn_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    issue_counts: dict[str, int] = {}
+    for result in turn_results:
+        for issue in result.get("auto_issues") or []:
+            issue_counts[issue] = issue_counts.get(issue, 0) + 1
+    return {
+        "case_id": case_id,
+        "mode": "historical_reference_vs_independent_shadow",
+        "summary": {
+            "successful_checkpoints": sum(
+                result.get("status") == "success" for result in turn_results
+            ),
+            "failed_checkpoints": sum(
+                result.get("status") == "failed" for result in turn_results
+            ),
+            "clean_checkpoints": sum(
+                result.get("status") == "success"
+                and not result.get("auto_issues")
+                for result in turn_results
+            ),
+            "repair_attempts": sum(
+                bool(result.get("repair_attempted")) for result in turn_results
+            ),
+            "issue_counts": issue_counts,
+        },
+        "turn_results": turn_results,
+    }
 
 
 def _case_summary(case: dict[str, Any]) -> dict[str, Any]:

@@ -128,6 +128,22 @@
                 :percentage="runProgress(selectedRun)"
                 :status="selectedRun.status === 'failed' ? 'exception' : undefined"
               />
+              <div v-if="selectedRun.result?.summary" class="quality-summary">
+                <ElTag type="success" effect="plain">
+                  通过硬约束 {{ selectedRun.result.summary.clean_checkpoints }}
+                </ElTag>
+                <ElTag v-if="selectedRun.result.summary.repair_attempts" type="warning" effect="plain">
+                  自动修正 {{ selectedRun.result.summary.repair_attempts }}
+                </ElTag>
+                <ElTag
+                  v-for="(count, issue) in selectedRun.result.summary.issue_counts"
+                  :key="issue"
+                  type="danger"
+                  effect="plain"
+                >
+                  {{ issueText(issue) }} {{ count }}
+                </ElTag>
+              </div>
             </div>
 
             <ElCollapse v-if="selectedRun?.result?.turn_results?.length">
@@ -148,6 +164,19 @@
                   </section>
                   <section>
                     <span>独立影子方案</span>
+                    <div v-if="result.repair_attempted || result.auto_issues?.length" class="issue-row">
+                      <ElTag v-if="result.repair_attempted" size="small" type="warning">
+                        Harness 已自动修正
+                      </ElTag>
+                      <ElTag
+                        v-for="issue in result.auto_issues"
+                        :key="issue"
+                        size="small"
+                        type="danger"
+                      >
+                        {{ issueText(issue) }}
+                      </ElTag>
+                    </div>
                     <p>{{ result.shadow?.reply || '（空回复）' }}</p>
                     <small>
                       {{ result.shadow?.sales_stage }} · {{ result.shadow?.sales_action }}
@@ -349,6 +378,14 @@ const runProgress = (run: ConversationCaseRun) =>
     ? Math.round((run.completed_checkpoints / run.total_checkpoints) * 100)
     : 0
 
+const issueText = (value: string) =>
+  ({
+    rag_without_evidence: '无证据使用 RAG',
+    unverified_fact_usage: '引用未验证事实',
+    overlong_reply: '回复过长',
+    multiple_questions: '一次追问过多'
+  })[value] || value
+
 const formatTime = (value: string) => new Date(value).toLocaleString('zh-CN')
 
 onMounted(load)
@@ -477,6 +514,14 @@ small {
 }
 
 .run-summary .el-progress {
+  margin-top: 12px;
+}
+
+.quality-summary,
+.issue-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 12px;
 }
 
