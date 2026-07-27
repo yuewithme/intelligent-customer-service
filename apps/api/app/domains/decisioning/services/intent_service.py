@@ -1447,6 +1447,8 @@ Required JSON:
 Rules:
 - Use only candidate domain and goal ids.
 - issues may only contain: {issue_values}
+- Labeled examples are trusted references, but copy their labels only when the current
+  message has the same meaning after considering recent context.
 - Prefer explicit customer actions over inferred motives.
 - Use scope=ambiguous and primary_goal=unclear when context is insufficient.
 - slots only contains explicit structured facts from the message.

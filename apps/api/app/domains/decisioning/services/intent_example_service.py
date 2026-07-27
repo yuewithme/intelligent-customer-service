@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from math import fsum
 from pathlib import Path
+from time import monotonic
 
 from app.core.config import get_settings
 from app.shared.schemas.common import AppError
 from app.domains.knowledge.services.embedding_service import embed_text, embed_texts
-from app.domains.decisioning.services.intent_taxonomy_service import DIMENSIONS, load_intent_taxonomy
+from app.domains.decisioning.services.intent_taxonomy_service import (
+    DIMENSIONS,
+    load_intent_taxonomy,
+    normalize_taxonomy_value,
+)
 from app.core.time import now_iso
 
 
@@ -25,6 +31,9 @@ _examples: list[dict] = [
 ]
 _catalog_embedding_cache: dict[tuple[str, str, int, str], list[list[float]]] = {}
 _catalog_cache_lock = asyncio.Lock()
+_labeled_example_cache: dict[str, tuple[float, list[dict]]] = {}
+_labeled_example_cache_lock = asyncio.Lock()
+logger = logging.getLogger("wechat_rag_bot.intent_examples")
 
 
 async def add_intent_example(example: dict) -> dict:
@@ -38,13 +47,14 @@ async def add_intent_example(example: dict) -> dict:
 
 
 async def retrieve_intent_examples(message: str, top_k: int = 5) -> list[dict]:
-    """Retrieve semantic D/G/I label cards, retaining legacy examples for compatibility."""
+    """Retrieve D/G/I cards and trusted, similar historical labeling examples."""
 
     text = message.strip()
     if not text:
         return []
     catalog = load_intent_taxonomy()
     cards = catalog["labels"]
+    labeled_matches = await _retrieve_labeled_examples(text)
     try:
         vectors = await _catalog_vectors(cards, catalog["version"])
         query = await embed_text(text)
@@ -52,15 +62,29 @@ async def retrieve_intent_examples(message: str, top_k: int = 5) -> list[dict]:
     except AppError:
         scored = [(_lexical_similarity(text, _card_search_text(card)), card) for card in cards]
 
+    label_evidence = _label_evidence(labeled_matches)
     candidates: list[dict] = []
     for kind in DIMENSIONS:
         matches = sorted(
             (item for item in scored if item[1]["kind"] == kind),
-            key=lambda item: item[0],
+            key=lambda item: (
+                item[0] + 0.35 * label_evidence.get((kind, item[1]["id"]), 0.0),
+                item[0],
+            ),
             reverse=True,
         )[:top_k]
-        candidates.extend({**card, "score": round(score, 6)} for score, card in matches)
+        candidates.extend(
+            {
+                **card,
+                "score": round(score, 6),
+                "example_score": round(
+                    label_evidence.get((kind, card["id"]), 0.0), 6
+                ),
+            }
+            for score, card in matches
+        )
 
+    candidates.extend(labeled_matches)
     legacy_matches = sorted(
         (
             (_lexical_similarity(text, str(example.get("text") or "")), example)
@@ -75,6 +99,158 @@ async def retrieve_intent_examples(message: str, top_k: int = 5) -> list[dict]:
         if score > 0
     )
     return candidates
+
+
+async def _retrieve_labeled_examples(message: str) -> list[dict]:
+    settings = get_settings()
+    if (
+        not settings.intent_labeled_example_enabled
+        or settings.intent_labeled_example_top_k <= 0
+    ):
+        return []
+    samples = await _trusted_training_samples()
+    best_by_text: dict[str, tuple[float, dict]] = {}
+    for sample in samples:
+        text = str(sample.get("text") or "").strip()
+        normalized_text = "".join(text.lower().split())
+        if not normalized_text:
+            continue
+        score = max(
+            _lexical_similarity(message, text),
+            0.85 * _lexical_similarity(message, _sample_search_text(sample)),
+        )
+        annotation = sample.get("annotation") or {}
+        if annotation.get("origin") == "human":
+            score += 0.02
+        if annotation.get("status") == "corrected":
+            score += 0.02
+        if score > 0.03:
+            item = (min(score, 1.0), sample)
+            previous = best_by_text.get(normalized_text)
+            if previous is None or item[0] > previous[0]:
+                best_by_text[normalized_text] = item
+
+    selected: list[dict] = []
+    label_pair_counts: dict[tuple[str, str], int] = {}
+    for score, sample in sorted(
+        best_by_text.values(), key=lambda item: item[0], reverse=True
+    ):
+        labels = sample["labels"]
+        pair = (labels["primary_domain"], labels["primary_goal"])
+        if label_pair_counts.get(pair, 0) >= 2:
+            continue
+        label_pair_counts[pair] = label_pair_counts.get(pair, 0) + 1
+        selected.append(_candidate_from_training_sample(sample, score))
+        if len(selected) >= settings.intent_labeled_example_top_k:
+            break
+    return selected
+
+
+async def _trusted_training_samples() -> list[dict]:
+    settings = get_settings()
+    key = f"{settings.chat_log_db_url}|{load_intent_taxonomy()['version']}"
+    now = monotonic()
+    cached = _labeled_example_cache.get(key)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    async with _labeled_example_cache_lock:
+        cached = _labeled_example_cache.get(key)
+        if cached is not None and cached[0] > monotonic():
+            return cached[1]
+        try:
+            from app.domains.decisioning.services.intent_observation_service import (
+                build_training_dataset,
+            )
+
+            raw_samples = await build_training_dataset(redact_pii=True)
+            samples = [
+                normalized
+                for sample in raw_samples
+                if (normalized := _normalize_training_sample(sample)) is not None
+            ]
+        except Exception:
+            logger.exception("failed to load trusted intent labeling examples")
+            samples = []
+        _labeled_example_cache.clear()
+        _labeled_example_cache[key] = (
+            monotonic() + settings.intent_labeled_example_cache_seconds,
+            samples,
+        )
+        return samples
+
+
+def _normalize_training_sample(sample: dict) -> dict | None:
+    labels = sample.get("labels")
+    if not isinstance(labels, dict):
+        return None
+    domain = normalize_taxonomy_value("domain", labels.get("primary_domain"))
+    goal = normalize_taxonomy_value("goal", labels.get("primary_goal"))
+    if not domain or not goal:
+        return None
+    issues = [
+        normalized
+        for value in labels.get("issues") or []
+        if (normalized := normalize_taxonomy_value("issue", value))
+    ]
+    return {
+        **sample,
+        "labels": {
+            **labels,
+            "primary_domain": domain,
+            "primary_goal": goal,
+            "issues": list(dict.fromkeys(issues)),
+        },
+    }
+
+
+def _candidate_from_training_sample(sample: dict, score: float) -> dict:
+    labels = sample["labels"]
+    context = []
+    for turn in (sample.get("context") or [])[-2:]:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role") or "")
+        content = " ".join(str(turn.get("content") or "").split())[:160]
+        if role in {"user", "assistant"} and content:
+            context.append({"role": role, "content": content})
+    return {
+        "kind": "example",
+        "example_id": sample.get("sample_id"),
+        "text": " ".join(str(sample.get("text") or "").split())[:300],
+        "context": context,
+        "primary_domain": labels["primary_domain"],
+        "primary_goal": labels["primary_goal"],
+        "issues": labels["issues"],
+        "scope": labels.get("scope") or "in_scope",
+        "annotation_status": (sample.get("annotation") or {}).get("status"),
+        "score": round(score, 6),
+    }
+
+
+def _sample_search_text(sample: dict) -> str:
+    context = " ".join(
+        str(turn.get("content") or "")
+        for turn in (sample.get("context") or [])[-2:]
+        if isinstance(turn, dict)
+    )
+    return f"{context} {sample.get('text') or ''}".strip()
+
+
+def _label_evidence(examples: list[dict]) -> dict[tuple[str, str], float]:
+    evidence: dict[tuple[str, str], float] = {}
+    for example in examples:
+        score = float(example.get("score") or 0.0)
+        values = {
+            "domain": [example.get("primary_domain")],
+            "goal": [example.get("primary_goal")],
+            "issue": example.get("issues") or [],
+        }
+        for kind, labels in values.items():
+            for label in labels:
+                if label:
+                    key = (kind, str(label))
+                    evidence[key] = max(evidence.get(key, 0.0), score)
+    return evidence
 
 
 async def _catalog_vectors(cards: list[dict], version: str) -> list[list[float]]:
@@ -103,6 +279,8 @@ async def _catalog_vectors(cards: list[dict], version: str) -> list[list[float]]
 
 async def prewarm_intent_example_index() -> None:
     settings = get_settings()
+    if settings.intent_labeled_example_enabled:
+        await _trusted_training_samples()
     if (
         not settings.intent_example_prewarm_enabled
         or settings.embedding_provider.lower() == "mock"

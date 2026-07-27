@@ -271,6 +271,15 @@ class Settings(BaseSettings):
     review_llm_model: str = ""
     intent_confidence_threshold: float = Field(default=0.6, ge=0, le=1)
     intent_example_top_k: int = Field(default=3, ge=1)
+    intent_labeled_example_enabled: bool = Field(
+        default=True, alias="INTENT_LABELED_EXAMPLE_ENABLED"
+    )
+    intent_labeled_example_top_k: int = Field(
+        default=5, ge=0, le=12, alias="INTENT_LABELED_EXAMPLE_TOP_K"
+    )
+    intent_labeled_example_cache_seconds: int = Field(
+        default=300, ge=10, alias="INTENT_LABELED_EXAMPLE_CACHE_SECONDS"
+    )
     intent_example_prewarm_enabled: bool = Field(
         default=True, alias="INTENT_EXAMPLE_PREWARM_ENABLED"
     )

@@ -172,10 +172,13 @@ def format_candidate_cards(candidates: list[dict] | None) -> str:
 
 def format_candidate_cards_compact(candidates: list[dict] | None) -> str:
     grouped: dict[str, list[dict]] = {kind: [] for kind in DIMENSIONS}
+    examples: list[dict] = []
     for candidate in candidates or []:
         kind = candidate.get("kind")
         if kind in grouped:
             grouped[kind].append(candidate)
+        elif kind == "example" and candidate.get("primary_domain"):
+            examples.append(candidate)
     if not any(grouped.values()):
         grouped = {
             kind: list(taxonomy_cards(kind))[:3]
@@ -189,6 +192,22 @@ def format_candidate_cards_compact(candidates: list[dict] | None) -> str:
             definition = " ".join(str(card.get("definition") or "").split())[:120]
             values.append(f"{card['id']}={definition}")
         lines.append(f"{kind}: " + " | ".join(values))
+    if examples:
+        lines.append("trusted labeled examples (advisory; compare meaning and context):")
+        for example in examples[:5]:
+            context = " / ".join(
+                f"{turn.get('role')}: {' '.join(str(turn.get('content') or '').split())[:100]}"
+                for turn in (example.get("context") or [])[-2:]
+                if isinstance(turn, dict)
+            )
+            issues = ",".join(example.get("issues") or []) or "none"
+            lines.append(
+                "- "
+                f"context={context or 'none'}; "
+                f"text={' '.join(str(example.get('text') or '').split())[:220]}; "
+                f"D={example.get('primary_domain')}; "
+                f"G={example.get('primary_goal')}; I={issues}"
+            )
     return "\n".join(lines)
 
 
