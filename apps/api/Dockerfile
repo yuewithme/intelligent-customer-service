@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir \
 
 COPY app ./app
 COPY data ./data
+COPY scripts/migrate_intent_taxonomy_v2.py ./scripts/migrate_intent_taxonomy_v2.py
 
 EXPOSE 8000
 
