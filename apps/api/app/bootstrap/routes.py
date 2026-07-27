@@ -11,6 +11,7 @@ from app.domains.conversations.api import (
 )
 from app.domains.customers.api import admin_memory, state, user_profile
 from app.domains.decisioning.api import (
+    admin_conversation_cases,
     admin_intent_observations,
     admin_reply_shadows,
     debug,
@@ -39,6 +40,7 @@ ROUTERS = (
     admin_eyun_materials.router,
     admin_gate.router,
     admin_handoff_notification.router,
+    admin_conversation_cases.router,
     admin_intent_observations.router,
     admin_reply_shadows.router,
     admin_tags.router,

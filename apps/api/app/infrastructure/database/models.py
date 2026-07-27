@@ -372,6 +372,30 @@ class ReplyShadowAnnotationModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class ConversationCaseShadowRunModel(Base):
+    __tablename__ = "conversation_case_shadow_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    case_id: Mapped[str] = mapped_column(String(64), index=True)
+    experiment_id: Mapped[str] = mapped_column(String(128), index=True)
+    candidate_version: Mapped[str] = mapped_column(String(128), index=True)
+    prompt_version: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    total_checkpoints: Mapped[int] = mapped_column(Integer, default=0)
+    completed_checkpoints: Mapped[int] = mapped_column(Integer, default=0)
+    failed_checkpoints: Mapped[int] = mapped_column(Integer, default=0)
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    error_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        nullable=True,
+    )
+
+
 class EyunInboundBatchModel(Base):
     __tablename__ = "eyun_inbound_batches"
 

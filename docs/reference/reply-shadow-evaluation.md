@@ -1,5 +1,8 @@
 # 影子销售决策评测
 
+完整历史会话的案例库与逐轮影子回放见
+[`conversation-case-shadow-evaluation.md`](conversation-case-shadow-evaluation.md)。
+
 影子销售决策在正式回复完成后异步运行候选策略。正式回复照常发送并更新客户状态；
 候选结果只写入 `reply_shadow_runs`，不会发送消息、更新客户状态、写入客户记忆或调用
 订单等可写工具。

@@ -17,6 +17,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'sales-flow', component: () => import('@/views/sales-flow/index.vue'), meta: { title: '首单销售流程' } },
       { path: 'operations/chat-logs', component: () => import('@/views/intent-observations/index.vue'), meta: { title: '意图识别日志' } },
       { path: 'operations/reply-shadows', component: () => import('@/views/reply-shadows/index.vue'), meta: { title: '影子决策评测' } },
+      { path: 'operations/conversation-cases', component: () => import('@/views/conversation-cases/index.vue'), meta: { title: '整案案例库' } },
       { path: 'operations/tags', component: () => import('@/views/tag-management/index.vue'), meta: { title: '标签管理' } },
       { path: 'operations/products', component: () => import('@/views/product-information/index.vue'), meta: { title: '产品信息' } },
       { path: 'operations/care-manuals', component: () => import('@/views/care-manuals/index.vue'), meta: { title: '养护手册' } },
