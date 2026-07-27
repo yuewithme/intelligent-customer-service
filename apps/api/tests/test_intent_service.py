@@ -340,8 +340,8 @@ def test_llm_prompt_uses_compact_classification_schema():
     assert '"sales_signals":' not in prompt
     assert '"route":' not in prompt
     assert "Output JSON only" in prompt
-    assert "after_sale_policy" in prompt
-    assert "received_problem" in prompt
+    assert "after_sale" in prompt
+    assert "material_resource" in prompt
     assert len(prompt) < 2500
 
 

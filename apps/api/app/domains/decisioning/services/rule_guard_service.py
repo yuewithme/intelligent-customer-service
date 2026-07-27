@@ -37,7 +37,7 @@ async def check_rules(
             primary_intent="refund_request",
             primary_domain="customer_service",
             primary_goal="request_refund_return",
-            issues=["refund_return"],
+            issues=["after_sale"],
             classifier_source="rule_guard",
             confidence=0.98,
             need_human=True,

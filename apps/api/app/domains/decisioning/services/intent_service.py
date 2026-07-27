@@ -264,9 +264,9 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
     if is_orchid_material_request(text):
         return _validated_intent(
             {
-                "primary_domain": "care_service",
-                "primary_goal": "request_material",
-                "issues": ["care_general"],
+                "primary_domain": "care",
+                "primary_goal": "ask_information",
+                "issues": ["material_resource"],
                 "confidence": 0.99,
                 "slots": {
                     "material_type": "orchid_care",
@@ -469,12 +469,16 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
             }
         )
     if hit_any(text, GREETING_WORDS):
+        chitchat_kind = (
+            "thanks" if hit_any(text, ("谢谢", "感谢")) else "greeting"
+        )
         return _validated_intent(
             {
                 "route": "chitchat",
                 "primary_intent": "greeting",
                 "sales_stage": "rapport",
                 "confidence": 0.76,
+                "slots": {"chitchat_kind": chitchat_kind},
                 "reason": "soft_rule_greeting",
             }
         )
@@ -679,7 +683,7 @@ def _with_decision_blocker(intent: IntentResult, text: str) -> IntentResult:
     if (
         (
             intent.primary_intent in {"price_objection", "discount_request"}
-            and (not intent.issues or bool({"price", "discount"} & set(intent.issues)))
+            and (not intent.issues or "price_value" in intent.issues)
         )
         or match_price_intent(normalized) == "price_objection"
     ):
@@ -825,9 +829,9 @@ def classify_product_recommendation_followup(
         return None
     return _validated_intent(
         {
-            "primary_domain": "product_solution",
-            "primary_goal": "seek_recommendation",
-            "issues": ["recommendation_fit"],
+            "primary_domain": "product",
+            "primary_goal": "seek_help",
+            "issues": ["product_selection"],
             "sales_stage": "need_discovery",
             "confidence": 0.9,
             "slots": {"conversation_topic": "product_recommendation"},
@@ -1322,8 +1326,8 @@ def _build_prompt_legacy(
 1. 每个维度只能使用候选卡中的标签；主标签一个，确有并列意图才给 secondary。
    Issue 允许值：{issue_values}。
 2. 优先识别明确动作，再结合最近对话消解“这个、那款、发我”等指代。
-3. “要资料/发教程/怎么领视频”必须识别为 Goal=request_material；资料类型放入 slots.material_type。只讨论资料内容、明确不要资料、资料打不开时分别考虑 ask_information、deny、request_service。
-4. 售前询问保障用 Issue=after_sale_policy；已收货破损等事实用 received_problem；明确退款退货用 request_refund_return。
+3. “要资料/发教程/怎么领视频/发图片/发链接”识别为 Goal=ask_information、Issue=material_resource；资料类型放入 slots.material_type。明确不要资料时使用 reject，资料打不开或发送失败时使用 request_service。
+4. 售前品质、对版和保障用 Issue=trust_guarantee；已经发生的收货、售后、退款退货主题统一用 Issue=after_sale；明确退款退货时 Goal=request_refund_return。
 5. 只有明确请求人工、退款退货或强烈投诉才使用对应人工 Goal。出现“客服指导、客服怎么说”不等于请求人工。
 6. 不能仅因出现“贵”判断价格异议，例如“名贵兰花”；必须结合完整语义和反例。
 7. evidence 必须引用当前消息或最近对话中的短原文；不能编造。confidence 低于 0.60 或指代无法消解时 scope=ambiguous、Goal=unclear。

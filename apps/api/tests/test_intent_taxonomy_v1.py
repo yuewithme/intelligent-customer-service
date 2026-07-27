@@ -4,8 +4,10 @@ from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.services.intent_example_service import retrieve_intent_examples
 from app.domains.decisioning.services.intent_service import _validated_intent, classify_intent
+from app.domains.decisioning.services.reply_builder import build_chitchat_reply
 from app.domains.decisioning.services.intent_taxonomy_service import load_intent_taxonomy
 from app.domains.decisioning.services.rule_guard_service import check_rules
+from app.domains.decisioning.schemas.intent import IntentResult
 
 
 def _message(text: str) -> NormalizedMessage:
@@ -19,14 +21,15 @@ def _message(text: str) -> NormalizedMessage:
     )
 
 
-def test_filled_taxonomy_is_available_as_machine_readable_catalog():
+def test_compact_taxonomy_is_available_as_machine_readable_catalog():
     catalog = load_intent_taxonomy()
 
-    assert catalog["counts"] == {"domain": 8, "goal": 25, "issue": 28}
-    material = next(card for card in catalog["labels"] if card["id"] == "request_material")
-    assert material["name"] == "索要资料"
-    assert len(material["positive_examples"]) >= 9
-    assert len(material["negative_examples"]) >= 10
+    assert catalog["version"] == "2.0"
+    assert catalog["counts"] == {"domain": 5, "goal": 16, "issue": 18}
+    material = next(
+        card for card in catalog["labels"] if card["id"] == "material_resource"
+    )
+    assert material["name"] == "资料与资源"
 
 
 @pytest.mark.asyncio
@@ -36,9 +39,10 @@ async def test_material_request_has_explicit_goal_and_keeps_runtime_compatibilit
         UserState(user_id="customer"),
     )
 
-    assert intent.primary_domain == "care_service"
-    assert intent.primary_goal == "request_material"
-    assert intent.primary_intent == "knowledge_question"
+    assert intent.primary_domain == "care"
+    assert intent.primary_goal == "ask_information"
+    assert intent.issues == ["material_resource"]
+    assert intent.primary_intent == "care_question"
     assert intent.route == "rag_answer"
     assert intent.slots["resource_type"] == "orchid_material"
 
@@ -57,10 +61,10 @@ async def test_refund_guard_has_priority_over_material_delivery():
 def test_dgi_result_projects_to_existing_route_and_intent_contract():
     intent = _validated_intent(
         {
-            "primary_domain": "commercial_decision",
-            "secondary_domains": ["care_service"],
+            "primary_domain": "commerce",
+            "secondary_domains": ["care"],
             "primary_goal": "express_objection",
-            "issues": ["price", "care_confidence"],
+            "issues": ["price_value", "care_confidence"],
             "scope": "in_scope",
             "confidence": 0.92,
             "evidence": [
@@ -78,6 +82,30 @@ def test_dgi_result_projects_to_existing_route_and_intent_contract():
     assert intent.secondary_intents == ["care_question"]
     assert intent.need_template is True
     assert intent.need_rag is True
+
+
+def test_chitchat_replies_are_short_and_match_the_social_act():
+    greeting = build_chitchat_reply(
+        IntentResult(
+            route="chitchat",
+            primary_intent="greeting",
+            confidence=0.95,
+            slots={"chitchat_kind": "greeting"},
+        )
+    )
+    thanks = build_chitchat_reply(
+        IntentResult(
+            route="chitchat",
+            primary_intent="greeting",
+            confidence=0.95,
+            slots={"chitchat_kind": "thanks"},
+        )
+    )
+
+    assert greeting.answer == "您好，我在的。"
+    assert thanks.answer == "不客气。"
+    assert len(greeting.answer) <= 15
+    assert len(thanks.answer) <= 15
 
 
 @pytest.mark.asyncio

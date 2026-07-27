@@ -73,26 +73,32 @@ def build_opening_reply() -> FinalReply:
     )
 
 def build_chitchat_reply(intent: IntentResult) -> FinalReply:
+    if intent.primary_goal == "end_conversation":
+        return FinalReply(
+            answer="好的，随时找我。",
+            reply_type="chitchat",
+            route="chitchat",
+        )
+    if intent.slots.get("chitchat_kind") == "thanks":
+        return FinalReply(
+            answer="不客气。",
+            reply_type="chitchat",
+            route="chitchat",
+        )
     if intent.slots.get("chitchat_kind") == "identity_question":
         return FinalReply(
-            answer=(
-                "我是萧岚苑这边负责兰花咨询、养护和选品的在线顾问。"
-                "您现在是想先看养护，还是挑品种？"
-            ),
+            answer="我是兰花在线顾问，有什么可以帮您？",
             reply_type="chitchat",
             route="chitchat",
         )
     if intent.primary_intent == "profile_answer":
         return FinalReply(
-            answer=(
-                "收到，已经记下您的养兰规模和主要品种。"
-                "您现在最想解决哪一类养护问题？"
-            ),
+            answer="好的，已经记下了。",
             reply_type="chitchat",
             route="chitchat",
         )
     return FinalReply(
-        answer="你好，我在的。你可以直接问产品、价格、养护、发货或售后问题。",
+        answer="您好，我在的。",
         reply_type="chitchat",
         route="chitchat",
     )

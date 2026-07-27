@@ -6,69 +6,60 @@ from pathlib import Path
 from typing import Any
 
 
-CATALOG_PATH = Path(__file__).resolve().parents[1] / "data" / "intent_taxonomy_v1.json"
+CATALOG_PATH = Path(__file__).resolve().parents[1] / "data" / "intent_taxonomy_v2.json"
 DIMENSIONS = ("domain", "goal", "issue")
 
 LEGACY_TO_DGI: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "greeting": ("conversation", "social", ()),
-    "profile_answer": ("customer_need", "provide_information", ()),
-    "ask_price": ("commercial_decision", "ask_information", ("price",)),
-    "price_query": ("commercial_decision", "ask_information", ("price",)),
-    "price_objection": ("commercial_decision", "express_objection", ("price",)),
-    "discount_request": ("commercial_decision", "negotiate", ("discount",)),
-    "ask_logistics": ("purchase_transaction", "ask_information", ("delivery",)),
-    "ask_after_sale": ("customer_service", "ask_information", ("after_sale_policy",)),
-    "order_intent": ("purchase_transaction", "purchase", ("order_process",)),
-    "payment_intent": ("purchase_transaction", "pay", ("payment",)),
-    "order_query": ("purchase_transaction", "query_status", ("delivery",)),
-    "product_query": ("product_solution", "ask_information", ("product_information",)),
-    "product_recommendation": ("product_solution", "seek_recommendation", ("recommendation_fit",)),
-    "recommend_product": ("product_solution", "seek_recommendation", ("recommendation_fit",)),
-    "knowledge_question": ("product_solution", "ask_information", ("product_information",)),
-    "care_question": ("care_service", "seek_solution", ("care_general",)),
-    "process_question": ("care_service", "ask_information", ("care_general",)),
-    "usage_question": ("care_service", "ask_information", ("care_general",)),
-    "refund_request": ("customer_service", "request_refund_return", ("refund_return",)),
+    "profile_answer": ("product", "provide_information", ()),
+    "ask_price": ("commerce", "ask_information", ("price_value",)),
+    "price_query": ("commerce", "ask_information", ("price_value",)),
+    "price_objection": ("commerce", "express_objection", ("price_value",)),
+    "discount_request": ("commerce", "express_objection", ("price_value",)),
+    "ask_logistics": ("commerce", "ask_information", ("delivery",)),
+    "ask_after_sale": ("customer_service", "ask_information", ("after_sale",)),
+    "order_intent": ("commerce", "transact", ("order_process",)),
+    "payment_intent": ("commerce", "transact", ("payment",)),
+    "order_query": ("customer_service", "request_service", ("delivery",)),
+    "product_query": ("product", "ask_information", ("product_information",)),
+    "product_recommendation": ("product", "seek_help", ("product_selection",)),
+    "recommend_product": ("product", "seek_help", ("product_selection",)),
+    "knowledge_question": ("product", "ask_information", ("product_information",)),
+    "care_question": ("care", "seek_help", ("routine_care",)),
+    "process_question": ("care", "ask_information", ("routine_care",)),
+    "usage_question": ("care", "ask_information", ("routine_care",)),
+    "refund_request": ("customer_service", "request_refund_return", ("after_sale",)),
     "complaint": ("customer_service", "complain", ()),
     "human_request": ("customer_service", "request_human", ()),
-    "purchase_rejection": ("commercial_decision", "decline_purchase", ()),
-    "unsupported": ("out_of_scope", "unclear", ()),
+    "purchase_rejection": ("commerce", "reject", ()),
+    "unsupported": ("conversation", "unclear", ()),
     "unknown": ("conversation", "unclear", ()),
 }
 
 CARE_ISSUES = {
-    "care_general",
-    "watering_fertilizing",
-    "environment_care",
+    "routine_care",
+    "growing_environment",
     "medium_repotting",
-    "symptom_disease_recovery",
+    "plant_problem",
     "care_confidence",
 }
 COMMERCIAL_ISSUES = {
-    "price",
-    "discount",
-    "product_value",
-    "quality_trust",
-    "service_guarantee",
-    "sku_quantity",
+    "price_value",
+    "trust_guarantee",
+    "purchase_selection",
     "order_process",
     "payment",
     "delivery",
-    "after_sale_policy",
-    "received_problem",
-    "refund_return",
+    "after_sale",
 }
 HUMAN_GOALS = {"request_refund_return", "complain", "request_human"}
-CONVERSATION_GOALS = {"affirm", "deny", "social", "end_conversation"}
+CONVERSATION_GOALS = {"social", "end_conversation"}
 TRANSACTION_GOALS = {
     "express_objection",
-    "negotiate",
-    "confirm_choice",
+    "confirm",
     "defer_decision",
-    "decline_purchase",
-    "purchase",
-    "pay",
-    "query_status",
+    "reject",
+    "transact",
     "request_service",
 }
 
@@ -211,8 +202,6 @@ def _normalize_values(kind: str, values: Any, *, exclude: str | None = None) -> 
 
 
 def _normalize_scope(payload: dict) -> str:
-    if payload.get("primary_domain") == "out_of_scope":
-        return "out_of_scope"
     value = str(payload.get("scope") or "in_scope")
     return value if value in {"in_scope", "ambiguous", "out_of_scope"} else "ambiguous"
 
@@ -231,7 +220,7 @@ def _normalize_evidence(values: Any) -> list[dict]:
 
 
 def _legacy_intent(domain: str, goal: str, issues: set[str], scope: str) -> str:
-    if scope == "out_of_scope" or domain == "out_of_scope":
+    if scope == "out_of_scope":
         return "unsupported"
     if goal == "request_refund_return":
         return "refund_request"
@@ -239,33 +228,29 @@ def _legacy_intent(domain: str, goal: str, issues: set[str], scope: str) -> str:
         return "complaint"
     if goal == "request_human":
         return "human_request"
-    if goal in CONVERSATION_GOALS:
+    if goal in CONVERSATION_GOALS or (
+        domain == "conversation" and goal in {"confirm", "reject"}
+    ):
         return "greeting"
     if goal == "unclear":
         return "unknown"
-    if goal == "request_material":
-        return "knowledge_question"
-    if goal == "negotiate":
-        return "discount_request"
     if goal == "express_objection":
         return "price_objection"
-    if goal == "decline_purchase":
+    if goal == "reject" and domain == "commerce":
         return "purchase_rejection"
-    if goal in {"purchase", "confirm_choice"}:
+    if goal == "transact":
+        return "payment_intent" if "payment" in issues else "order_intent"
+    if goal == "confirm" and domain == "commerce":
         return "order_intent"
-    if goal == "pay":
-        return "payment_intent"
-    if goal == "query_status":
-        return "ask_logistics" if "delivery" in issues else "order_query"
     if goal == "request_service":
-        return "ask_after_sale"
-    if goal == "ask_information" and "price" in issues:
+        return "ask_logistics" if "delivery" in issues else "ask_after_sale"
+    if goal == "ask_information" and "price_value" in issues:
         return "ask_price"
     if goal == "ask_information" and "delivery" in issues:
         return "ask_logistics"
-    if domain == "care_service":
+    if domain == "care":
         return "care_question"
-    if domain == "product_solution":
+    if domain == "product":
         return "knowledge_question"
     return "knowledge_question"
 
@@ -273,15 +258,15 @@ def _legacy_intent(domain: str, goal: str, issues: set[str], scope: str) -> str:
 def _route(domain: str, domains: set[str], goal: str, issues: set[str], scope: str) -> str:
     if goal in HUMAN_GOALS:
         return "human"
-    if scope == "out_of_scope" or domain == "out_of_scope":
+    if scope == "out_of_scope":
         return "unsupported"
     if scope == "ambiguous" or goal == "unclear":
         return "clarify"
     if goal in CONVERSATION_GOALS or domain == "conversation":
         return "chitchat"
-    has_care = bool(domains & {"care_service"} or issues & CARE_ISSUES)
+    has_care = bool(domains & {"care"} or issues & CARE_ISSUES)
     has_commercial = bool(
-        domains & {"commercial_decision", "purchase_transaction", "customer_service"}
+        domains & {"commerce", "customer_service"}
         or issues & COMMERCIAL_ISSUES
         or goal in TRANSACTION_GOALS
     )
@@ -296,7 +281,7 @@ def _legacy_secondary_intents(
     domains: set[str], issues: set[str], primary_intent: str
 ) -> list[str]:
     result: list[str] = []
-    if ("care_service" in domains or issues & CARE_ISSUES) and primary_intent != "care_question":
+    if ("care" in domains or issues & CARE_ISSUES) and primary_intent != "care_question":
         result.append("care_question")
     return result
 

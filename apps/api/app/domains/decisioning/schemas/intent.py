@@ -34,7 +34,7 @@ class IntentResult(BaseModel):
     issues: list[str] = Field(default_factory=list)
     scope: IntentScope = "in_scope"
     evidence: list[IntentEvidence] = Field(default_factory=list)
-    taxonomy_version: str = "1.0"
+    taxonomy_version: str = "2.0"
     classifier_source: str = "unknown"
     classifier_provider: str | None = None
     classifier_model: str | None = None

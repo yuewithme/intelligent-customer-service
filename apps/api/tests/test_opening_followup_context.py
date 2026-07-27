@@ -158,8 +158,7 @@ def test_profile_answer_chitchat_acknowledges_collected_information():
         )
     )
 
-    assert "养兰规模和主要品种" in reply.answer
-    assert "产品、价格、养护、发货或售后" not in reply.answer
+    assert reply.answer == "好的，已经记下了。"
 
 
 def test_intent_prompt_includes_recent_conversation():

@@ -55,10 +55,10 @@ async def _record_sample(trace_id: str = "trace-intent-1"):
         route="template_then_rag",
         primary_intent="price_objection",
         secondary_intents=["care_question"],
-        primary_domain="commercial_decision",
-        secondary_domains=["care_service"],
+        primary_domain="commerce",
+        secondary_domains=["care"],
         primary_goal="express_objection",
-        issues=["price", "care_confidence"],
+        issues=["price_value", "care_confidence"],
         classifier_source="llm",
         classifier_provider="mock",
         classifier_model="mock-intent",
@@ -107,11 +107,11 @@ def test_observation_annotation_history_and_training_export(monkeypatch, tmp_pat
         "/api/v1/admin/intent-observations/trace-intent-1/annotations",
         json={
             "status": "corrected",
-            "primary_domain": "commercial_decision",
+            "primary_domain": "commerce",
             "secondary_domains": [],
-            "primary_goal": "negotiate",
+            "primary_goal": "express_objection",
             "secondary_goals": [],
-            "issues": ["discount"],
+            "issues": ["price_value"],
             "scope": "in_scope",
             "annotator_id": "reviewer-b",
             "note": "实际是在议价",
@@ -130,8 +130,8 @@ def test_observation_annotation_history_and_training_export(monkeypatch, tmp_pat
     exported = client.get("/api/v1/admin/intent-training-data").json()["data"]
     assert exported["total"] == 1
     sample = exported["items"][0]
-    assert sample["labels"]["primary_goal"] == "negotiate"
-    assert sample["labels"]["issues"] == ["discount"]
+    assert sample["labels"]["primary_goal"] == "express_objection"
+    assert sample["labels"]["issues"] == ["price_value"]
     assert "13800138000" not in sample["text"]
     assert "[MOBILE]" in sample["text"]
 
@@ -268,8 +268,9 @@ def test_historical_conversation_gap_is_reconciled_and_locatable(
             intent=IntentResult(
                 route="rag_answer",
                 primary_intent="recommend_product",
-                primary_domain="customer_need",
-                primary_goal="seek_recommendation",
+                primary_domain="product",
+                primary_goal="seek_help",
+                issues=["product_selection"],
                 confidence=0.9,
                 reason="购买推荐",
             ),
@@ -301,9 +302,9 @@ def test_historical_conversation_gap_is_reconciled_and_locatable(
     assert captured["conversation_id"] == "wechat:customer-gap:default"
     assert len(captured["conversation_message_ids"]) == 1
     assert all(item["classifier_source"] != "capture_gap" for item in result["items"])
-    assert material["primary_domain"] == "care_service"
-    assert material["primary_goal"] == "request_material"
-    assert material["issues"] == ["care_general"]
+    assert material["primary_domain"] == "care"
+    assert material["primary_goal"] == "ask_information"
+    assert material["issues"] == ["material_resource"]
     assert material["needs_review"] is False
 
 
@@ -316,7 +317,7 @@ def test_invalid_corrected_label_is_rejected(monkeypatch, tmp_path):
         json={
             "status": "corrected",
             "primary_domain": "not_a_domain",
-            "primary_goal": "negotiate",
+            "primary_goal": "express_objection",
             "scope": "in_scope",
             "annotator_id": "reviewer",
         },
@@ -368,9 +369,9 @@ def test_chat_pipeline_records_each_classified_user_turn(monkeypatch, tmp_path):
     assert observations["total"] == 1
     item = observations["items"][0]
     assert item["user_message"] == "这个多少钱？"
-    assert item["primary_domain"] == "commercial_decision"
+    assert item["primary_domain"] == "commerce"
     assert item["primary_goal"] == "ask_information"
-    assert item["issues"] == ["price"]
+    assert item["issues"] == ["price_value"]
 
 
 def test_case_import_creates_pending_customer_turns_with_context(
@@ -560,15 +561,15 @@ def test_high_confidence_case_prediction_is_accepted_until_human_correction(
         return IntentResult(
             route="rag_answer",
             primary_intent="care_question",
-            primary_domain="customer_need",
+            primary_domain="product",
             primary_goal="provide_information",
-            issues=["experience_level"],
+            issues=["customer_fit"],
             scope="in_scope",
             classifier_source="llm",
             classifier_provider="mock",
             classifier_model="mock-intent",
             raw_prediction={
-                "primary_domain": "customer_need",
+                "primary_domain": "product",
                 "primary_goal": "provide_information",
             },
             confidence=0.96,
@@ -599,9 +600,9 @@ def test_high_confidence_case_prediction_is_accepted_until_human_correction(
     assert result["classified_with_ai"] is True
     assert pending["total"] == 0
     assert accepted["total"] == 7
-    assert first["primary_domain"] == "customer_need"
+    assert first["primary_domain"] == "product"
     assert first["primary_goal"] == "provide_information"
-    assert first["issues"] == ["experience_level"]
+    assert first["issues"] == ["customer_fit"]
     assert first["confidence"] == pytest.approx(0.96)
     assert first["classifier_source"] == "case_import"
     assert first["classifier_provider"] == "mock"
@@ -619,9 +620,9 @@ def test_high_confidence_case_prediction_is_accepted_until_human_correction(
         "/api/v1/admin/intent-observations/intent-case-case01-001/annotations",
         json={
             "status": "corrected",
-            "primary_domain": "care_service",
+            "primary_domain": "care",
             "primary_goal": "ask_information",
-            "issues": ["care_general"],
+            "issues": ["routine_care"],
             "scope": "in_scope",
             "annotator_id": "reviewer",
         },
@@ -629,5 +630,5 @@ def test_high_confidence_case_prediction_is_accepted_until_human_correction(
     assert corrected.status_code == 200
     exported = client.get("/api/v1/admin/intent-training-data").json()["data"]
     assert exported["total"] == 7
-    assert exported["items"][0]["labels"]["primary_domain"] == "care_service"
+    assert exported["items"][0]["labels"]["primary_domain"] == "care"
     assert exported["items"][0]["labels"]["primary_goal"] == "ask_information"

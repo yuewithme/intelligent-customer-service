@@ -166,9 +166,9 @@ async def record_bypassed_intent_observation(
         "unsupported",
     }
     predicted_route = final_route if final_route in allowed_routes else "clarify"
-    if primary_domain == "out_of_scope":
+    if scope == "out_of_scope":
         predicted_route = "unsupported"
-    elif primary_goal == "request_material":
+    elif "material_resource" in (issues or []):
         predicted_route = "rag_answer"
     elif primary_goal == "request_service":
         predicted_route = "template_reply"
@@ -969,24 +969,24 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                     conversation_message_ids_json=_json_dumps([message.id]),
                     user_message=message.content,
                     context_json="[]",
-                    taxonomy_version="1.0",
+                    taxonomy_version="2.0",
                     classifier_source="historical_rule",
                     raw_prediction_json=_json_dumps(
                         {"backfill_rule": "orchid_material_request"}
                     ),
                     candidate_labels_json="[]",
-                    primary_domain="care_service",
+                    primary_domain="care",
                     secondary_domains_json="[]",
-                    primary_goal="request_material",
+                    primary_goal="ask_information",
                     secondary_goals_json="[]",
-                    issues_json=_json_dumps(["care_general"]),
+                    issues_json=_json_dumps(["material_resource"]),
                     scope="in_scope",
                     evidence_json=_json_dumps(
                         [
                             {
                                 "text": "明确提及资料领取",
                                 "dimension": "goal",
-                                "label": "request_material",
+                                "label": "ask_information",
                             }
                         ]
                     ),

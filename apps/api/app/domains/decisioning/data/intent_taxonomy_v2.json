@@ -1,0 +1,329 @@
+{
+  "version": "2.0",
+  "counts": {
+    "domain": 5,
+    "goal": 16,
+    "issue": 18
+  },
+  "labels": [
+    {
+      "kind": "domain",
+      "id": "product",
+      "name": "需求与选品",
+      "definition": "用户描述购买需求、个人条件，或咨询、推荐、比较具体商品与方案。",
+      "positive_examples": ["我是新手，想找一盆好养又香的。", "这两款有什么区别？"],
+      "negative_examples": ["多久浇一次水？", "我已经付款了。"],
+      "slots": ["purchase_purpose", "experience_level", "region", "placement", "preference", "budget", "product_id", "sku_id"]
+    },
+    {
+      "kind": "domain",
+      "id": "care",
+      "name": "养护",
+      "definition": "用户咨询兰花日常养护、换盆、异常、病害、恢复或养护信心。",
+      "positive_examples": ["多久浇一次水？", "烂根了怎么处理？"],
+      "negative_examples": ["收到时花盆碎了。", "这个多少钱？"],
+      "slots": ["care_action", "symptom", "region", "temperature", "humidity"]
+    },
+    {
+      "kind": "domain",
+      "id": "commerce",
+      "name": "商业与成交",
+      "definition": "用户讨论价格、价值、信任、优惠、规格选择、下单或支付。",
+      "positive_examples": ["能优惠一点吗？", "就要这个，我已经付款了。"],
+      "negative_examples": ["给我推荐一个品种。", "收到的商品坏了。"],
+      "slots": ["product_id", "sku_id", "quantity", "price", "payment_method"]
+    },
+    {
+      "kind": "domain",
+      "id": "customer_service",
+      "name": "客户服务",
+      "definition": "用户针对已经发生的订单、配送、收货或售后问题查询或要求处理。",
+      "positive_examples": ["发货了吗？", "收到的苗断了，我要退款。"],
+      "negative_examples": ["这个包邮吗？", "兰花黄叶怎么办？"],
+      "slots": ["order_id", "delivery_status", "service_type", "problem_type"]
+    },
+    {
+      "kind": "domain",
+      "id": "conversation",
+      "name": "普通会话",
+      "definition": "没有独立业务主题的寒暄、确认、否定、感谢、结束或暂时无法理解的表达。",
+      "positive_examples": ["你好。", "好的，谢谢。"],
+      "negative_examples": ["你好，这个多少钱？", "谢谢，再推荐一款好养的。"],
+      "slots": ["chitchat_kind"]
+    },
+
+    {
+      "kind": "goal",
+      "id": "express_interest",
+      "name": "表达需求或兴趣",
+      "definition": "用户表达想购买、了解、解决或获得某物，但尚未执行交易。",
+      "positive_examples": ["我想买一盆香一点的。", "这个我挺喜欢。"],
+      "negative_examples": ["给我推荐一款。", "我已经下单了。"]
+    },
+    {
+      "kind": "goal",
+      "id": "provide_information",
+      "name": "提供信息",
+      "definition": "用户回答问题或主动提供地区、环境、经验、偏好、订单等事实。",
+      "positive_examples": ["我在广东阳台养。", "以前养过两盆。"],
+      "negative_examples": ["广东适合养什么？", "我想买这个。"]
+    },
+    {
+      "kind": "goal",
+      "id": "ask_information",
+      "name": "询问信息或索要资源",
+      "definition": "用户询问事实、参数、规则、比较结果，或索要教程、图片、视频、链接等资源。",
+      "positive_examples": ["这盆有几苗？", "发个实物图片看看。"],
+      "negative_examples": ["烂根了怎么救？", "就买这一盆。"]
+    },
+    {
+      "kind": "goal",
+      "id": "seek_help",
+      "name": "请求推荐或解决",
+      "definition": "用户希望获得选品推荐、方案建议或对明确困难和异常的解决办法。",
+      "positive_examples": ["推荐一款适合新手的。", "兰花烂根了怎么救？"],
+      "negative_examples": ["这是什么品种？", "我在北京室内养。"]
+    },
+    {
+      "kind": "goal",
+      "id": "express_objection",
+      "name": "表达异议或争取条件",
+      "definition": "用户表达购买顾虑、质疑，或要求降价、优惠、赠品、包邮等条件。",
+      "positive_examples": ["太贵了。", "能不能再便宜一点？"],
+      "negative_examples": ["这个多少钱？", "先不买了。"]
+    },
+    {
+      "kind": "goal",
+      "id": "confirm",
+      "name": "确认",
+      "definition": "用户肯定上一轮内容，或确认商品、规格和方案，但尚未明确执行交易。",
+      "positive_examples": ["好的。", "就是这款，两苗的。"],
+      "negative_examples": ["我要两盆，帮我下单。", "不是这个品种。"]
+    },
+    {
+      "kind": "goal",
+      "id": "defer_decision",
+      "name": "暂缓决定",
+      "definition": "用户表示稍后考虑、以后决定或暂时不推进，但没有明确拒绝。",
+      "positive_examples": ["我再考虑一下。", "等秋天再说。"],
+      "negative_examples": ["不要了。", "就买这个。"]
+    },
+    {
+      "kind": "goal",
+      "id": "reject",
+      "name": "否定、纠正或拒绝",
+      "definition": "用户否定上一轮假设、纠正信息，或明确拒绝当前购买决定。",
+      "positive_examples": ["不是这个。", "不要了，谢谢。"],
+      "negative_examples": ["我再考虑一下。", "好的。"]
+    },
+    {
+      "kind": "goal",
+      "id": "transact",
+      "name": "购买或支付",
+      "definition": "用户明确要求购买、下单、按数量获取商品，或准备、声明已经支付。",
+      "positive_examples": ["给我下单两盆。", "已经付款了。"],
+      "negative_examples": ["这个我挺喜欢。", "就是这一款。"]
+    },
+    {
+      "kind": "goal",
+      "id": "request_service",
+      "name": "查询或请求服务处理",
+      "definition": "用户查询订单、支付、物流、售后进度，或要求处理已发生的服务问题。",
+      "positive_examples": ["发货了吗？", "麻烦帮我处理一下。"],
+      "negative_examples": ["这个包邮吗？", "我要退款。"]
+    },
+    {
+      "kind": "goal",
+      "id": "request_refund_return",
+      "name": "请求退款退货",
+      "definition": "用户明确要求退款、退钱、退货或取消已发生的交易。",
+      "positive_examples": ["我要退款。", "这盆退回去。"],
+      "negative_examples": ["不满意能退吗？", "商品收到时坏了。"]
+    },
+    {
+      "kind": "goal",
+      "id": "complain",
+      "name": "投诉或强烈不满",
+      "definition": "用户明确投诉、追责、举报或表达强烈不满。",
+      "positive_examples": ["我要投诉。", "你们一直不处理，我要追责。"],
+      "negative_examples": ["这个有点贵。", "收到的苗有点蔫。"]
+    },
+    {
+      "kind": "goal",
+      "id": "request_human",
+      "name": "请求人工介入",
+      "definition": "用户明确要求真人、人工客服、老板或售后人员接管。",
+      "positive_examples": ["转人工。", "让老板回复我。"],
+      "negative_examples": ["你是真人吗？", "帮我查物流。"]
+    },
+    {
+      "kind": "goal",
+      "id": "social",
+      "name": "寒暄或感谢",
+      "definition": "用户只进行问候、感谢或礼貌互动，没有独立业务要求。",
+      "positive_examples": ["你好。", "谢谢。"],
+      "negative_examples": ["你好，这个多少钱？", "谢谢，发货了吗？"]
+    },
+    {
+      "kind": "goal",
+      "id": "end_conversation",
+      "name": "结束会话",
+      "definition": "用户明确表示当前问题已解决或希望结束对话。",
+      "positive_examples": ["没问题了，再见。", "先这样，谢谢。"],
+      "negative_examples": ["先不买了。", "谢谢，再问一下价格。"]
+    },
+    {
+      "kind": "goal",
+      "id": "unclear",
+      "name": "目标不清楚",
+      "definition": "结合当前上下文后仍无法判断用户希望系统完成什么。",
+      "positive_examples": ["这个呢。", "1"],
+      "negative_examples": ["这个多少钱？", "好的。"]
+    },
+
+    {
+      "kind": "issue",
+      "id": "customer_fit",
+      "name": "客户适配条件",
+      "definition": "购买用途、养兰经验、偏好、预算等影响推荐的客户条件。",
+      "positive_examples": ["新手，预算三百，喜欢香的。"],
+      "negative_examples": ["这盆多少钱？"]
+    },
+    {
+      "kind": "issue",
+      "id": "growing_environment",
+      "name": "养护环境",
+      "definition": "地区、空间、朝向、温度、湿度、通风、光照及其管理。",
+      "positive_examples": ["北方暖气房适合养吗？"],
+      "negative_examples": ["多久浇一次水？"]
+    },
+    {
+      "kind": "issue",
+      "id": "pain_outcome",
+      "name": "困难与期望结果",
+      "definition": "用户过去或当前的核心困难，以及希望达到的养护或购买结果。",
+      "positive_examples": ["以前总养死，希望这次能养开花。"],
+      "negative_examples": ["我不会养。"]
+    },
+    {
+      "kind": "issue",
+      "id": "product_information",
+      "name": "商品信息",
+      "definition": "品种、花色、苗情、苗数、尺寸、包装等商品客观属性。",
+      "positive_examples": ["这盆是什么品种，有几苗？"],
+      "negative_examples": ["我要买两盆。"]
+    },
+    {
+      "kind": "issue",
+      "id": "product_selection",
+      "name": "推荐、适配与比较",
+      "definition": "商品是否适合客户，以及多个商品、品种或方案之间的比较选择。",
+      "positive_examples": ["哪款更适合北方新手？"],
+      "negative_examples": ["这盆是什么品种？"]
+    },
+    {
+      "kind": "issue",
+      "id": "stock_availability",
+      "name": "库存与可售状态",
+      "definition": "商品、颜色、规格或数量当前是否有货、可售。",
+      "positive_examples": ["这款现在还有吗？"],
+      "negative_examples": ["今年能开花吗？"]
+    },
+    {
+      "kind": "issue",
+      "id": "routine_care",
+      "name": "日常养护",
+      "definition": "综合养护、浇水、施肥、水质、肥料和日常管理。",
+      "positive_examples": ["平时多久浇水施肥？"],
+      "negative_examples": ["烂根了怎么抢救？"]
+    },
+    {
+      "kind": "issue",
+      "id": "medium_repotting",
+      "name": "植料与换盆",
+      "definition": "植料、盆器、排水、换盆、修根和上盆操作。",
+      "positive_examples": ["收到后可以换盆吗？"],
+      "negative_examples": ["叶子发黄怎么办？"]
+    },
+    {
+      "kind": "issue",
+      "id": "plant_problem",
+      "name": "异常、病害与恢复",
+      "definition": "黄叶、烂根、干尖、萎蔫、不开花、病虫害和恢复。",
+      "positive_examples": ["兰花烂根黄叶怎么救？"],
+      "negative_examples": ["兰花平时怎么养？"]
+    },
+    {
+      "kind": "issue",
+      "id": "price_value",
+      "name": "价格、优惠与价值",
+      "definition": "售价、总价、折扣、赠品、包邮、性价比和价值依据。",
+      "positive_examples": ["多少钱，能优惠吗？"],
+      "negative_examples": ["是不是老种？"]
+    },
+    {
+      "kind": "issue",
+      "id": "trust_guarantee",
+      "name": "品质、信任与保障",
+      "definition": "苗情、品种真实性、商家可信度、对版、到货和服务保障。",
+      "positive_examples": ["能保证对版吗？"],
+      "negative_examples": ["我怕自己养不好。"]
+    },
+    {
+      "kind": "issue",
+      "id": "care_confidence",
+      "name": "养护信心",
+      "definition": "用户担心不会养、养不好或养死而产生的顾虑。",
+      "positive_examples": ["我怕买回去养不活。"],
+      "negative_examples": ["以前养死过两盆。"]
+    },
+    {
+      "kind": "issue",
+      "id": "purchase_selection",
+      "name": "成交规格与购买数量",
+      "definition": "成交阶段选择或确认具体SKU、颜色、苗型和购买数量。",
+      "positive_examples": ["我要三苗的，买两盆。"],
+      "negative_examples": ["这盆本身有几苗？"]
+    },
+    {
+      "kind": "issue",
+      "id": "order_process",
+      "name": "下单流程",
+      "definition": "购买入口、创建订单、填写收货信息和确认订单。",
+      "positive_examples": ["链接在哪，怎么下单？"],
+      "negative_examples": ["我已经付款了。"]
+    },
+    {
+      "kind": "issue",
+      "id": "payment",
+      "name": "支付",
+      "definition": "支付方式、付款入口、支付异常、支付声明和支付状态。",
+      "positive_examples": ["我已经微信付款了。"],
+      "negative_examples": ["怎么下单？"]
+    },
+    {
+      "kind": "issue",
+      "id": "delivery",
+      "name": "配送物流",
+      "definition": "运费、包邮、发货时间、到货时间、物流状态和配送异常。",
+      "positive_examples": ["什么时候发货？"],
+      "negative_examples": ["收到的苗断了。"]
+    },
+    {
+      "kind": "issue",
+      "id": "after_sale",
+      "name": "售后",
+      "definition": "售后政策、收货问题、退款退货原因、申请和进度。",
+      "positive_examples": ["收到的苗断了，怎么处理？"],
+      "negative_examples": ["这个包邮吗？"]
+    },
+    {
+      "kind": "issue",
+      "id": "material_resource",
+      "name": "资料与资源",
+      "definition": "用户索要教程、手册、课程、图片、视频、商品卡片或购买链接。",
+      "positive_examples": ["发个实物图看看。", "养护资料怎么领？"],
+      "negative_examples": ["这盆是什么品种？"]
+    }
+  ]
+}
