@@ -1,0 +1,113 @@
+{
+  "case_id": "case2_08",
+  "customer_id": "intent-case2_08-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送商品或会员活动推荐，推广正文已清理）",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "几苗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "苗子都是2-3苗的壮苗",
+        "您家里现在有养送春的品种吗？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "没有"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那这个是一定要养一盆的",
+        "送春的最经典的奇花",
+        "花香浓郁 花期持久"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "给我弄一盆",
+        "要壮苗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的",
+        "我给您发个链接 您去下单哈",
+        "我亲自给您选壮苗发货",
+        "上面是我们微信店铺链接，授权手机号、填好地址就能下单，权益和直播间一样，下单还有积分，后续可以直接抵现。",
+        "你拍好给我说 我在送您点礼品"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好了下单了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 您是我们会员用户",
+        "可以给您免费寄养的",
+        "现在气温高 可以等到秋季再发货",
+        "您看需要吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "现在发货不行吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以的",
+        "就是气温高 腐苗的风险大"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这几天还行吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 那我就安排发货了哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送群聊邀请）",
+        "亲爱的兰友，我是您的专属养兰师傅，邀您加入专属养兰服务群～\n看完养护视频后，实操遇到任何问题，都能在群里随时提问，专业师傅在线答疑。还能和各地兰友交流养兰心得哦！",
+        "上方链接是【萧岚苑】服务了10W+兰友之后，总结录制的实操视频，覆盖了您养兰过程中95%的常见问题，视频的永久权限已经给您开通 随时都可以点开观看... ...\n您看下我们录制的视频课程 你可以打开学习吗？"
+      ]
+    }
+  ]
+}

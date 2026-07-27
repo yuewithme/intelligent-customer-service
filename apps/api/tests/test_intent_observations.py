@@ -473,6 +473,23 @@ def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path)
         "case25": 18,
         "case26": 6,
         "case27": 7,
+        "case2_01": 2,
+        "case2_02": 4,
+        "case2_02_2": 4,
+        "case2_03": 18,
+        "case2_04": 10,
+        "case2_05": 8,
+        "case2_06": 35,
+        "case2_07": 11,
+        "case2_08": 7,
+        "case2_09": 9,
+        "case2_10": 11,
+        "case2_11": 7,
+        "case2_12": 7,
+        "case2_13": 9,
+        "case2_14": 13,
+        "case2_15": 24,
+        "case2_16": 11,
     }
 
     async def import_all():
@@ -496,7 +513,7 @@ def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path)
         case_id: result["observation_count"]
         for case_id, result in results.items()
     } == expected_counts
-    assert observations["total"] == sum(expected_counts.values()) == 364
+    assert observations["total"] == sum(expected_counts.values()) == 554
 
     merged_customer_turn = client.get(
         "/api/v1/admin/intent-observations/intent-case-case07-004"
