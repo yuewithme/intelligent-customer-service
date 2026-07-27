@@ -119,11 +119,7 @@ async def _retrieve_labeled_examples(message: str) -> list[dict]:
             continue
         search_text = _sample_search_text(sample)
         text_grams = _character_ngrams(text)
-        search_grams = _character_ngrams(search_text)
-        shared_grams = max(
-            len(message_grams & text_grams),
-            len(message_grams & search_grams),
-        )
+        shared_grams = len(message_grams & text_grams)
         base_score = max(
             _lexical_similarity(message, text),
             0.85 * _lexical_similarity(message, search_text),

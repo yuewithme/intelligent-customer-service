@@ -57,7 +57,9 @@ async def test_retrieves_only_normalized_trusted_examples_with_context(
             {
                 "sample_id": "corrected-but-irrelevant",
                 "text": "我来查一下",
-                "context": [],
+                "context": [
+                    {"role": "assistant", "content": "您是觉得价格有点贵，需要再考虑吗"}
+                ],
                 "labels": {
                     "primary_domain": "commerce",
                     "primary_goal": "ask_information",
