@@ -34,11 +34,24 @@ def test_material_goal_is_restored_without_changing_normal_questions():
         },
         source_version="2.0",
     )
+    restored_from_text = migrate_dgi_to_v21(
+        {
+            "primary_domain": "product",
+            "primary_goal": "ask_information",
+            "issues": [],
+            "scope": "in_scope",
+        },
+        source_version="2.0",
+        is_material_request=True,
+    )
 
     assert material["primary_goal"] == "request_material"
     assert material["issues"] == ["material_resource"]
     assert material["taxonomy_version"] == "2.1"
     assert question["primary_goal"] == "ask_information"
+    assert restored_from_text["primary_domain"] == "care"
+    assert restored_from_text["primary_goal"] == "request_material"
+    assert restored_from_text["issues"] == ["material_resource"]
 
 
 def test_v21_database_migration_is_deterministic_and_idempotent(
@@ -125,7 +138,11 @@ def _observation(
         trace_id=trace_id,
         channel="case",
         user_id="customer",
-        user_message="测试消息",
+        user_message=(
+            "麻烦把养兰资料发我一下"
+            if trace_id == "material"
+            else "兰花多久浇一次水"
+        ),
         context_json="[]",
         taxonomy_version="2.0",
         classifier_source="case_import",

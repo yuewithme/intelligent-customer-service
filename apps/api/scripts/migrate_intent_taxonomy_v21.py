@@ -14,6 +14,9 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import get_settings
+from app.domains.catalog.services.orchid_material_service import (
+    is_orchid_material_request,
+)
 from app.domains.decisioning.services.intent_taxonomy_service import (
     prepare_intent_payload,
 )
@@ -102,6 +105,7 @@ def run(*, apply: bool, channels: list[str]) -> dict[str, Any]:
             migrated = migrate_dgi_to_v21(
                 previous_payload,
                 source_version=source_version,
+                is_material_request=is_orchid_material_request(row.user_message),
             )
             if (
                 previous_payload.get("primary_goal") != "request_material"
@@ -141,6 +145,9 @@ def run(*, apply: bool, channels: list[str]) -> dict[str, Any]:
                     migrate_dgi_to_v21(
                         _annotation_payload(latest_annotation),
                         source_version=latest_annotation.taxonomy_version,
+                        is_material_request=is_orchid_material_request(
+                            row.user_message
+                        ),
                     )
                     if corrected
                     else migrated

@@ -14,6 +14,7 @@ def migrate_dgi_to_v21(
     payload: dict[str, Any],
     *,
     source_version: str | None = None,
+    is_material_request: bool = False,
 ) -> dict[str, Any]:
     source = str(source_version or payload.get("taxonomy_version") or "")
     migrated = (
@@ -23,12 +24,16 @@ def migrate_dgi_to_v21(
     )
     issues = _strings(migrated.get("issues"))
     primary_goal = str(migrated.get("primary_goal") or "unclear")
-    if primary_goal == "ask_information" and "material_resource" in issues:
+    primary_domain = str(migrated.get("primary_domain") or "conversation")
+    if is_material_request:
+        primary_domain = "care"
+        primary_goal = "request_material"
+    elif primary_goal == "ask_information" and "material_resource" in issues:
         primary_goal = "request_material"
     if primary_goal == "request_material" and "material_resource" not in issues:
         issues.append("material_resource")
     return {
-        "primary_domain": str(migrated.get("primary_domain") or "conversation"),
+        "primary_domain": primary_domain,
         "secondary_domains": _strings(migrated.get("secondary_domains")),
         "primary_goal": primary_goal,
         "secondary_goals": _strings(migrated.get("secondary_goals")),
