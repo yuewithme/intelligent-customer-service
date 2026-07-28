@@ -829,6 +829,236 @@ async def reply_conversation(
     return result
 
 
+def list_conversation_emojis(conversation_id: str, limit: int = 40) -> dict[str, Any]:
+    limit = max(1, min(limit, 100))
+    with _get_session() as session:
+        _get_conversation_or_error(session, conversation_id)
+        rows = list(
+            session.scalars(
+                select(ConversationMessageModel)
+                .where(
+                    ConversationMessageModel.conversation_id == conversation_id,
+                    ConversationMessageModel.sender_type == "customer",
+                )
+                .order_by(
+                    ConversationMessageModel.created_at.desc(),
+                    ConversationMessageModel.id.desc(),
+                )
+                .limit(500)
+            )
+        )
+    items = []
+    seen = set()
+    for row in rows:
+        emoji = _emoji_from_message(row)
+        if not emoji or emoji["md5"] in seen:
+            continue
+        seen.add(emoji["md5"])
+        items.append({"message_id": row.id, **emoji})
+        if len(items) >= limit:
+            break
+    return {"items": items}
+
+
+async def reply_conversation_image(
+    conversation_id: str,
+    operator_id: str,
+    image_url: str,
+) -> dict:
+    image_url = image_url.strip()
+    if not image_url.lower().startswith(("http://", "https://")):
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message="图片地址必须是可访问的 HTTP(S) 地址",
+            status_code=422,
+        )
+    return await _reply_conversation_media(
+        conversation_id,
+        operator_id,
+        message_type="image",
+        content=image_url,
+        display_content="[图片]",
+        media={"type": "image", "url": image_url, "fallback": False},
+    )
+
+
+async def reply_conversation_emoji(
+    conversation_id: str,
+    operator_id: str,
+    source_message_id: int,
+) -> dict:
+    with _get_session() as session:
+        _get_conversation_or_error(session, conversation_id)
+        source = session.get(ConversationMessageModel, source_message_id)
+        if (
+            source is None
+            or source.conversation_id != conversation_id
+            or source.sender_type != "customer"
+        ):
+            raise AppError(
+                ErrorCode.REQUEST_INVALID,
+                message="表情来源消息不存在",
+                status_code=404,
+            )
+        emoji = _emoji_from_message(source)
+    if not emoji:
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message="该消息不是可复用的微信表情",
+            status_code=422,
+        )
+    payload = json.dumps(
+        {
+            "md5": emoji["md5"],
+            "size": emoji["size"],
+            "preview_url": emoji["url"],
+        },
+        ensure_ascii=False,
+    )
+    return await _reply_conversation_media(
+        conversation_id,
+        operator_id,
+        message_type="emoji",
+        content=payload,
+        display_content="[表情]",
+        media={
+            "type": "emoji",
+            "url": emoji["url"],
+            "md5": emoji["md5"],
+            "size": emoji["size"],
+            "fallback": not bool(emoji["url"]),
+        },
+    )
+
+
+async def _reply_conversation_media(
+    conversation_id: str,
+    operator_id: str,
+    *,
+    message_type: str,
+    content: str,
+    display_content: str,
+    media: dict[str, Any],
+) -> dict:
+    with _get_session() as session:
+        conversation = _get_conversation_or_error(session, conversation_id)
+        if conversation.status != HUMAN_ACTIVE or conversation.owner_id != operator_id:
+            raise AppError(
+                ErrorCode.REQUEST_INVALID,
+                message="当前会话未接管，不能人工回复",
+                status_code=409,
+            )
+        eyun_target = _latest_eyun_reply_target(session, conversation)
+        if eyun_target is None:
+            raise AppError(
+                ErrorCode.REQUEST_INVALID,
+                message="当前会话渠道不支持发送该媒体消息",
+                status_code=409,
+            )
+        now = _now()
+        message = ConversationMessageModel(
+            conversation_id=conversation_id,
+            delivery_status="queued",
+            sender_type="human",
+            sender_id=operator_id,
+            content=display_content,
+            metadata_json=json.dumps(
+                {
+                    "provider": "eyun",
+                    "direction": "outbound",
+                    "message_type": message_type,
+                    "outbound_content": content,
+                    "origin": "admin_workbench",
+                    "media": media,
+                },
+                ensure_ascii=False,
+            ),
+            created_at=now,
+        )
+        session.add(message)
+        session.flush()
+        message_id = message.id
+        conversation.last_message = display_content
+        conversation.updated_at = now
+        memory_context = {
+            "user_id": conversation.user_id,
+            "tenant_id": conversation.tenant_id,
+            "session_id": conversation.session_id,
+            "channel": conversation.channel,
+        }
+        session.commit()
+        result = _conversation_to_dict(conversation)
+    try:
+        from app.integrations.eyun.services.message_risk_control_service import (
+            enqueue_wechat_outbound,
+        )
+
+        await enqueue_wechat_outbound(
+            w_id=eyun_target["w_id"],
+            wc_id=eyun_target["wc_id"],
+            content=content,
+            message_type=message_type,
+            source_batch_key=f"workbench:{message_id}",
+            conversation_message_id=message_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        update_outbound_message_delivery(message_id, status="failed")
+        raise AppError(
+            ErrorCode.WECHAT_REPLY_FAILED,
+            message="Eyun 媒体消息加入风控队列失败",
+            status_code=502,
+        ) from exc
+
+    from app.domains.customers.services.user_profile_service import (
+        append_conversation_memory,
+    )
+
+    await append_conversation_memory(
+        user_id=memory_context["user_id"],
+        tenant_id=memory_context["tenant_id"],
+        session_id=memory_context["session_id"],
+        role="human",
+        content=display_content,
+        channel=memory_context["channel"],
+        source_id=f"workbench:{message_id}",
+    )
+    _publish_change(conversation_id, "reply")
+    return result
+
+
+def _emoji_from_message(row: ConversationMessageModel) -> dict[str, str] | None:
+    metadata = _load_metadata(row.metadata_json)
+    message_type = str(metadata.get("message_type") or "")
+    if not message_type.endswith("006"):
+        return None
+    media = metadata.get("media")
+    if not isinstance(media, dict):
+        from app.integrations.eyun.services.eyun_callback_service import (
+            extract_eyun_media_metadata,
+        )
+
+        media = extract_eyun_media_metadata(
+            message_type,
+            {
+                "content": metadata.get("raw_content"),
+                "url": metadata.get("url"),
+                "md5": metadata.get("md5"),
+                "length": metadata.get("length"),
+            },
+        )
+    if not isinstance(media, dict):
+        return None
+    md5 = str(media.get("md5") or "").strip()
+    size = str(media.get("size") or "").strip()
+    if not md5 or not size:
+        return None
+    return {
+        "md5": md5,
+        "size": size,
+        "url": str(media.get("url") or ""),
+    }
+
+
 def get_human_activity_send_target(
     conversation_id: str, operator_id: str
 ) -> dict[str, str]:
@@ -1210,6 +1440,7 @@ def _outbound_display_content(message_type: str, content: str) -> str:
         "received_image": "[图片]",
         "received_video": "[视频]",
         "video": "[视频]",
+        "emoji": "[表情]",
     }.get(message_type, "[非文本消息]")
 
 
@@ -1226,6 +1457,18 @@ def _outbound_metadata(
         result["media"] = {"type": "image", "url": content, "fallback": False}
     elif message_type in {"video", "received_video"}:
         result["media"] = {"type": "video", "url": content, "fallback": False}
+    elif message_type == "emoji":
+        try:
+            emoji = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            emoji = {}
+        result["media"] = {
+            "type": "emoji",
+            "url": str(emoji.get("preview_url") or ""),
+            "md5": str(emoji.get("md5") or ""),
+            "size": str(emoji.get("size") or ""),
+            "fallback": not bool(emoji.get("preview_url")),
+        }
     elif message_type == "mini_program":
         try:
             result["mini_program"] = json.loads(content)

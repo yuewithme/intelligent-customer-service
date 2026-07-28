@@ -14,7 +14,9 @@ ORDER_STATUS_TEXT = {
     "WAIT_SELLER_SEND_GOODS": "待发货",
     "WAIT_BUYER_CONFIRM_GOODS": "已发货",
     "TRADE_BUYER_SIGNED": "已完成",
+    "TRADE_SUCCESS": "已完成",
     "TRADE_CLOSED": "已关闭",
+    "TRADE_CLOSE": "已关闭",
 }
 
 

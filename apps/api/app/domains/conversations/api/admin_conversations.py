@@ -1,12 +1,17 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
 from app.domains.conversations.schemas.chat import APIResponse
-from app.domains.conversations.schemas.conversation import ClaimRequest, ReplyRequest, StatusActionRequest
+from app.domains.conversations.schemas.conversation import (
+    ClaimRequest,
+    ReplyEmojiRequest,
+    ReplyRequest,
+    StatusActionRequest,
+)
 from app.domains.conversations.services.conversation_event_service import conversation_event_broker
 from app.domains.conversations.services.conversation_service import (
     claim_conversation,
@@ -15,13 +20,24 @@ from app.domains.conversations.services.conversation_service import (
     hide_conversation,
     list_conversations,
     mark_conversation_read,
+    list_conversation_emojis,
     release_to_ai,
     reply_conversation,
+    reply_conversation_emoji,
+    reply_conversation_image,
     resolve_message_media,
     resolve_conversation,
     unhide_conversation,
 )
 from app.core.auth import require_admin_access
+from app.domains.customers.services.user_profile_service import get_profile_bundle
+from app.integrations.youzan.services.youzan_order_sync_service import (
+    list_conversation_orders,
+)
+from app.shared.schemas.common import AppError, ErrorCode
+from app.domains.conversations.services.workbench_media_service import (
+    store_workbench_image,
+)
 
 
 router = APIRouter(
@@ -97,6 +113,40 @@ async def reply(conversation_id: str, request: ReplyRequest) -> APIResponse:
     return APIResponse(code=0, message="success", data=data)
 
 
+@router.post("/{conversation_id:path}/reply-image", response_model=APIResponse)
+async def reply_image(
+    request: Request,
+    conversation_id: str,
+    operator_id: str = Form(...),
+    file: UploadFile = File(...),
+) -> APIResponse:
+    image = await store_workbench_image(request, file)
+    data = await reply_conversation_image(
+        conversation_id,
+        operator_id,
+        image["url"],
+    )
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.get("/{conversation_id:path}/emojis", response_model=APIResponse)
+async def conversation_emojis(conversation_id: str) -> APIResponse:
+    data = list_conversation_emojis(conversation_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/reply-emoji", response_model=APIResponse)
+async def reply_emoji(
+    conversation_id: str, request: ReplyEmojiRequest
+) -> APIResponse:
+    data = await reply_conversation_emoji(
+        conversation_id,
+        request.operator_id,
+        request.source_message_id,
+    )
+    return APIResponse(code=0, message="success", data=data)
+
+
 @router.post("/{conversation_id:path}/read", response_model=APIResponse)
 async def mark_read(conversation_id: str) -> APIResponse:
     data = await mark_conversation_read(conversation_id)
@@ -118,6 +168,25 @@ async def unhide(conversation_id: str) -> APIResponse:
 @router.post("/messages/{message_id}/resolve-media", response_model=APIResponse)
 async def resolve_media(message_id: int) -> APIResponse:
     data = await resolve_message_media(message_id)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.get("/{conversation_id:path}/orders", response_model=APIResponse)
+async def conversation_orders(conversation_id: str) -> APIResponse:
+    detail = await get_conversation_detail(conversation_id)
+    profile = await get_profile_bundle(detail["conversation"]["user_id"])
+    basic_info = profile["profile"].get("basic_info") or {}
+    try:
+        data = list_conversation_orders(
+            conversation_id,
+            profile_mobile=str(basic_info.get("mobile") or ""),
+        )
+    except LookupError as exc:
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message=str(exc),
+            status_code=404,
+        ) from exc
     return APIResponse(code=0, message="success", data=data)
 
 

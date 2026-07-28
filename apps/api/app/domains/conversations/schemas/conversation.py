@@ -56,6 +56,11 @@ class ReplyRequest(BaseModel):
     content: str
 
 
+class ReplyEmojiRequest(BaseModel):
+    operator_id: str
+    source_message_id: int = Field(gt=0)
+
+
 class StatusActionRequest(BaseModel):
     operator_id: str
     reason: str | None = None

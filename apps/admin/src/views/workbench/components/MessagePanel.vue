@@ -247,7 +247,8 @@ const canResolveVideo = (message: ConversationMessage) =>
   String(message.metadata.message_type || '') === '60003' &&
   mediaType(message) === 'video'
 
-const isImageMessage = (message: ConversationMessage) => mediaType(message) === 'image'
+const isImageMessage = (message: ConversationMessage) =>
+  ['image', 'emoji'].includes(mediaType(message))
 
 const mediaSource = (message: ConversationMessage) => {
   const media = messageMedia(message)

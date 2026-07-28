@@ -561,6 +561,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             try:
                 from app.integrations.eyun.services.eyun_callback_service import (
                     send_eyun_image,
+                    send_eyun_emoji,
                     send_eyun_link_card,
                     send_eyun_mini_program,
                     send_eyun_received_media,
@@ -575,6 +576,14 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 if message_type == "image":
                     send_result = await send_eyun_image(
                         w_id=row.w_id, wc_id=row.wc_id, content=content
+                    )
+                elif message_type == "emoji":
+                    emoji = json.loads(content)
+                    send_result = await send_eyun_emoji(
+                        w_id=row.w_id,
+                        wc_id=row.wc_id,
+                        image_md5=str(emoji.get("md5") or ""),
+                        image_size=str(emoji.get("size") or ""),
                     )
                 elif message_type == "mini_program":
                     send_result = await send_eyun_mini_program(
@@ -1397,6 +1406,7 @@ def _encode_outbound_content(message_type: str, content: str) -> str:
         "mini_program",
         "received_image",
         "received_video",
+        "emoji",
     }:
         return json.dumps({"type": message_type, "content": content}, ensure_ascii=False)
     return content
@@ -1417,6 +1427,7 @@ def _decode_outbound_content(content: str) -> tuple[str, str]:
             "mini_program",
             "received_image",
             "received_video",
+            "emoji",
         }
         and payload.get("content")
     ):

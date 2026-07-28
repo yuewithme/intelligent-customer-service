@@ -15,6 +15,9 @@ from app.integrations.web.services.link_card_thumbnail_service import (
     link_card_thumbnail_storage_dir,
 )
 from app.integrations.mcp.server import mcp_asgi_app
+from app.domains.conversations.services.workbench_media_service import (
+    workbench_media_storage_dir,
+)
 from app.shared.schemas.common import AppError, ErrorCode
 from app.core.logger import configure_logging
 
@@ -45,6 +48,11 @@ def _mount_static_files(application: FastAPI) -> None:
         "/static/sop-media",
         StaticFiles(directory=sop_media_storage_dir()),
         name="sop-media",
+    )
+    application.mount(
+        "/static/workbench-media",
+        StaticFiles(directory=workbench_media_storage_dir()),
+        name="workbench-media",
     )
     application.mount(
         "/static/link-card-thumbs",

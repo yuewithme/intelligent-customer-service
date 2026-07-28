@@ -17,6 +17,9 @@ importers:
       element-plus:
         specifier: 2.13.7
         version: 2.13.7(typescript@6.0.3)(vue@3.5.34(typescript@6.0.3))
+      emoji-picker-element:
+        specifier: 1.29.1
+        version: 1.29.1
       pinia:
         specifier: 3.0.4
         version: 3.0.4(typescript@6.0.3)(vue@3.5.34(typescript@6.0.3))
@@ -881,6 +884,9 @@ packages:
     resolution: {integrity: sha512-XdHATFZOyzVFL1DaHQ90IOJQSg9UnSAV+bhDW+YB5UoZ0Hxs50mwqjqfwXkuwpSag+VXXizVcErBR6Movo5daw==}
     peerDependencies:
       vue: ^3.3.0
+
+  emoji-picker-element@1.29.1:
+    resolution: {integrity: sha512-TOiHzu9Dqib3x4MwcAi3wi3RdyT4SoeB4b15AvH1ks4SBwTl7DeebhZ0d3x6dNi4XfNU7IGRZ7NBQllj0RqwrQ==}
 
   entities@7.0.1:
     resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
@@ -2221,6 +2227,8 @@ snapshots:
       vue-component-type-helpers: 3.3.6
     transitivePeerDependencies:
       - typescript
+
+  emoji-picker-element@1.29.1: {}
 
   entities@7.0.1: {}
 

@@ -51,6 +51,39 @@ export interface ConversationDetail {
   messages: ConversationMessage[]
 }
 
+export interface YouzanOrderItem {
+  title: string
+  quantity: number
+  image_url?: string
+}
+
+export interface YouzanOrder {
+  order_no: string
+  status: string
+  status_text: string
+  item_summary: string
+  items: YouzanOrderItem[]
+  payment_amount?: string | null
+  express_company?: string | null
+  tracking_no_masked?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface ConversationOrders {
+  status: 'found' | 'not_found' | 'unbound'
+  items: YouzanOrder[]
+  mobile_masked?: string
+  last_synced_at?: string | null
+}
+
+export interface ConversationEmoji {
+  message_id: number
+  url: string
+  md5: string
+  size: string
+}
+
 const conversationPath = (conversationId: string) => encodeURIComponent(conversationId)
 const conversationBase = () =>
   isTestGate()
@@ -86,6 +119,40 @@ export const replyConversation = (conversationId: string, operator_id: string, c
 export const markConversationRead = (conversationId: string) =>
   request.post<ConversationItem>({
     url: `${conversationBase()}/${conversationPath(conversationId)}/read`
+  })
+
+export const replyConversationImage = (
+  conversationId: string,
+  operatorId: string,
+  file: File
+) => {
+  const data = new FormData()
+  data.append('operator_id', operatorId)
+  data.append('file', file)
+  return request.upload<ConversationItem>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/reply-image`,
+    data
+  })
+}
+
+export const getConversationEmojis = (conversationId: string) =>
+  request.get<{ items: ConversationEmoji[] }>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/emojis`
+  })
+
+export const replyConversationEmoji = (
+  conversationId: string,
+  operator_id: string,
+  source_message_id: number
+) =>
+  request.post<ConversationItem>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/reply-emoji`,
+    data: { operator_id, source_message_id }
+  })
+
+export const getConversationOrders = (conversationId: string) =>
+  request.get<ConversationOrders>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/orders`
   })
 
 export const hideConversation = (conversationId: string) =>

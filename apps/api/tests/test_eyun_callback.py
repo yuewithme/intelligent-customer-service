@@ -670,8 +670,12 @@ def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
         (
             "60006",
             "<msg><emoji /></msg>",
-            {"url": "https://cdn.example.com/emoji.gif"},
-            "image",
+            {
+                "url": "https://cdn.example.com/emoji.gif",
+                "md5": "emoji-md5",
+                "length": 1234,
+            },
+            "emoji",
             "https://cdn.example.com/emoji.gif",
         ),
         (

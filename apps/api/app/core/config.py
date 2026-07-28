@@ -208,6 +208,12 @@ class Settings(BaseSettings):
     youzan_product_sync_startup_delay_seconds: int = Field(default=30, ge=0, le=3600)
     youzan_product_sync_page_size: int = Field(default=100, ge=1, le=300)
     youzan_product_sync_detail_concurrency: int = Field(default=5, ge=1, le=20)
+    youzan_order_sync_enabled: bool = True
+    youzan_order_sync_interval_minutes: int = Field(default=5, ge=1, le=1440)
+    youzan_order_sync_startup_delay_seconds: int = Field(default=45, ge=0, le=3600)
+    youzan_order_sync_initial_lookback_days: int = Field(default=90, ge=1, le=730)
+    youzan_order_sync_overlap_minutes: int = Field(default=10, ge=1, le=1440)
+    youzan_order_sync_page_size: int = Field(default=100, ge=1, le=100)
     youzan_care_manual_method: str = "youzan.showcase.shopnote.list"
     youzan_care_manual_version: str = "1.0.0"
     youzan_care_manual_page_size: int = Field(default=20, ge=1, le=100)

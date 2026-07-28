@@ -11,6 +11,7 @@ APP_DIR = Path(__file__).resolve().parents[1] / "app"
 RAW_SENDERS = {
     "send_eyun_text",
     "send_eyun_image",
+    "send_eyun_emoji",
     "send_eyun_video",
     "send_eyun_received_media",
     "send_eyun_mini_program",

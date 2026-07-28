@@ -315,7 +315,7 @@ def _eyun_message_kind(message_type: str) -> str:
         "003": "video",
         "004": "audio",
         "005": "contact",
-        "006": "image",
+        "006": "emoji",
         "007": "link",
         "008": "file",
         "009": "file",
@@ -408,6 +408,15 @@ def extract_eyun_media_metadata(
 
     if message_type.endswith("002"):
         media["thumb_base64"] = str(data.get("img") or "")
+    elif message_type.endswith("006"):
+        media["md5"] = (
+            _first_text(data, ("md5", "imageMd5"))
+            or str(media.get("md5") or "")
+        )
+        media["size"] = (
+            _first_text(data, ("length", "len", "imgSize"))
+            or str(media.get("size") or "")
+        )
 
     media["fallback"] = not bool(media.get("url"))
     return media
@@ -429,6 +438,16 @@ def _xml_media_metadata(content: str) -> dict[str, str]:
             candidate = unquote(value.strip())
             if candidate.startswith(("http://", "https://")):
                 result.setdefault("url", candidate)
+        if element.tag.rsplit("}", 1)[-1].lower() == "emoji":
+            if element.attrib.get("md5"):
+                result.setdefault("md5", element.attrib["md5"])
+            if element.attrib.get("len") or element.attrib.get("length"):
+                result.setdefault(
+                    "size",
+                    element.attrib.get("len")
+                    or element.attrib.get("length")
+                    or "",
+                )
     return result
 
 
@@ -644,6 +663,41 @@ async def send_eyun_image(
     if str(result.get("code")) != "1000":
         logger.warning("Eyun sendImage2 returned non-success response: %s", result)
         raise RuntimeError(f"Eyun sendImage2 failed: {result}")
+    return result
+
+
+async def send_eyun_emoji(
+    *,
+    w_id: str,
+    wc_id: str,
+    image_md5: str,
+    image_size: str,
+) -> dict[str, Any] | None:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id:
+        raise RuntimeError("Eyun configuration is incomplete")
+    if not image_md5 or not image_size:
+        raise ValueError("emoji md5 and size are required")
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{base_url}/sendEmoji",
+            headers={
+                "Authorization": authorization,
+                "Content-Type": "application/json",
+            },
+            json={
+                "wId": w_id,
+                "wcId": wc_id,
+                "imageMd5": image_md5,
+                "imgSize": image_size,
+            },
+        )
+    response.raise_for_status()
+    result = response.json()
+    if str(result.get("code")) != "1000":
+        raise RuntimeError(f"Eyun sendEmoji failed: {result}")
     return result
 
 

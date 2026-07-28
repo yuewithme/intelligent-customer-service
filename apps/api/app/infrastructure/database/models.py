@@ -74,6 +74,57 @@ class YouzanProductSyncRunModel(Base):
     )
 
 
+class YouzanOrderModel(Base):
+    __tablename__ = "youzan_orders"
+    __table_args__ = (
+        UniqueConstraint("kdt_id", "order_no", name="uq_youzan_order"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kdt_id: Mapped[str] = mapped_column(String(64), index=True)
+    order_no: Mapped[str] = mapped_column(String(128), index=True)
+    buyer_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    yz_uid: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    yz_open_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    fans_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    weixin_openid: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    union_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    mobile: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    mobile_masked: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), index=True)
+    status_text: Mapped[str] = mapped_column(String(128))
+    item_summary: Mapped[str] = mapped_column(Text, default="")
+    items_json: Mapped[str] = mapped_column(Text, default="[]")
+    payment_amount: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    express_company: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tracking_no_masked: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    order_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+    provider_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+    last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class YouzanOrderSyncRunModel(Base):
+    __tablename__ = "youzan_order_sync_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trigger: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    order_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+
+
 class YouzanProductKnowledgeModel(Base):
     __tablename__ = "youzan_product_knowledge"
 

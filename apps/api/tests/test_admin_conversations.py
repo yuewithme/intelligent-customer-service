@@ -509,6 +509,86 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
     assert messages[-1]["delivery_status"] == "queued"
 
 
+def test_claimed_eyun_conversation_accepts_image_and_received_emoji(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    from app.domains.conversations.services.conversation_service import (
+        record_customer_message,
+    )
+    from app.integrations.eyun.services import message_risk_control_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
+    get_settings.cache_clear()
+    queued = []
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued), "status": "queued"}
+
+    monkeypatch.setattr(
+        message_risk_control_service,
+        "enqueue_wechat_outbound",
+        fake_enqueue,
+    )
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="wxid_customer",
+            session_id="default",
+            content="[表情]",
+            message_id="emoji-provider-message",
+            metadata={
+                "provider": "eyun",
+                "w_id": "wid-1",
+                "from_user": "wxid_customer",
+                "message_type": "60006",
+                "raw_content": "<msg><emoji md5=\"abc123\" len=\"456\" /></msg>",
+                "media": {
+                    "type": "emoji",
+                    "url": "https://cdn.example.com/emoji.gif",
+                    "md5": "abc123",
+                    "size": "456",
+                    "fallback": False,
+                },
+            },
+        )
+    )
+    client = TestClient(app)
+    conversation_id = "wechat:wxid_customer:default"
+    assert client.post(
+        f"/api/v1/admin/conversations/{conversation_id}/claim",
+        json={"operator_id": "op-media"},
+    ).status_code == 200
+
+    emoji_items = client.get(
+        f"/api/v1/admin/conversations/{conversation_id}/emojis"
+    ).json()["data"]["items"]
+    assert emoji_items[0]["md5"] == "abc123"
+
+    image_response = client.post(
+        f"/api/v1/admin/conversations/{conversation_id}/reply-image",
+        data={"operator_id": "op-media"},
+        files={"file": ("reply.png", b"\x89PNG\r\n\x1a\ncontent", "image/png")},
+    )
+    emoji_response = client.post(
+        f"/api/v1/admin/conversations/{conversation_id}/reply-emoji",
+        json={
+            "operator_id": "op-media",
+            "source_message_id": emoji_items[0]["message_id"],
+        },
+    )
+
+    assert image_response.status_code == 200
+    assert emoji_response.status_code == 200
+    assert queued[0]["message_type"] == "image"
+    assert "/static/workbench-media/" in queued[0]["content"]
+    assert queued[1]["message_type"] == "emoji"
+    assert '"md5": "abc123"' in queued[1]["content"]
+
+
 def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 

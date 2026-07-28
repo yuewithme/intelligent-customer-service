@@ -67,7 +67,16 @@
         </ElButton>
       </div>
 
-      <ReplyComposer :status="conversation.status" @claim="claim" @send="reply" />
+      <ReplyComposer
+        :status="conversation.status"
+        :conversation-id="conversationId"
+        @claim="claim"
+        @send="reply"
+        @send-image="replyImage"
+        @send-emoji="replyEmoji"
+      />
+
+      <YouzanOrderPanel :conversation-id="conversationId" />
 
       <div class="profile-section">
         <div class="title">
@@ -109,6 +118,8 @@ import {
   forceHandoff,
   releaseToAi,
   replyConversation,
+  replyConversationEmoji,
+  replyConversationImage,
   resolveConversation,
   type ConversationItem,
   type ConversationStatus
@@ -119,6 +130,7 @@ import { intentText, riskLevelText, salesStageText, tagValueText } from '@/utils
 import { formatChinaTime } from '../time'
 import ReplyComposer from './ReplyComposer.vue'
 import SalesOpportunityPanel from './SalesOpportunityPanel.vue'
+import YouzanOrderPanel from './YouzanOrderPanel.vue'
 
 const props = defineProps<{
   conversationId: string
@@ -160,6 +172,22 @@ const claim = async () => {
 const reply = async (content: string) => {
   await replyConversation(props.conversationId, operatorId.value, content)
   ElMessage.success('已发送人工回复')
+  emit('changed')
+}
+
+const replyImage = async (file: File) => {
+  await replyConversationImage(props.conversationId, operatorId.value, file)
+  ElMessage.success('图片已进入发送队列')
+  emit('changed')
+}
+
+const replyEmoji = async (sourceMessageId: number) => {
+  await replyConversationEmoji(
+    props.conversationId,
+    operatorId.value,
+    sourceMessageId
+  )
+  ElMessage.success('表情已进入发送队列')
   emit('changed')
 }
 

@@ -19,6 +19,9 @@ from app.integrations.eyun.services.eyun_login_monitor_service import (
 from app.integrations.youzan.services.youzan_product_sync_service import (
     youzan_product_sync_worker,
 )
+from app.integrations.youzan.services.youzan_order_sync_service import (
+    youzan_order_sync_worker,
+)
 from app.integrations.mcp.server import run_sales_mcp_session_manager
 from app.domains.decisioning.services.intent_example_service import (
     prewarm_intent_example_index,
@@ -53,6 +56,9 @@ async def lifespan(app: FastAPI):
     app.state.youzan_product_sync_task = asyncio.create_task(
         youzan_product_sync_worker(stop_event)
     )
+    app.state.youzan_order_sync_task = asyncio.create_task(
+        youzan_order_sync_worker(stop_event)
+    )
     app.state.memory_v2_task = None
     if getattr(get_settings(), "memory_v2_write_enabled", False):
         app.state.memory_v2_task = asyncio.create_task(memory_worker(stop_event))
@@ -66,5 +72,6 @@ async def lifespan(app: FastAPI):
             await app.state.eyun_login_monitor_task
             await app.state.unpurchased_sop_task
             await app.state.youzan_product_sync_task
+            await app.state.youzan_order_sync_task
             if app.state.memory_v2_task is not None:
                 await app.state.memory_v2_task

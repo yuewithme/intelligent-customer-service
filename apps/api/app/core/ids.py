@@ -12,6 +12,7 @@ PREFIXES = {
     "request": "req",
     "handoff": "handoff",
     "sop_media": "sopmedia",
+    "workbench_media": "workbenchmedia",
 }
 
 
