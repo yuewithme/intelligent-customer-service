@@ -13,6 +13,9 @@ from app.domains.sales.services.unpurchased_sop_service import unpurchased_sop_w
 from app.integrations.eyun.services.message_risk_control_service import (
     eyun_risk_control_worker,
 )
+from app.integrations.eyun.services.eyun_login_monitor_service import (
+    eyun_login_monitor_worker,
+)
 from app.integrations.youzan.services.youzan_product_sync_service import (
     youzan_product_sync_worker,
 )
@@ -41,6 +44,9 @@ async def lifespan(app: FastAPI):
     app.state.eyun_risk_control_task = asyncio.create_task(
         eyun_risk_control_worker(stop_event)
     )
+    app.state.eyun_login_monitor_task = asyncio.create_task(
+        eyun_login_monitor_worker(stop_event)
+    )
     app.state.unpurchased_sop_task = asyncio.create_task(
         unpurchased_sop_worker(stop_event)
     )
@@ -57,6 +63,7 @@ async def lifespan(app: FastAPI):
         finally:
             stop_event.set()
             await app.state.eyun_risk_control_task
+            await app.state.eyun_login_monitor_task
             await app.state.unpurchased_sop_task
             await app.state.youzan_product_sync_task
             if app.state.memory_v2_task is not None:

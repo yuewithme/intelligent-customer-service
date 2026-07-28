@@ -33,6 +33,32 @@ def _reset_settings(monkeypatch, tmp_path):
     get_settings.cache_clear()
 
 
+def test_offline_callback_schedules_login_alert(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    scheduled = []
+    monkeypatch.setattr(
+        eyun_callback_service,
+        "schedule_eyun_offline_notification",
+        scheduled.append,
+    )
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "account": "sales_a",
+            "messageType": "30000",
+            "wcId": "wxid_bot",
+            "data": {"wId": "wid", "reason": "session expired"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["code"] == "1000"
+    assert scheduled[0]["messageType"] == "30000"
+
+
 def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 

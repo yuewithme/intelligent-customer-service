@@ -479,10 +479,12 @@ async def test_lifespan_skips_eyun_worker_in_evaluation_mode(monkeypatch):
         lambda: SimpleNamespace(evaluation_mode=True),
     )
     monkeypatch.setattr(lifecycle_module, "eyun_risk_control_worker", fail_worker)
+    monkeypatch.setattr(lifecycle_module, "eyun_login_monitor_worker", fail_worker)
     app = SimpleNamespace(state=SimpleNamespace())
 
     async with lifecycle_module.lifespan(app):
         assert not hasattr(app.state, "eyun_risk_control_task")
+        assert not hasattr(app.state, "eyun_login_monitor_task")
 
 
 @pytest.mark.asyncio
@@ -511,6 +513,9 @@ async def test_lifespan_starts_and_stops_eyun_worker(monkeypatch):
         ),
     )
     monkeypatch.setattr(lifecycle_module, "eyun_risk_control_worker", fake_eyun_worker)
+    monkeypatch.setattr(
+        lifecycle_module, "eyun_login_monitor_worker", fake_background_worker
+    )
     monkeypatch.setattr(
         lifecycle_module, "unpurchased_sop_worker", fake_background_worker
     )

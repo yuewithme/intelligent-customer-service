@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     eyun_base_url: str = ""
     eyun_authorization: str = ""
     eyun_wid: str = ""
+    eyun_wc_id: str = Field(default="", alias="EYUN_WC_ID")
+    eyun_login_monitor_interval_seconds: float = Field(
+        default=30.0, ge=5.0, alias="EYUN_LOGIN_MONITOR_INTERVAL_SECONDS"
+    )
     eyun_opening_text: str = (
         "我是萧岚苑的养兰师傅🌹咱们资料包含：图文，视频课程，一对一群版本等\n"
         "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n\n"

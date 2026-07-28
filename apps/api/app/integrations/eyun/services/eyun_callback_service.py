@@ -23,6 +23,10 @@ from app.domains.decisioning.services.intent_observation_service import is_inten
 from app.integrations.eyun.services.message_risk_control_service import (
     enqueue_eyun_inbound,
 )
+from app.integrations.eyun.services.eyun_login_monitor_service import (
+    EYUN_OFFLINE_NOTIFICATION,
+    schedule_eyun_offline_notification,
+)
 from app.domains.customers.services.user_profile_service import ensure_user_profile
 
 
@@ -63,6 +67,8 @@ def eyun_success() -> dict[str, Any]:
 
 def should_process_eyun_payload(payload: dict[str, Any]) -> bool:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    if str(payload.get("messageType", "")) == EYUN_OFFLINE_NOTIFICATION:
+        return True
     return (
         str(payload.get("messageType", "")) != EYUN_TEST_CALLBACK
         and not is_eyun_group_payload(payload)
@@ -103,6 +109,9 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     payload = normalize_eyun_private_image_payload(payload)
     message_type = str(payload.get("messageType", ""))
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    if message_type == EYUN_OFFLINE_NOTIFICATION:
+        schedule_eyun_offline_notification(payload)
+        return eyun_success()
     if is_eyun_group_payload(payload):
         return eyun_success()
     if message_type == EYUN_TEST_CALLBACK:
