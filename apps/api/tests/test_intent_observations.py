@@ -303,7 +303,7 @@ def test_historical_conversation_gap_is_reconciled_and_locatable(
     assert len(captured["conversation_message_ids"]) == 1
     assert all(item["classifier_source"] != "capture_gap" for item in result["items"])
     assert material["primary_domain"] == "care"
-    assert material["primary_goal"] == "ask_information"
+    assert material["primary_goal"] == "request_material"
     assert material["issues"] == ["material_resource"]
     assert material["needs_review"] is False
 

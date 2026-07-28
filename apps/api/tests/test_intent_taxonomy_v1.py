@@ -24,8 +24,12 @@ def _message(text: str) -> NormalizedMessage:
 def test_compact_taxonomy_is_available_as_machine_readable_catalog():
     catalog = load_intent_taxonomy()
 
-    assert catalog["version"] == "2.0"
-    assert catalog["counts"] == {"domain": 5, "goal": 16, "issue": 18}
+    assert catalog["version"] == "2.1"
+    assert catalog["counts"] == {"domain": 5, "goal": 17, "issue": 18}
+    assert any(
+        card["kind"] == "goal" and card["id"] == "request_material"
+        for card in catalog["labels"]
+    )
     material = next(
         card for card in catalog["labels"] if card["id"] == "material_resource"
     )
@@ -40,9 +44,9 @@ async def test_material_request_has_explicit_goal_and_keeps_runtime_compatibilit
     )
 
     assert intent.primary_domain == "care"
-    assert intent.primary_goal == "ask_information"
+    assert intent.primary_goal == "request_material"
     assert intent.issues == ["material_resource"]
-    assert intent.primary_intent == "care_question"
+    assert intent.primary_intent == "knowledge_question"
     assert intent.route == "rag_answer"
     assert intent.slots["resource_type"] == "orchid_material"
 

@@ -1,8 +1,8 @@
 {
-  "version": "2.0",
+  "version": "2.1",
   "counts": {
     "domain": 5,
-    "goal": 16,
+    "goal": 17,
     "issue": 18
   },
   "labels": [
@@ -71,10 +71,31 @@
     {
       "kind": "goal",
       "id": "ask_information",
-      "name": "询问信息或索要资源",
-      "definition": "用户询问事实、参数、规则、比较结果，或索要教程、图片、视频、链接等资源。",
-      "positive_examples": ["这盆有几苗？", "发个实物图片看看。"],
-      "negative_examples": ["烂根了怎么救？", "就买这一盆。"]
+      "include": "询问事实、参数、规则或已有内容本身；不包含索取固定资料、教程或课程。",
+      "exclude": "明确要求发送、领取资料或教程时使用 request_material；资料打不开或发送失败时使用 request_service。",
+      "name": "询问信息",
+      "definition": "用户询问事实、参数、规则、已有内容或比较结果，但没有要求发送或领取固定资料。",
+      "positive_examples": ["这盆有几苗？", "这份资料包含哪些内容？"],
+      "negative_examples": ["麻烦把养兰资料发我一份。", "烂根了怎么救？"]
+    },
+    {
+      "kind": "goal",
+      "id": "request_material",
+      "name": "索要资料",
+      "definition": "用户明确希望获取、领取或接收养兰资料、教程、图文、视频课程、手册或其他固定学习资源。",
+      "include": "明确说发资料、要资料、给我教程；询问资料怎么领或如何获取；在兰花或养护语境中请求图文、视频等固定学习资源。",
+      "exclude": "只询问资料内容但没有索取；明确不要资料；资料或视频打不开、缺失或发送失败等已经发生的服务问题。",
+      "positive_examples": [
+        "麻烦把养兰资料发我一下。",
+        "直播间说有视频教程，我怎么领取？",
+        "我想要一份兰花养护资料。"
+      ],
+      "negative_examples": [
+        "这份资料写得怎么样？",
+        "不用发资料了。",
+        "资料里的视频打不开。"
+      ],
+      "slots": ["material_type", "material_format", "resource_id", "delivery_channel"]
     },
     {
       "kind": "goal",

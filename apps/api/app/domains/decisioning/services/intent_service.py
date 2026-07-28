@@ -315,7 +315,7 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
         return _validated_intent(
             {
                 "primary_domain": "care",
-                "primary_goal": "ask_information",
+                "primary_goal": "request_material",
                 "issues": ["material_resource"],
                 "confidence": 0.99,
                 "slots": {
@@ -1389,7 +1389,7 @@ def _build_prompt_legacy(
 1. 每个维度只能使用候选卡中的标签；主标签一个，确有并列意图才给 secondary。
    Issue 允许值：{issue_values}。
 2. 优先识别明确动作，再结合最近对话消解“这个、那款、发我”等指代。
-3. “要资料/发教程/怎么领视频/发图片/发链接”识别为 Goal=ask_information、Issue=material_resource；资料类型放入 slots.material_type。明确不要资料时使用 reject，资料打不开或发送失败时使用 request_service。
+3. “要资料/发教程/怎么领视频”识别为独立 Goal=request_material、Issue=material_resource；资料类型放入 slots.material_type。普通事实询问才使用 ask_information。明确不要资料时使用 reject，资料打不开或发送失败时使用 request_service。
 4. 售前品质、对版和保障用 Issue=trust_guarantee；已经发生的收货、售后、退款退货主题统一用 Issue=after_sale；明确退款退货时 Goal=request_refund_return。
 5. 只有明确请求人工、退款退货或强烈投诉才使用对应人工 Goal。出现“客服指导、客服怎么说”不等于请求人工。
 6. 不能仅因出现“贵”判断价格异议，例如“名贵兰花”；必须结合完整语义和反例。
@@ -1447,6 +1447,8 @@ Required JSON:
 Rules:
 - Use only candidate domain and goal ids.
 - issues may only contain: {issue_values}
+- Use request_material for an explicit request to send or receive fixed learning
+  materials; use ask_information when the customer only asks about information.
 - Labeled examples are trusted references, but copy their labels only when the current
   message has the same meaning after considering recent context.
 - Prefer explicit customer actions over inferred motives.

@@ -969,7 +969,7 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                     conversation_message_ids_json=_json_dumps([message.id]),
                     user_message=message.content,
                     context_json="[]",
-                    taxonomy_version="2.0",
+                    taxonomy_version="2.1",
                     classifier_source="historical_rule",
                     raw_prediction_json=_json_dumps(
                         {"backfill_rule": "orchid_material_request"}
@@ -977,7 +977,7 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                     candidate_labels_json="[]",
                     primary_domain="care",
                     secondary_domains_json="[]",
-                    primary_goal="ask_information",
+                    primary_goal="request_material",
                     secondary_goals_json="[]",
                     issues_json=_json_dumps(["material_resource"]),
                     scope="in_scope",
@@ -986,7 +986,7 @@ def _backfill_observation_locators_and_gaps(factory: sessionmaker) -> None:
                             {
                                 "text": "明确提及资料领取",
                                 "dimension": "goal",
-                                "label": "ask_information",
+                                "label": "request_material",
                             }
                         ]
                     ),

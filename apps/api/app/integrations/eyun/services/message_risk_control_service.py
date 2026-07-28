@@ -782,7 +782,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 user_message=batch_data["content"],
                 final_route="orchid_material_delivery",
                 primary_domain="care",
-                primary_goal="ask_information",
+                primary_goal="request_material",
                 issues=["material_resource"],
                 scope="in_scope",
                 reason="fixed_material_delivery",

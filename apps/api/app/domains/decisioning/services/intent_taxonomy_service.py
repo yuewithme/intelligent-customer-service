@@ -253,6 +253,8 @@ def _legacy_intent(domain: str, goal: str, issues: set[str], scope: str) -> str:
         return "greeting"
     if goal == "unclear":
         return "unknown"
+    if goal == "request_material":
+        return "knowledge_question"
     if goal == "express_objection":
         return "price_objection"
     if goal == "reject" and domain == "commerce":

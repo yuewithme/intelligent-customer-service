@@ -2,9 +2,14 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.infrastructure.database.models import ConversationMessageModel, EyunInboundBatchModel
+from app.infrastructure.database.models import (
+    ConversationMessageModel,
+    EyunInboundBatchModel,
+    IntentObservationModel,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -136,7 +141,12 @@ async def test_process_batch_sends_fixed_material_without_calling_ai(
         _get_session,
         _process_inbound_batch,
     )
+    from app.domains.decisioning.services.intent_observation_service import (
+        _get_session as _get_intent_session,
+    )
 
+    monkeypatch.setenv("INTENT_OBSERVATION_ENABLED", "true")
+    get_settings.cache_clear()
     now = datetime(2026, 7, 20, 6, 0, tzinfo=timezone.utc)
     queued = []
 
@@ -206,6 +216,16 @@ async def test_process_batch_sends_fixed_material_without_calling_ai(
     )
     assert queued[1]["content"].startswith("直播间展示的是图文版资料")
     assert queued[2]["content"].endswith("companion-service-video-links.png")
+    with _get_intent_session() as session:
+        observation = session.scalar(
+            select(IntentObservationModel).where(
+                IntentObservationModel.final_route
+                == "orchid_material_delivery"
+            )
+        )
+        assert observation is not None
+        assert observation.primary_goal == "request_material"
+        assert observation.issues_json == '["material_resource"]'
 
 
 @pytest.mark.asyncio
