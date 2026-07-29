@@ -269,6 +269,8 @@ def _legacy_intent(domain: str, goal: str, issues: set[str], scope: str) -> str:
         return "ask_price"
     if goal == "ask_information" and "delivery" in issues:
         return "ask_logistics"
+    if domain == "product" and goal == "seek_help" and "product_selection" in issues:
+        return "product_query"
     if domain == "care":
         return "care_question"
     if domain == "product":
@@ -285,6 +287,8 @@ def _route(domain: str, domains: set[str], goal: str, issues: set[str], scope: s
         return "clarify"
     if goal in CONVERSATION_GOALS or domain == "conversation":
         return "chitchat"
+    if domain == "product" and goal == "seek_help" and "product_selection" in issues:
+        return "template_reply"
     has_care = bool(domains & {"care"} or issues & CARE_ISSUES)
     has_commercial = bool(
         domains & {"commerce", "customer_service"}

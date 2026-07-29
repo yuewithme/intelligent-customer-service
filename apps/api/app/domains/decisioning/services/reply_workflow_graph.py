@@ -1,9 +1,11 @@
+import logging
 import time
 from functools import lru_cache
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from app.core.ids import generate_id
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.persona import PersonaContext, ReplySpec
 from app.domains.decisioning.schemas.policy import PolicyDecision
@@ -22,7 +24,13 @@ from app.domains.decisioning.services.reply_builder import (
 )
 from app.domains.decisioning.services.template_reply_service import build_default_template_reply
 from app.domains.sales.talk_script.human_handoff_service import request_human_handoff
-from app.core.ids import generate_id
+from app.integrations.ai.services.llm_service import generate_messages
+
+
+logger = logging.getLogger("wechat_rag_bot.reply_workflow")
+DEMO_CHANNELS = {"web_demo", "mcp_demo"}
+EXPLICIT_HUMAN_INTENTS = {"refund_request", "complaint", "human_request"}
+EXPLICIT_HUMAN_GOALS = {"request_refund_return", "complain", "request_human"}
 
 
 class ReplyWorkflowState(TypedDict, total=False):
@@ -127,6 +135,14 @@ async def build_handoff_reply(
     original_route: str | None = None,
     context: dict | None = None,
 ) -> FinalReply:
+    if _should_use_demo_llm_fallback(message, intent):
+        return await _build_demo_llm_fallback_reply(
+            message=message,
+            intent=intent,
+            reason=reason,
+            original_route=original_route,
+            context=context,
+        )
     ticket_id = generate_id("handoff")
     handoff = await request_human_handoff(
         customer_id=message.user_id,
@@ -152,6 +168,84 @@ async def build_handoff_reply(
                 "ticket_id": ticket_id,
                 "status": handoff.status,
                 "reason": reason,
+            },
+            "original_route": original_route,
+            **(context or {}),
+        },
+    )
+
+
+def _should_use_demo_llm_fallback(message, intent: IntentResult) -> bool:
+    metadata = getattr(message, "metadata", {}) or {}
+    is_demo = (
+        bool(metadata.get("demo"))
+        or getattr(message, "channel", "") in DEMO_CHANNELS
+    )
+    if not is_demo:
+        return False
+    if intent.need_human:
+        return False
+    if intent.primary_intent in EXPLICIT_HUMAN_INTENTS:
+        return False
+    return intent.primary_goal not in EXPLICIT_HUMAN_GOALS
+
+
+async def _build_demo_llm_fallback_reply(
+    *,
+    message,
+    intent: IntentResult,
+    reason: str,
+    original_route: str | None,
+    context: dict | None,
+) -> FinalReply:
+    fallback_error = ""
+    try:
+        result = await generate_messages(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是兰花商品客服。当前结构化流程没有得到可发送的答案，"
+                        "请直接给客户一个自然、简短、可继续对话的中文回复。"
+                        "不得编造商品名称、价格、库存、购买入口、订单、物流、售后状态"
+                        "或资料权益；缺少必要信息时只追问一个最关键的问题。"
+                        "商品推荐应说明会按需求查询商品库；订单问题优先索取手机号、"
+                        "订单号或订单截图。不要提到测试、模型、内部流程或转人工。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"客户原话：{message.message}\n"
+                        f"识别意图：{intent.primary_intent}\n"
+                        f"原处理路径：{original_route or intent.route}"
+                    ),
+                },
+            ],
+            purpose="business",
+            temperature=0.2,
+        )
+        answer = str(result.get("answer") or "").strip()
+        usage = result.get("usage") or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Demo LLM fallback failed: %s", type(exc).__name__)
+        answer = ""
+        usage = {}
+        fallback_error = type(exc).__name__
+    if not answer or answer == "__HANDOFF__":
+        answer = "我先帮您继续确认一下：您现在主要想咨询养护、选购，还是订单问题？"
+    return FinalReply(
+        answer=answer,
+        answer_segments=[answer],
+        reply_type="llm_fallback",
+        route=original_route or intent.route or "clarify",
+        need_human=False,
+        next_action="llm_fallback",
+        metadata={
+            "demo_llm_fallback": {
+                "reason": reason,
+                "usage": usage,
+                **({"error": fallback_error} if fallback_error else {}),
             },
             "original_route": original_route,
             **(context or {}),

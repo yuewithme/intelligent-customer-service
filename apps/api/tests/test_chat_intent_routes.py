@@ -3,7 +3,12 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-def _chat(message: str, user_id: str = "intent_route_user") -> dict:
+def _chat(
+    message: str,
+    user_id: str = "intent_route_user",
+    *,
+    metadata: dict | None = None,
+) -> dict:
     response = TestClient(app).post(
         "/api/v1/chat",
         json={
@@ -11,7 +16,7 @@ def _chat(message: str, user_id: str = "intent_route_user") -> dict:
             "user_id": user_id,
             "message": message,
             "kb_id": "kb_default",
-            "metadata": {},
+            "metadata": metadata or {},
         },
     )
     assert response.status_code == 200
@@ -28,15 +33,21 @@ def test_rag_no_answer_detection_catches_empty_and_legacy_sentinels():
     assert _is_rag_no_answer({"answer": "知识库中没有找到明确答案。", "sources": []}) is True
 
 
-def test_product_recommendation_no_answer_does_not_switch_to_disease_triage():
+def test_demo_product_recommendation_no_match_uses_llm_instead_of_handoff():
     data = _chat(
         "我想找好养活的，我不是很懂这个怎么养",
         "intent_route_product_no_answer",
+        metadata={"demo": True},
     )
 
-    assert data["answer"] == ""
-    assert data["route"] == "human"
-    assert data["need_human"] is True
+    assert data["answer"]
+    assert data["route"] == "template_reply"
+    assert data["need_human"] is False
+    assert data["intent"]["primary_intent"] == "product_query"
+    assert data["intent"]["slots"]["original_route"] == "template_reply"
+    assert data["metadata"]["demo_llm_fallback"]["reason"] == (
+        "business_facts_unanswerable_to_handoff"
+    )
 
 
 def test_unclear_input_silently_hands_off():

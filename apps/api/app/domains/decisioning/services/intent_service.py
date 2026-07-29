@@ -284,7 +284,10 @@ def match_product_purchase_query(text: str) -> bool:
 def match_product_recommendation_request(text: str) -> bool:
     if hit_any(text, PURCHASE_REJECTION_WORDS) or hit_any(text, UNSUPPORTED_WORDS):
         return False
-    return "推荐" in text and hit_any(text, PRODUCT_RECOMMENDATION_TARGET_WORDS)
+    return hit_any(text, ("推荐", "想找", "想要", "哪款", "哪种")) and hit_any(
+        text,
+        PRODUCT_RECOMMENDATION_TARGET_WORDS,
+    )
 
 
 def match_orchid_supply_shortage(text: str) -> list[str]:
@@ -377,13 +380,13 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
     if match_product_recommendation_request(text):
         return _validated_intent(
             {
-                "route": "rag_answer",
+                "route": "template_reply",
                 "primary_domain": "product",
                 "primary_goal": "seek_help",
                 "issues": ["product_selection"],
                 "sales_stage": "need_discovery",
                 "confidence": 0.99,
-                "need_rag": True,
+                "need_template": True,
                 "slots": {"conversation_topic": "product_recommendation"},
                 "reason": "rule_product_recommendation_request",
             }

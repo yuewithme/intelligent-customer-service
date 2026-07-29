@@ -122,6 +122,106 @@ async def test_rag_answer_without_answer_silently_hands_off(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_demo_rag_no_answer_uses_llm_without_creating_handoff(monkeypatch):
+    from app.services import reply_workflow_graph
+
+    async def answer_knowledge(message, user_state, policy_decision=None):
+        del message, user_state, policy_decision
+        return {"answer": "", "sources": []}
+
+    async def generate_messages(messages, **kwargs):
+        assert messages[0]["role"] == "system"
+        assert kwargs["purpose"] == "business"
+        return {"answer": "可以的，您更看重好养还是花香？", "usage": {"tokens": 8}}
+
+    async def fail_handoff(**kwargs):
+        del kwargs
+        raise AssertionError("demo fallback must not create a handoff")
+
+    monkeypatch.setattr(
+        "app.domains.knowledge.services.rag_service.answer_knowledge",
+        answer_knowledge,
+    )
+    monkeypatch.setattr(reply_workflow_graph, "generate_messages", generate_messages)
+    monkeypatch.setattr(reply_workflow_graph, "request_human_handoff", fail_handoff)
+    message = _message("有没有适合新手的？").model_copy(
+        update={"channel": "web_demo", "metadata": {"demo": True}}
+    )
+
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("rag_answer"),
+        intent=_intent("rag_answer"),
+        message=message,
+        user_state=_state(),
+        stage_latencies={},
+    )
+
+    assert reply.answer == "可以的，您更看重好养还是花香？"
+    assert reply.route == "rag_answer"
+    assert reply.reply_type == "llm_fallback"
+    assert reply.need_human is False
+    assert reply.metadata["demo_llm_fallback"]["reason"] == "rag_no_answer_to_handoff"
+
+
+@pytest.mark.asyncio
+async def test_demo_explicit_human_request_still_hands_off(monkeypatch):
+    from app.services import reply_workflow_graph
+
+    async def request_handoff(**kwargs):
+        del kwargs
+        return SimpleNamespace(status="pending")
+
+    monkeypatch.setattr(reply_workflow_graph, "request_human_handoff", request_handoff)
+    message = _message("转人工").model_copy(
+        update={"channel": "web_demo", "metadata": {"demo": True}}
+    )
+
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("human", need_human=True),
+        intent=_intent("human", primary_intent="human_request"),
+        message=message,
+        user_state=_state(),
+        stage_latencies={},
+    )
+
+    assert reply.route == "human"
+    assert reply.need_human is True
+
+
+@pytest.mark.asyncio
+async def test_demo_policy_handoff_uses_llm_when_intent_did_not_request_human(
+    monkeypatch,
+):
+    from app.services import reply_workflow_graph
+
+    async def generate_messages(messages, **kwargs):
+        del messages, kwargs
+        return {"answer": "我先确认一下，您具体想了解哪一方面？", "usage": {}}
+
+    async def fail_handoff(**kwargs):
+        del kwargs
+        raise AssertionError("demo policy fallback must not create a handoff")
+
+    monkeypatch.setattr(reply_workflow_graph, "generate_messages", generate_messages)
+    monkeypatch.setattr(reply_workflow_graph, "request_human_handoff", fail_handoff)
+    message = _message("不明确输入").model_copy(
+        update={"channel": "web_demo", "metadata": {"demo": True}}
+    )
+
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("human", original_route="clarify"),
+        intent=_intent("human", primary_intent="unknown"),
+        message=message,
+        user_state=_state(),
+        stage_latencies={},
+    )
+
+    assert reply.answer == "我先确认一下，您具体想了解哪一方面？"
+    assert reply.route == "clarify"
+    assert reply.need_human is False
+
+
+@pytest.mark.asyncio
 async def test_template_reply_falls_back_to_default_template(monkeypatch):
     from app.services import reply_workflow_graph
 

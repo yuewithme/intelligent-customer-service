@@ -33,8 +33,8 @@ services:
     expose:
       - "8000"
     volumes:
-      - ${APP_DATA_DIR:-./var/runtime/data}:/app/data
-      - ${HF_CACHE_DIR:-./var/runtime/cache/huggingface}:/app/data/huggingface
+      - ${APP_DATA_DIR:-/srv/intelligent-customer-service/data}:/app/data
+      - ${HF_CACHE_DIR:-/srv/intelligent-customer-service/cache/huggingface}:/app/data/huggingface
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
       interval: 15s

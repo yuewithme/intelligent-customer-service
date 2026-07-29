@@ -285,7 +285,12 @@ async def build_commerce_context(
 
 def _commerce_type(intent) -> str:
     primary_intent = str(getattr(intent, "primary_intent", "") or "")
-    if primary_intent in {"product_query", "order_intent"}:
+    if primary_intent in {
+        "product_query",
+        "product_recommendation",
+        "recommend_product",
+        "order_intent",
+    }:
         return "product"
     if primary_intent == "order_query":
         return "order"

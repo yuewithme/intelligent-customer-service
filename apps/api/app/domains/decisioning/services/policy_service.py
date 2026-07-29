@@ -78,17 +78,26 @@ async def decide_route(
         & set(intent.secondary_intents)
     ):
         return PolicyDecision(route="template_then_rag", reason="mixed_sales_knowledge")
+    if (
+        intent.slots.get("conversation_topic") == "product_recommendation"
+        or (
+            intent.primary_domain == "product"
+            and intent.primary_goal == "seek_help"
+            and "product_selection" in intent.issues
+        )
+        or (
+            intent.primary_intent in KNOWLEDGE_INTENTS
+            and any(marker in message.message for marker in PRODUCT_RECOMMENDATION_MARKERS)
+        )
+    ):
+        return PolicyDecision(
+            route="template_reply",
+            reason="local_product_catalog_query",
+        )
     if intent.primary_intent in KNOWLEDGE_INTENTS:
-        retrieval_policy = {}
-        if (
-            intent.slots.get("conversation_topic") == "product_recommendation"
-            or any(marker in message.message for marker in PRODUCT_RECOMMENDATION_MARKERS)
-        ):
-            retrieval_policy = {"mode": "product_recommendation"}
         return PolicyDecision(
             route="rag_answer",
             reason="knowledge_intent",
-            retrieval_policy=retrieval_policy,
         )
     if intent.primary_intent in TEMPLATE_INTENTS:
         return PolicyDecision(route="template_reply", reason="template_intent")

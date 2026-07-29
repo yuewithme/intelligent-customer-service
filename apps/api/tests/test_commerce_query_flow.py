@@ -166,14 +166,14 @@ async def test_product_selection_semantics_build_structured_product_facts():
             ]
 
     intent = IntentResult(
-        route="rag_answer",
-        primary_intent="knowledge_question",
+        route="template_reply",
+        primary_intent="product_query",
         primary_domain="product",
         primary_goal="seek_help",
         issues=["product_selection"],
         slots={"conversation_topic": "product_recommendation"},
         confidence=0.99,
-        need_rag=True,
+        need_template=True,
     )
 
     facts = await build_commerce_context(
@@ -227,7 +227,7 @@ async def test_supply_shortage_returns_real_pot_and_medium_cards():
 
     intent = IntentResult(
         route="template_reply",
-        primary_intent="knowledge_question",
+        primary_intent="product_query",
         primary_domain="product",
         primary_goal="seek_help",
         issues=["product_selection", "medium_repotting"],

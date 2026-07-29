@@ -37,10 +37,10 @@ def _message(text: str) -> NormalizedMessage:
         ("这个产品有什么注意事项？", "rag_answer", "knowledge_question"),
         (
             "那你推荐一款好养的，最好有视频教学。",
-            "rag_answer",
-            "knowledge_question",
+            "template_reply",
+            "product_query",
         ),
-        ("家里盆和植料不够。", "rag_answer", "knowledge_question"),
+        ("家里盆和植料不够。", "template_reply", "product_query"),
         ("怎么申请售后？", "rag_answer", "process_question"),
         ("什么时候发货？", "template_reply", "ask_logistics"),
         ("已下单成功，请晚一天发货", "template_reply", "order_query"),
@@ -77,7 +77,11 @@ async def test_explicit_product_recommendation_keeps_catalog_capability():
     assert intent.primary_goal == "seek_help"
     assert intent.issues == ["product_selection"]
     assert intent.slots["conversation_topic"] == "product_recommendation"
-    assert decision.retrieval_policy == {"mode": "product_recommendation"}
+    assert intent.route == "template_reply"
+    assert intent.primary_intent == "product_query"
+    assert decision.route == "template_reply"
+    assert decision.reason == "local_product_catalog_query"
+    assert decision.retrieval_policy == {}
 
 
 @pytest.mark.asyncio
@@ -347,11 +351,13 @@ async def test_product_preference_followup_keeps_recommendation_context():
     intent = await classify_intent(message, state)
     decision = await decide_route(intent, state, message)
 
-    assert intent.route == "rag_answer"
-    assert intent.primary_intent == "knowledge_question"
+    assert intent.route == "template_reply"
+    assert intent.primary_intent == "product_query"
     assert intent.slots["conversation_topic"] == "product_recommendation"
-    assert intent.reason == "contextual_product_preference"
-    assert decision.retrieval_policy == {"mode": "product_recommendation"}
+    assert intent.reason == "rule_product_recommendation_request"
+    assert decision.route == "template_reply"
+    assert decision.reason == "local_product_catalog_query"
+    assert decision.retrieval_policy == {}
 
 
 @pytest.mark.asyncio
@@ -377,7 +383,7 @@ async def test_opening_profile_does_not_treat_beginner_as_a_region():
 
 
 @pytest.mark.asyncio
-async def test_first_turn_recommendation_uses_product_catalog_policy():
+async def test_first_turn_recommendation_bypasses_rag_for_local_catalog():
     from app.domains.decisioning.schemas.intent import IntentResult
     from app.domains.decisioning.services.policy_service import decide_route
 
@@ -394,7 +400,9 @@ async def test_first_turn_recommendation_uses_product_catalog_policy():
         message,
     )
 
-    assert decision.retrieval_policy == {"mode": "product_recommendation"}
+    assert decision.route == "template_reply"
+    assert decision.reason == "local_product_catalog_query"
+    assert decision.retrieval_policy == {}
 
 
 @pytest.mark.asyncio

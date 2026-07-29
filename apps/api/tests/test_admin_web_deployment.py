@@ -17,6 +17,9 @@ def test_admin_proxy_injects_api_key_at_runtime():
 def test_production_data_and_model_cache_are_externalized():
     compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
 
-    assert "${APP_DATA_DIR:-./var/runtime/data}:/app/data" in compose
-    assert "${HF_CACHE_DIR:-./var/runtime/cache/huggingface}:/app/data/huggingface" in compose
+    assert "${APP_DATA_DIR:-/srv/intelligent-customer-service/data}:/app/data" in compose
+    assert (
+        "${HF_CACHE_DIR:-/srv/intelligent-customer-service/cache/huggingface}"
+        ":/app/data/huggingface"
+    ) in compose
     assert '"21873:80"' not in compose
