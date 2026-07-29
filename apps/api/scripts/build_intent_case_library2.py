@@ -39,6 +39,7 @@ QUOTED_REPLY_WITH_TAIL_RE = re.compile(
 )
 QUOTED_REPLY_ONLY_RE = re.compile(r'^".+?"$', re.DOTALL)
 PRODUCT_TITLE_RE = re.compile(r"【(?P<title>[^】]{2,40})】")
+CLEAN_CASE_SECTION_RE = re.compile(r"(?m)(?=^###\s+case2_\d+(?:_\d+)?\s*$)")
 
 PROMOTION_KEYWORDS = (
     "原价",
@@ -69,7 +70,7 @@ def _is_sender_line(line: str) -> re.Match[str] | None:
     if match is None:
         return None
     sender = match.group("sender")
-    if sender.startswith(("兰语", "兰隐")):
+    if sender.startswith(("兰语", "兰隐", "若兰")):
         return match
     if "@微信@微信联系人" in sender:
         return match
@@ -97,7 +98,11 @@ def parse_events(source: Path) -> dict[int, list[Event]]:
             content_lines = []
             return
         sender = current_meta.group("sender").strip()
-        role = "merchant" if sender.startswith(("兰语", "兰隐")) else "customer"
+        role = (
+            "merchant"
+            if sender.startswith(("兰语", "兰隐", "若兰"))
+            else "customer"
+        )
         content = "\n".join(line for line in content_lines if line.strip()).strip()
         if content:
             content = MARKDOWN_ESCAPE_RE.sub(r"\1", content)
@@ -266,11 +271,23 @@ def clean_content(event: Event) -> str | None:
     product_title = PRODUCT_TITLE_RE.search(content)
     if (
         event.role == "merchant"
-        and len(content) >= 120
+        and len(content) >= 80
         and product_title is not None
         and any(
             marker in content
-            for marker in ("原价", "特价", "放漏", "现货", "花瓣", "花色", "株型")
+            for marker in (
+                "原价",
+                "特价",
+                "放漏",
+                "现货",
+                "花瓣",
+                "花色",
+                "株型",
+                "实拍开品",
+                "价格亲民",
+                "别错过",
+                "原盆原土",
+            )
         )
     ):
         return (
@@ -290,7 +307,13 @@ def clean_content(event: Event) -> str | None:
         return "（客户发送收货地址）"
 
     if PHONE_RE.search(content) or LONG_NUMBER_RE.search(content):
-        if any(word in content for word in ("地址", "电话", "收货", "快递", "单号")):
+        has_address_shape = len(content) >= 15 and any(
+            word in content
+            for word in ("省", "市", "区", "县", "镇", "乡", "街道", "路", "号", "栋", "室")
+        )
+        if has_address_shape or any(
+            word in content for word in ("地址", "电话", "收货", "快递", "单号")
+        ):
             return _media_placeholder(event.role, "收货或物流信息")
         content = PHONE_RE.sub("[手机号]", content)
         content = LONG_NUMBER_RE.sub("[长数字]", content)
@@ -319,9 +342,66 @@ def group_turns(events: list[Event]) -> list[dict[str, object]]:
     return turns
 
 
+def _clean_case_sections(content: str) -> dict[str, str]:
+    sections: dict[str, str] = {}
+    for section in CLEAN_CASE_SECTION_RE.split(content):
+        section = section.strip()
+        if not section.startswith("### "):
+            continue
+        case_id = section.splitlines()[0].removeprefix("### ").strip()
+        sections[case_id] = section
+    return sections
+
+
+def _case_sort_key(case_id: str) -> tuple[int, int]:
+    match = re.fullmatch(r"case2_(\d+)(?:_(\d+))?", case_id)
+    return (
+        int(match.group(1)) if match else 999_999,
+        int(match.group(2) or 1) if match else 1,
+    )
+
+
+def _merge_clean_document(
+    clean_output: Path,
+    new_content: str,
+    *,
+    excluded_case_ids: set[str] | None = None,
+) -> str:
+    sections = (
+        _clean_case_sections(clean_output.read_text(encoding="utf-8"))
+        if clean_output.exists()
+        else {}
+    )
+    sections.update(_clean_case_sections(new_content))
+    for case_id in excluded_case_ids or set():
+        sections.pop(case_id, None)
+    ordered = [
+        sections[case_id]
+        for case_id in sorted(sections, key=_case_sort_key)
+    ]
+    return "# 案例库2（意图识别清洗版）\n\n" + "\n\n".join(ordered) + "\n"
+
+
+def _turns_fingerprint(turns: list[dict[str, object]]) -> str:
+    return json.dumps(turns, ensure_ascii=False, sort_keys=True)
+
+
+def _existing_case_fingerprint_owners() -> dict[str, str]:
+    owners: dict[str, str] = {}
+    for path in sorted(CASE_DATA_DIR.glob("case2_*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        owners.setdefault(
+            _turns_fingerprint(payload["turns"]),
+            payload["case_id"],
+        )
+    return owners
+
+
 def build_library(source: Path, clean_output: Path) -> list[dict[str, object]]:
     parsed = parse_events(source)
     payloads: list[dict[str, object]] = []
+    duplicate_case_ids: set[str] = set()
+    fingerprint_owners = _existing_case_fingerprint_owners()
     clean_sections = ["# 案例库2（意图识别清洗版）"]
 
     for case_number in sorted(parsed):
@@ -335,6 +415,12 @@ def build_library(source: Path, clean_output: Path) -> list[dict[str, object]]:
             turns = group_turns(conversation)
             if not any(turn["role"] == "customer" for turn in turns):
                 continue
+            fingerprint = _turns_fingerprint(turns)
+            existing_owner = fingerprint_owners.get(fingerprint)
+            if existing_owner is not None and existing_owner != case_id:
+                duplicate_case_ids.add(case_id)
+                continue
+            fingerprint_owners.setdefault(fingerprint, case_id)
             payload = {
                 "case_id": case_id,
                 "customer_id": f"intent-{case_id}-customer",
@@ -351,8 +437,19 @@ def build_library(source: Path, clean_output: Path) -> list[dict[str, object]]:
                     clean_sections.append(f"{speaker}：{message}")
 
     clean_output.parent.mkdir(parents=True, exist_ok=True)
-    clean_output.write_text("\n\n".join(clean_sections) + "\n", encoding="utf-8")
+    clean_output.write_text(
+        _merge_clean_document(
+            clean_output,
+            "\n\n".join(clean_sections) + "\n",
+            excluded_case_ids=duplicate_case_ids,
+        ),
+        encoding="utf-8",
+    )
     CASE_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    for case_id in duplicate_case_ids:
+        duplicate_output = CASE_DATA_DIR / f"{case_id}.json"
+        if duplicate_output.exists():
+            duplicate_output.unlink()
     for payload in payloads:
         output = CASE_DATA_DIR / f"{payload['case_id']}.json"
         output.write_text(

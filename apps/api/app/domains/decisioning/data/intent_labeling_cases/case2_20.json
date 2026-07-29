@@ -1,0 +1,112 @@
+{
+  "case_id": "case2_20",
+  "customer_id": "intent-case2_20-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送商品推荐：带花苞，推广正文已清理）",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "禅悦达摩购2颗；大富贵留一株，可以吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "早上好呀",
+        "您现在家里有养建兰的品种吗",
+        "上面是我们微信店铺链接，授权手机号、填好地址就能下单，权益和直播间一样，下单还有积分，后续可以直接抵现。",
+        "哥，这个是我们店铺的下单链接，你点击进去填写收货地址就可以了，规格的话，你选两颗。",
+        "你拍好，你跟我讲，我这边再送你一点惊喜礼品。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好，谢谢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您客气了哥，您拍好告诉我。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "已拍2株"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "哥，这个是春兰大富贵的链接，您点击进去。就可以下单了。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "OK"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "大富贵是春兰的品种",
+        "可以给您免费寄养到秋季再发货的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "那给咱寄养一下，秋季再发，谢谢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 我把春兰给您寄养",
+        "建兰给您安排发货哈",
+        "（客服发送商品或会员活动推荐，推广正文已清理）",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "留一株，谢谢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的",
+        "我给您发个下单链接哈",
+        "或者您红包发我即可",
+        "一起给您寄养着"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我给你发红包",
+        "好的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的👌和上午这个春兰到时一起发货哈",
+        "收到寄养送春绿云牡丹货款108元"
+      ]
+    }
+  ]
+}

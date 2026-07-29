@@ -1,0 +1,153 @@
+{
+  "case_id": "case2_17",
+  "customer_id": "intent-case2_17-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送商品推荐：初恋｜烈焰红唇，推广正文已清理）",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "下午好！这寒兰怎么拍？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送商品推荐：龙头子母2苗带花，推广正文已清理）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我拍过你家的苗子！很健壮！！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "谢谢您的信任和支持",
+        "这个寒兰初恋 今天活动价 您可以结缘一个哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "找一个大点的3苗的有吗？拍个图片看看！！！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这品种是去年春季分单育苗的 到现在基本都是3苗的 或着2苗带大芽的",
+        "我们发货要把老头苗去掉",
+        "就是龙头子母两苗的了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送图片）",
+        "有实拍图片吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "有的 您稍等哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送图片）"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您看下 去掉老头苗 基本都是2大苗带芽的了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送图片）",
+        "不错！很健壮！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "结缘一个不"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "给我拣一株根系好的！拜托你美女妹妹！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "必须的哈",
+        "保证让您满意",
+        "现在气温高 可以免费寄养的哦",
+        "等9月中下旬在发货也是可以的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "没问题！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "养的都很不错哈",
+        "您的收货地址发我下哦 我来做寄养登记哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "先发个链接给我！我把款先付了！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这是我们的官方收款码 您点击就可以付了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送收货或物流信息）",
+        "已经付好了！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 我来做寄养登记哈",
+        "等需要发货了 您提前一周通知我即可",
+        "我到时给您带盆发货"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送图片）"
+      ]
+    }
+  ]
+}
