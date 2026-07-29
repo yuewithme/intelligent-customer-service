@@ -243,6 +243,7 @@ async def test_membership_request_uses_local_product_and_exact_price_card():
         state,
         intent,
         product_service=FakeProductService(),
+        allowed_source_groups={"product_catalog"},
     )
     reply = await render_business_reply(_message("39.9元可以加入会员吗？"), facts)
 

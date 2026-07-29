@@ -180,6 +180,7 @@ async def build_commerce_context(
                 product_data = _restrict_product_data(
                     product_data,
                     set(allowed_source_groups),
+                    include_sku_facts=membership_request,
                 )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Local product catalog query failed: %s", type(exc).__name__)
@@ -367,6 +368,8 @@ def _prefer_requested_price(products: list[dict], text: str) -> list[dict]:
 def _restrict_product_data(
     products: list[dict],
     allowed_source_groups: set[str],
+    *,
+    include_sku_facts: bool = False,
 ) -> list[dict]:
     allowed_knowledge_fields = set(CATALOG_KNOWLEDGE_FIELDS)
     if "product_value" in allowed_source_groups:
@@ -403,7 +406,7 @@ def _restrict_product_data(
                 for key, value in knowledge.items()
                 if key in allowed_knowledge_fields
             }
-        if "sku_facts" in allowed_source_groups:
+        if include_sku_facts or "sku_facts" in allowed_source_groups:
             for key in ("price_cent", "stock", "skus"):
                 if key in product:
                     restricted[key] = product[key]

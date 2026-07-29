@@ -23,9 +23,14 @@ UNSOLICITED_REQUEST_PATTERNS = (
 UNVERIFIED_PERSONA_FACT_PATTERNS = (
     re.compile(
         r"(?:推荐|建议选|带花苞|气候|天气|香气|养护难度|库存|现货|"
-        r"配套|课程|视频|在线答疑)"
+        r"配套|课程|视频|在线答疑|权益|服务|指导|对接|赠送|包含|享受|锁定)"
     ),
     re.compile(r"\d+(?:\.\d+)?\s*元"),
+)
+QUESTION_LANGUAGE_PATTERN = re.compile(
+    r"(?:请问|想问|是否|能否|方便(?:说|发|提供|告诉)|"
+    r"可以.{0,8}吗|有没有|怎么|如何|为什么|多少|"
+    r"哪(?:个|些|种|款|里|儿)?|什么|吗(?:[啊呢呀吧])?(?:$|[，,。！!]))"
 )
 
 
@@ -85,7 +90,10 @@ def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
 
 
 def _question_count(answer: str) -> int:
-    return sum(answer.count(mark) for mark in ("?", "？"))
+    punctuation_count = sum(answer.count(mark) for mark in ("?", "？"))
+    if punctuation_count:
+        return punctuation_count
+    return 1 if QUESTION_LANGUAGE_PATTERN.search(answer.strip()) else 0
 
 
 def finalize_reply_spec(spec: ReplySpec) -> FinalReply:

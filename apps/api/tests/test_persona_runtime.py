@@ -265,6 +265,39 @@ def test_guard_rejects_unverified_product_facts_after_template_anchor():
     assert guarded.metadata["persona"]["sales_action_rendered"] is False
 
 
+def test_guard_rejects_unverified_membership_benefits_and_unpunctuated_question():
+    context = _context()
+    membership_claim = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="发送会员商品",
+        composition_mode="anchor_plus_persona",
+        suggested_copy="这是会员资格商品，当前售价39.9元。",
+        persona_copy="这个链接可以锁定新客权益，后续还有养护指导。",
+        verified_facts={
+            "tool_state": {
+                "commerce_type": "product",
+                "products": [{"item_id": "membership-39", "price_cent": 3990}],
+            }
+        },
+        metadata={"persona": {"rendered": True, "sales_action_rendered": False}},
+    )
+    unpunctuated_question = membership_claim.model_copy(
+        update={"persona_copy": "您先点开商品卡片看看，这样安排合适吗"}
+    )
+
+    guarded_claim = guard_reply_spec(spec=membership_claim, context=context)
+    guarded_question = guard_reply_spec(
+        spec=unpunctuated_question,
+        context=context,
+    )
+
+    assert guarded_claim.persona_copy == ""
+    assert guarded_claim.metadata["persona_guard"]["reason"] == "unverified_fact_claim"
+    assert guarded_question.persona_copy == ""
+    assert guarded_question.metadata["persona_guard"]["reason"] == "unexpected_question"
+
+
 def test_identity_question_has_role_first_fallback_copy():
     reply = build_chitchat_reply(
         IntentResult(
