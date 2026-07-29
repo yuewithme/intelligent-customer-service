@@ -79,6 +79,12 @@ UNVERIFIED_CAPABILITY_PATTERNS = (
 CAPABILITY_CAVEAT_PATTERN = re.compile(
     r"(?:不确定|未确认|未核实|不能承诺|需要核实|需核实|是否|以订单为准)"
 )
+EDUCATION_RESOURCE_PATTERN = re.compile(
+    r"(?:课程|教程|视频|社群|群指导|一对一|养护教学)"
+)
+AFFIRMATIVE_RESOURCE_CLAIM_PATTERN = re.compile(
+    r"(?:配套|包含|提供|赠送|送您|开通|都有|也有|有详细|有专门|可以看|能看)"
+)
 PRODUCT_RECOMMENDATION_REQUEST_MARKERS = (
     "推荐",
     "哪款",
@@ -158,6 +164,23 @@ def remove_unverified_capability_claims(answer: str) -> str:
     kept = []
     for part in parts:
         if not part.strip():
+            continue
+        resource_claim = bool(
+            EDUCATION_RESOURCE_PATTERN.search(part)
+            and AFFIRMATIVE_RESOURCE_CLAIM_PATTERN.search(part)
+        )
+        if resource_claim and not CAPABILITY_CAVEAT_PATTERN.search(part):
+            clauses = re.split(r"(?<=[，,])", part)
+            safe_clauses = [
+                clause
+                for clause in clauses
+                if not (
+                    EDUCATION_RESOURCE_PATTERN.search(clause)
+                    and AFFIRMATIVE_RESOURCE_CLAIM_PATTERN.search(clause)
+                )
+            ]
+            if safe_clauses:
+                kept.append("".join(safe_clauses))
             continue
         unsupported = any(pattern.search(part) for pattern in UNVERIFIED_CAPABILITY_PATTERNS)
         if unsupported and not CAPABILITY_CAVEAT_PATTERN.search(part):

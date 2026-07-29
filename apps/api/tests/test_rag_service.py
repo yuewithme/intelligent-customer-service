@@ -63,6 +63,13 @@ def test_product_recommendation_retrieval_keeps_product_copy_only():
             "这款适合新手，视频课程是否包含还需要核实。",
             "这款适合新手，视频课程是否包含还需要核实。",
         ),
+        (
+            "好养的可以看看建兰市长红梅，这款很适合新手，"
+            "咱们配套的视频课程里也有详细的养护教学。"
+            "您打算把花放在阳台还是客厅养呢？",
+            "好养的可以看看建兰市长红梅，这款很适合新手，"
+            "您打算把花放在阳台还是客厅养呢？",
+        ),
     ],
 )
 def test_rag_removes_unverified_service_and_fulfillment_claims(answer, expected):
