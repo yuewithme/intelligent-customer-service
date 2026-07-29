@@ -477,11 +477,17 @@ async def rag_chat(
             }
 
         retrieval_question = build_retrieval_question(message, context, policy)
-        stage_started = time.perf_counter()
-        vector = await embedding_service.embed_text(retrieval_question)
-        stage_latencies["embedding_ms"] = round(
-            (time.perf_counter() - stage_started) * 1000
+        product_recommendation = bool(
+            policy
+            and policy.retrieval_policy.get("mode") == "product_recommendation"
         )
+        vector = []
+        if not product_recommendation:
+            stage_started = time.perf_counter()
+            vector = await embedding_service.embed_text(retrieval_question)
+            stage_latencies["embedding_ms"] = round(
+                (time.perf_counter() - stage_started) * 1000
+            )
         knowledge_base_ids = policy.knowledge_base_ids if policy else []
         search_kb_ids = knowledge_base_ids or _default_search_kb_ids(kb_id)
         allowed_source_groups = (
@@ -491,7 +497,7 @@ async def rag_chat(
         )
         candidates = []
         stage_started = time.perf_counter()
-        if policy and policy.retrieval_policy.get("mode") == "product_recommendation":
+        if product_recommendation:
             candidates = _catalog_product_docs(
                 search_catalog_products(retrieval_question, limit=settings.rag_top_k),
                 allowed_source_groups,
@@ -518,7 +524,7 @@ async def rag_chat(
             (time.perf_counter() - stage_started) * 1000
         )
         stage_started = time.perf_counter()
-        if policy and policy.retrieval_policy.get("mode") == "product_recommendation":
+        if product_recommendation:
             filtered_candidates = select_product_recommendation_docs(candidates)
         elif _requires_care_only_docs(message, policy):
             filtered_candidates = select_care_docs(candidates)

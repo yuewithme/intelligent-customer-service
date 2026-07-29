@@ -270,5 +270,17 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
         outbound_messages=outbound_messages,
         reply_type="template",
         route="template_reply",
-        metadata={"business_facts_used": True},
+        metadata={
+            "business_facts_used": True,
+            "commerce_action": {
+                "commerce_type": state.get("commerce_type"),
+                "status": state.get("status"),
+                "requested_action": state.get("requested_action"),
+                "requested_action_executed": state.get("requested_action_executed"),
+                "card_sent": any(
+                    message["type"] in {"mini_program", "link_card"}
+                    for message in outbound_messages
+                ),
+            },
+        },
     )

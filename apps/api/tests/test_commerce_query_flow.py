@@ -357,6 +357,13 @@ async def test_shipping_change_without_identity_collects_mobile_before_claiming_
     assert "下单手机号" in reply.answer
     assert "查到订单后" in reply.answer
     assert "已经改" not in reply.answer
+    assert reply.metadata["commerce_action"] == {
+        "commerce_type": "order",
+        "status": "missing_mobile",
+        "requested_action": "shipping_date_change",
+        "requested_action_executed": False,
+        "card_sent": False,
+    }
 
 
 @pytest.mark.asyncio

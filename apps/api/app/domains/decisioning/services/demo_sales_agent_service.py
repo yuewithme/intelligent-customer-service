@@ -127,5 +127,5 @@ async def chat_with_demo_sales_agent(
         "route": result.get("route"),
         "trace_id": result.get("trace_id"),
         "intent": intent,
-        "tool_state": metadata.get("tool_state", {}),
+        "commerce_action": metadata.get("commerce_action", {}),
     }

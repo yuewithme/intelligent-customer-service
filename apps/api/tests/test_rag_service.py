@@ -138,9 +138,9 @@ def test_product_recommendation_retrieval_question_includes_recent_context():
 async def test_product_recommendation_uses_new_catalog_only(monkeypatch):
     from app.core.config import get_settings
 
-    async def fake_embed(text):
-        assert "好养" in text
-        return [0.1, 0.2]
+    async def fail_embed(text):
+        del text
+        raise AssertionError("local product recommendations must not require embeddings")
 
     async def fail_legacy_search(*args, **kwargs):
         del args, kwargs
@@ -159,7 +159,7 @@ async def test_product_recommendation_uses_new_catalog_only(monkeypatch):
 
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
     get_settings.cache_clear()
-    monkeypatch.setattr(rag_service.embedding_service, "embed_text", fake_embed)
+    monkeypatch.setattr(rag_service.embedding_service, "embed_text", fail_embed)
     monkeypatch.setattr(rag_service.qdrant_service, "search_chunks", fail_legacy_search)
     monkeypatch.setattr(rag_service, "search_orchid_knowledge_chunks", fail_legacy_search)
     monkeypatch.setattr(
