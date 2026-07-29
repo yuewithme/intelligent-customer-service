@@ -212,7 +212,10 @@ def _strongest_supported_stage(
     if CustomerSignal.READY_TO_BUY in signals:
         return SalesStage.CLOSING, "order_intent"
     if CustomerSignal.OBJECTION in signals:
-        return SalesStage.CLOSING, "objection_intent"
+        # An objection is a blocker, not evidence that earlier sales discovery
+        # has been completed. Keep the current stage unless a controlled loop
+        # above has enough evidence to move back from a later stage.
+        return current_stage, "objection_without_progression"
     if CustomerSignal.PRICE_INTEREST in signals:
         if _recommendation_has_basis(current_stage, slots):
             return SalesStage.TRIAL_CLOSE, "price_after_need_or_solution"

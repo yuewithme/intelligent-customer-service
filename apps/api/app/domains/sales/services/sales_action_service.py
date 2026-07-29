@@ -149,6 +149,15 @@ def apply_sales_action(
                 }
             }
         )
+    if "？" in reply.answer or "?" in reply.answer:
+        return reply.model_copy(
+            update={
+                "metadata": {
+                    **reply.metadata,
+                    "sales_action_question_suppressed": "existing_question",
+                }
+            }
+        )
     bridge = _BRIDGE_BY_SLOT.get(decision.question_slot, "为了更准确地判断，")
     follow_up = f"{bridge}{question}"
     outbound_messages = list(reply.outbound_messages)

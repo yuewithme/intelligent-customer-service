@@ -115,6 +115,8 @@ async def chat_with_demo_sales_agent(
     tag_result = metadata.get("tag_result") or {}
     return {
         "reply": result.get("answer", ""),
+        "answer_segments": result.get("answer_segments", []),
+        "outbound_messages": result.get("outbound_messages", []),
         "customer_id": customer_id,
         "conversation_id": result.get("session_id"),
         "sales_stage": intent.get("sales_stage") or tag_result.get("stage"),
@@ -124,4 +126,6 @@ async def chat_with_demo_sales_agent(
         "need_human": bool(result.get("need_human")),
         "route": result.get("route"),
         "trace_id": result.get("trace_id"),
+        "intent": intent,
+        "tool_state": metadata.get("tool_state", {}),
     }

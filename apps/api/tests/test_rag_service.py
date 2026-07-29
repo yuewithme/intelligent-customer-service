@@ -48,6 +48,27 @@ def test_product_recommendation_retrieval_keeps_product_copy_only():
     assert rag_service.select_product_recommendation_docs(docs) == [docs[0], docs[2]]
 
 
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        (
+            "这两款都比较适合新手。购买后会给您开通视频课程和一对一群。",
+            "这两款都比较适合新手。",
+        ),
+        (
+            "塑料盆可以继续用，我再送您一些植料并随货发出。",
+            "__HANDOFF__",
+        ),
+        (
+            "这款适合新手，视频课程是否包含还需要核实。",
+            "这款适合新手，视频课程是否包含还需要核实。",
+        ),
+    ],
+)
+def test_rag_removes_unverified_service_and_fulfillment_claims(answer, expected):
+    assert rag_service.remove_unverified_capability_claims(answer) == expected
+
+
 def test_product_catalog_docs_only_include_fields_released_for_the_stage():
     products = [
         {

@@ -119,8 +119,21 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             )
         return _commerce_final_reply(answer, state)
 
+    requested_action = str(state.get("requested_action") or "")
     if status == "missing_mobile":
-        return _commerce_final_reply("可以的，请把下单手机号发给我，我帮您查询一下。", state)
+        if requested_action == "shipping_date_change":
+            answer = (
+                "可以，我先核对订单再处理发货时间。"
+                "请把下单手机号发给我，我查到订单后再确认能否调整。"
+            )
+        elif requested_action == "verify_material_entitlement":
+            answer = (
+                "我先帮您核对购买记录和对应资料权限。"
+                "请把下单手机号发给我，我查到订单后再给您准确答复。"
+            )
+        else:
+            answer = "可以的，请把下单手机号发给我，我帮您查询一下。"
+        return _commerce_final_reply(answer, state)
     orders = state.get("orders") if isinstance(state.get("orders"), list) else []
     if status != "found" or not orders:
         return None
@@ -140,6 +153,16 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
         lines.append("详细信息可以点击订单卡片查看。")
     else:
         lines.append("以上为有赞最新查询结果。")
+    if requested_action == "shipping_date_change":
+        lines.append(
+            "您提出的发货时间调整目前还没有执行；我这里只确认已经查到订单，"
+            "不会先答应已经改好。"
+        )
+    elif requested_action == "verify_material_entitlement":
+        lines.append(
+            "购买记录已经核对；教程或资料权限还需要按对应资料领取记录继续核实，"
+            "我不会先承诺已经开通。"
+        )
     return _commerce_final_reply("\n".join(lines), state)
 
 

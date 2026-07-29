@@ -275,7 +275,7 @@ async def test_stage_allowlist_blocks_product_database_query():
 
 
 @pytest.mark.asyncio
-async def test_early_product_access_strips_value_price_stock_and_purchase_links():
+async def test_early_product_access_strips_value_price_stock_but_keeps_purchase_navigation():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
 
     class FakeProductService:
@@ -311,9 +311,9 @@ async def test_early_product_access_strips_value_price_stock_and_purchase_links(
     assert product["title"] == "小国魂"
     assert "price_cent" not in product
     assert "stock" not in product
-    assert "page_path" not in product
-    assert "h5_url" not in product
-    assert "mini_program" not in facts.tool_state
+    assert product["page_path"] == "pages/goods/detail?id=1001"
+    assert product["h5_url"] == "https://example.com/buy/1001"
+    assert facts.tool_state["mini_program"]["page_path"] == "pages/goods/detail?id=1001"
 
 
 @pytest.mark.asyncio
@@ -333,6 +333,30 @@ async def test_order_query_without_mobile_asks_for_mobile_and_marks_pending():
         "status": "missing_mobile",
     }
     assert state.metadata["commerce_pending"] == "order_mobile"
+
+
+@pytest.mark.asyncio
+async def test_shipping_change_without_identity_collects_mobile_before_claiming_action():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_reply_renderer import render_business_reply
+
+    state = UserState(user_id="wxid-customer")
+    intent = _intent("order_query").model_copy(
+        update={"slots": {"order_action": "shipping_date_change"}}
+    )
+    facts = await build_commerce_context(
+        _message("已下单，请晚一天发货"),
+        state,
+        intent,
+        order_service=object(),
+    )
+    reply = await render_business_reply(_message("已下单，请晚一天发货"), facts)
+
+    assert facts.tool_state["requested_action"] == "shipping_date_change"
+    assert facts.tool_state["requested_action_executed"] is False
+    assert "下单手机号" in reply.answer
+    assert "查到订单后" in reply.answer
+    assert "已经改" not in reply.answer
 
 
 @pytest.mark.asyncio

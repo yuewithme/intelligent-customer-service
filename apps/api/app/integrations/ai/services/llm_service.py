@@ -96,15 +96,26 @@ async def generate_messages(
     if config.provider == "mock":
         return {"answer": "", "usage": {}}
     prompt = json.dumps(messages, ensure_ascii=False, separators=(",", ":"))
-    body = await _chat_completion(
-        config=config,
-        purpose=purpose,
-        prompt=prompt,
-        messages=messages,
-        temperature=temperature,
-        shadow=shadow,
-        prompt_version=prompt_version,
-    )
+    attempts = 2 if purpose == "persona" else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            body = await _chat_completion(
+                config=config,
+                purpose=purpose,
+                prompt=prompt,
+                messages=messages,
+                temperature=temperature,
+                shadow=shadow,
+                prompt_version=prompt_version,
+                attempt=attempt,
+            )
+            break
+        except AppError as exc:
+            if attempt == attempts or not isinstance(
+                exc.__cause__,
+                (httpx.TimeoutException, httpx.NetworkError),
+            ):
+                raise
     return {
         "answer": body["choices"][0]["message"]["content"],
         "usage": body.get("usage", {}),

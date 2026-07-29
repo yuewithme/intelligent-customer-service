@@ -1,3 +1,4 @@
+import re
 import time
 from typing import Any
 
@@ -65,6 +66,19 @@ PRODUCT_VALUE_SOURCE_TABLES = {
 SKU_SOURCE_TABLES = {"youzan_product_skus", "orchid_skus"}
 PROMOTION_SOURCE_TABLES = {"activities", "activity_library", "promotions"}
 LEGACY_ORCHID_COMMON_TABLE = "orchid_common_knowledge"
+UNVERIFIED_CAPABILITY_PATTERNS = (
+    re.compile(
+        r"(?:购买后|下单后|到时候|会|可以|给您|帮您|为您|随单|随货)"
+        r".{0,16}(?:送|赠送|开通|拉进|加入|安排|提供)"
+        r".{0,16}(?:课程|教程|视频|群|一对一|指导|植料|花盆)"
+    ),
+    re.compile(r"(?:送您|赠送).{0,16}(?:课程|教程|视频|群|指导|植料|花盆)"),
+    re.compile(r"(?:课程|教程|视频|群).{0,12}(?:包含|赠送|免费|开通|都有)"),
+    re.compile(r"(?:花盆|植料).{0,12}(?:一起|打包|随货).{0,8}(?:发|寄|送)"),
+)
+CAPABILITY_CAVEAT_PATTERN = re.compile(
+    r"(?:不确定|未确认|未核实|不能承诺|需要核实|需核实|是否|以订单为准)"
+)
 
 
 PROMPT_TEMPLATE = """
@@ -128,6 +142,22 @@ def _source(doc: dict[str, Any]) -> dict[str, Any]:
         "section": doc.get("section"),
         "score": doc.get("score"),
     }
+
+
+def remove_unverified_capability_claims(answer: str) -> str:
+    """Remove business commitments that product/care RAG is not allowed to make."""
+
+    parts = re.split(r"(?<=[。！？!?；;\n])", str(answer or ""))
+    kept = []
+    for part in parts:
+        if not part.strip():
+            continue
+        unsupported = any(pattern.search(part) for pattern in UNVERIFIED_CAPABILITY_PATTERNS)
+        if unsupported and not CAPABILITY_CAVEAT_PATTERN.search(part):
+            continue
+        kept.append(part)
+    cleaned = "".join(kept).strip()
+    return cleaned or "__HANDOFF__"
 
 
 def _rag_model_purpose(
@@ -525,7 +555,7 @@ async def rag_chat(
             stage_latencies["generation_ms"] = round(
                 (time.perf_counter() - stage_started) * 1000
             )
-            answer = result["answer"]
+            answer = remove_unverified_capability_claims(result["answer"])
             usage = result.get("usage", {})
         else:
             answer = ""

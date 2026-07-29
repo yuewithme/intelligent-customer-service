@@ -119,6 +119,16 @@ def test_complete_customer_context_can_jump_directly_to_recommendation():
     assert result.transition_type == "jump"
 
 
+def test_early_objection_does_not_fake_progress_to_closing():
+    result = _decide(
+        UserState(user_id="user_1", sales_stage="need_discovery"),
+        _signals(CustomerSignal.OBJECTION),
+    )
+
+    assert result.stage == SalesStage.NEED_DISCOVERY
+    assert result.reason == "objection_without_progression"
+
+
 def test_price_without_recommendation_basis_stays_in_need_discovery():
     result = _decide(
         UserState(user_id="user_1", sales_stage="rapport"),

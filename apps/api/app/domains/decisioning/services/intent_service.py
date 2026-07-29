@@ -125,6 +125,18 @@ ORDER_QUERY_WORDS = (
     "快递到哪",
     "物流到哪",
 )
+ORDER_SERVICE_ACTION_PATTERNS = {
+    "shipping_date_change": (
+        re.compile(r"(?:晚|迟|延迟|推迟|晚点|改天).{0,8}发货"),
+        re.compile(r"发货.{0,8}(?:晚|迟|延迟|推迟|晚点|改天)"),
+        re.compile(r"(?:先别|暂缓|暂停|不要马上)发货"),
+        re.compile(r"(?:改|调整|修改).{0,8}发货(?:时间|日期|安排)?"),
+    ),
+}
+PURCHASED_ENTITLEMENT_PATTERN = re.compile(
+    r"(?:我|已经|之前).{0,8}(?:买|购买|下单|拍).{0,12}"
+    r"(?:教程|课程|视频|资料|群|指导)"
+)
 PRODUCT_IMAGE_QUERY_WORDS = (
     "商品图片",
     "商品图",
@@ -260,6 +272,15 @@ def match_explicit_order_intent(text: str) -> bool:
     return any(pattern.search(text) for pattern in EXPLICIT_ORDER_PATTERNS)
 
 
+def match_order_service_action(text: str) -> str | None:
+    for action, patterns in ORDER_SERVICE_ACTION_PATTERNS.items():
+        if any(pattern.search(text) for pattern in patterns):
+            return action
+    if PURCHASED_ENTITLEMENT_PATTERN.search(text):
+        return "verify_material_entitlement"
+    return None
+
+
 def classify_by_hard_rules(text: str) -> IntentResult | None:
     text = normalize_intent_text(text)
     if not text:
@@ -311,6 +332,20 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
             }
         )
 
+    order_action = match_order_service_action(text)
+    if order_action:
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "order_query",
+                "sales_stage": "unknown",
+                "confidence": 0.99,
+                "need_template": True,
+                "slots": {"order_action": order_action},
+                "reason": "rule_order_service_action",
+            }
+        )
+
     if is_orchid_material_request(text):
         return _validated_intent(
             {
@@ -355,10 +390,11 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
         return _validated_intent(
             {
                 "route": "template_reply",
-                "primary_intent": "product_query",
+                "primary_intent": "order_intent",
                 "sales_stage": "closing",
                 "confidence": 0.99,
                 "need_template": True,
+                "slots": {"purchase_entry_requested": True},
                 "reason": "rule_product_purchase_query",
             }
         )
@@ -418,7 +454,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
                 "reason": "soft_rule_product_query",
             }
         )
-    if hit_any(text, PURCHASE_REJECTION_WORDS):
+    if hit_any(text, PURCHASE_REJECTION_WORDS) and not has_price:
         return _validated_intent(
             {
                 "route": "template_reply",

@@ -278,3 +278,43 @@ async def test_persona_model_config_preserves_system_and_user_messages(monkeypat
     assert captured["body"]["temperature"] == 0.3
     assert captured["headers"]["Authorization"] == "Bearer persona_test_key"
     assert result["answer"] == "自然回复"
+
+
+@pytest.mark.asyncio
+async def test_persona_generation_retries_one_transient_timeout(monkeypatch):
+    import httpx
+
+    from app.shared.schemas.common import AppError, ErrorCode
+    from app.services import llm_service
+
+    attempts = []
+
+    async def fake_completion(**kwargs):
+        attempts.append(kwargs["attempt"])
+        if len(attempts) == 1:
+            try:
+                raise httpx.ReadTimeout("temporary")
+            except httpx.ReadTimeout as cause:
+                raise AppError(ErrorCode.LLM_FAILED, status_code=502) from cause
+        return {
+            "choices": [{"message": {"content": "第二次成功"}}],
+            "usage": {},
+        }
+
+    monkeypatch.setattr(llm_service, "_chat_completion", fake_completion)
+    monkeypatch.setattr(
+        llm_service,
+        "_model_config",
+        lambda *args, **kwargs: llm_service.ModelConfig(
+            provider="dashscope",
+            model="persona-model",
+        ),
+    )
+
+    result = await llm_service.generate_messages(
+        [{"role": "user", "content": "生成自然回复"}],
+        purpose="persona",
+    )
+
+    assert attempts == [1, 2]
+    assert result["answer"] == "第二次成功"

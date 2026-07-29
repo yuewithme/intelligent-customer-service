@@ -186,6 +186,25 @@ def test_chitchat_reply_also_emits_planned_sales_question():
     assert result.metadata["emitted_question_slot"] == "need_track"
 
 
+def test_existing_reply_question_suppresses_additional_sales_question():
+    decision = decide_sales_action(
+        user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
+        intent=_intent(),
+    )
+    reply = FinalReply(
+        answer="您目前放在室内还是室外？",
+        reply_type="rag",
+        route="rag_answer",
+    )
+
+    result = apply_sales_action(reply, decision)
+
+    assert result.answer == reply.answer
+    assert result.answer.count("？") == 1
+    assert "emitted_question_slot" not in result.metadata
+    assert result.metadata["sales_action_question_suppressed"] == "existing_question"
+
+
 def test_template_reply_appends_only_the_catalog_question_slot():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),

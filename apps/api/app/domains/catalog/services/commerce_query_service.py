@@ -154,6 +154,7 @@ async def build_commerce_context(
     if order_service is None:
         return BusinessFacts()
 
+    requested_action = str(intent.slots.get("order_action") or "").strip()
     tenant_id = str(getattr(message, "tenant_id", "tenant_default") or "tenant_default")
     external_user_id = str(getattr(message, "user_id", "") or "")
     binding = None
@@ -200,8 +201,12 @@ async def build_commerce_context(
             identity_source = "official_wechat_openid"
         else:
             user_state.metadata["commerce_pending"] = "order_mobile"
+            tool_state = {"commerce_type": "order", "status": "missing_mobile"}
+            if requested_action:
+                tool_state["requested_action"] = requested_action
+                tool_state["requested_action_executed"] = False
             return BusinessFacts(
-                tool_state={"commerce_type": "order", "status": "missing_mobile"}
+                tool_state=tool_state
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Youzan order query failed: %s", type(exc).__name__)
@@ -236,6 +241,9 @@ async def build_commerce_context(
         ),
         "orders": [order.model_dump() for order in orders],
     }
+    if requested_action:
+        tool_state["requested_action"] = requested_action
+        tool_state["requested_action_executed"] = False
     configured_order_card = order_card or _order_card(settings)
     if configured_order_card.get("page_path"):
         tool_state["mini_program"] = configured_order_card
@@ -275,6 +283,11 @@ def _restrict_product_data(
                 "image_url",
                 "image_urls",
                 "knowledge",
+                # Purchase navigation is a delivery capability, not a SKU fact.
+                # It must survive early-stage price/stock restrictions so a matched
+                # product can always be sent as its corresponding message card.
+                "page_path",
+                "h5_url",
             }
         }
         knowledge = product.get("knowledge")
@@ -285,7 +298,7 @@ def _restrict_product_data(
                 if key in allowed_knowledge_fields
             }
         if "sku_facts" in allowed_source_groups:
-            for key in ("price_cent", "stock", "page_path", "h5_url", "skus"):
+            for key in ("price_cent", "stock", "skus"):
                 if key in product:
                     restricted[key] = product[key]
         result.append(restricted)

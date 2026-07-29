@@ -36,6 +36,8 @@ def _message(text: str) -> NormalizedMessage:
         ("这个产品有什么注意事项？", "rag_answer", "knowledge_question"),
         ("怎么申请售后？", "rag_answer", "process_question"),
         ("什么时候发货？", "template_reply", "ask_logistics"),
+        ("已下单成功，请晚一天发货", "template_reply", "order_query"),
+        ("我买过你家的兰花，有新手教程吗", "template_reply", "order_query"),
         ("我要退款", "human", "refund_request"),
         ("我要投诉", "human", "complaint"),
         ("我要转人工", "human", "human_request"),
@@ -146,7 +148,8 @@ async def test_referential_purchase_link_request_uses_product_query_rule():
     )
 
     assert intent.route == "template_reply"
-    assert intent.primary_intent == "product_query"
+    assert intent.primary_intent == "order_intent"
+    assert intent.slots["purchase_entry_requested"] is True
     assert intent.need_human is False
     assert intent.reason == "rule_product_purchase_query"
 
@@ -159,7 +162,8 @@ async def test_live_product_link_purchase_phrase_uses_product_query_rule():
     )
 
     assert intent.route == "template_reply"
-    assert intent.primary_intent == "product_query"
+    assert intent.primary_intent == "order_intent"
+    assert intent.slots["purchase_entry_requested"] is True
     assert intent.need_human is False
     assert intent.reason == "rule_product_purchase_query"
 
@@ -335,6 +339,29 @@ async def test_price_objection_adds_structured_decision_blocker():
         "type": "price",
         "detail": "客户认为价格偏高",
     }
+
+
+@pytest.mark.asyncio
+async def test_price_scope_does_not_become_purchase_rejection():
+    intent = await classify_intent(
+        _message("河南郑州，我不想买太贵的"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.primary_intent == "price_objection"
+    assert intent.reason == "soft_rule_price"
+
+
+@pytest.mark.asyncio
+async def test_shipping_change_request_enters_order_tool_chain():
+    intent = await classify_intent(
+        _message("已下单成功，不过周末回老家，请晚一天发货"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.primary_intent == "order_query"
+    assert intent.slots["order_action"] == "shipping_date_change"
+    assert intent.reason == "rule_order_service_action"
 
 
 @pytest.mark.asyncio
