@@ -98,8 +98,7 @@ async def render_persona_reply(
                     "content": (
                         f"上一条违反输出合同（{violation}）。请重新生成一次。"
                         "不要解释错误；只输出客户可见的第二条消息。"
-                        "若没有 question_slot，只能用一句不超过40字的话引导客户"
-                        "点击或查看商品卡片，不得提优惠、权益、服务、价值或提出问题。"
+                        + _retry_contract(spec)
                     ),
                 },
             ],
@@ -148,6 +147,18 @@ def _is_product_extension(spec: ReplySpec) -> bool:
         spec.composition_mode == "anchor_plus_persona"
         and isinstance(tool_state, dict)
         and tool_state.get("commerce_type") == "product"
+    )
+
+
+def _retry_contract(spec: ReplySpec) -> str:
+    if spec.question_slot:
+        return (
+            f"必须只自然追问“{spec.question_slot}”，使用一个问句并以问号结尾；"
+            "不得顺带追问其他信息，也不得提优惠、权益、服务或价值。"
+        )
+    return (
+        "只能用一句不超过40字的话引导客户点击或查看商品卡片，"
+        "不得提优惠、权益、服务、价值或提出问题。"
     )
 
 

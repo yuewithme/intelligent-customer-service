@@ -258,6 +258,25 @@ async def test_product_persona_extension_retries_after_contract_violation(monkey
     assert rendered.metadata["persona"]["retried"] is True
     assert rendered.metadata["persona"]["retry_reason"] == "unexpected_question"
     assert rendered.usage["completion_tokens"] == 16
+    assert "点击或查看商品卡片" in calls[1][-1]["content"]
+
+
+def test_product_persona_retry_contract_requires_the_planned_question_slot():
+    from app.services import persona_renderer
+
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="确认数量",
+        suggested_copy="这是会员资格商品。",
+        question_slot="quantity",
+    )
+
+    contract = persona_renderer._retry_contract(spec)
+
+    assert "quantity" in contract
+    assert "一个问句" in contract
+    assert "问号结尾" in contract
 
 
 def test_guard_rejects_customer_service_tone_and_removes_internal_fallback_copy():
