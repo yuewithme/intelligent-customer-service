@@ -397,7 +397,7 @@ async def test_direct_search_keeps_synced_product_without_knowledge(monkeypatch,
             WHERE item_id = ?
             """,
             (
-                "建兰【忆香荷】勤花勤芽",
+                "建兰【忆香荷】勤花勤芽 新手优选",
                 "yixianghe",
                 "https://h5.youzan.com/v2/showcase/goods?alias=yixianghe",
                 "1004",
@@ -410,14 +410,18 @@ async def test_direct_search_keeps_synced_product_without_knowledge(monkeypatch,
     )
 
     products = search_catalog_products("忆香荷")
+    recommendations = search_catalog_products(
+        "那你推荐一款好养的，最好有视频教学。"
+    )
     product = get_catalog_product("1004")
 
     assert [item["item_id"] for item in products] == ["1004"]
+    assert [item["item_id"] for item in recommendations] == ["1004"]
     assert products[0]["price_cent"] == 3990
     assert products[0]["h5_url"].endswith("alias=yixianghe")
     assert all(value is None for value in products[0]["knowledge"].values())
     assert product is not None
-    assert product["title"] == "建兰【忆香荷】勤花勤芽"
+    assert product["title"] == "建兰【忆香荷】勤花勤芽 新手优选"
 
 
 @pytest.mark.asyncio

@@ -66,6 +66,11 @@ COLOR_TERMS = {
     "复色": ("复色",),
     "艳丽": ("艳丽",),
 }
+RECOMMENDATION_REQUEST_TERMS = ("推荐", "哪款", "哪种", "想找", "想要一款")
+RAW_ORCHID_PRODUCT_MARKERS = (*ORCHID_CATEGORIES, "兰花", "四季兰")
+RAW_EASY_CARE_MARKERS = ("好养", "易养", "易活", "皮实", "新手")
+RAW_VALUE_MARKERS = ("性价比", "实惠", "划算", "亲民", "入门")
+RAW_LONG_BLOOM_MARKERS = ("花期长", "花期较长", "开花久")
 
 
 @dataclass(frozen=True)
@@ -340,6 +345,25 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
             if knowledge is None:
                 if direct_score:
                     ranked.append((-1, direct_score, product, knowledge))
+                else:
+                    raw_score = _raw_recommendation_score(
+                        keyword,
+                        product,
+                        criteria,
+                        query_terms=query_terms,
+                    )
+                    if raw_score:
+                        ranked.append(
+                            (
+                                _raw_audience_level_distance(
+                                    criteria.audience_tag,
+                                    product,
+                                ),
+                                raw_score,
+                                product,
+                                knowledge,
+                            )
+                        )
                 continue
             if not direct_score and not _matches_recommendation_criteria(
                 product,
@@ -575,6 +599,94 @@ def _criteria_score(
         )
         score += max(0, round(30 * (1 - difference_ratio)))
     return score
+
+
+def _raw_recommendation_score(
+    keyword: str,
+    product: YouzanProductModel,
+    criteria: ProductRecommendationCriteria,
+    *,
+    query_terms: list[str] | None = None,
+) -> int:
+    if not any(term in keyword for term in RECOMMENDATION_REQUEST_TERMS):
+        return 0
+    searchable = " ".join(
+        value
+        for value in (
+            str(product.title or ""),
+            str(product.internal_note or ""),
+        )
+        if value
+    )
+    normalized_searchable = _normalize_name(searchable)
+    if not any(
+        _normalize_name(marker) in normalized_searchable
+        for marker in RAW_ORCHID_PRODUCT_MARKERS
+    ):
+        return 0
+    if criteria.min_price_cent is not None and (
+        product.price_cent is None or product.price_cent < criteria.min_price_cent
+    ):
+        return 0
+    if criteria.max_price_cent is not None and (
+        product.price_cent is None or product.price_cent > criteria.max_price_cent
+    ):
+        return 0
+    required_markers = (
+        (criteria.category, (criteria.category,) if criteria.category else ()),
+        (criteria.fragrance, (criteria.fragrance,) if criteria.fragrance else ()),
+        (
+            criteria.flowering_status,
+            (criteria.flowering_status,) if criteria.flowering_status else (),
+        ),
+        (criteria.scene, (criteria.scene,) if criteria.scene else ()),
+        (
+            criteria.color_key,
+            COLOR_TERMS.get(criteria.color_key, ()) if criteria.color_key else (),
+        ),
+        (
+            criteria.requires_easy_care,
+            RAW_EASY_CARE_MARKERS if criteria.requires_easy_care else (),
+        ),
+        (
+            criteria.requires_value,
+            RAW_VALUE_MARKERS if criteria.requires_value else (),
+        ),
+        (
+            criteria.requires_long_bloom,
+            RAW_LONG_BLOOM_MARKERS if criteria.requires_long_bloom else (),
+        ),
+    )
+    for required, markers in required_markers:
+        if required and not any(marker in searchable for marker in markers):
+            return 0
+    matched_terms = {
+        term
+        for term in (query_terms or [])
+        if term in normalized_searchable
+    }
+    matched_terms.update(
+        term for term in PREFERENCE_TERMS if term in keyword and term in searchable
+    )
+    return max(
+        10,
+        _criteria_score(product, criteria)
+        + criteria.active_count * 20
+        + len(matched_terms) * 10,
+    )
+
+
+def _raw_audience_level_distance(
+    requested: str | None,
+    product: YouzanProductModel,
+) -> int:
+    match = re.search(
+        r"(?<![A-Za-z0-9])L([1-6])(?![A-Za-z0-9])",
+        product.title,
+        re.I,
+    )
+    actual = f"L{match.group(1)}" if match else None
+    return _audience_level_distance(requested, actual)
 
 
 def get_catalog_product(item_id: str) -> dict[str, Any] | None:
