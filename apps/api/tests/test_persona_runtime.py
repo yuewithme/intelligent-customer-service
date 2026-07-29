@@ -283,7 +283,13 @@ def test_guard_rejects_unverified_membership_benefits_and_unpunctuated_question(
         metadata={"persona": {"rendered": True, "sales_action_rendered": False}},
     )
     unpunctuated_question = membership_claim.model_copy(
-        update={"persona_copy": "您先点开商品卡片看看，这样安排合适吗"}
+        update={"persona_copy": "您先点开商品卡片看看，这样安排合不合适"}
+    )
+    generic_value_copy = membership_claim.model_copy(
+        update={"persona_copy": "您可以先慢慢考虑。"}
+    )
+    safe_card_copy = membership_claim.model_copy(
+        update={"persona_copy": "您可以先点开卡片看看。"}
     )
 
     guarded_claim = guard_reply_spec(spec=membership_claim, context=context)
@@ -291,11 +297,20 @@ def test_guard_rejects_unverified_membership_benefits_and_unpunctuated_question(
         spec=unpunctuated_question,
         context=context,
     )
+    guarded_generic = guard_reply_spec(spec=generic_value_copy, context=context)
+    guarded_safe = guard_reply_spec(spec=safe_card_copy, context=context)
 
     assert guarded_claim.persona_copy == ""
     assert guarded_claim.metadata["persona_guard"]["reason"] == "unverified_fact_claim"
     assert guarded_question.persona_copy == ""
     assert guarded_question.metadata["persona_guard"]["reason"] == "unexpected_question"
+    assert guarded_generic.persona_copy == ""
+    assert (
+        guarded_generic.metadata["persona_guard"]["reason"]
+        == "invalid_product_extension"
+    )
+    assert guarded_safe.persona_copy == "您可以先点开卡片看看。"
+    assert "persona_guard" not in guarded_safe.metadata
 
 
 def test_identity_question_has_role_first_fallback_copy():

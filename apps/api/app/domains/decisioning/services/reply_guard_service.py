@@ -23,14 +23,26 @@ UNSOLICITED_REQUEST_PATTERNS = (
 UNVERIFIED_PERSONA_FACT_PATTERNS = (
     re.compile(
         r"(?:推荐|建议选|带花苞|气候|天气|香气|养护难度|库存|现货|"
-        r"配套|课程|视频|在线答疑|权益|服务|指导|对接|赠送|包含|享受|锁定)"
+        r"配套|课程|视频|在线答疑|权益|服务|指导|对接|赠送|包含|享受|锁定|"
+        r"优惠|折扣|省钱|回本|专属|划算)"
     ),
     re.compile(r"\d+(?:\.\d+)?\s*元"),
 )
 QUESTION_LANGUAGE_PATTERN = re.compile(
     r"(?:请问|想问|是否|能否|方便(?:说|发|提供|告诉)|"
     r"可以.{0,8}吗|有没有|怎么|如何|为什么|多少|"
-    r"哪(?:个|些|种|款|里|儿)?|什么|吗(?:[啊呢呀吧])?(?:$|[，,。！!]))"
+    r"哪(?:个|些|种|款|里|儿)?|什么|"
+    r"合不合适|好不好|行不行|可不可以|要不要|愿不愿意|能不能|"
+    r"吗(?:[啊呢呀吧])?(?:$|[，,。！!]))"
+)
+PRODUCT_EXTENSION_ACTION_MARKERS = (
+    "卡片",
+    "链接",
+    "点开",
+    "点击",
+    "查看",
+    "看看",
+    "下单",
 )
 
 
@@ -60,6 +72,8 @@ def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
         and any(pattern.search(answer) for pattern in UNVERIFIED_PERSONA_FACT_PATTERNS)
     ):
         fallback_reason = "unverified_fact_claim"
+    elif _invalid_product_extension(spec, answer):
+        fallback_reason = "invalid_product_extension"
     elif any(marker in answer for marker in INTERNAL_MARKERS):
         fallback_reason = "internal_marker"
     elif any(phrase in answer for phrase in context.anti_patterns):
@@ -94,6 +108,21 @@ def _question_count(answer: str) -> int:
     if punctuation_count:
         return punctuation_count
     return 1 if QUESTION_LANGUAGE_PATTERN.search(answer.strip()) else 0
+
+
+def _invalid_product_extension(spec: ReplySpec, answer: str) -> bool:
+    if (
+        spec.composition_mode != "anchor_plus_persona"
+        or spec.question_slot is not None
+    ):
+        return False
+    tool_state = spec.verified_facts.get("tool_state")
+    if not isinstance(tool_state, dict) or tool_state.get("commerce_type") != "product":
+        return False
+    compact = "".join(answer.split())
+    return len(compact) > 40 or not any(
+        marker in compact for marker in PRODUCT_EXTENSION_ACTION_MARKERS
+    )
 
 
 def finalize_reply_spec(spec: ReplySpec) -> FinalReply:
