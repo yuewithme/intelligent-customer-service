@@ -262,7 +262,7 @@ async def test_payment_followup_reuses_last_selected_membership_product():
     class FakeProductService:
         async def search(self, keyword, *, limit):
             assert keyword == "首单参与陪伴养兰客户 专享特惠链接"
-            assert limit == 1
+            assert limit == 3
             return [
                 YouzanProduct(
                     item_id="membership-39",
@@ -277,6 +277,7 @@ async def test_payment_followup_reuses_last_selected_membership_product():
         metadata={
             "commerce_last_product_keyword": "首单参与陪伴养兰客户 专享特惠链接",
             "commerce_last_product_id": "membership-39",
+            "commerce_last_product_kind": "membership",
         },
     )
     facts = await build_commerce_context(
@@ -288,6 +289,7 @@ async def test_payment_followup_reuses_last_selected_membership_product():
 
     assert facts.tool_state["status"] == "found"
     assert facts.tool_state["products"][0]["item_id"] == "membership-39"
+    assert facts.tool_state["product_request_kind"] == "membership"
 
 
 @pytest.mark.asyncio

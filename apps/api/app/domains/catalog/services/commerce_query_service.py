@@ -107,6 +107,15 @@ async def build_commerce_context(
 
     base_card = mini_program_base or _mini_program_base(settings)
     if commerce_type == "product":
+        product_request_kind = str(
+            intent.slots.get("product_request_kind")
+            or (
+                user_state.metadata.get("commerce_last_product_kind")
+                if intent.primary_intent == "payment_intent"
+                else ""
+            )
+            or ""
+        ).strip()
         product_keywords = [
             str(value).strip()
             for value in (
@@ -144,9 +153,7 @@ async def build_commerce_context(
             )
         try:
             product_data = []
-            membership_request = (
-                intent.slots.get("product_request_kind") == "membership"
-            )
+            membership_request = product_request_kind == "membership"
             for search_keyword in product_keywords or [keyword]:
                 search_limit = (
                     3
@@ -192,7 +199,7 @@ async def build_commerce_context(
             "status": "found" if product_data else "not_found",
             "products": product_data,
             "send_product_image": _wants_product_image(message.message),
-            "product_request_kind": intent.slots.get("product_request_kind"),
+            "product_request_kind": product_request_kind or None,
             "requested_product_keywords": product_keywords,
             "send_all_product_cards": len(product_keywords) > 1,
             "requested_capabilities": _requested_capabilities(message.message),
@@ -213,7 +220,7 @@ async def build_commerce_context(
                 first_product.get("item_id") or ""
             ).strip()
             user_state.metadata["commerce_last_product_kind"] = str(
-                intent.slots.get("product_request_kind") or ""
+                product_request_kind
             ).strip()
         return BusinessFacts(tool_state=tool_state)
 
