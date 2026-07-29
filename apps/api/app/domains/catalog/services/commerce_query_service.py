@@ -71,7 +71,7 @@ async def build_commerce_context(
 ) -> BusinessFacts:
     if intent.slots.get("conversation_topic") == "order_information":
         return BusinessFacts()
-    commerce_type = _commerce_type(intent.primary_intent)
+    commerce_type = _commerce_type(intent)
     if not commerce_type:
         return BusinessFacts()
     if allowed_source_groups is not None:
@@ -250,11 +250,23 @@ async def build_commerce_context(
     return BusinessFacts(tool_state=tool_state)
 
 
-def _commerce_type(primary_intent: str) -> str:
+def _commerce_type(intent) -> str:
+    primary_intent = str(getattr(intent, "primary_intent", "") or "")
     if primary_intent in {"product_query", "order_intent"}:
         return "product"
     if primary_intent == "order_query":
         return "order"
+    slots = getattr(intent, "slots", {})
+    if isinstance(slots, dict) and slots.get(
+        "conversation_topic"
+    ) == "product_recommendation":
+        return "product"
+    if (
+        getattr(intent, "primary_domain", None) == "product"
+        and getattr(intent, "primary_goal", None) == "seek_help"
+        and "product_selection" in (getattr(intent, "issues", []) or [])
+    ):
+        return "product"
     return ""
 
 

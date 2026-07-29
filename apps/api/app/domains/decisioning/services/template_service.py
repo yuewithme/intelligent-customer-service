@@ -87,7 +87,10 @@ async def search_templates(
     candidates = [
         template
         for template in _templates.values()
-        if template.stage in {"unknown", intent.sales_stage}
+        if (
+            template.stage in {"unknown", intent.sales_stage}
+            or template.intent == intent.primary_intent
+        )
     ]
     for template in candidates:
         if template.status != "active":

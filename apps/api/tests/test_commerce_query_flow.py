@@ -142,6 +142,51 @@ async def test_purchase_followup_builds_card_for_previously_shown_product():
 
 
 @pytest.mark.asyncio
+async def test_product_selection_semantics_build_structured_product_facts():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert "推荐一款好养" in keyword
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id="4792037787",
+                    title="建兰红君荷 新手好养",
+                    alias="2x9s4jwps5ulisu",
+                    price_cent=6800,
+                    stock=10,
+                    image_url="https://cdn.example.com/hongjunhe.jpg",
+                    page_path="packages/goods/detail/index?alias=2x9s4jwps5ulisu",
+                    h5_url="https://h5.youzan.com/goods/hongjunhe",
+                )
+            ]
+
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        primary_domain="product",
+        primary_goal="seek_help",
+        issues=["product_selection"],
+        slots={"conversation_topic": "product_recommendation"},
+        confidence=0.99,
+        need_rag=True,
+    )
+
+    facts = await build_commerce_context(
+        _message("那你推荐一款好养的，最好有视频教学。"),
+        UserState(user_id="wxid-customer"),
+        intent,
+        product_service=FakeProductService(),
+        allowed_source_groups={"product_catalog"},
+    )
+
+    assert facts.tool_state["status"] == "found"
+    assert facts.tool_state["products"][0]["title"] == "建兰红君荷 新手好养"
+    assert facts.tool_state["products"][0]["h5_url"].endswith("hongjunhe")
+
+
+@pytest.mark.asyncio
 async def test_any_order_intent_builds_card_for_previously_shown_product():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
 

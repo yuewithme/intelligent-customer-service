@@ -79,6 +79,29 @@ async def test_explicit_product_recommendation_keeps_catalog_capability():
     assert decision.retrieval_policy == {"mode": "product_recommendation"}
 
 
+@pytest.mark.asyncio
+async def test_price_template_survives_non_progressing_sales_stage():
+    from app.domains.decisioning.services.template_service import select_template
+
+    message = _message("河南郑州，我不想买太贵的。")
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="price_objection",
+        sales_stage="need_discovery",
+        confidence=0.99,
+        need_template=True,
+    )
+
+    template = await select_template(
+        message,
+        intent,
+        UserState(user_id="user_intent"),
+    )
+
+    assert template is not None
+    assert template.template_id == "tpl_price_objection_default"
+
+
 @pytest.mark.parametrize(
     ("text", "goal", "kind"),
     [
