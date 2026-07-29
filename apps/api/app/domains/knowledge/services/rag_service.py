@@ -79,6 +79,13 @@ UNVERIFIED_CAPABILITY_PATTERNS = (
 CAPABILITY_CAVEAT_PATTERN = re.compile(
     r"(?:不确定|未确认|未核实|不能承诺|需要核实|需核实|是否|以订单为准)"
 )
+PRODUCT_RECOMMENDATION_REQUEST_MARKERS = (
+    "推荐",
+    "哪款",
+    "哪种",
+    "想找",
+    "想要一款",
+)
 
 
 PROMPT_TEMPLATE = """
@@ -478,8 +485,11 @@ async def rag_chat(
 
         retrieval_question = build_retrieval_question(message, context, policy)
         product_recommendation = bool(
-            policy
-            and policy.retrieval_policy.get("mode") == "product_recommendation"
+            (
+                policy
+                and policy.retrieval_policy.get("mode") == "product_recommendation"
+            )
+            or any(marker in message for marker in PRODUCT_RECOMMENDATION_REQUEST_MARKERS)
         )
         vector = []
         if not product_recommendation:

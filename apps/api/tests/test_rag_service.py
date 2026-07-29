@@ -200,6 +200,55 @@ async def test_product_recommendation_uses_new_catalog_only(monkeypatch):
     assert result["sources"][0]["file_name"] == "产品知识库"
 
 
+@pytest.mark.asyncio
+async def test_explicit_recommendation_bypasses_embeddings_even_if_policy_mode_is_lost(
+    monkeypatch,
+):
+    from app.core.config import get_settings
+
+    async def fail_embed(text):
+        del text
+        raise AssertionError("explicit product recommendation must stay on local catalog")
+
+    async def fake_rerank(question, docs, top_n):
+        del question, top_n
+        return docs
+
+    async def fake_generate(prompt, *, purpose):
+        del prompt, purpose
+        return {"answer": "推荐小国魂。", "usage": {}}
+
+    monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(rag_service.embedding_service, "embed_text", fail_embed)
+    monkeypatch.setattr(
+        rag_service,
+        "search_catalog_products",
+        lambda keyword, limit: [
+            {
+                "item_id": "1001",
+                "title": "小国魂",
+                "knowledge": {"product_name": "小国魂", "care_scenes": "好养"},
+            }
+        ],
+    )
+    monkeypatch.setattr(rag_service.rerank_service, "rerank", fake_rerank)
+    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
+
+    try:
+        result = await rag_service.rag_chat(
+            user_id="user_001",
+            message="推荐一款好养的兰花",
+            kb_id="kb_default",
+            metadata={"tenant_id": "tenant_default", "permission": "public"},
+            policy=PolicyDecision(route="rag_answer", retrieval_policy={}),
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result["answer"] == "推荐小国魂。"
+
+
 def test_generic_rag_excludes_legacy_product_rows_but_keeps_common_care():
     docs = [
         {

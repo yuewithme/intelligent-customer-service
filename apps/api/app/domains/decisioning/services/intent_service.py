@@ -335,6 +335,18 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
             }
         )
 
+    if match_price_intent(text) == "price_objection" and not hit_any(text, CARE_WORDS):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "price_objection",
+                "sales_stage": "closing",
+                "confidence": 0.95,
+                "need_template": True,
+                "reason": "rule_explicit_price_objection",
+            }
+        )
+
     order_action = match_order_service_action(text)
     if order_action:
         return _validated_intent(

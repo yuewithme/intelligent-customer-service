@@ -371,7 +371,7 @@ async def test_price_scope_does_not_become_purchase_rejection():
     )
 
     assert intent.primary_intent == "price_objection"
-    assert intent.reason == "soft_rule_price"
+    assert intent.reason == "rule_explicit_price_objection"
 
 
 @pytest.mark.asyncio
