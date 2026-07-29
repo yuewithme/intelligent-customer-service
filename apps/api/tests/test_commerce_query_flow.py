@@ -36,6 +36,7 @@ def test_product_keyword_removes_conversation_scaffolding():
     from app.domains.catalog.services.commerce_query_service import _product_keyword
 
     assert _product_keyword("有没有白色大花蝴蝶兰？发我一下链接", {}) == "白色大花蝴蝶兰"
+    assert _product_keyword("我想买忆香荷，怎么下单？", {}) == "忆香荷"
 
 
 def test_product_keyword_reuses_previous_customer_product_request():
