@@ -145,6 +145,32 @@ def test_after_sale_disables_sales_progression():
     assert decision.next_stage is None
 
 
+def test_order_service_does_not_append_sales_discovery_question():
+    decision = decide_sales_action(
+        user_state=UserState(user_id="user_1", sales_stage="closing"),
+        intent=IntentResult(
+            route="template_reply",
+            primary_intent="order_query",
+            primary_domain="customer_service",
+            primary_goal="request_service",
+            sales_stage="closing",
+            confidence=0.99,
+            slots={"order_action": "shipping_date_change"},
+        ),
+    )
+    reply = FinalReply(
+        answer="请把下单手机号发给我，我先核对订单。",
+        reply_type="template",
+        route="template_reply",
+    )
+
+    result = apply_sales_action(reply, decision)
+
+    assert decision.sales_action == "provide_service"
+    assert decision.question_slot is None
+    assert result.answer == reply.answer
+
+
 def test_template_reply_executes_single_sales_question():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),

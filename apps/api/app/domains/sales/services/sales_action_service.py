@@ -89,6 +89,8 @@ def decide_sales_action(
         intent.need_human,
         intent.route,
         set(intent.sales_signals),
+        intent.primary_domain,
+        intent.primary_goal,
     )
     if priority:
         goal, action, signal = priority
@@ -346,9 +348,13 @@ def _priority_action(
     need_human: bool,
     route: str,
     signals: set[str],
+    primary_domain: str | None = None,
+    primary_goal: str | None = None,
 ):
     if need_human or route == "human":
         return ("转交人工继续处理", "handoff_to_human", "none")
+    if primary_domain == "customer_service" and primary_goal == "request_service":
+        return ("优先完成客户当前的订单服务任务", "provide_service", "none")
     if intent in AFTER_SALE_INTENTS:
         return ("优先解决客户售后问题", "provide_service", "none")
     if "purchased" in signals:
