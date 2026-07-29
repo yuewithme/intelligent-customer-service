@@ -2,6 +2,10 @@ from collections.abc import Iterable
 
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.reply_plan import ReplyPlan
+from app.domains.decisioning.services.business_action_service import (
+    CARE_ANSWER,
+    knowledge_sources_for_action,
+)
 from app.domains.sales.schemas.sales_flow import SalesKnowledgeSource, SalesStage
 from app.domains.sales.services.sales_stage_catalog import get_sales_stage_definition
 from app.domains.sales.services.sales_stage_service import normalize_sales_stage
@@ -44,8 +48,14 @@ SERVICE_INTENTS = {"ask_after_sale", "refund_request", "complaint"}
 def allowed_knowledge_sources(
     stage: str | SalesStage,
     intent: IntentResult,
+    *,
+    business_action: str | None = None,
 ) -> frozenset[str]:
     """Resolve the stage allowlist plus explicit, narrowly scoped exceptions."""
+
+    action_sources = knowledge_sources_for_action(business_action or "")
+    if action_sources is not None:
+        return action_sources
 
     definition = get_sales_stage_definition(normalize_sales_stage(stage))
     allowed = {
@@ -100,12 +110,18 @@ def apply_stage_knowledge_policy(
     *,
     stage: str | SalesStage,
     intent: IntentResult,
+    business_action: str | None = None,
 ) -> ReplyPlan:
-    sources = allowed_knowledge_sources(stage, intent)
+    sources = allowed_knowledge_sources(
+        stage,
+        intent,
+        business_action=business_action,
+    )
     retrieval_policy = {
         **plan.retrieval_policy,
         "sales_stage": normalize_sales_stage(stage),
         "allowed_source_groups": sorted(sources),
+        "business_action": business_action,
     }
     if (
         retrieval_policy.get("mode") == "product_recommendation"
@@ -114,6 +130,19 @@ def apply_stage_knowledge_policy(
         retrieval_policy.pop("mode", None)
 
     knowledge_base_ids = _safe_care_kb_ids(plan.knowledge_base_ids)
+    context_policy = dict(plan.context_policy)
+    if business_action == CARE_ANSWER:
+        # Care answers must not inherit selected products, assistant copy, or sales
+        # opportunity state as factual context.
+        context_policy.update(
+            {
+                "recent_turns": 0,
+                "include_profile_summary": False,
+                "include_long_memory_summary": False,
+                "include_session_state": False,
+                "include_memory_context": False,
+            }
+        )
     if (
         plan.action == "rag_answer"
         and retrieval_policy.get("mode") != "product_recommendation"
@@ -122,6 +151,7 @@ def apply_stage_knowledge_policy(
     return plan.model_copy(
         update={
             "knowledge_base_ids": knowledge_base_ids,
+            "context_policy": context_policy,
             "retrieval_policy": retrieval_policy,
         }
     )

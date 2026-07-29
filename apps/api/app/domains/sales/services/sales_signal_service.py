@@ -225,6 +225,10 @@ def _trusted_selected_product(
     state = business_facts.tool_state
     if state.get("commerce_type") != "product" or state.get("status") != "found":
         return None
+    if state.get("product_request_kind") == "supply_shortage":
+        # Accessory recommendations must not replace the orchid/product the
+        # customer is currently discussing.
+        return None
     products = state.get("products")
     if (
         not isinstance(products, list)

@@ -345,6 +345,29 @@ def test_guard_rejects_unverified_product_facts_after_template_anchor():
     assert guarded.metadata["persona"]["sales_action_rendered"] is False
 
 
+def test_guard_rejects_unverified_order_status_after_fact_anchor():
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="继续核对订单",
+        composition_mode="anchor_plus_persona",
+        suggested_copy="请把下单手机号发给我，我帮您查询。",
+        persona_copy="您的订单还没有同步，稍后就会发货。",
+        verified_facts={
+            "tool_state": {
+                "commerce_type": "order",
+                "status": "missing_mobile",
+            }
+        },
+        metadata={"persona": {"rendered": True, "sales_action_rendered": False}},
+    )
+
+    guarded = guard_reply_spec(spec=spec, context=_context())
+
+    assert guarded.persona_copy == ""
+    assert guarded.metadata["persona_guard"]["reason"] == "unverified_fact_claim"
+
+
 def test_guard_rejects_unverified_membership_benefits_and_unpunctuated_question():
     context = _context()
     membership_claim = ReplySpec(

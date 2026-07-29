@@ -158,8 +158,7 @@ async def test_orchestrator_executes_the_single_planned_reply(monkeypatch):
         )
     )
 
-    assert result["answer"].startswith("planned answer")
-    assert result["answer"].count("？") == 1
+    assert result["answer"] == "planned answer"
     assert captured["plan"].decision_trace
     assert captured["shadow"]["message"].trace_id == "trace_001"
     assert captured["shadow"]["reply"].answer.startswith("planned answer")

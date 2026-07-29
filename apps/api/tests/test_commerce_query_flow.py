@@ -256,6 +256,119 @@ async def test_membership_request_uses_local_product_and_exact_price_card():
 
 
 @pytest.mark.asyncio
+async def test_budget_followup_reuses_catalog_requirements_and_sends_multiple_cards():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert "叶子细长" in keyword
+            assert "100元以内" in keyword
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id=f"orchid-{index}",
+                    title=f"建兰推荐款{index}",
+                    price_cent=4000 + index * 500,
+                    page_path=f"pages/goods/{index}",
+                )
+                for index in range(1, 4)
+            ]
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={
+            "commerce_last_catalog_query": "推荐几款叶子细长、花香浓、新手适合的兰花"
+        },
+    )
+    facts = await build_commerce_context(
+        _message("100元以内，最好五六十左右"),
+        state,
+        _intent("knowledge_question"),
+        product_service=FakeProductService(),
+        mini_program_base={"app_id": "wx123", "display_name": "萧岚苑"},
+        business_action=CATALOG_SEARCH,
+        allowed_source_groups={"product_catalog", "product_value", "sku_facts"},
+    )
+    reply = await render_business_reply(
+        _message("100元以内，最好五六十左右"),
+        facts,
+    )
+
+    assert facts.tool_state["send_all_product_cards"] is True
+    assert [item["price_cent"] for item in facts.tool_state["products"]] == [
+        4500,
+        5000,
+        5500,
+    ]
+    assert reply is not None
+    assert [message.type for message in reply.outbound_messages].count("mini_program") == 3
+
+
+@pytest.mark.asyncio
+async def test_selected_product_detail_queries_current_item_id_and_keeps_selection():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import (
+        SELECTED_PRODUCT_DETAIL,
+    )
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    class ProductDetail:
+        def model_dump(self):
+            return {
+                "item_id": "longyansu-1",
+                "title": "建兰龙岩素",
+                "price_cent": 4680,
+                "page_path": "pages/goods/longyansu",
+                "skus": [
+                    {
+                        "sku_id": "sku-3",
+                        "spec_name": "3苗裸根",
+                        "price_cent": 4680,
+                        "stock": 8,
+                    }
+                ],
+            }
+
+    class FakeProductService:
+        async def get(self, item_id):
+            assert item_id == "longyansu-1"
+            return ProductDetail()
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={
+            "commerce_last_product_id": "longyansu-1",
+            "commerce_last_product_keyword": "建兰龙岩素",
+        },
+    )
+    facts = await build_commerce_context(
+        _message("刚才那款龙岩素有几苗，能不能带盆发货？"),
+        state,
+        _intent("product_query"),
+        product_service=FakeProductService(),
+        mini_program_base={"app_id": "wx123", "display_name": "萧岚苑"},
+        business_action=SELECTED_PRODUCT_DETAIL,
+        allowed_source_groups={"product_catalog", "sku_facts"},
+    )
+    reply = await render_business_reply(
+        _message("刚才那款龙岩素有几苗，能不能带盆发货？"),
+        facts,
+    )
+
+    assert state.metadata["commerce_last_product_id"] == "longyansu-1"
+    assert facts.tool_state["products"][0]["skus"][0]["spec_name"] == "3苗裸根"
+    assert reply is not None
+    assert "3苗裸根" in reply.answer
+    assert "没有明确标注带盆" in reply.answer
+
+
+@pytest.mark.asyncio
 async def test_payment_followup_reuses_last_selected_membership_product():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
 
@@ -335,9 +448,16 @@ async def test_supply_shortage_returns_real_pot_and_medium_cards():
         confidence=0.99,
         need_template=True,
     )
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={
+            "commerce_last_product_id": "orchid-main",
+            "commerce_last_product_keyword": "建兰龙岩素",
+        },
+    )
     facts = await build_commerce_context(
         _message("家里盆和植料不够。"),
-        UserState(user_id="wxid-customer"),
+        state,
         intent,
         product_service=FakeProductService(),
         allowed_source_groups={"product_catalog"},
@@ -355,6 +475,7 @@ async def test_supply_shortage_returns_real_pot_and_medium_cards():
         "link_card",
         "link_card",
     ]
+    assert state.metadata["commerce_last_product_id"] == "orchid-main"
 
 
 @pytest.mark.asyncio
@@ -574,6 +695,7 @@ async def test_shipping_change_without_identity_collects_mobile_before_claiming_
     assert "下单手机号" in reply.answer
     assert "查到订单后" in reply.answer
     assert "已经改" not in reply.answer
+    assert reply.metadata["allow_persona_extension"] is True
     assert reply.metadata["commerce_action"] == {
         "commerce_type": "order",
         "status": "missing_mobile",
@@ -629,6 +751,39 @@ async def test_order_query_uses_mobile_from_followup_and_returns_order_card():
     assert state.metadata.get("commerce_pending") is None
     assert facts.tool_state["orders"][0]["order_no"] == "E001"
     assert facts.tool_state["mini_program"]["page_path"] == "pages/order/list"
+
+
+@pytest.mark.asyncio
+async def test_paid_order_information_executes_order_lookup_instead_of_short_circuiting():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import ORDER_VERIFY
+
+    calls = []
+
+    class FakeOrderService:
+        async def search_by_mobile(self, mobile, *, limit):
+            calls.append((mobile, limit))
+            return []
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={"commerce_mobile": "13800138000"},
+    )
+    intent = _intent("order_intent").model_copy(
+        update={"slots": {"conversation_topic": "order_information"}}
+    )
+    facts = await build_commerce_context(
+        _message("我已经通过微信付款了，收货地址也发给你了"),
+        state,
+        intent,
+        order_service=FakeOrderService(),
+        business_action=ORDER_VERIFY,
+        allowed_source_groups={"order_facts"},
+    )
+
+    assert calls == [("13800138000", 3)]
+    assert facts.tool_state["status"] == "not_found"
+    assert facts.tool_state["lookup_performed"] is True
 
 
 @pytest.mark.asyncio

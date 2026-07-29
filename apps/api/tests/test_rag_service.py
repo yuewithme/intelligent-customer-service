@@ -38,6 +38,21 @@ def test_care_retrieval_excludes_sales_sections():
     assert rag_service.select_care_docs(docs) == [docs[0], docs[6]]
 
 
+def test_care_retrieval_excludes_product_advantage_docs_even_with_care_words():
+    docs = [
+        {
+            "section": "蕙兰优势",
+            "text": "蕙兰根系发达，养护简单，适合购买。",
+        },
+        {
+            "section": "烂根处理",
+            "text": "烂根后先检查植料和通风。",
+        },
+    ]
+
+    assert rag_service.select_care_docs(docs) == [docs[1]]
+
+
 def test_product_recommendation_retrieval_keeps_product_copy_only():
     docs = [
         {"section": "小国魂 - 养护难度话术", "text": "皮实好养"},
@@ -116,6 +131,21 @@ def test_stage_source_filter_blocks_product_and_promotion_rows_from_care_only_ac
     ]
 
     assert rag_service.select_stage_allowed_docs(docs, {"care_safe"}) == [docs[0]]
+
+
+def test_rag_removes_business_claims_not_allowed_by_care_sources():
+    answer = (
+        "烂根常见原因是植料长期积水、通风不足。"
+        "推荐您购买建兰忆香荷，这款售价68元且有现货。"
+        "您的订单已经支付成功。"
+    )
+
+    result = rag_service.remove_disallowed_business_claims(
+        answer,
+        {"customer_context", "care_safe"},
+    )
+
+    assert result == "烂根常见原因是植料长期积水、通风不足。"
 
 
 def test_product_recommendation_retrieval_question_includes_recent_context():

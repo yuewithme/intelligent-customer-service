@@ -702,7 +702,27 @@ def get_catalog_product(item_id: str) -> dict[str, Any] | None:
                 YouzanProductModel.status == "on_sale",
             )
         ).first()
-        return _serialize_ai_product(*row) if row else None
+        if row is None:
+            return None
+        skus = list(
+            session.scalars(
+                select(YouzanProductSkuModel)
+                .where(YouzanProductSkuModel.item_id == item_id)
+                .order_by(YouzanProductSkuModel.id)
+            )
+        )
+        return _serialize_ai_product(
+            *row,
+            skus=[
+                {
+                    "sku_id": sku.sku_id,
+                    "spec_name": sku.spec_name,
+                    "price_cent": sku.price_cent,
+                    "stock": sku.stock,
+                }
+                for sku in skus
+            ],
+        )
 
 
 def list_catalog_products(*, limit: int = 20) -> list[dict[str, Any]]:
@@ -831,6 +851,7 @@ def _serialize_ai_product(
     knowledge: YouzanProductKnowledgeModel | None,
     *,
     image_urls: list[str] | None = None,
+    skus: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
     values = {
@@ -857,6 +878,7 @@ def _serialize_ai_product(
         "image_urls": gallery,
         "page_path": page_path or product.page_url or "",
         "h5_url": product.h5_url,
+        "skus": list(skus or []),
         "knowledge": {
             field: getattr(knowledge, field) if knowledge is not None else None
             for field in _FIELDS

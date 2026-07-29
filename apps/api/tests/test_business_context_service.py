@@ -27,3 +27,26 @@ async def test_business_snapshot_builds_grounded_facts_without_extra_facts():
     assert context.available is True
     assert "东方红荷" in context.snapshot
     assert context.tool_state == {}
+
+
+@pytest.mark.asyncio
+async def test_business_context_rejects_product_tool_state_outside_product_action():
+    from app.domains.decisioning.services.business_context_service import build_business_context
+
+    message = _message(
+        {
+            "tool_state": {
+                "commerce_type": "product",
+                "status": "found",
+                "products": [{"title": "建兰忆香荷", "price_cent": 6800}],
+            }
+        },
+        text="兰花烂根是什么原因？",
+    )
+
+    context = await build_business_context(
+        message,
+        allowed_source_groups={"customer_context", "care_safe"},
+    )
+
+    assert context.tool_state == {}

@@ -63,3 +63,39 @@ async def test_select_context_carries_persisted_basic_info_and_sales_profile():
         "pain_points": ["夏季容易烂根"],
         "active_opportunity": {"stage": "solution_recommended"},
     }
+
+
+@pytest.mark.asyncio
+async def test_care_context_can_exclude_all_sales_and_product_state():
+    request = ContextSelectionInput(
+        profile={
+            "product_interests": ["建兰忆香荷"],
+            "active_opportunity": {"selected_product_id": "orchid-1"},
+        },
+        state={
+            "sales_stage": "closing",
+            "metadata": {"sales_action": {"sales_action": "close_order"}},
+        },
+        memories=[{"role": "assistant", "content": "推荐建兰忆香荷"}],
+        memory_context={
+            "current_facts": [{"subject": "建兰忆香荷"}],
+            "verified_business_facts": [{"price": 68}],
+            "relevant_episodes": [{"summary": "刚推荐过商品"}],
+        },
+        context_policy={
+            "recent_turns": 0,
+            "include_profile_summary": False,
+            "include_long_memory_summary": False,
+            "include_session_state": False,
+            "include_memory_context": False,
+        },
+    )
+
+    result = await select_context(request)
+
+    assert result.profile_summary == {}
+    assert result.session_state == {}
+    assert result.recent_turns == []
+    assert result.memory_facts == []
+    assert result.verified_business_facts == []
+    assert result.relevant_episodes == []

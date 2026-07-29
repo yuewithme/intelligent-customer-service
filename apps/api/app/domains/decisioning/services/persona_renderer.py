@@ -34,15 +34,33 @@ async def render_persona_reply(
             }
         )
 
-    composition_instruction = (
-        "business_anchor 会作为第一条消息原样发送。你只生成紧接其后的"
-        "第二条自然消息，不要复述、改写或总结 business_anchor，也不要新增"
-        "商品卖点、价格、库存、权益、服务、时效或其他业务事实。第二条只做"
-        "不含新事实的点击/查看商品卡片引导，不要解释购买好处、优惠或价值；"
-        "question_slot 为空时不要询问客户是否合适。"
-        if spec.composition_mode == "anchor_plus_persona"
+    tool_state = spec.verified_facts.get("tool_state")
+    commerce_type = (
+        str(tool_state.get("commerce_type") or "")
+        if isinstance(tool_state, dict)
         else ""
     )
+    if spec.composition_mode == "anchor_plus_persona":
+        if commerce_type == "product":
+            extension_scope = (
+                "第二条只做不含新事实的点击/查看商品卡片引导，"
+                "不要解释购买好处、优惠或价值；"
+            )
+        elif commerce_type == "order":
+            extension_scope = (
+                "第二条只做不含新事实的自然承接，不得判断订单、付款、"
+                "物流、发货或系统同步状态；"
+            )
+        else:
+            extension_scope = ""
+        composition_instruction = (
+            "business_anchor 会作为第一条消息原样发送。你只生成紧接其后的"
+            "第二条自然消息，不要复述、改写或总结 business_anchor，也不要新增"
+            "商品卖点、价格、库存、权益、服务、时效或其他业务事实。"
+            f"{extension_scope}question_slot 为空时不要询问客户是否合适。"
+        )
+    else:
+        composition_instruction = ""
     payload = {
         "customer_message": current_message,
         "reply_spec": {

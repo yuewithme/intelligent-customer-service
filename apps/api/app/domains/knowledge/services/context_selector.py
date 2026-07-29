@@ -5,16 +5,26 @@ async def select_context(request: ContextSelectionInput) -> ContextPackage:
     recent_turns_count = int(request.context_policy.get("recent_turns", 4))
     include_profile = bool(request.context_policy.get("include_profile_summary", True))
     include_long_summary = bool(request.context_policy.get("include_long_memory_summary", False))
+    include_session_state = bool(
+        request.context_policy.get("include_session_state", True)
+    )
+    include_memory_context = bool(
+        request.context_policy.get("include_memory_context", True)
+    )
 
     profile_summary = _profile_summary(request.profile) if include_profile else {}
-    session_state = {
-        "sales_stage": request.state.get("sales_stage", "unknown"),
-        "risk_level": request.state.get("risk_level", "normal"),
-        "last_intent": request.state.get("last_intent"),
-        "last_route": request.state.get("last_route"),
-        "sales_action": request.state.get("metadata", {}).get("sales_action"),
-        "known_contact_fields": _known_contact_fields(request.profile),
-    }
+    session_state = (
+        {
+            "sales_stage": request.state.get("sales_stage", "unknown"),
+            "risk_level": request.state.get("risk_level", "normal"),
+            "last_intent": request.state.get("last_intent"),
+            "last_route": request.state.get("last_route"),
+            "sales_action": request.state.get("metadata", {}).get("sales_action"),
+            "known_contact_fields": _known_contact_fields(request.profile),
+        }
+        if include_session_state
+        else {}
+    )
     recent_turns = request.memories[-recent_turns_count:] if recent_turns_count > 0 else []
     long_memory_summary = _long_memory_summary(request.profile) if include_long_summary else ""
     return ContextPackage(
@@ -22,17 +32,31 @@ async def select_context(request: ContextSelectionInput) -> ContextPackage:
         session_state=session_state,
         recent_turns=recent_turns,
         long_memory_summary=long_memory_summary,
-        memory_facts=list(request.memory_context.get("current_facts") or []),
-        verified_business_facts=list(
-            request.memory_context.get("verified_business_facts") or []
+        memory_facts=(
+            list(request.memory_context.get("current_facts") or [])
+            if include_memory_context
+            else []
         ),
-        relevant_episodes=list(
-            request.memory_context.get("relevant_episodes") or []
+        verified_business_facts=(
+            list(request.memory_context.get("verified_business_facts") or [])
+            if include_memory_context
+            else []
         ),
-        unresolved_memory_conflicts=list(
-            request.memory_context.get("unresolved_conflicts") or []
+        relevant_episodes=(
+            list(request.memory_context.get("relevant_episodes") or [])
+            if include_memory_context
+            else []
         ),
-        memory_unknowns=list(request.memory_context.get("unknowns") or []),
+        unresolved_memory_conflicts=(
+            list(request.memory_context.get("unresolved_conflicts") or [])
+            if include_memory_context
+            else []
+        ),
+        memory_unknowns=(
+            list(request.memory_context.get("unknowns") or [])
+            if include_memory_context
+            else []
+        ),
     )
 
 

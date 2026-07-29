@@ -212,7 +212,7 @@ def test_chitchat_reply_also_emits_planned_sales_question():
     assert result.metadata["emitted_question_slot"] == "need_track"
 
 
-def test_existing_reply_question_suppresses_additional_sales_question():
+def test_existing_unrelated_question_is_replaced_by_required_sales_question():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
         intent=_intent(),
@@ -225,13 +225,13 @@ def test_existing_reply_question_suppresses_additional_sales_question():
 
     result = apply_sales_action(reply, decision)
 
-    assert result.answer == reply.answer
+    assert "您目前放在室内还是室外" not in result.answer
     assert result.answer.count("？") == 1
-    assert "emitted_question_slot" not in result.metadata
-    assert result.metadata["sales_action_question_suppressed"] == "existing_question"
+    assert "您这次更需要养护指导、选购产品，还是两者都需要？" in result.answer
+    assert result.metadata["emitted_question_slot"] == "need_track"
 
 
-def test_question_language_without_punctuation_suppresses_duplicate_question():
+def test_question_language_without_punctuation_is_replaced_by_required_question():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
         intent=_intent(),
@@ -244,8 +244,8 @@ def test_question_language_without_punctuation_suppresses_duplicate_question():
 
     result = apply_sales_action(reply, decision)
 
-    assert result.answer == reply.answer
-    assert result.metadata["sales_action_question_suppressed"] == "existing_question"
+    assert result.answer.endswith("您这次更需要养护指导、选购产品，还是两者都需要？")
+    assert result.metadata["emitted_question_slot"] == "need_track"
 
 
 def test_template_reply_appends_only_the_catalog_question_slot():

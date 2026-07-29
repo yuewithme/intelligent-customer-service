@@ -145,6 +145,39 @@ def test_catalog_match_sets_existing_selected_product_slots():
     assert CustomerSignal.RECOMMENDATION_ENGAGED in result.signals
 
 
+def test_supply_accessory_does_not_replace_selected_primary_product():
+    intent = _intent("product_query")
+    state = UserState(
+        user_id="user_1",
+        metadata={
+            "active_opportunity": {
+                "slots": {
+                    "selected_product_id": "orchid-main",
+                    "selected_product_name": "建兰龙岩素",
+                }
+            }
+        },
+    )
+
+    result = normalize_sales_signals(
+        message=_message("家里花盆不够"),
+        user_state=state,
+        intent=intent,
+        tag_result=_tag(intent),
+        business_facts=BusinessFacts(
+            tool_state={
+                "commerce_type": "product",
+                "status": "found",
+                "product_request_kind": "supply_shortage",
+                "products": [{"item_id": "pot-1", "title": "兰花专用紫砂盆"}],
+            }
+        ),
+    )
+
+    assert result.slots["selected_product_id"] == "orchid-main"
+    assert result.slots["selected_product_name"] == "建兰龙岩素"
+
+
 def test_care_question_is_service_need_not_automatic_after_sale():
     intent = _intent("care_question", pain_point="黄叶")
 

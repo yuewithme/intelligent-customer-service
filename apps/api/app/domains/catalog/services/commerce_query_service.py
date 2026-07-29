@@ -7,7 +7,15 @@ from app.integrations.youzan.client import YouzanClient
 from app.domains.decisioning.schemas.reply_plan import BusinessFacts
 from app.integrations.youzan.services.youzan_identity_store import YouzanIdentityStore
 from app.integrations.youzan.services.youzan_order_service import YouzanOrderService
-from app.domains.catalog.services.product_knowledge_service import search_catalog_products
+from app.domains.catalog.services.product_knowledge_service import (
+    get_catalog_product,
+    search_catalog_products,
+)
+from app.domains.decisioning.services.business_action_service import (
+    CATALOG_SEARCH,
+    ORDER_VERIFY,
+    SELECTED_PRODUCT_DETAIL,
+)
 
 
 MOBILE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
@@ -68,11 +76,14 @@ async def build_commerce_context(
     mini_program_base: dict | None = None,
     order_card: dict | None = None,
     identity_store=None,
+    business_action: str | None = None,
     allowed_source_groups: Collection[str] | None = None,
 ) -> BusinessFacts:
-    if intent.slots.get("conversation_topic") == "order_information":
-        return BusinessFacts()
-    commerce_type = _commerce_type(intent, user_state)
+    commerce_type = _commerce_type(
+        intent,
+        user_state,
+        business_action=business_action,
+    )
     if not commerce_type:
         return BusinessFacts()
     if allowed_source_groups is not None:
@@ -107,6 +118,14 @@ async def build_commerce_context(
 
     base_card = mini_program_base or _mini_program_base(settings)
     if commerce_type == "product":
+        if business_action == SELECTED_PRODUCT_DETAIL:
+            return await _selected_product_facts(
+                message=message,
+                user_state=user_state,
+                product_service=product_service,
+                base_card=base_card,
+                allowed_source_groups=allowed_source_groups,
+            )
         product_request_kind = str(
             intent.slots.get("product_request_kind")
             or (
@@ -142,6 +161,8 @@ async def build_commerce_context(
                 user_state.metadata.get("recent_turns"),
             )
         )
+        if business_action == CATALOG_SEARCH:
+            keyword = _catalog_query(message.message, keyword, user_state.metadata)
         if not keyword:
             if intent.primary_intent == "order_intent":
                 return BusinessFacts()
@@ -197,12 +218,20 @@ async def build_commerce_context(
         tool_state = {
             "commerce_type": "product",
             "status": "found" if product_data else "not_found",
+            "query_performed": True,
             "products": product_data,
             "send_product_image": _wants_product_image(message.message),
             "product_request_kind": product_request_kind or None,
             "requested_product_keywords": product_keywords,
-            "send_all_product_cards": len(product_keywords) > 1,
+            "send_all_product_cards": (
+                len(product_keywords) > 1
+                or (
+                    business_action == CATALOG_SEARCH
+                    and _wants_multiple_products(keyword)
+                )
+            ),
             "requested_capabilities": _requested_capabilities(message.message),
+            "business_action": business_action,
         }
         if product_data and product_data[0].get("page_path"):
             tool_state["mini_program"] = {
@@ -211,7 +240,10 @@ async def build_commerce_context(
                 "thumb_url": product_data[0].get("image_url", ""),
                 "title": product_data[0].get("title", ""),
             }
-        if product_data:
+        if (
+            product_data
+            and product_request_kind != "supply_shortage"
+        ):
             first_product = product_data[0]
             user_state.metadata["commerce_last_product_keyword"] = str(
                 first_product.get("title") or keyword
@@ -222,6 +254,8 @@ async def build_commerce_context(
             user_state.metadata["commerce_last_product_kind"] = str(
                 product_request_kind
             ).strip()
+            if business_action == CATALOG_SEARCH:
+                user_state.metadata["commerce_last_catalog_query"] = keyword
         return BusinessFacts(tool_state=tool_state)
 
     if order_service is None:
@@ -308,6 +342,7 @@ async def build_commerce_context(
     tool_state = {
         "commerce_type": "order",
         "status": "found" if orders else "not_found",
+        "lookup_performed": True,
         "mobile_masked": (
             str(getattr(lookup_identity, "mobile_masked", "") or "")
             or _mask_mobile(mobile)
@@ -323,7 +358,18 @@ async def build_commerce_context(
     return BusinessFacts(tool_state=tool_state)
 
 
-def _commerce_type(intent, user_state=None) -> str:
+def _commerce_type(
+    intent,
+    user_state=None,
+    *,
+    business_action: str | None = None,
+) -> str:
+    if business_action == ORDER_VERIFY:
+        return "order"
+    if business_action in {CATALOG_SEARCH, SELECTED_PRODUCT_DETAIL}:
+        return "product"
+    if business_action:
+        return ""
     primary_intent = str(getattr(intent, "primary_intent", "") or "")
     if primary_intent in {
         "product_query",
@@ -352,6 +398,102 @@ def _commerce_type(intent, user_state=None) -> str:
     ):
         return "product"
     return ""
+
+
+async def _selected_product_facts(
+    *,
+    message,
+    user_state,
+    product_service,
+    base_card: dict,
+    allowed_source_groups: Collection[str] | None,
+) -> BusinessFacts:
+    item_id = str(user_state.metadata.get("commerce_last_product_id") or "").strip()
+    if not item_id:
+        return BusinessFacts(
+            tool_state={
+                "commerce_type": "product",
+                "status": "missing_product",
+                "business_action": SELECTED_PRODUCT_DETAIL,
+            }
+        )
+    try:
+        if product_service is not None and hasattr(product_service, "get"):
+            product = await product_service.get(item_id)
+            product_data = (
+                product.model_dump()
+                if hasattr(product, "model_dump")
+                else dict(product)
+            )
+        else:
+            product_data = get_catalog_product(item_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Selected product detail query failed: %s", type(exc).__name__)
+        return BusinessFacts(
+            tool_state={
+                "commerce_type": "product",
+                "status": "unavailable",
+                "business_action": SELECTED_PRODUCT_DETAIL,
+            }
+        )
+    if not isinstance(product_data, dict):
+        return BusinessFacts(
+            tool_state={
+                "commerce_type": "product",
+                "status": "not_found",
+                "business_action": SELECTED_PRODUCT_DETAIL,
+                "query_performed": True,
+            }
+        )
+    if allowed_source_groups is not None:
+        products = _restrict_product_data(
+            [product_data],
+            set(allowed_source_groups),
+            include_sku_facts=True,
+        )
+        product_data = products[0] if products else {}
+    tool_state = {
+        "commerce_type": "product",
+        "status": "found" if product_data else "not_found",
+        "query_performed": True,
+        "products": [product_data] if product_data else [],
+        "product_request_kind": "selected_product_detail",
+        "business_action": SELECTED_PRODUCT_DETAIL,
+        "detail_question": str(message.message or ""),
+        "send_all_product_cards": False,
+    }
+    if product_data.get("page_path"):
+        tool_state["mini_program"] = {
+            **base_card,
+            "page_path": product_data["page_path"],
+            "thumb_url": product_data.get("image_url", ""),
+            "title": product_data.get("title", ""),
+        }
+    return BusinessFacts(tool_state=tool_state)
+
+
+def _catalog_query(text: str, keyword: str, metadata: dict) -> str:
+    current = str(text or "").strip()
+    previous = str(metadata.get("commerce_last_catalog_query") or "").strip()
+    if previous and _looks_like_budget(current):
+        return f"{previous}；{current}"
+    return keyword or current
+
+
+def _looks_like_budget(text: str) -> bool:
+    return bool(
+        re.search(
+            r"预算|性价比|便宜|实惠|划算|"
+            r"\d+(?:\.\d+)?\s*元?\s*(?:以内|以下|之内|不超过|最多|左右|上下)|"
+            r"[一二三四五六七八九十百两]{1,8}\s*(?:元|块)?"
+            r"(?:以内|以下|之内|不超过|最多|左右|上下)",
+            str(text or ""),
+        )
+    )
+
+
+def _wants_multiple_products(text: str) -> bool:
+    return bool(re.search(r"几款|几种|多款|多个|推荐.{0,6}(?:款|种)", str(text or "")))
 
 
 def _prefer_requested_price(products: list[dict], text: str) -> list[dict]:

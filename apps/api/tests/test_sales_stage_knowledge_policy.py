@@ -100,6 +100,52 @@ def test_customer_order_service_query_can_read_order_facts_without_advancing_sal
     assert "order_facts" in sources
 
 
+def test_business_action_sources_are_exclusive_and_ignore_sales_stage():
+    product_sources = allowed_knowledge_sources(
+        "rapport",
+        _intent("knowledge_question"),
+        business_action="catalog_search",
+    )
+    care_sources = allowed_knowledge_sources(
+        "closing",
+        _intent("care_question"),
+        business_action="care_answer",
+    )
+    order_sources = allowed_knowledge_sources(
+        "need_discovery",
+        _intent("order_intent"),
+        business_action="order_verify",
+    )
+
+    assert product_sources == {"product_catalog", "product_value", "sku_facts"}
+    assert care_sources == {"customer_context", "care_safe"}
+    assert order_sources == {"order_facts", "service_sop"}
+
+
+def test_care_action_removes_sales_and_product_context_from_rag():
+    plan = ReplyPlan(
+        action="rag_answer",
+        reason="care",
+        context_policy={"recent_turns": 4, "include_profile_summary": True},
+        retrieval_policy={"mode": "product_recommendation"},
+    )
+
+    result = apply_stage_knowledge_policy(
+        plan,
+        stage="closing",
+        intent=_intent("care_question"),
+        business_action="care_answer",
+    )
+
+    assert result.retrieval_policy["allowed_source_groups"] == [
+        "care_safe",
+        "customer_context",
+    ]
+    assert "mode" not in result.retrieval_policy
+    assert result.context_policy["recent_turns"] == 0
+    assert result.context_policy["include_profile_summary"] is False
+
+
 def test_reply_plan_rejects_non_care_kbs_and_records_stage_allowlist():
     plan = ReplyPlan(
         action="rag_answer",

@@ -92,6 +92,23 @@ PRODUCT_RECOMMENDATION_REQUEST_MARKERS = (
     "想找",
     "想要一款",
 )
+PRODUCT_DOCUMENT_SECTION_MARKERS = (
+    "产品基础",
+    "产品介绍",
+    "品种介绍",
+    "交易认知",
+    "商品",
+    "卖点",
+    "优势",
+)
+PRODUCT_CLAIM_PATTERN = re.compile(
+    r"(?:推荐|建议选|可以看看).{0,30}(?:兰|商品|这款|该款)"
+    r"|(?:这款|该款|商品卡|购买链接|下单)"
+)
+SKU_CLAIM_PATTERN = re.compile(r"\d+(?:\.\d+)?\s*元|售价|价格|库存|现货")
+ORDER_CLAIM_PATTERN = re.compile(
+    r"(?:订单|物流|快递|付款|支付).{0,24}(?:成功|完成|已|已经|未|没有|同步|发出|到达)"
+)
 
 
 PROMPT_TEMPLATE = """
@@ -190,6 +207,32 @@ def remove_unverified_capability_claims(answer: str) -> str:
     return cleaned or "__HANDOFF__"
 
 
+def remove_disallowed_business_claims(
+    answer: str,
+    allowed_source_groups: set[str] | None,
+) -> str:
+    """Fail closed when RAG emits business facts outside its source contract."""
+
+    if allowed_source_groups is None:
+        return answer
+    forbidden = []
+    if "product_catalog" not in allowed_source_groups:
+        forbidden.append(PRODUCT_CLAIM_PATTERN)
+    if "sku_facts" not in allowed_source_groups:
+        forbidden.append(SKU_CLAIM_PATTERN)
+    if "order_facts" not in allowed_source_groups:
+        forbidden.append(ORDER_CLAIM_PATTERN)
+    if not forbidden:
+        return answer
+    parts = re.split(r"(?<=[。！？!?；;\n])", str(answer or ""))
+    kept = [
+        part
+        for part in parts
+        if part.strip() and not any(pattern.search(part) for pattern in forbidden)
+    ]
+    return "".join(kept).strip() or "__HANDOFF__"
+
+
 def _rag_model_purpose(
     policy: PolicyDecision | None,
     docs: list[dict[str, Any]],
@@ -228,6 +271,13 @@ def select_care_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         source_table = str(doc.get("source_table") or "").strip()
         if source_table in PRODUCT_SOURCE_TABLES:
+            continue
+        section = str(doc.get("section") or "")
+        entity_type = str(doc.get("entity_type") or "")
+        if (
+            any(marker in section for marker in PRODUCT_DOCUMENT_SECTION_MARKERS)
+            or "product" in entity_type.lower()
+        ):
             continue
         searchable = " ".join(
             str(doc.get(key) or "")
@@ -595,6 +645,10 @@ async def rag_chat(
                 (time.perf_counter() - stage_started) * 1000
             )
             answer = remove_unverified_capability_claims(result["answer"])
+            answer = remove_disallowed_business_claims(
+                answer,
+                allowed_source_groups,
+            )
             usage = result.get("usage", {})
         else:
             answer = ""

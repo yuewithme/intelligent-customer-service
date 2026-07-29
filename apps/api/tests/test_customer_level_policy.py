@@ -65,6 +65,26 @@ def test_classify_l5_from_advanced_art_orchid_evidence_routes_human():
     assert {"虎斑", "中透艺", "艺草"} <= set(result.matched_evidence)
 
 
+def test_customer_level_ignores_product_and_tool_metadata():
+    result = classify_customer_level(
+        message="今天想看看兰花。",
+        user_state=UserState(
+            user_id="user-product-state",
+            metadata={
+                "commerce_last_product_keyword": "建兰忆香荷 荷瓣 L4",
+                "tool_state": {"products": [{"title": "虎斑中透艺草"}]},
+                "recent_turns": [
+                    {"role": "assistant", "content": "这款荷瓣属于高阶收藏品。"}
+                ],
+            },
+            interested_products=["荷瓣", "艺草"],
+        ),
+    )
+
+    assert result.level == "unknown"
+    assert result.matched_evidence == []
+
+
 @pytest.mark.asyncio
 async def test_tagger_adds_customer_level_label_from_classifier():
     message = NormalizedMessage(

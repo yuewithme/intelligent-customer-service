@@ -51,6 +51,12 @@ async def render_business_reply(
         snapshot=str(metadata.get("business_snapshot") or "").strip(),
         tool_state=dict(tool_state) if isinstance(tool_state, dict) else {},
     )
+    if (
+        metadata.get("demo")
+        and facts.tool_state.get("commerce_type") == "product"
+        and facts.tool_state.get("status") == "not_found"
+    ):
+        return None
     commerce_reply = _render_commerce_reply(facts)
     if commerce_reply is not None:
         return commerce_reply
@@ -90,10 +96,18 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
         return _commerce_final_reply("可以的，您想看哪一个品种或规格？", state)
     if commerce_type == "product":
         products = state.get("products") if isinstance(state.get("products"), list) else []
+        if status == "not_found" and state.get("query_performed"):
+            return _commerce_final_reply(
+                "我按您当前的条件查了在售商品，暂时没有匹配项。"
+                "您可以放宽一个条件，我再继续帮您筛选。",
+                state,
+            )
         if status != "found" or not products:
             return None
         else:
             first = products[0]
+            if state.get("product_request_kind") == "selected_product_detail":
+                return _render_selected_product_detail(first, state)
             if state.get("product_request_kind") == "membership":
                 price = first.get("price_cent") if isinstance(first, dict) else None
                 price_text = (
@@ -160,6 +174,12 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             answer = "可以的，请把下单手机号发给我，我帮您查询一下。"
         return _commerce_final_reply(answer, state)
     orders = state.get("orders") if isinstance(state.get("orders"), list) else []
+    if status == "not_found" and state.get("lookup_performed"):
+        return _commerce_final_reply(
+            "我刚按当前微信身份或已留手机号查询了，暂时没有匹配到订单。"
+            "请发一下订单号或订单截图，我再按订单信息继续核对。",
+            state,
+        )
     if status != "found" or not orders:
         return None
 
@@ -189,6 +209,35 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             "我不会先承诺已经开通。"
         )
     return _commerce_final_reply("\n".join(lines), state)
+
+
+def _render_selected_product_detail(product: dict, state: dict) -> FinalReply:
+    name = _product_display_name(product)
+    skus = product.get("skus")
+    skus = skus if isinstance(skus, list) else []
+    specs = []
+    for sku in skus:
+        if not isinstance(sku, dict):
+            continue
+        spec_name = str(sku.get("spec_name") or "").strip()
+        if not spec_name or spec_name in specs:
+            continue
+        price = sku.get("price_cent")
+        price_text = f"（{price / 100:g}元）" if isinstance(price, int) else ""
+        specs.append(f"{spec_name}{price_text}")
+    question = str(state.get("detail_question") or "")
+    if specs:
+        answer = f"{name}当前同步到的规格有：{'、'.join(specs[:6])}。"
+        if "带盆" in question and not any(
+            marker in spec for spec in specs for marker in ("带盆", "含盆", "盆栽", "种好")
+        ):
+            answer += "现有规格没有明确标注带盆或种好发货，我不能先按带盆款承诺。"
+    else:
+        answer = (
+            f"{name}当前商品资料没有同步出可确认的苗数或带盆规格，"
+            "我不能凭商品名称猜测；请以商品卡片规格页为准。"
+        )
+    return _commerce_final_reply(answer, state)
 
 
 def _product_knowledge_text(product: dict) -> str:
@@ -271,12 +320,29 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
             )
     card = state.get("mini_program")
     if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
-        outbound_messages.append(
-            {
-                "type": "mini_program",
-                "content": json.dumps(card, ensure_ascii=False),
-            }
+        products = state.get("products") if isinstance(state.get("products"), list) else []
+        card_products = (
+            products[:3] if state.get("send_all_product_cards") else products[:1]
         )
+        cards = []
+        for product in card_products:
+            if not isinstance(product, dict) or not product.get("page_path"):
+                continue
+            cards.append(
+                {
+                    **card,
+                    "page_path": product["page_path"],
+                    "thumb_url": product.get("image_url") or "",
+                    "title": product.get("title") or card.get("title") or "",
+                }
+            )
+        for product_card in cards or [card]:
+            outbound_messages.append(
+                {
+                    "type": "mini_program",
+                    "content": json.dumps(product_card, ensure_ascii=False),
+                }
+            )
     elif state.get("commerce_type") == "product":
         products = state.get("products") if isinstance(state.get("products"), list) else []
         card_products = (
@@ -317,8 +383,14 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
         metadata={
             "business_facts_used": True,
             "allow_persona_extension": (
-                state.get("commerce_type") == "product"
-                and state.get("status") == "found"
+                (
+                    state.get("commerce_type") == "product"
+                    and state.get("status") == "found"
+                )
+                or (
+                    state.get("commerce_type") == "order"
+                    and state.get("status") in {"missing_mobile", "found", "not_found"}
+                )
             ),
             "commerce_action": {
                 "commerce_type": state.get("commerce_type"),

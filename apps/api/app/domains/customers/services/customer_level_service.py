@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -364,13 +362,11 @@ def _get_session() -> Session:
 
 
 def _evidence_text(message: str, user_state: UserState) -> str:
-    payload = {
-        "message": message,
-        "customer_tags": user_state.customer_tags,
-        "metadata": user_state.metadata,
-        "interested_products": user_state.interested_products,
-    }
-    return json.dumps(payload, ensure_ascii=False).lower()
+    del user_state
+    # Customer-level evidence must be customer-authored. Product titles, tool
+    # results, assistant replies, and inferred metadata are execution state and
+    # must never raise the customer's expertise level.
+    return str(message or "").lower()
 
 
 def _level_from_label(value: str) -> str | None:

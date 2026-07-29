@@ -163,7 +163,10 @@ def apply_sales_action(
     question = _QUESTION_BY_SLOT.get(decision.question_slot)
     if not question:
         return reply
-    if question in reply.answer:
+    if question in reply.answer or _contains_slot_question(
+        reply.answer,
+        decision.question_slot,
+    ):
         return reply.model_copy(
             update={
                 "metadata": {
@@ -172,29 +175,22 @@ def apply_sales_action(
                 }
             }
         )
-    if _contains_question(reply.answer):
-        return reply.model_copy(
-            update={
-                "metadata": {
-                    **reply.metadata,
-                    "sales_action_question_suppressed": "existing_question",
-                }
-            }
-        )
     bridge = _BRIDGE_BY_SLOT.get(decision.question_slot, "为了更准确地判断，")
     follow_up = f"{bridge}{question}"
+    base_answer = (
+        _strip_question_sentences(reply.answer)
+        if _contains_question(reply.answer)
+        else reply.answer.rstrip()
+    )
     outbound_messages = list(reply.outbound_messages)
     if outbound_messages:
+        outbound_messages = _replace_first_text(outbound_messages, base_answer)
         outbound_messages.append(OutboundMessage(type="text", content=follow_up))
     return reply.model_copy(
         update={
-            "answer": f"{reply.answer.rstrip()}\n\n{follow_up}",
+            "answer": f"{base_answer}\n\n{follow_up}".strip(),
             "answer_segments": [
-                *(
-                    reply.answer_segments
-                    if reply.answer_segments
-                    else [reply.answer.strip()]
-                ),
+                *([base_answer] if base_answer else []),
                 follow_up,
             ],
             "outbound_messages": outbound_messages,
@@ -208,6 +204,50 @@ def apply_sales_action(
 
 def _contains_question(text: str) -> bool:
     return "？" in text or "?" in text or bool(QUESTION_LANGUAGE_PATTERN.search(text))
+
+
+_SLOT_QUESTION_MARKERS = {
+    "budget": ("预算", "价位", "能接受"),
+    "region": ("地区", "哪里", "哪儿", "城市"),
+    "placement": ("室内", "阳台", "放在"),
+    "color_preference": ("花色", "颜色"),
+    "selected_product_id": ("倾向", "哪款", "哪个方案"),
+    "selected_sku_id": ("规格", "几苗", "哪种套餐"),
+    "quantity": ("多少", "几份", "数量"),
+    "plant_count": ("多少盆", "几盆", "多少株"),
+}
+
+
+def _contains_slot_question(text: str, slot: str) -> bool:
+    if not _contains_question(text):
+        return False
+    return any(marker in text for marker in _SLOT_QUESTION_MARKERS.get(slot, ()))
+
+
+def _strip_question_sentences(text: str) -> str:
+    parts = re.findall(r"[^。！？!?\n]+[。！？!?]?", str(text or ""))
+    kept = [
+        part.strip()
+        for part in parts
+        if part.strip() and not _contains_question(part)
+    ]
+    return "".join(kept).strip()
+
+
+def _replace_first_text(
+    messages: list[OutboundMessage],
+    content: str,
+) -> list[OutboundMessage]:
+    replaced = False
+    result = []
+    for message in messages:
+        if message.type == "text" and not replaced:
+            replaced = True
+            if content:
+                result.append(message.model_copy(update={"content": content}))
+            continue
+        result.append(message)
+    return result
 
 
 def evolve_opportunity(

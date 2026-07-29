@@ -9,6 +9,9 @@ from app.domains.decisioning.schemas.reply import FinalReply
 from app.domains.conversations.services.channel_service import normalize_chat_request
 from app.domains.conversations.services.chat_log_service import record_chat_log
 from app.domains.decisioning.services.business_context_service import build_business_context
+from app.domains.decisioning.services.business_action_service import (
+    resolve_business_action,
+)
 from app.domains.catalog.services.commerce_query_service import build_commerce_context
 from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
@@ -265,14 +268,21 @@ async def handle_chat(request: ChatRequest) -> dict:
             tag_result=tag_result,
             signal_result=preliminary_signals,
         )
+        business_action = resolve_business_action(
+            message=message,
+            intent=intent,
+            user_state=user_state,
+        )
         source_allowlist = allowed_knowledge_sources(
             preliminary_decision.stage,
             intent,
+            business_action=business_action,
         )
         facts = await build_commerce_context(
             message,
             user_state,
             intent,
+            business_action=business_action,
             allowed_source_groups=source_allowlist,
         )
         if not facts.available:
@@ -316,6 +326,7 @@ async def handle_chat(request: ChatRequest) -> dict:
             plan,
             stage=sales_stage_decision.stage,
             intent=normalized_intent,
+            business_action=business_action,
         )
         stage_latencies["tag_policy_ms"] = _elapsed_ms(stage_started)
 
@@ -363,6 +374,7 @@ async def handle_chat(request: ChatRequest) -> dict:
         reply.metadata["sales_stage_decision"] = sales_stage_decision.model_dump(
             mode="json"
         )
+        reply.metadata["business_action"] = business_action
         reply.metadata["decision"] = {
             "action": plan.action,
             "reason": plan.reason,
