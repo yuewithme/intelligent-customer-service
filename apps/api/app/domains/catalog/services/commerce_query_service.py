@@ -106,10 +106,23 @@ async def build_commerce_context(
 
     base_card = mini_program_base or _mini_program_base(settings)
     if commerce_type == "product":
-        keyword = _product_keyword(
-            message.message,
-            intent.slots,
-            user_state.metadata.get("recent_turns"),
+        product_keywords = [
+            str(value).strip()
+            for value in (
+                intent.slots.get("product_keywords", [])
+                if isinstance(intent.slots, dict)
+                else []
+            )
+            if str(value).strip()
+        ]
+        keyword = (
+            product_keywords[0]
+            if product_keywords
+            else _product_keyword(
+                message.message,
+                intent.slots,
+                user_state.metadata.get("recent_turns"),
+            )
         )
         if not keyword:
             if intent.primary_intent == "order_intent":
@@ -121,11 +134,27 @@ async def build_commerce_context(
                 }
             )
         try:
-            if product_service is not None:
-                products = await product_service.search(keyword, limit=3)
-                product_data = [product.model_dump() for product in products]
-            else:
-                product_data = search_catalog_products(keyword, limit=3)
+            product_data = []
+            for search_keyword in product_keywords or [keyword]:
+                if product_service is not None:
+                    products = await product_service.search(
+                        search_keyword,
+                        limit=1 if product_keywords else 3,
+                    )
+                    matches = [product.model_dump() for product in products]
+                else:
+                    matches = search_catalog_products(
+                        search_keyword,
+                        limit=1 if product_keywords else 3,
+                    )
+                for product in matches:
+                    item_id = str(product.get("item_id") or "")
+                    if item_id and any(
+                        str(existing.get("item_id") or "") == item_id
+                        for existing in product_data
+                    ):
+                        continue
+                    product_data.append(product)
             if allowed_source_groups is not None:
                 product_data = _restrict_product_data(
                     product_data,
@@ -141,6 +170,9 @@ async def build_commerce_context(
             "status": "found" if product_data else "not_found",
             "products": product_data,
             "send_product_image": _wants_product_image(message.message),
+            "product_request_kind": intent.slots.get("product_request_kind"),
+            "requested_product_keywords": product_keywords,
+            "send_all_product_cards": len(product_keywords) > 1,
         }
         if product_data and product_data[0].get("page_path"):
             tool_state["mini_program"] = {

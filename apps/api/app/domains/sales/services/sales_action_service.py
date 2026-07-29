@@ -84,6 +84,20 @@ def decide_sales_action(
             reason="controlled_loop",
         )
 
+    if (
+        intent.primary_intent in {"price_objection", "discount_request"}
+        and not known_slots.get("budget")
+    ):
+        return SalesActionDecision(
+            reply_goal="先回应价格顾虑，再确认客户能接受的预算范围",
+            sales_action="resolve_blocker",
+            required_slots=["budget"],
+            question_slot="budget",
+            known_slots=known_slots,
+            customer_signal="objection",
+            reason="intent_priority",
+        )
+
     priority = _priority_action(
         intent.primary_intent,
         intent.need_human,

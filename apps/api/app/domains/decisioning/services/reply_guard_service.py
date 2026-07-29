@@ -20,6 +20,13 @@ UNSOLICITED_REQUEST_PATTERNS = (
     re.compile(r"(?:请|麻烦)(?:提供|发送|告知|填写|留下|留一下)"),
     re.compile(r"(?:手机号|订单号|地址|图片|照片).{0,12}(?:发我|给我|提供一下)"),
 )
+UNVERIFIED_PERSONA_FACT_PATTERNS = (
+    re.compile(
+        r"(?:推荐|建议选|带花苞|气候|天气|香气|养护难度|库存|现货|"
+        r"配套|课程|视频|在线答疑)"
+    ),
+    re.compile(r"\d+(?:\.\d+)?\s*元"),
+)
 
 
 def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
@@ -43,6 +50,12 @@ def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
         pattern.search(answer) for pattern in UNSOLICITED_REQUEST_PATTERNS
     ):
         fallback_reason = "unsolicited_information_request"
+    elif (
+        spec.composition_mode == "anchor_plus_persona"
+        and not spec.verified_facts
+        and any(pattern.search(answer) for pattern in UNVERIFIED_PERSONA_FACT_PATTERNS)
+    ):
+        fallback_reason = "unverified_fact_claim"
     elif any(marker in answer for marker in INTERNAL_MARKERS):
         fallback_reason = "internal_marker"
     elif any(phrase in answer for phrase in context.anti_patterns):

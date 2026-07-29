@@ -209,6 +209,28 @@ def test_guard_rejects_unsolicited_question_and_information_request():
     )
 
 
+def test_guard_rejects_unverified_product_facts_after_template_anchor():
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="回应价格顾虑",
+        composition_mode="anchor_plus_persona",
+        suggested_copy="我理解您会关注价格。",
+        persona_copy=(
+            "郑州这边气候干燥，建议选带花苞的秋芝七仙女，"
+            "开花后香气很浓。您的预算大概是多少？"
+        ),
+        question_slot="budget",
+        metadata={"persona": {"rendered": True, "sales_action_rendered": True}},
+    )
+
+    guarded = guard_reply_spec(spec=spec, context=_context())
+
+    assert guarded.persona_copy == ""
+    assert guarded.metadata["persona_guard"]["reason"] == "unverified_fact_claim"
+    assert guarded.metadata["persona"]["sales_action_rendered"] is False
+
+
 def test_identity_question_has_role_first_fallback_copy():
     reply = build_chitchat_reply(
         IntentResult(

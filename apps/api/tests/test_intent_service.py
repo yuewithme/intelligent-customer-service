@@ -40,6 +40,7 @@ def _message(text: str) -> NormalizedMessage:
             "rag_answer",
             "knowledge_question",
         ),
+        ("家里盆和植料不够。", "rag_answer", "knowledge_question"),
         ("怎么申请售后？", "rag_answer", "process_question"),
         ("什么时候发货？", "template_reply", "ask_logistics"),
         ("已下单成功，请晚一天发货", "template_reply", "order_query"),
@@ -77,6 +78,22 @@ async def test_explicit_product_recommendation_keeps_catalog_capability():
     assert intent.issues == ["product_selection"]
     assert intent.slots["conversation_topic"] == "product_recommendation"
     assert decision.retrieval_policy == {"mode": "product_recommendation"}
+
+
+@pytest.mark.asyncio
+async def test_supply_shortage_becomes_structured_product_need():
+    intent = await classify_intent(
+        _message("家里盆和植料不够。"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.classifier_source == "hard_rule"
+    assert intent.issues == ["product_selection", "medium_repotting"]
+    assert intent.slots["product_keywords"] == [
+        "兰花专用紫砂盆",
+        "兰花专用植料",
+    ]
+    assert intent.slots["product_request_kind"] == "supply_shortage"
 
 
 @pytest.mark.asyncio

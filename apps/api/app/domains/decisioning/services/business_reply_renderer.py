@@ -94,6 +94,20 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             return None
         else:
             first = products[0]
+            if state.get("product_request_kind") == "supply_shortage":
+                keywords = state.get("requested_product_keywords")
+                keywords = keywords if isinstance(keywords, list) else []
+                labels = []
+                if any("盆" in str(keyword) for keyword in keywords):
+                    labels.append("花盆")
+                if any("植料" in str(keyword) for keyword in keywords):
+                    labels.append("植料")
+                subject = "和".join(labels) or "养兰用品"
+                answer = (
+                    f"可以，{subject}能单独补。下面是对应的真实商品卡片，"
+                    "您可以先看规格；如果需要估算数量，告诉我准备上盆多少株。"
+                )
+                return _commerce_final_reply(answer, state)
             if state.get("send_product_image"):
                 if first.get("image_url"):
                     answer = (
@@ -243,9 +257,13 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
         )
     elif state.get("commerce_type") == "product":
         products = state.get("products") if isinstance(state.get("products"), list) else []
-        first = products[0] if products and isinstance(products[0], dict) else {}
-        if first.get("h5_url"):
-            price = first.get("price_cent")
+        card_products = (
+            products[:3] if state.get("send_all_product_cards") else products[:1]
+        )
+        for product in card_products:
+            if not isinstance(product, dict) or not product.get("h5_url"):
+                continue
+            price = product.get("price_cent")
             description = (
                 f"当前售价{price / 100:g}元，点击查看详情和下单"
                 if isinstance(price, int)
@@ -256,10 +274,14 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
                     "type": "link_card",
                     "content": json.dumps(
                         {
-                            "title": _product_display_name(first).replace("“", "").replace("”", ""),
-                            "url": first["h5_url"],
+                            "title": (
+                                _product_display_name(product)
+                                .replace("“", "")
+                                .replace("”", "")
+                            ),
+                            "url": product["h5_url"],
                             "description": description,
-                            "thumb_url": first.get("image_url") or "",
+                            "thumb_url": product.get("image_url") or "",
                         },
                         ensure_ascii=False,
                     ),

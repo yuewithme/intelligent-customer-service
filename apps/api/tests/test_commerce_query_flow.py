@@ -187,6 +187,71 @@ async def test_product_selection_semantics_build_structured_product_facts():
 
 
 @pytest.mark.asyncio
+async def test_supply_shortage_returns_real_pot_and_medium_cards():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert limit == 1
+            if keyword == "兰花专用紫砂盆":
+                return [
+                    YouzanProduct(
+                        item_id="pot-1",
+                        title="兰花专用紫砂盆",
+                        price_cent=6000,
+                        h5_url="https://h5.youzan.com/goods/pot",
+                    )
+                ]
+            assert keyword == "兰花专用植料"
+            return [
+                YouzanProduct(
+                    item_id="medium-1",
+                    title="兰花专用植料混合装",
+                    price_cent=1990,
+                    h5_url="https://h5.youzan.com/goods/medium",
+                )
+            ]
+
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="knowledge_question",
+        primary_domain="product",
+        primary_goal="seek_help",
+        issues=["product_selection", "medium_repotting"],
+        slots={
+            "conversation_topic": "product_recommendation",
+            "product_keywords": ["兰花专用紫砂盆", "兰花专用植料"],
+            "product_request_kind": "supply_shortage",
+        },
+        confidence=0.99,
+        need_template=True,
+    )
+    facts = await build_commerce_context(
+        _message("家里盆和植料不够。"),
+        UserState(user_id="wxid-customer"),
+        intent,
+        product_service=FakeProductService(),
+        allowed_source_groups={"product_catalog"},
+    )
+    reply = await render_business_reply(_message("家里盆和植料不够。"), facts)
+
+    assert [product["item_id"] for product in facts.tool_state["products"]] == [
+        "pot-1",
+        "medium-1",
+    ]
+    assert reply is not None
+    assert "花盆和植料能单独补" in reply.answer
+    assert [message.type for message in reply.outbound_messages] == [
+        "text",
+        "link_card",
+        "link_card",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_any_order_intent_builds_card_for_previously_shown_product():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
 
