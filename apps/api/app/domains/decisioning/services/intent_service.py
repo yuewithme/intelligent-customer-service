@@ -614,6 +614,16 @@ def classify_by_fast_rule(text: str) -> IntentResult | None:
     settings = get_settings()
     if not settings.intent_fast_rules_enabled:
         return None
+    hard_intent = classify_by_hard_rules(text)
+    if hard_intent is not None and hard_intent.reason in {
+        "rule_material_request",
+        "rule_product_image_request",
+        "rule_product_purchase_query",
+        "rule_explicit_order_intent",
+        "rule_order_service_action",
+        "rule_explicit_price_objection",
+    }:
+        return _with_decision_blocker(hard_intent, text)
     intent = classify_by_soft_rules(text)
     if intent.confidence < settings.intent_fast_rule_threshold:
         return None

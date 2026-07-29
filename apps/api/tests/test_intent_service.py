@@ -4,6 +4,7 @@ from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.services.intent_service import (
+    classify_by_fast_rule,
     classify_by_hard_rules,
     classify_intent,
 )
@@ -166,6 +167,15 @@ async def test_live_product_link_purchase_phrase_uses_product_query_rule():
     assert intent.slots["purchase_entry_requested"] is True
     assert intent.need_human is False
     assert intent.reason == "rule_product_purchase_query"
+
+
+def test_orchestrator_fast_rule_preserves_hard_purchase_precedence():
+    intent = classify_by_fast_rule("我想买忆香荷，怎么下单？")
+
+    assert intent is not None
+    assert intent.primary_intent == "order_intent"
+    assert intent.classifier_source == "hard_rule"
+    assert intent.slots["purchase_entry_requested"] is True
 
 
 @pytest.mark.asyncio
