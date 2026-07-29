@@ -35,6 +35,11 @@ def _message(text: str) -> NormalizedMessage:
         ("兰花怎么养护？", "rag_answer", "care_question"),
         ("报销流程是什么？", "rag_answer", "process_question"),
         ("这个产品有什么注意事项？", "rag_answer", "knowledge_question"),
+        (
+            "那你推荐一款好养的，最好有视频教学。",
+            "rag_answer",
+            "knowledge_question",
+        ),
         ("怎么申请售后？", "rag_answer", "process_question"),
         ("什么时候发货？", "template_reply", "ask_logistics"),
         ("已下单成功，请晚一天发货", "template_reply", "order_query"),
@@ -55,6 +60,23 @@ async def test_rule_intent_classification_routes(text, route, primary_intent):
 
     assert intent.route == route
     assert intent.primary_intent == primary_intent
+
+
+@pytest.mark.asyncio
+async def test_explicit_product_recommendation_keeps_catalog_capability():
+    from app.domains.decisioning.services.policy_service import decide_route
+
+    message = _message("那你推荐一款好养的，最好有视频教学。")
+    state = UserState(user_id="user_intent")
+
+    intent = await classify_intent(message, state)
+    decision = await decide_route(intent, state, message)
+
+    assert intent.classifier_source == "hard_rule"
+    assert intent.primary_goal == "seek_help"
+    assert intent.issues == ["product_selection"]
+    assert intent.slots["conversation_topic"] == "product_recommendation"
+    assert decision.retrieval_policy == {"mode": "product_recommendation"}
 
 
 @pytest.mark.parametrize(

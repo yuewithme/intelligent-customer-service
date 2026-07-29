@@ -222,6 +222,15 @@ PRODUCT_PREFERENCE_WORDS = (
     "香味",
     "便宜",
 )
+PRODUCT_RECOMMENDATION_TARGET_WORDS = (
+    "一款",
+    "几款",
+    "哪款",
+    "哪种",
+    "兰花",
+    *ORCHID_VARIETY_WORDS,
+    *PRODUCT_PREFERENCE_WORDS,
+)
 
 
 def normalize_intent_text(text: str) -> str:
@@ -269,6 +278,12 @@ def match_product_purchase_query(text: str) -> bool:
     return hit_any(text, PRODUCT_LINK_QUERY_WORDS) or any(
         pattern.search(text) for pattern in PRODUCT_REFERENCE_PURCHASE_PATTERNS
     )
+
+
+def match_product_recommendation_request(text: str) -> bool:
+    if hit_any(text, PURCHASE_REJECTION_WORDS) or hit_any(text, UNSUPPORTED_WORDS):
+        return False
+    return "推荐" in text and hit_any(text, PRODUCT_RECOMMENDATION_TARGET_WORDS)
 
 
 def match_explicit_order_intent(text: str) -> bool:
@@ -344,6 +359,21 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                 "confidence": 0.95,
                 "need_template": True,
                 "reason": "rule_explicit_price_objection",
+            }
+        )
+
+    if match_product_recommendation_request(text):
+        return _validated_intent(
+            {
+                "route": "rag_answer",
+                "primary_domain": "product",
+                "primary_goal": "seek_help",
+                "issues": ["product_selection"],
+                "sales_stage": "need_discovery",
+                "confidence": 0.99,
+                "need_rag": True,
+                "slots": {"conversation_topic": "product_recommendation"},
+                "reason": "rule_product_recommendation_request",
             }
         )
 
@@ -619,6 +649,7 @@ def classify_by_fast_rule(text: str) -> IntentResult | None:
         "rule_material_request",
         "rule_product_image_request",
         "rule_product_purchase_query",
+        "rule_product_recommendation_request",
         "rule_explicit_order_intent",
         "rule_order_service_action",
         "rule_explicit_price_objection",
