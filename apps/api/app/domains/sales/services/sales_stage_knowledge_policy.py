@@ -54,8 +54,16 @@ def allowed_knowledge_sources(
     }
     primary = intent.primary_intent
     all_intents = {primary, *intent.secondary_intents}
+    product_recommendation = bool(
+        intent.slots.get("conversation_topic") == "product_recommendation"
+        or (
+            intent.primary_domain == "product"
+            and intent.primary_goal == "seek_help"
+            and "product_selection" in intent.issues
+        )
+    )
 
-    if all_intents & PRODUCT_INTENTS:
+    if all_intents & PRODUCT_INTENTS or product_recommendation:
         allowed.add(SalesKnowledgeSource.PRODUCT_CATALOG.value)
     if primary == "order_intent":
         allowed.add(SalesKnowledgeSource.SKU_FACTS.value)

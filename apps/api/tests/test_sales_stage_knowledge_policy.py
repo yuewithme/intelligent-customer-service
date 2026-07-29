@@ -39,6 +39,33 @@ def test_early_stage_explicit_product_query_gets_catalog_but_not_sales_value_or_
     assert "order_facts" not in sources
 
 
+def test_product_selection_semantics_keep_catalog_recommendation_mode():
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="knowledge_question",
+        primary_domain="product",
+        primary_goal="seek_help",
+        issues=["product_selection"],
+        slots={"conversation_topic": "product_recommendation"},
+        confidence=0.9,
+    )
+    plan = ReplyPlan(
+        action="rag_answer",
+        reason="knowledge_intent",
+        retrieval_policy={"mode": "product_recommendation"},
+    )
+
+    result = apply_stage_knowledge_policy(
+        plan,
+        stage="need_discovery",
+        intent=intent,
+    )
+
+    assert "product_catalog" in allowed_knowledge_sources("need_discovery", intent)
+    assert result.retrieval_policy["mode"] == "product_recommendation"
+    assert "product_catalog" in result.retrieval_policy["allowed_source_groups"]
+
+
 def test_early_price_question_does_not_release_live_sku_facts():
     sources = allowed_knowledge_sources("need_discovery", _intent("ask_price"))
 
