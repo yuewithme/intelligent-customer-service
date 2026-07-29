@@ -173,6 +173,7 @@ async def build_commerce_context(
             "product_request_kind": intent.slots.get("product_request_kind"),
             "requested_product_keywords": product_keywords,
             "send_all_product_cards": len(product_keywords) > 1,
+            "requested_capabilities": _requested_capabilities(message.message),
         }
         if product_data and product_data[0].get("page_path"):
             tool_state["mini_program"] = {
@@ -352,6 +353,13 @@ def _restrict_product_data(
 def _mobile_from(text: str) -> str:
     match = MOBILE_PATTERN.search(text or "")
     return match.group(0) if match else ""
+
+
+def _requested_capabilities(text: str) -> list[str]:
+    capabilities = []
+    if any(marker in str(text or "") for marker in ("视频", "教程", "课程")):
+        capabilities.append("video_tutorial")
+    return capabilities
 
 
 def _mask_mobile(mobile: str) -> str:

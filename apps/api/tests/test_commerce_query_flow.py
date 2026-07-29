@@ -144,6 +144,9 @@ async def test_purchase_followup_builds_card_for_previously_shown_product():
 @pytest.mark.asyncio
 async def test_product_selection_semantics_build_structured_product_facts():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
 
     class FakeProductService:
         async def search(self, keyword, *, limit):
@@ -180,10 +183,17 @@ async def test_product_selection_semantics_build_structured_product_facts():
         product_service=FakeProductService(),
         allowed_source_groups={"product_catalog"},
     )
+    reply = await render_business_reply(
+        _message("那你推荐一款好养的，最好有视频教学。"),
+        facts,
+    )
 
     assert facts.tool_state["status"] == "found"
     assert facts.tool_state["products"][0]["title"] == "建兰红君荷 新手好养"
     assert facts.tool_state["products"][0]["h5_url"].endswith("hongjunhe")
+    assert reply is not None
+    assert "视频教学权益" in reply.answer
+    assert "仍需按购买记录核实" in reply.answer
 
 
 @pytest.mark.asyncio

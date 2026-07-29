@@ -127,9 +127,10 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             else:
                 next_step = "如果需要下单，我再帮您确认购买入口。"
             knowledge_text = _product_knowledge_text(first)
+            capability_note = _requested_capability_note(state)
             answer = (
                 f"推荐您看看{_product_display_name(first)}{price_text}"
-                f"{knowledge_text}。{next_step}"
+                f"{knowledge_text}。{capability_note}{next_step}"
             )
         return _commerce_final_reply(answer, state)
 
@@ -210,6 +211,17 @@ def _product_knowledge_text(product: dict) -> str:
         if len(details) == 3:
             break
     return f"，{'，'.join(details)}" if details else ""
+
+
+def _requested_capability_note(state: dict) -> str:
+    capabilities = state.get("requested_capabilities")
+    capabilities = capabilities if isinstance(capabilities, list) else []
+    if "video_tutorial" in capabilities:
+        return (
+            "当前商品信息没有单独标明视频教学权益，"
+            "这一项仍需按购买记录核实，我不先承诺。"
+        )
+    return ""
 
 
 def _product_display_name(product: dict) -> str:
