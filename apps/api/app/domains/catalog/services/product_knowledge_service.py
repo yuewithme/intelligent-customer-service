@@ -320,7 +320,7 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
     with _session() as session:
         rows = session.execute(
             select(YouzanProductModel, YouzanProductKnowledgeModel)
-            .join(
+            .outerjoin(
                 YouzanProductKnowledgeModel,
                 YouzanProductKnowledgeModel.item_id == YouzanProductModel.item_id,
             )
@@ -333,6 +333,14 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
                 product,
                 knowledge,
             )
+            # Synced product facts are authoritative even before the optional
+            # recommendation knowledge has been curated. Raw products only
+            # participate on a direct title/alias match; broad recommendations
+            # still require enriched knowledge.
+            if knowledge is None:
+                if direct_score:
+                    ranked.append((-1, direct_score, product, knowledge))
+                continue
             if not direct_score and not _matches_recommendation_criteria(
                 product,
                 knowledge,
@@ -573,7 +581,7 @@ def get_catalog_product(item_id: str) -> dict[str, Any] | None:
     with _session() as session:
         row = session.execute(
             select(YouzanProductModel, YouzanProductKnowledgeModel)
-            .join(
+            .outerjoin(
                 YouzanProductKnowledgeModel,
                 YouzanProductKnowledgeModel.item_id == YouzanProductModel.item_id,
             )
@@ -589,7 +597,7 @@ def list_catalog_products(*, limit: int = 20) -> list[dict[str, Any]]:
     with _session() as session:
         rows = session.execute(
             select(YouzanProductModel, YouzanProductKnowledgeModel)
-            .join(
+            .outerjoin(
                 YouzanProductKnowledgeModel,
                 YouzanProductKnowledgeModel.item_id == YouzanProductModel.item_id,
             )
@@ -708,7 +716,7 @@ def _serialize(
 
 def _serialize_ai_product(
     product: YouzanProductModel,
-    knowledge: YouzanProductKnowledgeModel,
+    knowledge: YouzanProductKnowledgeModel | None,
     *,
     image_urls: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -737,7 +745,10 @@ def _serialize_ai_product(
         "image_urls": gallery,
         "page_path": page_path or product.page_url or "",
         "h5_url": product.h5_url,
-        "knowledge": {field: getattr(knowledge, field) for field in _FIELDS},
+        "knowledge": {
+            field: getattr(knowledge, field) if knowledge is not None else None
+            for field in _FIELDS
+        },
     }
 
 
@@ -789,16 +800,17 @@ def _match_score(
 def _direct_product_score(
     keyword: str,
     product: YouzanProductModel,
-    knowledge: YouzanProductKnowledgeModel,
+    knowledge: YouzanProductKnowledgeModel | None,
 ) -> int:
-    name = _normalize_name(knowledge.product_name)
+    name = _normalize_name(knowledge.product_name if knowledge is not None else "")
     title = _normalize_name(product.title)
     if name and name in keyword:
         return 300 + len(name)
-    if any(alias in keyword for alias in _split_aliases(knowledge.aliases)):
+    aliases = knowledge.aliases if knowledge is not None else product.alias
+    if any(alias in keyword for alias in _split_aliases(aliases)):
         return 280
     if keyword and (keyword in title or keyword in name):
-        return 200 + min(len(keyword), len(name))
+        return 200 + min(len(keyword), len(name or title))
     return 0
 
 

@@ -385,6 +385,42 @@ async def test_product_alias_drives_local_ai_catalog(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_direct_search_keeps_synced_product_without_knowledge(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    await sync_youzan_products(client=FakeYouzanClient())
+    database_path = tmp_path / "products.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            UPDATE youzan_products
+            SET title = ?, alias = ?, h5_url = ?
+            WHERE item_id = ?
+            """,
+            (
+                "建兰【忆香荷】勤花勤芽",
+                "yixianghe",
+                "https://h5.youzan.com/v2/showcase/goods?alias=yixianghe",
+                "1004",
+            ),
+        )
+
+    from app.domains.catalog.services.product_knowledge_service import (
+        get_catalog_product,
+        search_catalog_products,
+    )
+
+    products = search_catalog_products("忆香荷")
+    product = get_catalog_product("1004")
+
+    assert [item["item_id"] for item in products] == ["1004"]
+    assert products[0]["price_cent"] == 3990
+    assert products[0]["h5_url"].endswith("alias=yixianghe")
+    assert all(value is None for value in products[0]["knowledge"].values())
+    assert product is not None
+    assert product["title"] == "建兰【忆香荷】勤花勤芽"
+
+
+@pytest.mark.asyncio
 async def test_legacy_aliases_are_backfilled_once_into_new_catalog(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
     await sync_youzan_products(client=FakeYouzanClient())
