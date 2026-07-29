@@ -89,6 +89,24 @@ def test_reply_spec_locks_verified_business_facts_and_preserves_delivery_fields(
     assert final.outbound_messages == reply.outbound_messages
 
 
+def test_plain_template_uses_anchor_plus_persona_composition():
+    reply = FinalReply(
+        answer="我理解您会关注价格。",
+        reply_type="template",
+        route="template_reply",
+    )
+    plan = ReplyPlan(action="template_reply", reason="template_intent")
+    state = UserState(
+        user_id="u1",
+        metadata={"sales_action": {"reply_goal": "回应价格顾虑"}},
+    )
+
+    spec = build_reply_spec(reply=reply, plan=plan, user_state=state)
+
+    assert spec.render_mode == "persona"
+    assert spec.composition_mode == "anchor_plus_persona"
+
+
 @pytest.mark.asyncio
 async def test_persona_renderer_uses_system_role_and_renders_question_once(monkeypatch):
     from app.services import persona_renderer
@@ -119,6 +137,7 @@ async def test_persona_renderer_uses_system_role_and_renders_question_once(monke
         route="template_reply",
         reply_type="template",
         reply_goal="推荐适合阳台的兰花",
+        composition_mode="anchor_plus_persona",
         suggested_copy="可以先看一盆好养的建兰。",
         answer_segments=["可以先看一盆好养的建兰。"],
         question_slot="阳台光照",
@@ -135,9 +154,15 @@ async def test_persona_renderer_uses_system_role_and_renders_question_once(monke
     assert "温和、有判断" in captured["messages"][0]["content"]
     assert captured["messages"][1]["role"] == "user"
     assert captured["purpose"] == "persona"
-    assert rendered.suggested_copy.count("？") == 1
-    assert rendered.answer_segments == []
+    assert rendered.suggested_copy == "可以先看一盆好养的建兰。"
+    assert rendered.persona_copy.count("？") == 1
     assert rendered.metadata["persona"]["sales_action_rendered"] is True
+    final = finalize_reply_spec(guard_reply_spec(spec=rendered, context=_context()))
+    assert final.answer_segments == [
+        "可以先看一盆好养的建兰。",
+        "这盆更适合明亮散射光。您家阳台上午有直射光吗？",
+    ]
+    assert final.metadata["emitted_question_slot"] == "阳台光照"
 
 
 def test_guard_rejects_customer_service_tone_and_removes_internal_fallback_copy():

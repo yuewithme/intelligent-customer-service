@@ -1,7 +1,7 @@
 import re
 
 from app.domains.decisioning.schemas.persona import PersonaContext, ReplySpec
-from app.domains.decisioning.schemas.reply import FinalReply
+from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 
 
 INTERNAL_MARKERS = {
@@ -25,12 +25,18 @@ UNSOLICITED_REQUEST_PATTERNS = (
 def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
     if spec.render_mode in {"locked", "silent"}:
         return spec
-    answer = spec.suggested_copy.strip()
+    answer = (
+        spec.persona_copy
+        if spec.composition_mode == "anchor_plus_persona"
+        else spec.suggested_copy
+    ).strip()
     fallback_reason = None
     if not answer:
         fallback_reason = "empty_persona_reply"
     elif _question_count(answer) > 1:
         fallback_reason = "multiple_questions"
+    elif spec.question_slot is not None and _question_count(answer) == 0:
+        fallback_reason = "missing_required_question"
     elif spec.question_slot is None and _question_count(answer):
         fallback_reason = "unexpected_question"
     elif spec.question_slot is None and any(
@@ -44,6 +50,13 @@ def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
 
     if fallback_reason is None:
         return spec
+    if spec.composition_mode == "anchor_plus_persona":
+        return spec.model_copy(
+            update={
+                "persona_copy": "",
+                "metadata": _guard_metadata(spec, "failed", fallback_reason),
+            }
+        )
     original = str(spec.metadata.get("persona_original_copy") or "").strip()
     if not original:
         return spec.model_copy(
@@ -65,13 +78,29 @@ def _question_count(answer: str) -> int:
 
 def finalize_reply_spec(spec: ReplySpec) -> FinalReply:
     outbound_messages = list(spec.outbound_messages)
-    if spec.render_mode == "persona" and outbound_messages:
+    answer = spec.suggested_copy
+    answer_segments = list(spec.answer_segments)
+    if (
+        spec.composition_mode == "anchor_plus_persona"
+        and spec.persona_copy.strip()
+    ):
+        anchor = spec.suggested_copy.strip()
+        persona = spec.persona_copy.strip()
+        answer_segments = [part for part in (anchor, persona) if part]
+        answer = "\n\n".join(answer_segments)
+        if outbound_messages:
+            outbound_messages.append(OutboundMessage(type="text", content=persona))
+    elif spec.render_mode == "persona" and outbound_messages:
         outbound_messages = _replace_first_text(outbound_messages, spec.suggested_copy)
     metadata = dict(spec.metadata)
     metadata.pop("persona_original_copy", None)
+    if spec.question_slot and _question_count(answer) == 1:
+        metadata["emitted_question_slot"] = spec.question_slot
+    else:
+        metadata.pop("emitted_question_slot", None)
     return FinalReply(
-        answer=spec.suggested_copy,
-        answer_segments=spec.answer_segments,
+        answer=answer,
+        answer_segments=answer_segments,
         outbound_messages=outbound_messages,
         reply_type=spec.reply_type,
         route=spec.route,

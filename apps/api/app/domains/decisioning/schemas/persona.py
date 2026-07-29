@@ -24,7 +24,9 @@ class ReplySpec(BaseModel):
     reply_type: str
     reply_goal: str
     render_mode: Literal["persona", "locked", "silent"] = "persona"
+    composition_mode: Literal["replace", "anchor_plus_persona"] = "replace"
     suggested_copy: str = ""
+    persona_copy: str = ""
     must_include: list[str] = Field(default_factory=list)
     optional_points: list[str] = Field(default_factory=list)
     verified_facts: dict = Field(default_factory=dict)

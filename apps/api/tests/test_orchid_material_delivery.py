@@ -65,25 +65,25 @@ def test_outbound_messages_keep_fixed_link_card_payload():
 )
 def test_material_video_issue_matcher(content):
     from app.domains.catalog.services.orchid_material_service import (
-        orchid_material_video_issue_chat_result,
+        orchid_material_video_issue_context,
     )
 
-    result = orchid_material_video_issue_chat_result(content)
+    result = orchid_material_video_issue_context(content)
 
     assert result is not None
-    assert result["route"] == "orchid_material_video_issue"
-    assert "购买过我们产品的客户才能观看" in result["answer"]
-    assert "抖音上购买" in result["answer"]
-    assert "订单截图" in result["answer"]
+    assert "视频或课程无法打开" in result["business_snapshot"]
+    assert "抖音购买" in result["business_snapshot"]
+    assert "订单截图" in result["business_snapshot"]
+    assert "answer" not in result
 
 
 def test_material_video_issue_requires_video_or_course_problem():
     from app.domains.catalog.services.orchid_material_service import (
-        orchid_material_video_issue_chat_result,
+        orchid_material_video_issue_context,
     )
 
-    assert orchid_material_video_issue_chat_result("资料在哪里") is None
-    assert orchid_material_video_issue_chat_result("视频很好看") is None
+    assert orchid_material_video_issue_context("资料在哪里") is None
+    assert orchid_material_video_issue_context("视频很好看") is None
 
 
 def test_material_video_issue_context_requires_a_sent_material():
@@ -241,9 +241,17 @@ async def test_video_issue_after_material_delivery_requests_douyin_order_screens
     now = datetime(2026, 7, 20, 6, 0, tzinfo=timezone.utc)
     queued = []
 
-    async def fail_handle_chat(request):
-        del request
-        pytest.fail("资料视频打不开应走固定回复，不应调用 AI")
+    captured = {}
+
+    async def fake_handle_chat(request):
+        captured["request"] = request
+        return {
+            "answer": (
+                "资料里的视频打不开确实影响使用。您是在抖音购买的吗？"
+                "如果是，发一下订单截图，我先帮您核实购买记录。"
+            ),
+            "route": "template_reply",
+        }
 
     async def fake_enqueue_outbound(**kwargs):
         queued.append(kwargs)
@@ -255,7 +263,8 @@ async def test_video_issue_after_material_delivery_requests_douyin_order_screens
         lambda: 0,
     )
     monkeypatch.setattr(
-        "app.integrations.eyun.services.message_risk_control_service.handle_chat", fail_handle_chat
+        "app.integrations.eyun.services.message_risk_control_service.handle_chat",
+        fake_handle_chat,
     )
     monkeypatch.setattr(
         "app.integrations.eyun.services.message_risk_control_service.get_eyun_contact_snapshot",
@@ -306,7 +315,7 @@ async def test_video_issue_after_material_delivery_requests_douyin_order_screens
     await _process_inbound_batch(batch_id)
 
     assert len(queued) == 1
-    assert queued[0]["content"] == (
-        "我们的视频是购买过我们产品的客户才能观看的。请问您是在抖音上购买的吗？"
-        "麻烦您发送一下订单截图，我先帮您核实购买记录。"
-    )
+    assert queued[0]["content"].startswith("资料里的视频打不开确实影响使用")
+    request = captured["request"]
+    assert "视频或课程无法打开" in request.metadata["business_snapshot"]
+    assert request.metadata["tool_state"]["viewing_entitlement"] == "unverified"

@@ -295,7 +295,10 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
     assert captured["profile_stage"] == "need_discovery"
     assert captured["reply_sales_action"]["sales_action"] == "discover_need_track"
     assert captured["reply_sales_action"]["question_slot"] == "need_track"
-    assert captured["profile_sales_action"] == captured["reply_sales_action"]
+    assert captured["profile_sales_action"] == {
+        **captured["reply_sales_action"],
+        "emitted_question_slot": "need_track",
+    }
 
 
 @pytest.mark.asyncio

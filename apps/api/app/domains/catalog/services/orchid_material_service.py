@@ -17,9 +17,11 @@ ORCHID_MATERIAL_IMAGE_URL = (
     "http://150.158.52.233/static/orchid-material/"
     "companion-service-video-links.png"
 )
-ORCHID_MATERIAL_VIDEO_ISSUE_REPLY = (
-    "我们的视频是购买过我们产品的客户才能观看的。请问您是在抖音上购买的吗？"
-    "麻烦您发送一下订单截图，我先帮您核实购买记录。"
+ORCHID_MATERIAL_VIDEO_ISSUE_SNAPSHOT = (
+    "客户反馈此前发送的养兰资料中的视频或课程无法打开。"
+    "当前不能判定客户是否具备观看权益，也不能承诺已经恢复。"
+    "处理时先确认客户是否通过抖音购买；需要客户提供订单截图后，"
+    "才能进一步核实购买记录和资料观看权益。"
 )
 ORCHID_MATERIAL_CARD = {
     "note_id": "24482256",
@@ -138,22 +140,17 @@ def is_orchid_material_video_issue(content: str) -> bool:
     )
 
 
-def orchid_material_video_issue_chat_result(content: str) -> dict[str, Any] | None:
+def orchid_material_video_issue_context(content: str) -> dict[str, Any] | None:
     if not is_orchid_material_video_issue(content):
         return None
     return {
-        "answer": ORCHID_MATERIAL_VIDEO_ISSUE_REPLY,
-        "answer_segments": [ORCHID_MATERIAL_VIDEO_ISSUE_REPLY],
-        "outbound_messages": [
-            {
-                "type": "text",
-                "content": ORCHID_MATERIAL_VIDEO_ISSUE_REPLY,
-                "split": False,
-            }
-        ],
-        "reply_type": "fixed_text",
-        "route": "orchid_material_video_issue",
-        "metadata": {"resource_type": "orchid_material"},
+        "business_snapshot": ORCHID_MATERIAL_VIDEO_ISSUE_SNAPSHOT,
+        "tool_state": {
+            "resource_access_issue": "video_unavailable",
+            "purchase_channel": "unverified",
+            "purchase_record": "unverified",
+            "viewing_entitlement": "unverified",
+        },
     }
 
 

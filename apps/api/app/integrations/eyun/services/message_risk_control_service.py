@@ -43,7 +43,7 @@ from app.domains.decisioning.services.intent_observation_service import (
 )
 from app.domains.catalog.services.orchid_material_service import (
     orchid_material_chat_result,
-    orchid_material_video_issue_chat_result,
+    orchid_material_video_issue_context,
 )
 from app.domains.customers.services.user_profile_service import (
     add_verified_customer_tag,
@@ -763,25 +763,13 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         customer_snapshot.update(contact_snapshot)
 
-        video_issue_result = orchid_material_video_issue_chat_result(
+        video_issue_context = orchid_material_video_issue_context(
             batch_data["content"]
         )
+        if has_sent_orchid_material and video_issue_context is not None:
+            customer_snapshot.update(video_issue_context)
         material_result = orchid_material_chat_result(batch_data["content"])
-        if has_sent_orchid_material and video_issue_result is not None:
-            chat_result = video_issue_result
-            await record_bypassed_intent_observation(
-                trace_id=observation_trace_id,
-                channel="wechat",
-                user_id=user_id,
-                session_id=batch_data["from_group"],
-                user_message=batch_data["content"],
-                final_route="orchid_material_video_issue",
-                primary_domain="customer_service",
-                primary_goal="request_service",
-                reason="fixed_material_video_issue",
-                metadata=observation_metadata,
-            )
-        elif material_result is not None:
+        if material_result is not None:
             chat_result = material_result
             await record_bypassed_intent_observation(
                 trace_id=observation_trace_id,

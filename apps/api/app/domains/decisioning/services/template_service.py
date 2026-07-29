@@ -13,7 +13,7 @@ _templates: dict[str, TemplateItem] = {
         intent="price_objection",
         stage="closing",
         trigger_examples=["有点贵", "太贵了", "再考虑一下"],
-        content="我理解你会关注价格。这个价格主要包含了品质筛选、养护支持和售后保障，适合想省心入手的情况。",
+        content="我理解您会关注价格。",
         next_action="offer_value_explanation",
         priority=80,
     ),
@@ -22,7 +22,7 @@ _templates: dict[str, TemplateItem] = {
         name="物流默认话术",
         intent="ask_logistics",
         trigger_examples=["什么时候发货", "物流"],
-        content="正常会尽快安排发货，具体时效会结合地区和库存确认。你也可以把收货城市发我，我帮你进一步确认。",
+        content="发货时效需要结合收货地区和当前库存确认。",
         priority=50,
     ),
     "tpl_order_recommend_default": TemplateItem(
@@ -31,7 +31,7 @@ _templates: dict[str, TemplateItem] = {
         intent="order_intent",
         stage="need_discovery",
         trigger_examples=["推荐一款", "帮我选", "买哪个"],
-        content="可以的，我先按您的情况帮您缩小范围。您更看重好养、花香，还是预算合适？",
+        content="可以，我先结合您的情况帮您缩小范围。",
         next_action="discover_need_track",
         priority=90,
     ),
@@ -41,7 +41,7 @@ _templates: dict[str, TemplateItem] = {
         intent="purchase_rejection",
         stage="unknown",
         trigger_examples=["不要再给我推荐产品了", "先不买", "不用推荐"],
-        content="明白，那我们先不聊产品，您按自己的节奏考虑就好。",
+        content="明白，那我们先不聊产品，也不继续给您推荐。",
         priority=100,
     ),
     "tpl_shipping_damage_intake": TemplateItem(
@@ -63,7 +63,7 @@ _templates: dict[str, TemplateItem] = {
         intent="order_intent",
         stage="closing",
         trigger_examples=["详细地址", "电话", "身份证号"],
-        content="好的，订单和收货信息后续按下单流程核对就行。",
+        content="好的，已收到您的订单和收货信息。",
         next_action="continue_order",
         priority=100,
     ),
@@ -154,8 +154,8 @@ async def render_template(
         "shipping_city"
     ):
         content = (
-            "正常会尽快安排发货，具体时效还需要结合库存和实际物流确认，"
-            "我这边会继续为您跟进。"
+            "已记录您的收货地区，具体发货时效还需要结合当前库存和实际物流确认，"
+            "我会继续为您跟进。"
         )
     return TemplateReply(
         answer=content,
@@ -181,8 +181,8 @@ def _shipping_contact_confirmation(contact: dict) -> str:
     if contact.get("mobile"):
         details.append(f"电话{mask_mobile(str(contact['mobile']))}")
     if not details:
-        return "好的，已收到您的收货信息，我这边按订单流程继续为您处理。"
-    return f"好的，已记录收货信息：{'，'.join(details)}。我这边按订单流程继续为您处理。"
+        return "好的，已收到您的订单和收货信息。"
+    return f"好的，已记录收货信息：{'，'.join(details)}。"
 
 
 def _text_score(text: str, template: TemplateItem) -> float:

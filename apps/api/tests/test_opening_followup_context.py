@@ -144,6 +144,39 @@ async def test_opening_followup_uses_recent_assistant_question():
     assert intent.route == "chitchat"
     assert intent.primary_intent == "profile_answer"
     assert intent.reason == "opening_profile_answer"
+    assert intent.slots["plant_count"] == 100
+    assert intent.slots["owned_varieties"] == ["建兰"]
+
+
+@pytest.mark.asyncio
+async def test_opening_followup_extracts_region_and_variety_from_classic_case():
+    from app.domains.decisioning.services.intent_service import classify_intent
+
+    message = NormalizedMessage(
+        trace_id="req_followup_region",
+        channel="wechat",
+        user_id="customer",
+        session_id="default",
+        message="我是甘肃天水的，我养的全是建兰。",
+        kb_id="kb_default",
+    )
+    state = UserState(
+        user_id="customer",
+        session_id="default",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "家里目前养了多少盆兰花？具体养了哪些品种？",
+                }
+            ]
+        },
+    )
+
+    intent = await classify_intent(message, state)
+
+    assert intent.slots["region"] == "甘肃天水"
+    assert intent.slots["owned_varieties"] == ["建兰"]
 
 
 def test_profile_answer_chitchat_acknowledges_collected_information():

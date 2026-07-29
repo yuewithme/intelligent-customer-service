@@ -86,4 +86,4 @@ async def test_recommend_short_sentence_asks_sales_qualifying_question(monkeypat
 
     assert reply.route == "template_reply"
     assert reply.need_human is False
-    assert "更看重" in reply.answer
+    assert "结合您的情况" in reply.answer

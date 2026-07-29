@@ -143,11 +143,17 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
         render_mode = "locked"
     elif any(message.type != "text" for message in reply.outbound_messages):
         render_mode = "locked"
+    composition_mode = (
+        "anchor_plus_persona"
+        if render_mode == "persona" and reply.reply_type == "template"
+        else "replace"
+    )
     return ReplySpec(
         route=reply.route,
         reply_type=reply.reply_type,
         reply_goal=str(sales_action.get("reply_goal") or reply.next_action or reply.route),
         render_mode=render_mode,
+        composition_mode=composition_mode,
         suggested_copy=reply.answer,
         verified_facts=facts if has_business_facts else {},
         question_slot=_optional_text(sales_action.get("question_slot")),

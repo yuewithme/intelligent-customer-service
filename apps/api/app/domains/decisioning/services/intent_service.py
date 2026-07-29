@@ -861,15 +861,35 @@ def classify_opening_followup(
         or hit_any(normalized, ORCHID_VARIETY_WORDS)
     ):
         return None
+    slots = _opening_profile_slots(normalized)
     return _validated_intent(
         {
             "route": "chitchat",
             "primary_intent": "profile_answer",
             "sales_stage": "need_discovery",
             "confidence": 0.98,
+            "slots": slots,
             "reason": "opening_profile_answer",
         }
     )
+
+
+def _opening_profile_slots(text: str) -> dict:
+    slots: dict[str, object] = {}
+    varieties = [variety for variety in ORCHID_VARIETY_WORDS if variety in text]
+    if varieties:
+        slots["owned_varieties"] = varieties
+    count_match = re.search(r"(\d{1,5})\s*(?:盆|棵|株)", text)
+    if count_match:
+        slots["plant_count"] = int(count_match.group(1))
+    region_match = re.search(
+        r"(?:我(?:是|在)|来自|地区(?:是|在))"
+        r"([\u4e00-\u9fff]{2,10}?)(?:的|，|,|。|\s|$)",
+        text,
+    )
+    if region_match:
+        slots["region"] = region_match.group(1)
+    return slots
 
 
 def classify_product_recommendation_followup(

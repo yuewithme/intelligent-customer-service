@@ -355,7 +355,11 @@ async def handle_chat(request: ChatRequest) -> dict:
         if not persona_meta.get("sales_action_rendered"):
             reply = apply_sales_action(reply, sales_action)
         stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
-        reply.metadata["sales_action"] = sales_action.model_dump()
+        sales_action_payload = sales_action.model_dump()
+        emitted_question_slot = reply.metadata.get("emitted_question_slot")
+        if isinstance(emitted_question_slot, str) and emitted_question_slot:
+            sales_action_payload["emitted_question_slot"] = emitted_question_slot
+        reply.metadata["sales_action"] = sales_action_payload
         reply.metadata["sales_stage_decision"] = sales_stage_decision.model_dump(
             mode="json"
         )

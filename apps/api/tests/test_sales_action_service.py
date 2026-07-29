@@ -86,6 +86,7 @@ async def test_state_update_persists_sales_slots_without_profile_analysis():
                 "customer_signal": "interested",
                 "known_slots": intent.slots,
                 "question_slot": "plant_count",
+                "emitted_question_slot": "plant_count",
             },
             "tag_result": {
                 "labels": ["budget:100", "region:四川"],
@@ -100,6 +101,32 @@ async def test_state_update_persists_sales_slots_without_profile_analysis():
     assert state.metadata["active_opportunity"]["slots"]["budget"] == "100"
     assert state.metadata["active_opportunity"]["asked_slots"] == ["plant_count"]
     assert "budget:100" not in state.customer_tags
+
+
+@pytest.mark.asyncio
+async def test_state_update_does_not_mark_a_planned_but_unemitted_question():
+    from app.services import state_service
+
+    state_service._state_store.clear()
+    intent = _intent()
+    reply = FinalReply(
+        answer="好的，已经记下了。",
+        reply_type="chitchat",
+        route="chitchat",
+        metadata={
+            "sales_action": {
+                "sales_action": "discover_need",
+                "customer_signal": "interested",
+                "known_slots": {},
+                "question_slot": "need_track",
+            },
+        },
+    )
+
+    await state_service.update_user_state("user_unemitted", "s1", intent, reply)
+    state = await state_service.get_user_state("user_unemitted", "s1")
+
+    assert state.metadata["active_opportunity"]["asked_slots"] == []
 
 
 def test_after_sale_disables_sales_progression():
@@ -132,13 +159,31 @@ def test_template_reply_executes_single_sales_question():
     result = apply_sales_action(reply, decision)
 
     assert result.answer == (
-        "这款目前是199元。为了更准确地判断，"
+        "这款目前是199元。\n\n为了更准确地判断，"
         "您这次更需要养护指导、选购产品，还是两者都需要？"
     )
     assert result.answer_segments == [
         "这款目前是199元。",
         "为了更准确地判断，您这次更需要养护指导、选购产品，还是两者都需要？",
     ]
+    assert result.metadata["emitted_question_slot"] == "need_track"
+
+
+def test_chitchat_reply_also_emits_planned_sales_question():
+    decision = decide_sales_action(
+        user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
+        intent=_intent(),
+    )
+    reply = FinalReply(
+        answer="好的，已经记下了。",
+        reply_type="chitchat",
+        route="chitchat",
+    )
+
+    result = apply_sales_action(reply, decision)
+
+    assert result.answer.count("？") == 1
+    assert result.metadata["emitted_question_slot"] == "need_track"
 
 
 def test_template_reply_appends_only_the_catalog_question_slot():

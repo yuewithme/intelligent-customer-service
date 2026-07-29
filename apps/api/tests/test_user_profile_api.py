@@ -357,8 +357,9 @@ async def test_profile_persists_active_sales_opportunity(monkeypatch, tmp_path):
         metadata={
             "sales_action": {
                 "sales_action": "discover_need",
-                "reply_goal": "确认使用数量",
-                "question_slot": "plant_count",
+                    "reply_goal": "确认使用数量",
+                    "question_slot": "plant_count",
+                    "emitted_question_slot": "plant_count",
                 "known_slots": {
                     "pain_point": "root_rot",
                     "decision_blocker": {

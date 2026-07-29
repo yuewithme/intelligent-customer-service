@@ -4,7 +4,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from app.domains.decisioning.schemas.intent import IntentResult
-from app.domains.decisioning.schemas.reply import FinalReply
+from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 from app.domains.sales.schemas.sales_flow import SalesStage
 from app.domains.sales.services.sales_stage_catalog import get_sales_stage_definition
 from app.domains.customers.schemas.state import UserState
@@ -135,17 +135,41 @@ def apply_sales_action(
     reply: FinalReply,
     decision: SalesActionDecision,
 ) -> FinalReply:
-    if reply.reply_type != "template" or not decision.question_slot:
+    if reply.need_human or not reply.answer.strip() or not decision.question_slot:
         return reply
     question = _QUESTION_BY_SLOT.get(decision.question_slot)
-    if not question or question in reply.answer:
+    if not question:
         return reply
+    if question in reply.answer:
+        return reply.model_copy(
+            update={
+                "metadata": {
+                    **reply.metadata,
+                    "emitted_question_slot": decision.question_slot,
+                }
+            }
+        )
     bridge = _BRIDGE_BY_SLOT.get(decision.question_slot, "为了更准确地判断，")
     follow_up = f"{bridge}{question}"
+    outbound_messages = list(reply.outbound_messages)
+    if outbound_messages:
+        outbound_messages.append(OutboundMessage(type="text", content=follow_up))
     return reply.model_copy(
         update={
-            "answer": f"{reply.answer.rstrip()}{follow_up}",
-            "answer_segments": [reply.answer.strip(), follow_up],
+            "answer": f"{reply.answer.rstrip()}\n\n{follow_up}",
+            "answer_segments": [
+                *(
+                    reply.answer_segments
+                    if reply.answer_segments
+                    else [reply.answer.strip()]
+                ),
+                follow_up,
+            ],
+            "outbound_messages": outbound_messages,
+            "metadata": {
+                **reply.metadata,
+                "emitted_question_slot": decision.question_slot,
+            },
         }
     )
 
@@ -226,7 +250,7 @@ def evolve_opportunity(
     opportunity["recommended_product_ids"] = _string_list(
         sales_action.get("recommended_product_ids")
     )
-    question_slot = sales_action.get("question_slot")
+    question_slot = sales_action.get("emitted_question_slot")
     asked_slots = _string_list(opportunity.get("asked_slots"))
     if isinstance(question_slot, str) and question_slot:
         asked_slots = _append_unique(asked_slots, question_slot)

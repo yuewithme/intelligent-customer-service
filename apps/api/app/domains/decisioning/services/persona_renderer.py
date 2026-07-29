@@ -31,6 +31,12 @@ async def render_persona_reply(
             }
         )
 
+    composition_instruction = (
+        "business_anchor 会作为第一条消息原样发送。你只生成紧接其后的"
+        "第二条自然消息，不要复述、改写或总结 business_anchor。"
+        if spec.composition_mode == "anchor_plus_persona"
+        else ""
+    )
     payload = {
         "customer_message": current_message,
         "reply_spec": {
@@ -40,7 +46,14 @@ async def render_persona_reply(
             "verified_facts": spec.verified_facts,
             "question_slot": spec.question_slot,
             "prohibited_claims": spec.prohibited_claims,
-            "suggested_copy": spec.suggested_copy,
+            "business_anchor": (
+                spec.suggested_copy
+                if spec.composition_mode == "anchor_plus_persona"
+                else ""
+            ),
+            "suggested_copy": (
+                spec.suggested_copy if spec.composition_mode == "replace" else ""
+            ),
         },
         "relationship_state": context.relationship_state,
         "relevant_memories": context.relevant_memories,
@@ -52,7 +65,7 @@ async def render_persona_reply(
             {
                 "role": "user",
                 "content": (
-                    "请依据下列数据生成这一轮的微信客户回复。"
+                    f"请依据下列数据生成这一轮的微信客户回复。{composition_instruction}"
                     "先完成 reply_goal。question_slot 有值时，只能自然追问该项，"
                     "不要顺带询问相邻信息；question_slot 为空时，不得出现问句，"
                     "也不得用命令句索要手机号、订单号、图片或其他资料。"
@@ -71,13 +84,17 @@ async def render_persona_reply(
         return spec.model_copy(update={"metadata": metadata})
     metadata["persona"]["rendered"] = True
     metadata["persona"]["sales_action_rendered"] = bool(spec.question_slot)
+    update = {
+        "usage": _merge_usage(spec.usage, result.get("usage")),
+        "metadata": metadata,
+    }
+    if spec.composition_mode == "anchor_plus_persona":
+        update["persona_copy"] = answer
+    else:
+        update["suggested_copy"] = answer
+        update["answer_segments"] = []
     return spec.model_copy(
-        update={
-            "suggested_copy": answer,
-            "answer_segments": [],
-            "usage": _merge_usage(spec.usage, result.get("usage")),
-            "metadata": metadata,
-        }
+        update=update
     )
 
 
