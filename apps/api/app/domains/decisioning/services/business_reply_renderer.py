@@ -375,6 +375,18 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
                     ),
                 }
             )
+    commerce_action = {
+        "commerce_type": state.get("commerce_type"),
+        "status": state.get("status"),
+        "requested_action": state.get("requested_action"),
+        "requested_action_executed": state.get("requested_action_executed"),
+        "card_sent": any(
+            message["type"] in {"mini_program", "link_card"}
+            for message in outbound_messages
+        ),
+    }
+    if state.get("fixture_used"):
+        commerce_action["fixture_used"] = True
     return FinalReply(
         answer=answer,
         outbound_messages=outbound_messages,
@@ -392,15 +404,6 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
                     and state.get("status") in {"missing_mobile", "found", "not_found"}
                 )
             ),
-            "commerce_action": {
-                "commerce_type": state.get("commerce_type"),
-                "status": state.get("status"),
-                "requested_action": state.get("requested_action"),
-                "requested_action_executed": state.get("requested_action_executed"),
-                "card_sent": any(
-                    message["type"] in {"mini_program", "link_card"}
-                    for message in outbound_messages
-                ),
-            },
+            "commerce_action": commerce_action,
         },
     )

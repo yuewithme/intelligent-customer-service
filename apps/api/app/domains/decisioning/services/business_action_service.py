@@ -15,8 +15,15 @@ _ORDER_CONFIRMED_PATTERN = re.compile(
     r"|(?:订单|物流|快递|发货)(?:状态|信息|进度|到哪|怎么|哪里|查询|查一下)"
 )
 _SELECTED_PRODUCT_DETAIL_PATTERN = re.compile(
-    r"(?:几|多少)\s*苗|多苗|规格|套餐|带盆|含盆|裸根|原盆|盆栽|"
+    r"(?:几|多少)\s*苗|多苗|规格|套餐|带盆|含盆|花盆|裸根|原盆|盆栽|"
     r"种好|栽好|价格|多少钱|库存|现货"
+)
+_CATALOG_PURCHASE_PATTERN = re.compile(
+    r"橱窗|商品卡片|购买卡片|购买链接|下单链接|发链接|"
+    r"(?:这个|这款|这种|推荐的|刚才说的).{0,8}(?:能买吗|怎么买|哪里买|在哪买)"
+)
+_ORDER_LOOKUP_CONTINUATION_PATTERN = re.compile(
+    r"手机号|订单号|刚才买|刚买|刚下|查订单|查询订单|按手机号查"
 )
 _BUDGET_PATTERN = re.compile(
     r"预算|性价比|便宜|实惠|划算|"
@@ -55,6 +62,21 @@ def resolve_business_action(*, message, intent, user_state) -> str:
     metadata = getattr(user_state, "metadata", {})
     metadata = metadata if isinstance(metadata, dict) else {}
 
+    shipping_contact = slots.get("shipping_contact")
+    has_shipping_mobile = (
+        isinstance(shipping_contact, dict)
+        and bool(str(shipping_contact.get("mobile") or "").strip())
+    )
+    if (
+        metadata.get("commerce_pending") == "order_mobile"
+        and (
+            has_shipping_mobile
+            or re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", text)
+            or _ORDER_LOOKUP_CONTINUATION_PATTERN.search(text)
+        )
+    ):
+        return ORDER_VERIFY
+
     if (
         primary_intent in _ORDER_INTENTS
         or _ORDER_CONFIRMED_PATTERN.search(text)
@@ -82,6 +104,9 @@ def resolve_business_action(*, message, intent, user_state) -> str:
         and _SELECTED_PRODUCT_DETAIL_PATTERN.search(text)
     ):
         return SELECTED_PRODUCT_DETAIL
+
+    if _CATALOG_PURCHASE_PATTERN.search(text):
+        return CATALOG_SEARCH
 
     if _is_budget_followup(text, metadata):
         return CATALOG_SEARCH

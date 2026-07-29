@@ -54,6 +54,29 @@
 - 是否在没有工具结果时虚构执行动作；
 - 是否完成或正确停止销售流程。
 
+### 订单查询 fixture
+
+需要验证“收集手机号后查到订单”的评测轮次，可以在该轮的
+`turn_metadata.tool_state` 中提供隔离的模拟订单：
+
+```json
+{
+  "fixture_type": "order",
+  "mobile": "13000000000",
+  "orders": [
+    {
+      "order_no": "EVAL-CASE08-001",
+      "status": "WAIT_SELLER_SEND_GOODS",
+      "status_text": "待发货",
+      "item_summary": "春兰【松针素】× 1"
+    }
+  ]
+}
+```
+
+该 fixture 只有在请求同时携带 `evaluation_id` 时才会被业务事实层读取，
+不会写入或替代真实有赞订单；普通客户请求即使携带同名 `tool_state` 也不会命中。
+
 ## 防止数据泄漏
 
 - 同一案例派生的节点不得拆分到训练集和保留测试集两侧；

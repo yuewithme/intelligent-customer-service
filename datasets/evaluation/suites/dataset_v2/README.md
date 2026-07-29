@@ -55,6 +55,29 @@
 
 每轮对应的商品事实和工具结果放在`turn_metadata`中，只在该轮注入，避免提前泄露后续业务状态。
 
+### 订单查询 fixture
+
+需要验证“收集手机号后查到订单”的评测轮次，可以在该轮的
+`turn_metadata.tool_state` 中提供隔离的模拟订单：
+
+```json
+{
+  "fixture_type": "order",
+  "mobile": "13000000000",
+  "orders": [
+    {
+      "order_no": "EVAL-CASE08-001",
+      "status": "WAIT_SELLER_SEND_GOODS",
+      "status_text": "待发货",
+      "item_summary": "春兰【松针素】× 1"
+    }
+  ]
+}
+```
+
+该 fixture 只有在请求同时携带 `evaluation_id` 时才会被业务事实层读取，
+不会写入或替代真实有赞订单；普通客户请求即使携带同名 `tool_state` 也不会命中。
+
 ## 转人工题
 
 `expected_action=human_handoff`表示该题按系统动作评分。合格结果必须同时满足：

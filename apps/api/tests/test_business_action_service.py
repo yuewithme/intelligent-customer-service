@@ -113,3 +113,56 @@ def test_classic_sales_dialogue_resolves_one_authoritative_action_per_turn():
         intent=order_information,
         user_state=state,
     ) == ORDER_VERIFY
+
+
+def test_pending_order_mobile_overrides_generic_order_intent():
+    state = UserState(
+        user_id="customer-1",
+        metadata={
+            "commerce_pending": "order_mobile",
+            "commerce_last_product_id": "3997017282",
+        },
+    )
+    intent = _intent(
+        "order_intent",
+        slots={"shipping_contact": {"mobile": "13000000000"}},
+    )
+
+    assert resolve_business_action(
+        message=_message("下单手机号是13000000000。"),
+        intent=intent,
+        user_state=state,
+    ) == ORDER_VERIFY
+
+
+def test_explicit_purchase_entry_switches_from_rag_to_catalog():
+    state = UserState(user_id="customer-1")
+    mistaken_knowledge_intent = _intent(
+        "knowledge_question",
+        route="rag_answer",
+        need_rag=True,
+    )
+
+    assert resolve_business_action(
+        message=_message("橱窗里能买吗？"),
+        intent=mistaken_knowledge_intent,
+        user_state=state,
+    ) == CATALOG_SEARCH
+
+
+def test_flowerpot_question_uses_selected_product_details():
+    state = UserState(
+        user_id="customer-1",
+        metadata={"commerce_last_product_id": "3997017282"},
+    )
+    mistaken_knowledge_intent = _intent(
+        "knowledge_question",
+        route="rag_answer",
+        need_rag=True,
+    )
+
+    assert resolve_business_action(
+        message=_message("链接显示是花盆？"),
+        intent=mistaken_knowledge_intent,
+        user_state=state,
+    ) == SELECTED_PRODUCT_DETAIL

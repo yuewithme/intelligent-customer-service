@@ -754,6 +754,87 @@ async def test_order_query_uses_mobile_from_followup_and_returns_order_card():
 
 
 @pytest.mark.asyncio
+async def test_evaluation_order_fixture_returns_matching_mock_order_without_real_service():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import ORDER_VERIFY
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    message = _message("下单手机号是13000000000。").model_copy(
+        update={
+            "metadata": {
+                "evaluation_id": "case08-order-fixture",
+                "tool_state": {
+                    "fixture_type": "order",
+                    "mobile": "13000000000",
+                    "orders": [
+                        {
+                            "order_no": "EVAL-CASE08-001",
+                            "created_at": "2026-07-30 10:20:00",
+                            "status": "WAIT_SELLER_SEND_GOODS",
+                            "status_text": "待发货",
+                            "item_summary": "春兰【松针素】× 1",
+                        }
+                    ],
+                },
+            }
+        }
+    )
+    state = UserState(
+        user_id="eval-case08",
+        metadata={"commerce_pending": "order_mobile"},
+    )
+
+    facts = await build_commerce_context(
+        message,
+        state,
+        _intent("order_query"),
+        business_action=ORDER_VERIFY,
+        allowed_source_groups={"order_facts"},
+    )
+
+    assert facts.tool_state["status"] == "found"
+    assert facts.tool_state["fixture_used"] is True
+    assert facts.tool_state["orders"][0]["order_no"] == "EVAL-CASE08-001"
+    assert state.metadata["commerce_mobile"] == "13000000000"
+    assert state.metadata.get("commerce_pending") is None
+    reply = await render_business_reply(message, facts)
+    assert "春兰【松针素】× 1，待发货" in reply.answer
+    assert reply.metadata["commerce_action"]["fixture_used"] is True
+
+
+@pytest.mark.asyncio
+async def test_non_evaluation_request_cannot_use_order_fixture():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import ORDER_VERIFY
+
+    message = _message("下单手机号是13000000000。").model_copy(
+        update={
+            "metadata": {
+                "tool_state": {
+                    "fixture_type": "order",
+                    "mobile": "13000000000",
+                    "orders": [{"order_no": "MUST-NOT-BE-USED"}],
+                }
+            }
+        }
+    )
+
+    facts = await build_commerce_context(
+        message,
+        UserState(user_id="real-customer"),
+        _intent("order_query"),
+        order_service=object(),
+        business_action=ORDER_VERIFY,
+        allowed_source_groups={"order_facts"},
+    )
+
+    assert facts.tool_state.get("fixture_used") is not True
+    assert facts.tool_state.get("orders") != [{"order_no": "MUST-NOT-BE-USED"}]
+
+
+@pytest.mark.asyncio
 async def test_paid_order_information_executes_order_lookup_instead_of_short_circuiting():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
     from app.domains.decisioning.services.business_action_service import ORDER_VERIFY

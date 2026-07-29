@@ -6,7 +6,10 @@ from app.core.config import get_settings
 from app.integrations.youzan.client import YouzanClient
 from app.domains.decisioning.schemas.reply_plan import BusinessFacts
 from app.integrations.youzan.services.youzan_identity_store import YouzanIdentityStore
-from app.integrations.youzan.services.youzan_order_service import YouzanOrderService
+from app.integrations.youzan.services.youzan_order_service import (
+    YouzanOrderService,
+    YouzanOrderSummary,
+)
 from app.domains.catalog.services.product_knowledge_service import (
     get_catalog_product,
     search_catalog_products,
@@ -92,7 +95,14 @@ async def build_commerce_context(
             return BusinessFacts()
 
     settings = get_settings()
-    if commerce_type != "product" and order_service is None:
+    evaluation_order_fixture = (
+        _evaluation_order_fixture(message) if commerce_type == "order" else None
+    )
+    if (
+        commerce_type != "product"
+        and order_service is None
+        and evaluation_order_fixture is None
+    ):
         if not settings.youzan_enabled or not settings.youzan_access_token.strip():
             return BusinessFacts()
         client = YouzanClient(
@@ -258,7 +268,7 @@ async def build_commerce_context(
                 user_state.metadata["commerce_last_catalog_query"] = keyword
         return BusinessFacts(tool_state=tool_state)
 
-    if order_service is None:
+    if order_service is None and evaluation_order_fixture is None:
         return BusinessFacts()
 
     requested_action = str(intent.slots.get("order_action") or "").strip()
@@ -282,6 +292,23 @@ async def build_commerce_context(
             or _mobile_from_recent_turns(user_state.metadata.get("recent_turns"))
         )
     )
+    if not mobile and binding is None:
+        user_state.metadata["commerce_pending"] = "order_mobile"
+        tool_state = {"commerce_type": "order", "status": "missing_mobile"}
+        if requested_action:
+            tool_state["requested_action"] = requested_action
+            tool_state["requested_action_executed"] = False
+        return BusinessFacts(tool_state=tool_state)
+
+    if evaluation_order_fixture is not None:
+        return _evaluation_order_facts(
+            fixture=evaluation_order_fixture,
+            mobile=mobile,
+            user_state=user_state,
+            order_card=order_card or _order_card(settings),
+            requested_action=requested_action,
+        )
+
     lookup_identity = binding
     identity_source = ""
     try:
@@ -307,13 +334,8 @@ async def build_commerce_context(
             orders = lookup.orders
             identity_source = "official_wechat_openid"
         else:
-            user_state.metadata["commerce_pending"] = "order_mobile"
-            tool_state = {"commerce_type": "order", "status": "missing_mobile"}
-            if requested_action:
-                tool_state["requested_action"] = requested_action
-                tool_state["requested_action_executed"] = False
             return BusinessFacts(
-                tool_state=tool_state
+                tool_state={"commerce_type": "order", "status": "unavailable"}
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Youzan order query failed: %s", type(exc).__name__)
@@ -469,6 +491,55 @@ async def _selected_product_facts(
             "thumb_url": product_data.get("image_url", ""),
             "title": product_data.get("title", ""),
         }
+    return BusinessFacts(tool_state=tool_state)
+
+
+def _evaluation_order_fixture(message) -> dict | None:
+    metadata = getattr(message, "metadata", {})
+    if not isinstance(metadata, dict) or not metadata.get("evaluation_id"):
+        return None
+    fixture = metadata.get("tool_state")
+    if not isinstance(fixture, dict) or fixture.get("fixture_type") != "order":
+        return None
+    return fixture
+
+
+def _evaluation_order_facts(
+    *,
+    fixture: dict,
+    mobile: str,
+    user_state,
+    order_card: dict,
+    requested_action: str,
+) -> BusinessFacts:
+    expected_mobile = str(fixture.get("mobile") or "").strip()
+    raw_orders = fixture.get("orders")
+    raw_orders = raw_orders if isinstance(raw_orders, list) else []
+    orders = []
+    if not expected_mobile or expected_mobile == mobile:
+        for raw_order in raw_orders:
+            if not isinstance(raw_order, dict):
+                continue
+            try:
+                orders.append(YouzanOrderSummary.model_validate(raw_order))
+            except ValueError:
+                logger.warning("Invalid evaluation order fixture ignored")
+
+    user_state.metadata["commerce_mobile"] = mobile
+    user_state.metadata.pop("commerce_pending", None)
+    tool_state = {
+        "commerce_type": "order",
+        "status": "found" if orders else "not_found",
+        "lookup_performed": True,
+        "mobile_masked": _mask_mobile(mobile),
+        "orders": [order.model_dump() for order in orders],
+        "fixture_used": True,
+    }
+    if requested_action:
+        tool_state["requested_action"] = requested_action
+        tool_state["requested_action_executed"] = False
+    if order_card.get("page_path"):
+        tool_state["mini_program"] = order_card
     return BusinessFacts(tool_state=tool_state)
 
 
