@@ -5,6 +5,9 @@ from app.domains.decisioning.schemas.persona import PersonaContext, ReplySpec
 from app.domains.decisioning.services.customer_reply_formatter import plain_customer_text
 from app.integrations.ai.services.llm_service import generate_messages, get_model_config
 from app.domains.decisioning.services.persona_service import persona_system_prompt
+from app.domains.decisioning.services.reply_guard_service import (
+    persona_extension_violation,
+)
 
 
 async def render_persona_reply(
@@ -62,27 +65,54 @@ async def render_persona_reply(
         "relevant_memories": context.relevant_memories,
         "style_examples": context.examples,
     }
+    messages = [
+        {"role": "system", "content": persona_system_prompt(context)},
+        {
+            "role": "user",
+            "content": (
+                f"请依据下列数据生成这一轮的微信客户回复。{composition_instruction}"
+                "先完成 reply_goal。question_slot 有值时，只能自然追问该项，"
+                "不要顺带询问相邻信息；question_slot 为空时，不得出现问句，"
+                "也不得用命令句索要手机号、订单号、图片或其他资料。"
+                "suggested_copy 只供参考表达，不是事实来源。不得输出字段名，"
+                "不得增加 verified_facts 之外的商品、价格、库存、订单、物流、"
+                "优惠、服务能力或时效事实。\n"
+                + json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            ),
+        },
+    ]
     result = await generate_messages(
-        [
-            {"role": "system", "content": persona_system_prompt(context)},
-            {
-                "role": "user",
-                "content": (
-                    f"请依据下列数据生成这一轮的微信客户回复。{composition_instruction}"
-                    "先完成 reply_goal。question_slot 有值时，只能自然追问该项，"
-                    "不要顺带询问相邻信息；question_slot 为空时，不得出现问句，"
-                    "也不得用命令句索要手机号、订单号、图片或其他资料。"
-                    "suggested_copy 只供参考表达，不是事实来源。不得输出字段名，"
-                    "不得增加 verified_facts 之外的商品、价格、库存、订单、物流、"
-                    "优惠、服务能力或时效事实。\n"
-                    + json.dumps(payload, ensure_ascii=False, sort_keys=True)
-                ),
-            },
-        ],
+        messages,
         purpose="persona",
         temperature=get_settings().persona_reply_temperature,
     )
     answer = plain_customer_text(str(result.get("answer") or "")).strip()
+    violation = _candidate_violation(spec, answer)
+    if violation and _is_product_extension(spec):
+        retry = await generate_messages(
+            [
+                *messages,
+                {"role": "assistant", "content": answer},
+                {
+                    "role": "user",
+                    "content": (
+                        f"上一条违反输出合同（{violation}）。请重新生成一次。"
+                        "不要解释错误；只输出客户可见的第二条消息。"
+                        "若没有 question_slot，只能用一句不超过40字的话引导客户"
+                        "点击或查看商品卡片，不得提优惠、权益、服务、价值或提出问题。"
+                    ),
+                },
+            ],
+            purpose="persona",
+            temperature=0.1,
+        )
+        answer = plain_customer_text(str(retry.get("answer") or "")).strip()
+        result = {
+            **retry,
+            "usage": _merge_usage(result.get("usage") or {}, retry.get("usage")),
+        }
+        metadata["persona"]["retried"] = True
+        metadata["persona"]["retry_reason"] = violation
     if not answer:
         return spec.model_copy(update={"metadata": metadata})
     metadata["persona"]["rendered"] = True
@@ -98,6 +128,26 @@ async def render_persona_reply(
         update["answer_segments"] = []
     return spec.model_copy(
         update=update
+    )
+
+
+def _candidate_violation(spec: ReplySpec, answer: str) -> str | None:
+    if not answer:
+        return "empty_persona_reply"
+    candidate = (
+        spec.model_copy(update={"persona_copy": answer})
+        if spec.composition_mode == "anchor_plus_persona"
+        else spec.model_copy(update={"suggested_copy": answer})
+    )
+    return persona_extension_violation(candidate, answer)
+
+
+def _is_product_extension(spec: ReplySpec) -> bool:
+    tool_state = spec.verified_facts.get("tool_state")
+    return (
+        spec.composition_mode == "anchor_plus_persona"
+        and isinstance(tool_state, dict)
+        and tool_state.get("commerce_type") == "product"
     )
 
 

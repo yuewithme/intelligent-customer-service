@@ -57,23 +57,12 @@ def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
     fallback_reason = None
     if not answer:
         fallback_reason = "empty_persona_reply"
-    elif _question_count(answer) > 1:
-        fallback_reason = "multiple_questions"
-    elif spec.question_slot is not None and _question_count(answer) == 0:
-        fallback_reason = "missing_required_question"
-    elif spec.question_slot is None and _question_count(answer):
-        fallback_reason = "unexpected_question"
+    elif violation := persona_extension_violation(spec, answer):
+        fallback_reason = violation
     elif spec.question_slot is None and any(
         pattern.search(answer) for pattern in UNSOLICITED_REQUEST_PATTERNS
     ):
         fallback_reason = "unsolicited_information_request"
-    elif (
-        spec.composition_mode == "anchor_plus_persona"
-        and any(pattern.search(answer) for pattern in UNVERIFIED_PERSONA_FACT_PATTERNS)
-    ):
-        fallback_reason = "unverified_fact_claim"
-    elif _invalid_product_extension(spec, answer):
-        fallback_reason = "invalid_product_extension"
     elif any(marker in answer for marker in INTERNAL_MARKERS):
         fallback_reason = "internal_marker"
     elif any(phrase in answer for phrase in context.anti_patterns):
@@ -108,6 +97,24 @@ def _question_count(answer: str) -> int:
     if punctuation_count:
         return punctuation_count
     return 1 if QUESTION_LANGUAGE_PATTERN.search(answer.strip()) else 0
+
+
+def persona_extension_violation(spec: ReplySpec, answer: str) -> str | None:
+    question_count = _question_count(answer)
+    if question_count > 1:
+        return "multiple_questions"
+    if spec.question_slot is not None and question_count == 0:
+        return "missing_required_question"
+    if spec.question_slot is None and question_count:
+        return "unexpected_question"
+    if (
+        spec.composition_mode == "anchor_plus_persona"
+        and any(pattern.search(answer) for pattern in UNVERIFIED_PERSONA_FACT_PATTERNS)
+    ):
+        return "unverified_fact_claim"
+    if _invalid_product_extension(spec, answer):
+        return "invalid_product_extension"
+    return None
 
 
 def _invalid_product_extension(spec: ReplySpec, answer: str) -> bool:

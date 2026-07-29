@@ -199,6 +199,67 @@ async def test_persona_renderer_uses_system_role_and_renders_question_once(monke
     assert final.metadata["emitted_question_slot"] == "阳台光照"
 
 
+@pytest.mark.asyncio
+async def test_product_persona_extension_retries_after_contract_violation(monkeypatch):
+    from app.services import persona_renderer
+
+    answers = iter(
+        [
+            "这个会员有专属优惠，很快就能回本。你看合不合适",
+            "您可以先点开商品卡片看看。",
+        ]
+    )
+    calls = []
+
+    async def generate_messages(messages, *, purpose, temperature):
+        calls.append(messages)
+        return {
+            "answer": next(answers),
+            "usage": {"completion_tokens": 8},
+        }
+
+    monkeypatch.setattr(persona_renderer, "generate_messages", generate_messages)
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_model_config",
+        lambda purpose: SimpleNamespace(provider="deepseek", model="deepseek-chat"),
+    )
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_settings",
+        lambda: SimpleNamespace(
+            persona_reply_enabled=True,
+            persona_reply_temperature=0.3,
+        ),
+    )
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="发送会员商品卡片",
+        composition_mode="anchor_plus_persona",
+        suggested_copy="这是会员资格商品，当前售价39.9元。",
+        verified_facts={
+            "tool_state": {
+                "commerce_type": "product",
+                "status": "found",
+                "products": [{"item_id": "membership-39", "price_cent": 3990}],
+            }
+        },
+    )
+
+    rendered = await persona_renderer.render_persona_reply(
+        spec=spec,
+        context=_context(),
+        current_message="怎么加入会员",
+    )
+
+    assert len(calls) == 2
+    assert rendered.persona_copy == "您可以先点开商品卡片看看。"
+    assert rendered.metadata["persona"]["retried"] is True
+    assert rendered.metadata["persona"]["retry_reason"] == "unexpected_question"
+    assert rendered.usage["completion_tokens"] == 16
+
+
 def test_guard_rejects_customer_service_tone_and_removes_internal_fallback_copy():
     spec = ReplySpec(
         route="template_reply",
