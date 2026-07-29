@@ -276,8 +276,54 @@ async def test_persona_model_config_preserves_system_and_user_messages(monkeypat
     assert captured["body"]["model"] == "persona-model"
     assert captured["body"]["messages"] == messages
     assert captured["body"]["temperature"] == 0.3
+    assert captured["body"]["max_tokens"] == 300
     assert captured["headers"]["Authorization"] == "Bearer persona_test_key"
     assert result["answer"] == "自然回复"
+
+
+@pytest.mark.asyncio
+async def test_dashscope_persona_disables_thinking(monkeypatch):
+    from app.services import llm_service
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "自然回复"}}], "usage": {}}
+
+    class FakeClient:
+        def __init__(self, timeout):
+            del timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            del exc_type, exc, tb
+
+        async def post(self, url, headers, json):
+            del url, headers
+            captured["body"] = json
+            return FakeResponse()
+
+    monkeypatch.setenv("PERSONA_LLM_PROVIDER", "dashscope")
+    monkeypatch.setenv("PERSONA_LLM_MODEL", "qwen3.6-flash")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "persona_test_key")
+    get_settings.cache_clear()
+    monkeypatch.setattr(llm_service.httpx, "AsyncClient", FakeClient)
+
+    try:
+        await llm_service.generate_messages(
+            [{"role": "user", "content": "生成回复"}],
+            purpose="persona",
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert captured["body"]["enable_thinking"] is False
 
 
 @pytest.mark.asyncio

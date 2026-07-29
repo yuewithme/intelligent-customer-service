@@ -283,6 +283,28 @@ async def test_product_preference_followup_keeps_recommendation_context():
 
 
 @pytest.mark.asyncio
+async def test_opening_profile_does_not_treat_beginner_as_a_region():
+    state = UserState(
+        user_id="user_intent",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "家里目前养了多少盆兰花？具体养了哪些品种？",
+                }
+            ]
+        },
+    )
+
+    intent = await classify_intent(_message("家里有十来盆建兰，我是新手"), state)
+
+    assert intent.primary_intent == "profile_answer"
+    assert intent.slots["plant_count"] == 10
+    assert intent.slots["owned_varieties"] == ["建兰"]
+    assert "region" not in intent.slots
+
+
+@pytest.mark.asyncio
 async def test_first_turn_recommendation_uses_product_catalog_policy():
     from app.domains.decisioning.schemas.intent import IntentResult
     from app.domains.decisioning.services.policy_service import decide_route

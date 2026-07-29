@@ -193,7 +193,10 @@ PRODUCT_QUERY_WORDS = (
     "有没有",
 ) + PRODUCT_LINK_QUERY_WORDS + PRODUCT_IMAGE_QUERY_WORDS
 MOBILE_ONLY_PATTERN = re.compile(r"^1[3-9]\d{9}$")
-PLANT_COUNT_PATTERN = re.compile(r"(?:养了|養了|养|養|有)?[^\d]{0,6}\d{1,5}\s*(?:盆|棵|株)")
+PLANT_COUNT_PATTERN = re.compile(
+    r"(?:养了|養了|养|養|有)?[^\d零一二两三四五六七八九十百]{0,6}"
+    r"(?:\d{1,5}|[零一二两三四五六七八九十百]{1,5})(?:来|多|左右)?\s*(?:盆|棵|株)"
+)
 ORCHID_VARIETY_WORDS = ("建兰", "春兰", "蕙兰", "墨兰", "寒兰", "春剑", "莲瓣兰")
 PRODUCT_RECOMMENDATION_CONTEXT_WORDS = (
     "推荐",
@@ -915,17 +918,56 @@ def _opening_profile_slots(text: str) -> dict:
     varieties = [variety for variety in ORCHID_VARIETY_WORDS if variety in text]
     if varieties:
         slots["owned_varieties"] = varieties
-    count_match = re.search(r"(\d{1,5})\s*(?:盆|棵|株)", text)
+    count_match = re.search(
+        r"([零一二两三四五六七八九十百\d]{1,5})(?:来|多|左右)?\s*(?:盆|棵|株)",
+        text,
+    )
     if count_match:
-        slots["plant_count"] = int(count_match.group(1))
+        plant_count = _parse_plant_count(count_match.group(1))
+        if plant_count is not None:
+            slots["plant_count"] = plant_count
     region_match = re.search(
-        r"(?:我(?:是|在)|来自|地区(?:是|在))"
+        r"(?:我在|来自|地区(?:是|在))"
         r"([\u4e00-\u9fff]{2,10}?)(?:的|，|,|。|\s|$)",
+        text,
+    ) or re.search(
+        r"我是([\u4e00-\u9fff]{2,8}?人)(?:，|,|。|\s|$)",
         text,
     )
     if region_match:
         slots["region"] = region_match.group(1)
     return slots
+
+
+def _parse_plant_count(value: str) -> int | None:
+    if value.isdigit():
+        return int(value)
+    digits = {
+        "零": 0,
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    if value == "十":
+        return 10
+    if "百" in value:
+        hundreds, remainder = value.split("百", 1)
+        base = digits.get(hundreds, 1) * 100
+        tail = _parse_plant_count(remainder) if remainder else 0
+        return base + tail if tail is not None else None
+    if "十" in value:
+        tens, ones = value.split("十", 1)
+        return digits.get(tens, 1) * 10 + digits.get(ones, 0)
+    if all(char in digits for char in value):
+        return int("".join(str(digits[char]) for char in value))
+    return None
 
 
 def classify_product_recommendation_followup(

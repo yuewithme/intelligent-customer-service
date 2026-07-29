@@ -211,6 +211,10 @@ async def _chat_completion(
     }
     if purpose == "intent":
         request_body["max_tokens"] = 240
+    if purpose == "persona":
+        request_body["max_tokens"] = 300
+    if provider == "dashscope" and purpose in {"persona", "rag_fast", "business"}:
+        request_body["enable_thinking"] = False
     if json_mode and provider == "dashscope":
         request_body.update(
             {
