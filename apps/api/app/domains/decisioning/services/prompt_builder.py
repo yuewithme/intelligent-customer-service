@@ -20,7 +20,12 @@ PROMPT_BLOCKS = {
     ),
     "scenario.orchid_care": (
         "The current scenario is orchid care consultation. Focus on care diagnosis, treatment steps, "
-        "and risk boundaries."
+        "and risk boundaries. Treat a cause as a possibility unless the supplied evidence is enough "
+        "to distinguish it from other common causes. Never infer a single main cause from region or "
+        "weather alone. Do not prescribe a fixed number-of-days watering schedule without verified "
+        "context about the medium, pot, root condition, ventilation, temperature, and current "
+        "moisture. Prefer observable watering criteria over calendar intervals. Ask at most one "
+        "highest-information follow-up question when a key diagnostic fact is missing."
     ),
     "intent.orchid_problem": (
         "The user is describing an orchid problem. Respond with care first, then provide actionable advice."

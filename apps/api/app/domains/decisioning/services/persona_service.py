@@ -136,12 +136,18 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
     business_facts = getattr(plan, "business_facts", None)
     facts = business_facts.model_dump() if business_facts is not None else {}
     has_business_facts = bool(getattr(business_facts, "available", False))
+    allow_persona_extension = bool(reply.metadata.get("allow_persona_extension"))
     render_mode = "persona"
     if reply.need_human or not reply.answer:
         render_mode = "silent"
-    elif has_business_facts or reply.reply_type == "rag":
+    elif reply.reply_type == "rag":
         render_mode = "locked"
-    elif any(message.type != "text" for message in reply.outbound_messages):
+    elif has_business_facts and not allow_persona_extension:
+        render_mode = "locked"
+    elif (
+        any(message.type != "text" for message in reply.outbound_messages)
+        and not allow_persona_extension
+    ):
         render_mode = "locked"
     composition_mode = (
         "anchor_plus_persona"

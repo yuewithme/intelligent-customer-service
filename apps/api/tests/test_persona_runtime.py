@@ -89,6 +89,40 @@ def test_reply_spec_locks_verified_business_facts_and_preserves_delivery_fields(
     assert final.outbound_messages == reply.outbound_messages
 
 
+def test_product_card_keeps_fact_anchor_and_allows_guarded_persona_extension():
+    reply = FinalReply(
+        answer="这是会员资格商品，当前售价39.9元。",
+        outbound_messages=[
+            OutboundMessage(type="text", content="这是会员资格商品，当前售价39.9元。"),
+            OutboundMessage(type="link_card", content='{"url":"https://example.com"}'),
+        ],
+        reply_type="template",
+        route="template_reply",
+        metadata={"allow_persona_extension": True},
+    )
+    plan = ReplyPlan(
+        action="template_reply",
+        reason="business_facts_available",
+        business_facts=BusinessFacts(
+            tool_state={
+                "commerce_type": "product",
+                "status": "found",
+                "products": [{"item_id": "membership-39", "price_cent": 3990}],
+            }
+        ),
+    )
+    state = UserState(
+        user_id="u1",
+        metadata={"sales_action": {"reply_goal": "发送会员商品卡片"}},
+    )
+
+    spec = build_reply_spec(reply=reply, plan=plan, user_state=state)
+
+    assert spec.render_mode == "persona"
+    assert spec.composition_mode == "anchor_plus_persona"
+    assert spec.verified_facts["tool_state"]["products"][0]["price_cent"] == 3990
+
+
 def test_plain_template_uses_anchor_plus_persona_composition():
     reply = FinalReply(
         answer="我理解您会关注价格。",

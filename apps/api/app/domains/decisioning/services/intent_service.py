@@ -79,7 +79,33 @@ KNOWLEDGE_PATTERNS = (
     "资料",
     "材料",
 )
-CARE_WORDS = ("养护", "养不活", "不会养", "新手", "浇水", "施肥", "护理", "怕养死", "怕养不好")
+CARE_INCIDENT_WORDS = (
+    "黑根",
+    "空根",
+    "烂根",
+    "腐根",
+    "黄叶",
+    "黑斑",
+    "焦尖",
+    "腐苗",
+    "死苗",
+    "修根",
+    "修剪",
+    "重新栽",
+    "病虫害",
+)
+CARE_WORDS = (
+    "养护",
+    "养不活",
+    "不会养",
+    "新手",
+    "浇水",
+    "施肥",
+    "护理",
+    "怕养死",
+    "怕养不好",
+    *CARE_INCIDENT_WORDS,
+)
 GREETING_WORDS = ("你好", "您好", "在吗", "hello", "hi", "谢谢", "感谢")
 PURE_GREETING_TEXTS = {
     "你好",
@@ -114,6 +140,35 @@ PURE_THANKS_TEXTS = {
     "收到谢谢",
 }
 PURE_END_TEXTS = {"再见", "拜拜", "回头聊", "先这样", "没问题了", "没有问题了"}
+DEFER_FOLLOWUP_PATTERNS = (
+    re.compile(
+        r"(?:下班后|晚点|晚些时候|过会儿|回头|有空|方便时|到家后)"
+        r".{0,12}(?:拍|发|看|联系|找你|回复)"
+    ),
+    re.compile(
+        r"(?:拍|发|看|联系|找你|回复).{0,12}"
+        r"(?:下班后|晚点|晚些时候|过会儿|回头|有空|方便时|到家后)"
+    ),
+)
+MEMBERSHIP_PRODUCT_QUERY = "首单参与陪伴养兰客户"
+MEMBERSHIP_EXCLUSION_WORDS = ("会员专属", "会员商品", "会员价商品")
+MEMBERSHIP_ACTION_WORDS = (
+    "加入",
+    "开通",
+    "办理",
+    "购买",
+    "买",
+    "成为",
+    "怎么",
+    "如何",
+    "多少钱",
+    "价格",
+    "费用",
+    "收费",
+    "付款",
+    "支付",
+    "有会员",
+)
 UNSUPPORTED_WORDS = ("写代码", "彩票", "股票推荐", "医疗诊断", "法律意见", "无关业务")
 ORDER_QUERY_WORDS = (
     "查订单",
@@ -193,6 +248,9 @@ PRODUCT_QUERY_WORDS = (
     "有没有",
 ) + PRODUCT_LINK_QUERY_WORDS + PRODUCT_IMAGE_QUERY_WORDS
 MOBILE_ONLY_PATTERN = re.compile(r"^1[3-9]\d{9}$")
+PRICE_ONLY_FOLLOWUP_PATTERN = re.compile(
+    r"^\d+(?:\.\d{1,2})?\s*(?:元|块)?(?:是吗|对吗|吗)?[？?]?$"
+)
 PLANT_COUNT_PATTERN = re.compile(
     r"(?:养了|養了|养|養|有)?[^\d零一二两三四五六七八九十百]{0,6}"
     r"(?:\d{1,5}|[零一二两三四五六七八九十百]{1,5})(?:来|多|左右)?\s*(?:盆|棵|株)"
@@ -265,6 +323,18 @@ def match_pure_chitchat(text: str) -> tuple[str, str] | None:
     ):
         return "end_conversation", "end"
     return None
+
+
+def match_deferred_followup(text: str) -> bool:
+    return any(pattern.search(text) for pattern in DEFER_FOLLOWUP_PATTERNS)
+
+
+def match_membership_product_request(text: str) -> bool:
+    if "会员" not in text or hit_any(text, MEMBERSHIP_EXCLUSION_WORDS):
+        return False
+    return hit_any(text, MEMBERSHIP_ACTION_WORDS) or bool(
+        re.search(r"\d+(?:\.\d+)?元?.{0,6}会员|会员.{0,6}\d+(?:\.\d+)?元?", text)
+    )
 
 
 def match_price_intent(text: str) -> str | None:
@@ -374,6 +444,34 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                 "confidence": 0.95,
                 "need_template": True,
                 "reason": "rule_explicit_price_objection",
+            }
+        )
+
+    if match_deferred_followup(text):
+        return _validated_intent(
+            {
+                "primary_domain": "conversation",
+                "primary_goal": "end_conversation",
+                "confidence": 0.99,
+                "slots": {"chitchat_kind": "defer"},
+                "reason": "rule_deferred_followup",
+            }
+        )
+
+    if match_membership_product_request(text):
+        return _validated_intent(
+            {
+                "primary_domain": "product",
+                "primary_goal": "seek_help",
+                "issues": ["product_selection"],
+                "sales_stage": "closing",
+                "confidence": 0.99,
+                "slots": {
+                    "conversation_topic": "product_recommendation",
+                    "product_keywords": [MEMBERSHIP_PRODUCT_QUERY],
+                    "product_request_kind": "membership",
+                },
+                "reason": "rule_membership_product_request",
             }
         )
 
@@ -685,6 +783,7 @@ def classify_by_fast_rule(text: str) -> IntentResult | None:
         "rule_product_image_request",
         "rule_product_purchase_query",
         "rule_product_recommendation_request",
+        "rule_membership_product_request",
         "rule_orchid_supply_shortage",
         "rule_explicit_order_intent",
         "rule_order_service_action",
@@ -771,6 +870,13 @@ async def classify_intent(
             }
         )
 
+    selected_product_followup = classify_selected_product_followup(
+        message.message,
+        user_state.metadata,
+    )
+    if selected_product_followup is not None:
+        return selected_product_followup
+
     opening_followup = classify_opening_followup(
         message.message,
         user_state.metadata.get("recent_turns", []),
@@ -815,6 +921,37 @@ async def classify_intent(
             update={"confidence": min(rule_intent.confidence + 0.05, 1.0)}
         )
     return _with_decision_blocker(rule_intent, message.message)
+
+
+def classify_selected_product_followup(
+    text: str,
+    metadata: dict | None,
+) -> IntentResult | None:
+    metadata = metadata if isinstance(metadata, dict) else {}
+    product_keyword = str(
+        metadata.get("commerce_last_product_keyword") or ""
+    ).strip()
+    normalized = normalize_intent_text(text)
+    if not product_keyword or not PRICE_ONLY_FOLLOWUP_PATTERN.fullmatch(normalized):
+        return None
+    product_kind = str(metadata.get("commerce_last_product_kind") or "").strip()
+    slots = {
+        "conversation_topic": "product_recommendation",
+        "product_keywords": [product_keyword],
+    }
+    if product_kind:
+        slots["product_request_kind"] = product_kind
+    return _validated_intent(
+        {
+            "primary_domain": "product",
+            "primary_goal": "seek_help",
+            "issues": ["product_selection", "price_value"],
+            "sales_stage": "closing",
+            "confidence": 0.98,
+            "slots": slots,
+            "reason": "contextual_selected_product_price",
+        }
+    )
 
 
 def schedule_intent_shadow_evaluation(
@@ -984,6 +1121,8 @@ def classify_opening_followup(
     if not asked_for_profile:
         return None
     normalized = normalize_intent_text(text)
+    if hit_any(normalized, CARE_INCIDENT_WORDS):
+        return None
     if not (
         PLANT_COUNT_PATTERN.search(normalized)
         or hit_any(normalized, ORCHID_VARIETY_WORDS)

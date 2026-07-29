@@ -11,6 +11,7 @@ from app.domains.catalog.services.product_knowledge_service import search_catalo
 
 
 MOBILE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
+PRICE_YUAN_PATTERN = re.compile(r"(?<!\d)(\d+(?:\.\d{1,2})?)\s*元")
 logger = logging.getLogger("wechat_rag_bot.commerce_query")
 PRODUCT_IMAGE_REQUEST_WORDS = (
     "图片",
@@ -71,7 +72,7 @@ async def build_commerce_context(
 ) -> BusinessFacts:
     if intent.slots.get("conversation_topic") == "order_information":
         return BusinessFacts()
-    commerce_type = _commerce_type(intent)
+    commerce_type = _commerce_type(intent, user_state)
     if not commerce_type:
         return BusinessFacts()
     if allowed_source_groups is not None:
@@ -115,6 +116,14 @@ async def build_commerce_context(
             )
             if str(value).strip()
         ]
+        if (
+            not product_keywords
+            and intent.primary_intent == "payment_intent"
+            and user_state.metadata.get("commerce_last_product_keyword")
+        ):
+            product_keywords = [
+                str(user_state.metadata["commerce_last_product_keyword"]).strip()
+            ]
         keyword = (
             product_keywords[0]
             if product_keywords
@@ -135,17 +144,25 @@ async def build_commerce_context(
             )
         try:
             product_data = []
+            membership_request = (
+                intent.slots.get("product_request_kind") == "membership"
+            )
             for search_keyword in product_keywords or [keyword]:
+                search_limit = (
+                    3
+                    if membership_request
+                    else (1 if product_keywords else 3)
+                )
                 if product_service is not None:
                     products = await product_service.search(
                         search_keyword,
-                        limit=1 if product_keywords else 3,
+                        limit=search_limit,
                     )
                     matches = [product.model_dump() for product in products]
                 else:
                     matches = search_catalog_products(
                         search_keyword,
-                        limit=1 if product_keywords else 3,
+                        limit=search_limit,
                     )
                 for product in matches:
                     item_id = str(product.get("item_id") or "")
@@ -155,6 +172,10 @@ async def build_commerce_context(
                     ):
                         continue
                     product_data.append(product)
+            product_data = _prefer_requested_price(
+                product_data,
+                message.message,
+            )
             if allowed_source_groups is not None:
                 product_data = _restrict_product_data(
                     product_data,
@@ -182,6 +203,17 @@ async def build_commerce_context(
                 "thumb_url": product_data[0].get("image_url", ""),
                 "title": product_data[0].get("title", ""),
             }
+        if product_data:
+            first_product = product_data[0]
+            user_state.metadata["commerce_last_product_keyword"] = str(
+                first_product.get("title") or keyword
+            ).strip()
+            user_state.metadata["commerce_last_product_id"] = str(
+                first_product.get("item_id") or ""
+            ).strip()
+            user_state.metadata["commerce_last_product_kind"] = str(
+                intent.slots.get("product_request_kind") or ""
+            ).strip()
         return BusinessFacts(tool_state=tool_state)
 
     if order_service is None:
@@ -283,7 +315,7 @@ async def build_commerce_context(
     return BusinessFacts(tool_state=tool_state)
 
 
-def _commerce_type(intent) -> str:
+def _commerce_type(intent, user_state=None) -> str:
     primary_intent = str(getattr(intent, "primary_intent", "") or "")
     if primary_intent in {
         "product_query",
@@ -294,6 +326,12 @@ def _commerce_type(intent) -> str:
         return "product"
     if primary_intent == "order_query":
         return "order"
+    if (
+        primary_intent == "payment_intent"
+        and user_state is not None
+        and getattr(user_state, "metadata", {}).get("commerce_last_product_keyword")
+    ):
+        return "product"
     slots = getattr(intent, "slots", {})
     if isinstance(slots, dict) and slots.get(
         "conversation_topic"
@@ -306,6 +344,24 @@ def _commerce_type(intent) -> str:
     ):
         return "product"
     return ""
+
+
+def _prefer_requested_price(products: list[dict], text: str) -> list[dict]:
+    match = PRICE_YUAN_PATTERN.search(str(text or ""))
+    if match is None:
+        match = re.fullmatch(
+            r"\s*(\d+(?:\.\d{1,2})?)\s*(?:元|块)?(?:是吗|对吗|吗)?[？?]?\s*",
+            str(text or ""),
+        )
+    if not match or len(products) < 2:
+        return products
+    target_price_cent = round(float(match.group(1)) * 100)
+    return sorted(
+        products,
+        key=lambda product: (
+            product.get("price_cent") != target_price_cent,
+        ),
+    )
 
 
 def _restrict_product_data(

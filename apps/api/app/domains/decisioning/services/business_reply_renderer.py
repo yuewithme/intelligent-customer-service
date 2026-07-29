@@ -94,6 +94,16 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             return None
         else:
             first = products[0]
+            if state.get("product_request_kind") == "membership":
+                price = first.get("price_cent") if isinstance(first, dict) else None
+                price_text = (
+                    f"，当前售价{price / 100:g}元" if isinstance(price, int) else ""
+                )
+                answer = (
+                    f"可以，店里的会员资格可以直接购买{price_text}。"
+                    "下面是对应的真实商品卡片，点击就可以查看和下单。"
+                )
+                return _commerce_final_reply(answer, state)
             if state.get("product_request_kind") == "supply_shortage":
                 keywords = state.get("requested_product_keywords")
                 keywords = keywords if isinstance(keywords, list) else []
@@ -306,6 +316,10 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
         route="template_reply",
         metadata={
             "business_facts_used": True,
+            "allow_persona_extension": (
+                state.get("commerce_type") == "product"
+                and state.get("status") == "found"
+            ),
             "commerce_action": {
                 "commerce_type": state.get("commerce_type"),
                 "status": state.get("status"),

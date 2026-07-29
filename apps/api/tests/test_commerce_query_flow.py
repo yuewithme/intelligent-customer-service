@@ -197,6 +197,99 @@ async def test_product_selection_semantics_build_structured_product_facts():
 
 
 @pytest.mark.asyncio
+async def test_membership_request_uses_local_product_and_exact_price_card():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert keyword == "首单参与陪伴养兰客户"
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id="membership-99",
+                    title="首单参与陪伴养兰客户 专享特惠链接",
+                    price_cent=9900,
+                    h5_url="https://h5.youzan.com/goods/member-99",
+                ),
+                YouzanProduct(
+                    item_id="membership-39",
+                    title="首单参与陪伴养兰客户 专享特惠链接",
+                    price_cent=3990,
+                    h5_url="https://h5.youzan.com/goods/member-39",
+                ),
+            ]
+
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="product_query",
+        primary_domain="product",
+        primary_goal="seek_help",
+        issues=["product_selection"],
+        slots={
+            "conversation_topic": "product_recommendation",
+            "product_keywords": ["首单参与陪伴养兰客户"],
+            "product_request_kind": "membership",
+        },
+        confidence=0.99,
+        need_template=True,
+    )
+    state = UserState(user_id="wxid-customer")
+
+    facts = await build_commerce_context(
+        _message("39.9元可以加入会员吗？"),
+        state,
+        intent,
+        product_service=FakeProductService(),
+    )
+    reply = await render_business_reply(_message("39.9元可以加入会员吗？"), facts)
+
+    assert facts.tool_state["products"][0]["item_id"] == "membership-39"
+    assert state.metadata["commerce_last_product_id"] == "membership-39"
+    assert reply is not None
+    assert "会员资格" in reply.answer
+    assert "39.9元" in reply.answer
+    assert json.loads(reply.outbound_messages[1].content)["url"].endswith("member-39")
+
+
+@pytest.mark.asyncio
+async def test_payment_followup_reuses_last_selected_membership_product():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert keyword == "首单参与陪伴养兰客户 专享特惠链接"
+            assert limit == 1
+            return [
+                YouzanProduct(
+                    item_id="membership-39",
+                    title=keyword,
+                    price_cent=3990,
+                    h5_url="https://h5.youzan.com/goods/member-39",
+                )
+            ]
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={
+            "commerce_last_product_keyword": "首单参与陪伴养兰客户 专享特惠链接",
+            "commerce_last_product_id": "membership-39",
+        },
+    )
+    facts = await build_commerce_context(
+        _message("现在付款吗？"),
+        state,
+        _intent("payment_intent"),
+        product_service=FakeProductService(),
+    )
+
+    assert facts.tool_state["status"] == "found"
+    assert facts.tool_state["products"][0]["item_id"] == "membership-39"
+
+
+@pytest.mark.asyncio
 async def test_supply_shortage_returns_real_pot_and_medium_cards():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
     from app.domains.decisioning.services.business_reply_renderer import (

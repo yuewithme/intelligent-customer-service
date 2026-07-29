@@ -231,6 +231,23 @@ def test_existing_reply_question_suppresses_additional_sales_question():
     assert result.metadata["sales_action_question_suppressed"] == "existing_question"
 
 
+def test_question_language_without_punctuation_suppresses_duplicate_question():
+    decision = decide_sales_action(
+        user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
+        intent=_intent(),
+    )
+    reply = FinalReply(
+        answer="先按您说的情况排查，您平时用什么植料种的",
+        reply_type="rag",
+        route="rag_answer",
+    )
+
+    result = apply_sales_action(reply, decision)
+
+    assert result.answer == reply.answer
+    assert result.metadata["sales_action_question_suppressed"] == "existing_question"
+
+
 def test_template_reply_appends_only_the_catalog_question_slot():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),

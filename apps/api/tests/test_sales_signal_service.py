@@ -118,6 +118,33 @@ def test_verified_youzan_order_status_is_trusted_purchase_evidence():
     assert CustomerSignal.PURCHASED in result.signals
 
 
+def test_catalog_match_sets_existing_selected_product_slots():
+    intent = _intent("product_query")
+
+    result = normalize_sales_signals(
+        message=_message("怎么加入会员"),
+        user_state=UserState(user_id="user_1"),
+        intent=intent,
+        tag_result=_tag(intent),
+        business_facts=BusinessFacts(
+            tool_state={
+                "commerce_type": "product",
+                "status": "found",
+                "products": [
+                    {
+                        "item_id": "membership-39",
+                        "title": "首单参与陪伴养兰客户 专享特惠链接",
+                    }
+                ],
+            }
+        ),
+    )
+
+    assert result.slots["selected_product_id"] == "membership-39"
+    assert result.slots["selected_product_name"] == "首单参与陪伴养兰客户 专享特惠链接"
+    assert CustomerSignal.RECOMMENDATION_ENGAGED in result.signals
+
+
 def test_care_question_is_service_need_not_automatic_after_sale():
     intent = _intent("care_question", pain_point="黄叶")
 

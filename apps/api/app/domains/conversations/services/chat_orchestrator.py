@@ -326,7 +326,7 @@ async def handle_chat(request: ChatRequest) -> dict:
                 "sales_stage": sales_stage_decision.stage,
                 "reason": plan.reason,
                 "slots": {
-                    **intent.slots,
+                    **normalized_intent.slots,
                     "original_route": plan.original_route or intent.route,
                     "sales_stage_reason": sales_stage_decision.reason,
                 },

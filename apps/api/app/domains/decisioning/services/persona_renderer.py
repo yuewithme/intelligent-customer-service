@@ -33,7 +33,8 @@ async def render_persona_reply(
 
     composition_instruction = (
         "business_anchor 会作为第一条消息原样发送。你只生成紧接其后的"
-        "第二条自然消息，不要复述、改写或总结 business_anchor。"
+        "第二条自然消息，不要复述、改写或总结 business_anchor，也不要新增"
+        "商品卖点、价格、库存、权益、时效或其他业务事实。"
         if spec.composition_mode == "anchor_plus_persona"
         else ""
     )

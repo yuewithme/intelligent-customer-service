@@ -41,6 +41,7 @@ def _message(text: str) -> NormalizedMessage:
             "product_query",
         ),
         ("家里盆和植料不够。", "template_reply", "product_query"),
+        ("怎么加入会员？", "template_reply", "product_query"),
         ("怎么申请售后？", "rag_answer", "process_question"),
         ("什么时候发货？", "template_reply", "ask_logistics"),
         ("已下单成功，请晚一天发货", "template_reply", "order_query"),
@@ -98,6 +99,49 @@ async def test_supply_shortage_becomes_structured_product_need():
         "兰花专用植料",
     ]
     assert intent.slots["product_request_kind"] == "supply_shortage"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "怎么加入会员？",
+        "店里的会员多少钱？",
+        "39.9元可以开通会员吗？",
+    ],
+)
+async def test_membership_qualification_routes_to_local_product_catalog(text):
+    intent = await classify_intent(
+        _message(text),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.primary_domain == "product"
+    assert intent.primary_goal == "seek_help"
+    assert intent.issues == ["product_selection"]
+    assert intent.slots["product_keywords"] == ["首单参与陪伴养兰客户"]
+    assert intent.slots["product_request_kind"] == "membership"
+    assert intent.reason == "rule_membership_product_request"
+
+
+@pytest.mark.asyncio
+async def test_price_only_followup_reuses_selected_membership_product():
+    state = UserState(
+        user_id="user_intent",
+        metadata={
+            "commerce_last_product_keyword": "首单参与陪伴养兰客户 专享特惠链接",
+            "commerce_last_product_kind": "membership",
+        },
+    )
+
+    intent = await classify_intent(_message("39.9？"), state)
+
+    assert intent.primary_intent == "product_query"
+    assert intent.slots["product_keywords"] == [
+        "首单参与陪伴养兰客户 专享特惠链接"
+    ]
+    assert intent.slots["product_request_kind"] == "membership"
+    assert intent.reason == "contextual_selected_product_price"
 
 
 @pytest.mark.asyncio
@@ -380,6 +424,41 @@ async def test_opening_profile_does_not_treat_beginner_as_a_region():
     assert intent.slots["plant_count"] == 10
     assert intent.slots["owned_varieties"] == ["建兰"]
     assert "region" not in intent.slots
+
+
+@pytest.mark.asyncio
+async def test_opening_profile_question_does_not_swallow_a_care_incident():
+    state = UserState(
+        user_id="user_intent",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "家里目前养了多少盆兰花？具体养了哪些品种？",
+                }
+            ]
+        },
+    )
+
+    intent = await classify_intent(
+        _message("狗碰烂了一盆，发现黑根空根"),
+        state,
+    )
+
+    assert intent.primary_intent == "care_question"
+    assert intent.reason != "opening_profile_answer"
+
+
+@pytest.mark.asyncio
+async def test_deferred_photo_followup_ends_without_sales_discovery():
+    intent = await classify_intent(
+        _message("我下班后拍给你看"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.primary_domain == "conversation"
+    assert intent.primary_goal == "end_conversation"
+    assert intent.slots["chitchat_kind"] == "defer"
 
 
 @pytest.mark.asyncio

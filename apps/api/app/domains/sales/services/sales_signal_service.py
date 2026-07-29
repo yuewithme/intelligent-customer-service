@@ -95,6 +95,10 @@ def normalize_sales_signals(
     intent_slots = _normalize_slots(intent.slots)
     incoming_slots = {**tag_slots, **intent_slots}
     slots = {**profile_slots, **existing_slots, **incoming_slots}
+    selected_product = _trusted_selected_product(business_facts)
+    if selected_product:
+        slots["selected_product_id"] = selected_product["item_id"]
+        slots["selected_product_name"] = selected_product["title"]
 
     evidence: list[SalesStageEvidence] = []
     signals: list[CustomerSignal] = []
@@ -105,6 +109,14 @@ def normalize_sales_signals(
         _add_evidence(evidence, f"slot:{key}", "opportunity", value)
     for key, value in incoming_slots.items():
         _add_evidence(evidence, f"slot:{key}", "message", value)
+    if selected_product:
+        _add_evidence(
+            evidence,
+            "slot:selected_product_id",
+            "commerce",
+            selected_product["item_id"],
+            trusted=True,
+        )
 
     for value in intent.sales_signals:
         signal = _customer_signal(value)
@@ -203,6 +215,28 @@ def normalize_sales_signals(
         incoming_slots=tuple(incoming_slots),
         evidence=tuple(_dedupe_evidence(evidence)),
     )
+
+
+def _trusted_selected_product(
+    business_facts: BusinessFacts | None,
+) -> dict[str, str] | None:
+    if business_facts is None:
+        return None
+    state = business_facts.tool_state
+    if state.get("commerce_type") != "product" or state.get("status") != "found":
+        return None
+    products = state.get("products")
+    if (
+        not isinstance(products, list)
+        or not products
+        or not isinstance(products[0], dict)
+    ):
+        return None
+    item_id = str(products[0].get("item_id") or "").strip()
+    title = str(products[0].get("title") or "").strip()
+    if not item_id:
+        return None
+    return {"item_id": item_id, "title": title}
 
 
 def _active_opportunity(user_state: UserState) -> dict:

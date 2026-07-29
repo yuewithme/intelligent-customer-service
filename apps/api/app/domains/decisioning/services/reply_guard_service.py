@@ -52,7 +52,6 @@ def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
         fallback_reason = "unsolicited_information_request"
     elif (
         spec.composition_mode == "anchor_plus_persona"
-        and not spec.verified_facts
         and any(pattern.search(answer) for pattern in UNVERIFIED_PERSONA_FACT_PATTERNS)
     ):
         fallback_reason = "unverified_fact_claim"

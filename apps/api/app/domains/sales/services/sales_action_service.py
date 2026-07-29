@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -27,6 +28,11 @@ LONG_TERM_OPPORTUNITY_SLOTS = {
     "difficulty_preference",
     "collection_preference",
 }
+QUESTION_LANGUAGE_PATTERN = re.compile(
+    r"(?:请问|想问|是否|能否|方便(?:说|发|提供|告诉)|"
+    r"可以.{0,8}吗|有没有|怎么|如何|为什么|多少|"
+    r"哪(?:个|些|种|款|里|儿)?|什么)"
+)
 
 
 class SalesActionDecision(BaseModel):
@@ -165,7 +171,7 @@ def apply_sales_action(
                 }
             }
         )
-    if "？" in reply.answer or "?" in reply.answer:
+    if _contains_question(reply.answer):
         return reply.model_copy(
             update={
                 "metadata": {
@@ -197,6 +203,10 @@ def apply_sales_action(
             },
         }
     )
+
+
+def _contains_question(text: str) -> bool:
+    return "？" in text or "?" in text or bool(QUESTION_LANGUAGE_PATTERN.search(text))
 
 
 def evolve_opportunity(
