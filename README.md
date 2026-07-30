@@ -1,4 +1,4 @@
-# 智能客服 / AI Sales Agent
+# 智能销售 / AI Sales Agent
 
 面向微信私域销售场景的智能客服系统，由 FastAPI 后端与 Vue 运营后台组成。
 
