@@ -26,11 +26,11 @@ def conversation_case_env(tmp_path, monkeypatch):
 def test_all_imported_conversations_are_exposed_as_whole_cases():
     result = conversation_case_service.list_conversation_cases()
 
-    assert result["total"] == 47
+    assert result["total"] == 60
     assert result["source_counts"] == {
         "case_01_10": 10,
         "first_order_cases": 20,
-        "case_library_2": 17,
+        "case_library_2": 30,
     }
     detail = conversation_case_service.get_conversation_case("case12")
     assert detail is not None
@@ -49,7 +49,7 @@ def test_case_api_returns_full_transcript_and_jsonl_export():
 
     listing = client.get("/api/v1/admin/conversation-cases")
     assert listing.status_code == 200
-    assert listing.json()["data"]["total"] == 47
+    assert listing.json()["data"]["total"] == 60
 
     detail = client.get("/api/v1/admin/conversation-cases/case2_01")
     assert detail.status_code == 200
@@ -58,7 +58,7 @@ def test_case_api_returns_full_transcript_and_jsonl_export():
 
     exported = client.get("/api/v1/admin/conversation-cases/export")
     assert exported.status_code == 200
-    assert exported.text.count("\n") == 47
+    assert exported.text.count("\n") == 60
 
 
 @pytest.mark.asyncio

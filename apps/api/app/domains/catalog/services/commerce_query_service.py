@@ -71,6 +71,61 @@ MEMBERSHIP_SERVICE_CAPABILITIES = (
     "系统的视频课程",
     "结合具体养护问题的一对一指导",
 )
+MEMBERSHIP_PRODUCT_QUERY = "首单参与陪伴养兰客户"
+ORCHID_PRODUCT_MARKERS = (
+    "兰花",
+    "国兰",
+    "建兰",
+    "春兰",
+    "蕙兰",
+    "墨兰",
+    "寒兰",
+    "春剑",
+    "莲瓣兰",
+    "四季兰",
+    "蝴蝶兰",
+    "石斛兰",
+    "兜兰",
+)
+NON_ORCHID_PRODUCT_MARKERS = (
+    "花盆",
+    "紫砂盆",
+    "植料",
+    "基质",
+    "营养土",
+    "肥料",
+    "工具",
+    "会员",
+    "服务",
+    "课程",
+)
+MEMBERSHIP_CAPABILITY_MARKERS = (
+    "服务",
+    "权益",
+    "包含",
+    "老师",
+    "一对一",
+    "指导",
+    "具体情况",
+    "看我这盆",
+    "帮我看",
+)
+MEMBERSHIP_PRICE_MARKERS = ("多少钱", "价格", "费用", "收费", "几元", "多少元")
+MEMBERSHIP_PURCHASE_MARKERS = (
+    "怎么加入",
+    "如何加入",
+    "怎么开通",
+    "如何开通",
+    "购买",
+    "下单",
+    "付款",
+    "支付",
+    "链接",
+    "入口",
+    "发我",
+    "加入会员吗",
+    "开通会员吗",
+)
 
 
 def verified_membership_brand_facts() -> list[dict]:
@@ -172,6 +227,11 @@ async def build_commerce_context(
             )
             or ""
         ).strip()
+        if product_request_kind and product_request_kind not in {
+            "membership",
+            "matched_orchid",
+        }:
+            return BusinessFacts()
         product_keywords = [
             str(value).strip()
             for value in (
@@ -189,17 +249,28 @@ async def build_commerce_context(
             product_keywords = [
                 str(user_state.metadata["commerce_last_product_keyword"]).strip()
             ]
+        membership_request = product_request_kind == "membership"
+        if not product_request_kind:
+            product_request_kind = "matched_orchid"
         keyword = (
-            product_keywords[0]
-            if product_keywords
-            else _product_keyword(
-                message.message,
-                intent.slots,
-                user_state.metadata.get("recent_turns"),
+            MEMBERSHIP_PRODUCT_QUERY
+            if membership_request
+            else (
+                product_keywords[0]
+                if product_keywords
+                else _orchid_catalog_query(
+                    message.message,
+                    intent.slots,
+                    user_state.metadata,
+                )
             )
         )
-        if business_action == CATALOG_SEARCH:
-            keyword = _catalog_query(message.message, keyword, user_state.metadata)
+        if business_action == CATALOG_SEARCH and not membership_request:
+            keyword = _orchid_catalog_query(
+                message.message,
+                intent.slots,
+                user_state.metadata,
+            )
         if not keyword:
             if intent.primary_intent == "order_intent":
                 return BusinessFacts()
@@ -211,7 +282,6 @@ async def build_commerce_context(
             )
         try:
             product_data = []
-            membership_request = product_request_kind == "membership"
             for search_keyword in product_keywords or [keyword]:
                 search_limit = (
                     3
@@ -237,6 +307,14 @@ async def build_commerce_context(
                     ):
                         continue
                     product_data.append(product)
+            product_data = [
+                product
+                for product in product_data
+                if _is_allowed_ai_product(
+                    product,
+                    product_request_kind=product_request_kind,
+                )
+            ]
             product_data = _prefer_requested_price(
                 product_data,
                 message.message,
@@ -252,6 +330,40 @@ async def build_commerce_context(
             return BusinessFacts(
                 tool_state={"commerce_type": "product", "status": "unavailable"}
             )
+        membership_question_kind = (
+            str(intent.slots.get("membership_question_kind") or "").strip()
+            or _membership_question_kind(message.message)
+            if membership_request
+            else None
+        )
+        send_purchase_card = bool(product_data) and (
+            (
+                membership_request
+                and membership_question_kind in {"purchase", "combined"}
+            )
+            or not membership_request
+        )
+        if send_purchase_card and not any(
+            str(product.get("page_path") or product.get("h5_url") or "").strip()
+            for product in product_data
+            if isinstance(product, dict)
+        ):
+            send_purchase_card = False
+        first_product_id = (
+            str(product_data[0].get("item_id") or "").strip()
+            if product_data
+            else ""
+        )
+        explicitly_requested_card = _explicitly_requests_purchase_card(
+            message.message
+        )
+        if (
+            send_purchase_card
+            and first_product_id
+            and _card_already_sent(user_state.metadata, first_product_id)
+            and not explicitly_requested_card
+        ):
+            send_purchase_card = False
         tool_state = {
             "commerce_type": "product",
             "status": "found" if product_data else "not_found",
@@ -268,6 +380,8 @@ async def build_commerce_context(
                 )
             ),
             "requested_capabilities": _requested_capabilities(message.message),
+            "membership_question_kind": membership_question_kind,
+            "send_purchase_card": send_purchase_card,
             "business_action": business_action,
         }
         if membership_request and product_data:
@@ -282,9 +396,21 @@ async def build_commerce_context(
                 "thumb_url": product_data[0].get("image_url", ""),
                 "title": product_data[0].get("title", ""),
             }
+        if send_purchase_card and first_product_id:
+            sent_ids = (
+                list(user_state.metadata.get("commerce_sent_card_ids"))
+                if isinstance(
+                    user_state.metadata.get("commerce_sent_card_ids"),
+                    list,
+                )
+                else []
+            )
+            if first_product_id not in sent_ids:
+                sent_ids.append(first_product_id)
+            user_state.metadata["commerce_sent_card_ids"] = sent_ids[-20:]
         if (
             product_data
-            and product_request_kind != "supply_shortage"
+            and product_request_kind in {"membership", "matched_orchid"}
         ):
             first_product = product_data[0]
             user_state.metadata["commerce_last_product_keyword"] = str(
@@ -529,6 +655,14 @@ async def _selected_product_facts(
                 "query_performed": True,
             }
         )
+    selected_kind = str(
+        user_state.metadata.get("commerce_last_product_kind") or "matched_orchid"
+    ).strip()
+    if not _is_allowed_ai_product(
+        product_data,
+        product_request_kind=selected_kind,
+    ):
+        return BusinessFacts()
     if allowed_source_groups is not None:
         products = _restrict_product_data(
             [product_data],
@@ -545,6 +679,7 @@ async def _selected_product_facts(
         "business_action": SELECTED_PRODUCT_DETAIL,
         "detail_question": str(message.message or ""),
         "send_all_product_cards": False,
+        "send_purchase_card": _explicitly_requests_purchase_card(message.message),
     }
     if product_data.get("page_path"):
         tool_state["mini_program"] = {
@@ -626,6 +761,83 @@ def _catalog_query(text: str, keyword: str, metadata: dict) -> str:
     if previous and _looks_like_budget(current):
         return f"{previous}；{current}"
     return keyword or current
+
+
+def _orchid_catalog_query(text: str, slots: dict, metadata: dict) -> str:
+    """Build a catalog query without sending the raw customer message."""
+
+    current = _product_keyword(
+        text,
+        slots,
+        metadata.get("recent_turns"),
+    )
+    previous = str(metadata.get("commerce_last_catalog_query") or "").strip()
+    if previous and _looks_like_budget(current):
+        return f"{previous}；{current}"
+    if current:
+        return current
+    return str(metadata.get("commerce_last_product_keyword") or "").strip()
+
+
+def _is_allowed_ai_product(
+    product: dict,
+    *,
+    product_request_kind: str,
+) -> bool:
+    title = str(product.get("title") or "")
+    knowledge = product.get("knowledge")
+    knowledge = knowledge if isinstance(knowledge, dict) else {}
+    searchable = " ".join(
+        (
+            title,
+            str(knowledge.get("product_name") or ""),
+            str(knowledge.get("category") or ""),
+            str(knowledge.get("aliases") or ""),
+        )
+    )
+    if product_request_kind == "membership":
+        return MEMBERSHIP_PRODUCT_QUERY in searchable
+    if product_request_kind != "matched_orchid":
+        return False
+    if any(marker in searchable for marker in NON_ORCHID_PRODUCT_MARKERS):
+        return False
+    # Orchid cultivar names do not always contain "兰" (for example 小国魂).
+    # The matched-orchid request kind is the positive gate; these exclusions
+    # prevent accessories and service goods from entering the model context.
+    return bool(searchable.strip())
+
+
+def _membership_question_kind(text: str) -> str:
+    value = str(text or "")
+    asks_capability = any(marker in value for marker in MEMBERSHIP_CAPABILITY_MARKERS)
+    asks_price = any(marker in value for marker in MEMBERSHIP_PRICE_MARKERS) or bool(
+        PRICE_YUAN_PATTERN.search(value)
+    )
+    asks_purchase = any(marker in value for marker in MEMBERSHIP_PURCHASE_MARKERS)
+    if asks_purchase and (asks_capability or asks_price):
+        return "combined"
+    if asks_purchase:
+        return "purchase"
+    if asks_capability:
+        return "capability"
+    if asks_price:
+        return "price"
+    return "capability"
+
+
+def _explicitly_requests_purchase_card(text: str) -> bool:
+    value = str(text or "")
+    return any(
+        marker in value
+        for marker in ("链接", "入口", "发我", "购买", "下单", "付款", "支付")
+    )
+
+
+def _card_already_sent(metadata: dict, item_id: str) -> bool:
+    sent_ids = metadata.get("commerce_sent_card_ids")
+    return isinstance(sent_ids, list) and item_id in {
+        str(value) for value in sent_ids
+    }
 
 
 def _looks_like_budget(text: str) -> bool:
@@ -720,6 +932,11 @@ def _requested_capabilities(text: str) -> list[str]:
     capabilities = []
     if any(marker in str(text or "") for marker in ("视频", "教程", "课程")):
         capabilities.append("video_tutorial")
+    if any(
+        marker in str(text or "")
+        for marker in ("老师", "一对一", "指导", "具体情况", "看我这盆", "帮我看")
+    ):
+        capabilities.append("one_to_one_guidance")
     return capabilities
 
 

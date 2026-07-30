@@ -218,6 +218,38 @@ def test_care_reply_rewrites_or_removes_a_repeated_follow_up_question():
     ) == ["repeated_follow_up_question"]
 
 
+def test_care_reply_requires_confident_lead_without_false_diagnosis():
+    context = ContextPackage(
+        session_state={"sales_action": {"sales_action": "discover_pain"}}
+    )
+
+    assert "uncertainty_first" in rag_service.care_reply_violations(
+        "还不能只凭这一点确定，先检查盆内实际湿度。",
+        message="表面干，里面还是湿的。",
+        context=context,
+    )
+    violations = rag_service.care_reply_violations(
+        "营养土就是烂根的根源，马上脱盆剪根换成纯颗粒。",
+        message="表面干，里面还是湿的。",
+        context=context,
+    )
+    assert "overconfident_single_cause" in violations
+    assert "unsupported_invasive_action" in violations
+    assert rag_service.care_reply_violations(
+        "从表面干、内部仍湿来看，当前最需要先处理的是盆内干湿不同步。"
+        "先暂停按固定天数浇水，用竹签检查盆心，盆心接近干再浇透；"
+        "如果同时有异味、基部发软或黑根，再按根系问题处理。",
+        message="表面干，里面还是湿的。",
+        context=context,
+    ) == []
+
+
+def test_capability_filter_does_not_leave_dependent_clause_fragment():
+    assert rag_service.remove_unverified_capability_claims(
+        "我们有一对一指导，能帮您理清环境适配细节，减少反复试错。"
+    ) == "__HANDOFF__"
+
+
 def test_product_catalog_docs_only_include_fields_released_for_the_stage():
     products = [
         {
@@ -299,7 +331,7 @@ def test_product_recommendation_retrieval_question_includes_recent_context():
 
 
 @pytest.mark.asyncio
-async def test_product_recommendation_uses_new_catalog_only(monkeypatch):
+async def test_product_recommendation_never_searches_or_generates_inside_rag(monkeypatch):
     from app.core.config import get_settings
 
     async def fail_embed(text):
@@ -311,40 +343,21 @@ async def test_product_recommendation_uses_new_catalog_only(monkeypatch):
         raise AssertionError("product recommendation must not query legacy knowledge")
 
     async def fake_rerank(question, docs, top_n):
-        assert "好养" in question
-        assert docs[0]["source_table"] == "youzan_product_knowledge"
-        return docs[:top_n]
+        del question, top_n
+        assert docs == []
+        return []
 
-    async def fake_generate(prompt, *, purpose):
-        assert "逸红双娇" in prompt
-        assert "¥29.90" in prompt
-        assert purpose == "rag"
-        return {"answer": "推荐小国魂，别名逸红双娇。", "usage": {}}
+    async def fail_generate(prompt, *, purpose):
+        del prompt, purpose
+        raise AssertionError("product recommendation must be rendered from business facts")
 
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
     get_settings.cache_clear()
     monkeypatch.setattr(rag_service.embedding_service, "embed_text", fail_embed)
     monkeypatch.setattr(rag_service.qdrant_service, "search_chunks", fail_legacy_search)
     monkeypatch.setattr(rag_service, "search_orchid_knowledge_chunks", fail_legacy_search)
-    monkeypatch.setattr(
-        rag_service,
-        "search_catalog_products",
-        lambda keyword, limit: [
-            {
-                "item_id": "1001",
-                "title": "小国魂 3苗",
-                "price_cent": 2990,
-                "stock": 8,
-                "knowledge": {
-                    "product_name": "小国魂",
-                    "aliases": "逸红双娇",
-                    "care_scenes": "好养",
-                },
-            }
-        ],
-    )
     monkeypatch.setattr(rag_service.rerank_service, "rerank", fake_rerank)
-    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
+    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fail_generate)
 
     try:
         result = await rag_service.rag_chat(
@@ -360,8 +373,8 @@ async def test_product_recommendation_uses_new_catalog_only(monkeypatch):
     finally:
         get_settings.cache_clear()
 
-    assert result["answer"] == "推荐小国魂，别名逸红双娇。"
-    assert result["sources"][0]["file_name"] == "产品知识库"
+    assert result["answer"] == ""
+    assert result["sources"] == []
 
 
 @pytest.mark.asyncio
@@ -378,26 +391,15 @@ async def test_explicit_recommendation_bypasses_embeddings_even_if_policy_mode_i
         del question, top_n
         return docs
 
-    async def fake_generate(prompt, *, purpose):
+    async def fail_generate(prompt, *, purpose):
         del prompt, purpose
-        return {"answer": "推荐小国魂。", "usage": {}}
+        raise AssertionError("explicit recommendation must stay out of RAG")
 
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "true")
     get_settings.cache_clear()
     monkeypatch.setattr(rag_service.embedding_service, "embed_text", fail_embed)
-    monkeypatch.setattr(
-        rag_service,
-        "search_catalog_products",
-        lambda keyword, limit: [
-            {
-                "item_id": "1001",
-                "title": "小国魂",
-                "knowledge": {"product_name": "小国魂", "care_scenes": "好养"},
-            }
-        ],
-    )
     monkeypatch.setattr(rag_service.rerank_service, "rerank", fake_rerank)
-    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fake_generate)
+    monkeypatch.setattr(rag_service.llm_service, "generate_answer", fail_generate)
 
     try:
         result = await rag_service.rag_chat(
@@ -410,7 +412,8 @@ async def test_explicit_recommendation_bypasses_embeddings_even_if_policy_mode_i
     finally:
         get_settings.cache_clear()
 
-    assert result["answer"] == "推荐小国魂。"
+    assert result["answer"] == ""
+    assert result["sources"] == []
 
 
 def test_generic_rag_excludes_legacy_product_rows_but_keeps_common_care():

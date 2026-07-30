@@ -50,6 +50,14 @@ PURCHASE_REJECTION_WORDS = (
     "不用推荐",
     "不想买",
     "先不买",
+    "暂时不买",
+    "暂时不考虑",
+    "先不考虑",
+    "不考虑了",
+    "不买了",
+    "算了不买",
+    "别发链接",
+    "不用发链接",
 )
 SHIPPING_DAMAGE_WORDS = ("花盆碎", "盆碎", "苗歪", "运输破损", "收到后破损")
 ORDER_INFO_WORDS = ("身份证号", "详细地址", "收货地址", "电话号码", "电话")
@@ -168,6 +176,12 @@ MEMBERSHIP_ACTION_WORDS = (
     "付款",
     "支付",
     "有会员",
+    "服务",
+    "权益",
+    "包含",
+    "老师",
+    "一对一",
+    "指导",
 )
 UNSUPPORTED_WORDS = ("写代码", "彩票", "股票推荐", "医疗诊断", "法律意见", "无关业务")
 ORDER_QUERY_WORDS = (
@@ -337,6 +351,43 @@ def match_membership_product_request(text: str) -> bool:
     )
 
 
+def membership_question_kind(text: str) -> str:
+    asks_capability = hit_any(
+        text,
+        ("服务", "权益", "包含", "老师", "一对一", "指导", "具体情况", "帮我看"),
+    )
+    asks_price = hit_any(text, ("多少钱", "价格", "费用", "收费")) or bool(
+        re.search(r"\d+(?:\.\d+)?元", text)
+    )
+    asks_purchase = hit_any(
+        text,
+        (
+            "怎么加入",
+            "如何加入",
+            "怎么开通",
+            "如何开通",
+            "购买",
+            "下单",
+            "付款",
+            "支付",
+            "链接",
+            "入口",
+            "发我",
+            "加入会员吗",
+            "开通会员吗",
+        ),
+    )
+    if asks_purchase and (asks_capability or asks_price):
+        return "combined"
+    if asks_purchase:
+        return "purchase"
+    if asks_capability:
+        return "capability"
+    if asks_price:
+        return "price"
+    return "capability"
+
+
 def match_price_intent(text: str) -> str | None:
     if hit_any(text, PRICE_OBJECTION_WORDS) or hit_any(text, HESITATION_WORDS):
         return "price_objection"
@@ -447,6 +498,18 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
             }
         )
 
+    if hit_any(text, PURCHASE_REJECTION_WORDS):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_intent": "purchase_rejection",
+                "sales_stage": "closing",
+                "confidence": 0.99,
+                "need_template": True,
+                "reason": "rule_purchase_rejection",
+            }
+        )
+
     if match_deferred_followup(text):
         return _validated_intent(
             {
@@ -470,6 +533,7 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                     "conversation_topic": "product_recommendation",
                     "product_keywords": [MEMBERSHIP_PRODUCT_QUERY],
                     "product_request_kind": "membership",
+                    "membership_question_kind": membership_question_kind(text),
                 },
                 "reason": "rule_membership_product_request",
             }
@@ -490,23 +554,17 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
             }
         )
 
-    supply_keywords = match_orchid_supply_shortage(text)
-    if supply_keywords:
+    if match_orchid_supply_shortage(text):
         return _validated_intent(
             {
-                "route": "template_reply",
-                "primary_domain": "product",
+                "route": "rag_answer",
+                "primary_domain": "care",
                 "primary_goal": "seek_help",
-                "issues": ["product_selection", "medium_repotting"],
-                "sales_stage": "need_discovery",
+                "issues": ["medium_repotting"],
+                "sales_stage": "pain_discovery",
                 "confidence": 0.99,
-                "need_template": True,
-                "slots": {
-                    "conversation_topic": "product_recommendation",
-                    "product_keywords": supply_keywords,
-                    "product_request_kind": "supply_shortage",
-                },
-                "reason": "rule_orchid_supply_shortage",
+                "need_rag": True,
+                "reason": "rule_orchid_supply_care_need",
             }
         )
 
@@ -1157,6 +1215,12 @@ def _opening_profile_slots(text: str) -> dict:
     region_match = re.search(
         r"(?:我在|来自|地区(?:是|在))"
         r"([\u4e00-\u9fff]{2,10}?)(?:的|，|,|。|\s|$)",
+        text,
+    ) or re.search(
+        r"我是((?:北京|天津|上海|重庆|河北|河南|云南|辽宁|黑龙江|湖南|"
+        r"安徽|山东|新疆|江苏|浙江|江西|湖北|广西|甘肃|山西|内蒙古|"
+        r"陕西|吉林|福建|贵州|广东|青海|西藏|四川|宁夏|海南|台湾|"
+        r"香港|澳门)[\u4e00-\u9fff]{0,6}?)(?:的|人)(?:，|,|。|\s|$)",
         text,
     ) or re.search(
         r"我是([\u4e00-\u9fff]{2,8}?人)(?:，|,|。|\s|$)",

@@ -166,3 +166,19 @@ def test_flowerpot_question_uses_selected_product_details():
         intent=mistaken_knowledge_intent,
         user_state=state,
     ) == SELECTED_PRODUCT_DETAIL
+
+
+def test_rejection_blocks_product_action_even_when_intent_is_wrong():
+    mistaken_membership_intent = _intent(
+        "product_query",
+        primary_domain="product",
+        primary_goal="seek_help",
+        issues=["product_selection"],
+        slots={"product_request_kind": "membership"},
+    )
+
+    assert resolve_business_action(
+        message=_message("会员暂时不买了，别发链接"),
+        intent=mistaken_membership_intent,
+        user_state=UserState(user_id="customer-1"),
+    ) == CONVERSATION

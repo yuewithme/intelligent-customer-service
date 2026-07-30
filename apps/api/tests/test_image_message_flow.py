@@ -190,7 +190,8 @@ async def test_verified_store_order_adds_purchase_tag_and_enters_chat(monkeypatc
     assert "已验证店铺订单截图" in chat_requests[0].message
     assert "***************9059" in chat_requests[0].message
     assert chat_requests[0].metadata["verified_order_count"] == 1
-    assert queued[0]["content"] == "订单已经看到了亲"
+    assert queued[0]["content"].startswith("兰友您好！欢迎来到萧岚苑")
+    assert queued[-1]["content"] == "订单已经看到了亲"
 
 
 @pytest.mark.asyncio

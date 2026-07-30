@@ -31,6 +31,11 @@ _BUDGET_PATTERN = re.compile(
     r"[一二三四五六七八九十百两]{1,8}\s*(?:元|块)?"
     r"(?:以内|以下|之内|不超过|最多|左右|上下)"
 )
+_PURCHASE_REJECTION_PATTERN = re.compile(
+    r"不要再推荐|不要再给我推荐|别再推荐|别再给我推荐|不用推荐|"
+    r"不想买|先不买|暂时不买|暂时不考虑|先不考虑|不考虑了|"
+    r"不买了|算了不买|别发链接|不用发链接"
+)
 _CARE_INTENTS = {
     "care_question",
     "orchid_care",
@@ -63,6 +68,11 @@ def resolve_business_action(*, message, intent, user_state) -> str:
     metadata = metadata if isinstance(metadata, dict) else {}
     active_task = metadata.get("active_task")
     active_task = active_task if isinstance(active_task, dict) else {}
+    if (
+        primary_intent in {"purchase_rejection", "not_interested"}
+        or _PURCHASE_REJECTION_PATTERN.search(text)
+    ):
+        return CONVERSATION
     if (
         active_task.get("domain") == "order"
         and active_task.get("status")

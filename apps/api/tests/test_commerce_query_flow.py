@@ -412,11 +412,8 @@ async def test_payment_followup_reuses_last_selected_membership_product():
 
 
 @pytest.mark.asyncio
-async def test_supply_shortage_returns_real_pot_and_medium_cards():
+async def test_supply_shortage_products_are_blocked_before_ai_context():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
-    from app.domains.decisioning.services.business_reply_renderer import (
-        render_business_reply,
-    )
 
     class FakeProductService:
         async def search(self, keyword, *, limit):
@@ -468,20 +465,8 @@ async def test_supply_shortage_returns_real_pot_and_medium_cards():
         product_service=FakeProductService(),
         allowed_source_groups={"product_catalog"},
     )
-    reply = await render_business_reply(_message("家里盆和植料不够。"), facts)
-
-    assert [product["item_id"] for product in facts.tool_state["products"]] == [
-        "pot-1",
-        "medium-1",
-    ]
-    assert reply is not None
-    assert "可以用来补您缺的花盆和植料" in reply.answer
-    assert "购买链接" in reply.answer
-    assert [message.type for message in reply.outbound_messages] == [
-        "text",
-        "link_card",
-        "link_card",
-    ]
+    assert facts.available is False
+    assert facts.tool_state == {}
     assert state.metadata["commerce_last_product_id"] == "orchid-main"
 
 
@@ -1291,6 +1276,139 @@ async def test_product_image_renderer_sends_text_image_and_card_without_symbols(
         reply.outbound_messages[2].content
         == "https://cdn.example.com/yahuangsu-detail.jpg"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "expected_kind", "expects_card"),
+    [
+        ("会员具体有哪些服务，老师会看我这盆的情况吗？", "capability", False),
+        ("会员多少钱？", "price", False),
+        ("怎么开通会员？把购买链接发我。", "purchase", True),
+    ],
+)
+async def test_membership_questions_answer_current_need_before_card(
+    text,
+    expected_kind,
+    expects_card,
+):
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert keyword == "首单参与陪伴养兰客户"
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id="membership-39",
+                    title="首单参与陪伴养兰客户 专享特惠链接",
+                    price_cent=3990,
+                    h5_url="https://h5.youzan.com/goods/member-39",
+                )
+            ]
+
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="product_query",
+        primary_domain="product",
+        primary_goal="seek_help",
+        issues=["product_selection"],
+        slots={
+            "conversation_topic": "product_recommendation",
+            "product_keywords": ["首单参与陪伴养兰客户"],
+            "product_request_kind": "membership",
+        },
+        confidence=0.99,
+        need_template=True,
+    )
+    facts = await build_commerce_context(
+        _message(text),
+        UserState(user_id="wxid-customer"),
+        intent,
+        product_service=FakeProductService(),
+        allowed_source_groups={"product_catalog"},
+    )
+    reply = await render_business_reply(_message(text), facts)
+
+    assert facts.tool_state["membership_question_kind"] == expected_kind
+    assert facts.tool_state["send_purchase_card"] is expects_card
+    if expected_kind == "capability":
+        assert "一对一指导" in reply.answer
+    assert (
+        any(message.type in {"mini_program", "link_card"} for message in reply.outbound_messages)
+        is expects_card
+    )
+
+
+@pytest.mark.asyncio
+async def test_accessory_result_is_removed_before_ai_context():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            del keyword, limit
+            return [
+                YouzanProduct(
+                    item_id="pot-1",
+                    title="兰花专用紫砂盆",
+                    price_cent=6000,
+                    h5_url="https://h5.youzan.com/goods/pot",
+                ),
+                YouzanProduct(
+                    item_id="orchid-1",
+                    title="建兰红君荷",
+                    price_cent=6800,
+                    h5_url="https://h5.youzan.com/goods/orchid",
+                ),
+            ]
+
+    facts = await build_commerce_context(
+        _message("推荐一款好养的兰花"),
+        UserState(user_id="wxid-customer"),
+        _intent("product_query"),
+        product_service=FakeProductService(),
+        business_action=CATALOG_SEARCH,
+        allowed_source_groups={"product_catalog"},
+    )
+
+    assert [product["item_id"] for product in facts.tool_state["products"]] == [
+        "orchid-1"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_same_product_card_is_not_repeated_without_explicit_request():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            del keyword, limit
+            return [
+                YouzanProduct(
+                    item_id="orchid-1",
+                    title="建兰红君荷",
+                    price_cent=6800,
+                    h5_url="https://h5.youzan.com/goods/orchid",
+                )
+            ]
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={"commerce_sent_card_ids": ["orchid-1"]},
+    )
+    facts = await build_commerce_context(
+        _message("这款适合新手吗？"),
+        state,
+        _intent("product_query"),
+        product_service=FakeProductService(),
+    )
+
+    assert facts.tool_state["status"] == "found"
+    assert facts.tool_state["send_purchase_card"] is False
 
 
 @pytest.mark.asyncio

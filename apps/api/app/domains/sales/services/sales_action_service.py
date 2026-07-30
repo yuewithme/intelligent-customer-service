@@ -75,6 +75,26 @@ def decide_sales_action(
     if stage == "unknown":
         stage = normalize_sales_stage(user_state.sales_stage)
 
+    if intent.slots.get("product_request_kind") == "membership":
+        membership_kind = str(
+            intent.slots.get("membership_question_kind") or "capability"
+        )
+        if membership_kind in {"capability", "price"}:
+            return _decision(
+                "先准确回答客户当前询问的会员权益或价格，不主动追加购买动作",
+                "answer_current_question",
+                known_slots,
+                customer_signal="interested",
+                reason="membership_question_priority",
+            )
+        return _decision(
+            "回答客户当前问题后提供真实会员购买入口",
+            "close_order",
+            known_slots,
+            customer_signal="ready_to_buy",
+            reason="membership_purchase_priority",
+        )
+
     loop_reason = str(intent.slots.get("sales_stage_reason") or "")
     if loop_reason == "customer_value_concern" and stage == SalesStage.VALUE_BUILT.value:
         return _decision(

@@ -40,7 +40,7 @@ def _message(text: str) -> NormalizedMessage:
             "template_reply",
             "product_query",
         ),
-        ("家里盆和植料不够。", "template_reply", "product_query"),
+        ("家里盆和植料不够。", "rag_answer", "care_question"),
         ("怎么加入会员？", "template_reply", "product_query"),
         ("怎么申请售后？", "rag_answer", "process_question"),
         ("什么时候发货？", "template_reply", "ask_logistics"),
@@ -86,19 +86,18 @@ async def test_explicit_product_recommendation_keeps_catalog_capability():
 
 
 @pytest.mark.asyncio
-async def test_supply_shortage_becomes_structured_product_need():
+async def test_supply_shortage_stays_in_care_and_does_not_request_products():
     intent = await classify_intent(
         _message("家里盆和植料不够。"),
         UserState(user_id="user_intent"),
     )
 
     assert intent.classifier_source == "hard_rule"
-    assert intent.issues == ["product_selection", "medium_repotting"]
-    assert intent.slots["product_keywords"] == [
-        "兰花专用紫砂盆",
-        "兰花专用植料",
-    ]
-    assert intent.slots["product_request_kind"] == "supply_shortage"
+    assert intent.primary_domain == "care"
+    assert intent.issues == ["medium_repotting"]
+    assert "product_keywords" not in intent.slots
+    assert "product_request_kind" not in intent.slots
+    assert intent.reason == "rule_orchid_supply_care_need"
 
 
 @pytest.mark.asyncio
@@ -531,6 +530,19 @@ async def test_price_scope_does_not_become_purchase_rejection():
 
     assert intent.primary_intent == "price_objection"
     assert intent.reason == "rule_explicit_price_objection"
+
+
+@pytest.mark.asyncio
+async def test_membership_rejection_wins_before_membership_product_routing():
+    intent = await classify_intent(
+        _message("会员我暂时不买了，也不用发链接。"),
+        UserState(user_id="user_intent"),
+    )
+
+    assert intent.primary_intent == "purchase_rejection"
+    assert intent.primary_domain == "commerce"
+    assert "product_request_kind" not in intent.slots
+    assert intent.reason == "rule_purchase_rejection"
 
 
 @pytest.mark.asyncio

@@ -15,7 +15,6 @@ from app.domains.knowledge.services import (
 from app.integrations.ai.services import llm_service
 from app.domains.catalog.orchid_products.knowledge_index import search_orchid_knowledge_chunks
 from app.domains.knowledge.services.context_selector import select_context
-from app.domains.catalog.services.product_knowledge_service import search_catalog_products
 from app.domains.decisioning.services.prompt_builder import build_prompt
 from app.core.ids import generate_id
 from app.core.logger import log_event
@@ -77,13 +76,14 @@ UNVERIFIED_CAPABILITY_PATTERNS = (
     re.compile(r"(?:花盆|植料).{0,12}(?:一起|打包|随货).{0,8}(?:发|寄|送)"),
 )
 CAPABILITY_CAVEAT_PATTERN = re.compile(
-    r"(?:不确定|未确认|未核实|不能承诺|需要核实|需核实|是否|以订单为准)"
+    r"(?:不确定|未确认|未核实|不能承诺|需要核实|需核实|是否|以订单为准|"
+    r"没有|不包含|不提供)"
 )
 EDUCATION_RESOURCE_PATTERN = re.compile(
     r"(?:课程|教程|视频|社群|群指导|一对一|养护教学)"
 )
 AFFIRMATIVE_RESOURCE_CLAIM_PATTERN = re.compile(
-    r"(?:配套|包含|提供|赠送|送您|开通|都有|也有|有详细|有专门|可以看|能看)"
+    r"(?:配套|包含|提供|赠送|送您|开通|有|都有|也有|有详细|有专门|可以看|能看)"
 )
 PRODUCT_RECOMMENDATION_REQUEST_MARKERS = (
     "推荐",
@@ -137,7 +137,7 @@ PROFILE_LOCATION_PATTERN = re.compile(
 )
 TRAILING_CARE_QUESTION_PATTERN = re.compile(
     r"([^。！!\n]{2,80}(?:"
-    r"[？?]|吗(?:[啊呢呀吧])?|呢|什么|怎么|如何|为什么|多少|"
+    r"[？?]|吗(?:[啊呢呀吧])?|呢|什么|怎么|怎么样|如何|为什么|多少|"
     r"哪(?:个|些|种|款|里|儿)?|是.{1,16}还是.{1,16}"
     r"))\s*$"
 )
@@ -148,6 +148,17 @@ CARE_QUESTION_TOPICS = {
     "light": ("光照", "直射光", "散射光"),
     "ventilation": ("通风", "风口"),
 }
+UNCERTAINTY_FIRST_PATTERN = re.compile(
+    r"^\s*(?:还不能|暂时不能|目前不能|无法|不好|不太好|仅凭.{0,12}(?:不能|无法)|"
+    r"可能是.{0,24}(?:但|不过))"
+)
+OVERCONFIDENT_CAUSE_PATTERN = re.compile(
+    r"(?:就是|肯定是|一定是|必然是).{0,24}(?:原因|根源|导致)"
+    r"|(?:原因|根源)(?:就是|一定是|肯定是)"
+)
+UNSUPPORTED_INVASIVE_ACTION_PATTERN = re.compile(
+    r"(?:立刻|马上|直接|立即).{0,16}(?:脱盆|翻盆|剪根|修根|停水|换成纯颗粒|换植料)"
+)
 
 
 PROMPT_TEMPLATE = """
@@ -175,12 +186,13 @@ PROMPT_TEMPLATE = """
 
 1. 必须优先参考【参考资料】回答，综合资料内容生成自然、温和、可执行的回复，不要机械照搬原文。
 2. 回复要像真实客服在私域里沟通：先回应用户关切，再给出判断、建议或下一步操作。
-3. 可以给出养护方向、判断思路和操作建议，但不要承诺资料未明确支持的内容，包括具体天数、药量、疗效、库存、价格、赔付、退款、补发、售后结论或订单处理结果。
-4. 不要出现“参考资料”“知识库”“资料显示”“根据资料”“系统判断”“推荐回复”“来源文件”“页码”“标签”“适用场景”等内部说明词。
-5. 如果资料中有多个信息块，优先采用与用户问题最直接相关、内容更完整、非泛泛而谈、的内容。
-6. 如果资料内容存在轻微差异，但能提炼共同原则，则先给出共同原则，避免武断下结论。
-7. 信息不足、资料与问题无关、资料严重冲突或缺少关键判断信息时，不要追问或编造，只输出 __HANDOFF__。
-8. __HANDOFF__ 是内部控制标记，不是客服话术，不得添加任何其他文字。
+3. 养护问题先明确说出当前证据最支持的首要判断和一个低风险的可执行方案，再补充其他可能性，以及什么观察结果会改变下一步；不要用“还不能确定”开头，也不要把首要判断说成已确诊。
+4. 可以给出养护方向、判断思路和操作建议，但不要承诺资料未明确支持的内容，包括具体天数、药量、疗效、库存、价格、赔付、退款、补发、售后结论或订单处理结果。
+5. 不要出现“参考资料”“知识库”“资料显示”“根据资料”“系统判断”“推荐回复”“来源文件”“页码”“标签”“适用场景”等内部说明词。
+6. 如果资料中有多个信息块，优先采用与用户问题最直接相关、内容更完整、非泛泛而谈、的内容。
+7. 如果资料内容存在轻微差异，但能提炼共同原则，则先给出共同原则，避免武断下结论。
+8. 信息不足、资料与问题无关、资料严重冲突或缺少关键判断信息时，不要追问或编造，只输出 __HANDOFF__。
+9. __HANDOFF__ 是内部控制标记，不是客服话术，不得添加任何其他文字。
 
 # 回答风格
 
@@ -238,14 +250,14 @@ def remove_unverified_capability_claims(
             and not CAPABILITY_CAVEAT_PATTERN.search(part)
         ):
             clauses = re.split(r"(?<=[，,])", part)
-            safe_clauses = [
-                clause
-                for clause in clauses
-                if not (
+            safe_clauses = []
+            for clause in clauses:
+                if (
                     EDUCATION_RESOURCE_PATTERN.search(clause)
                     and AFFIRMATIVE_RESOURCE_CLAIM_PATTERN.search(clause)
-                )
-            ]
+                ):
+                    break
+                safe_clauses.append(clause)
             if safe_clauses:
                 kept.append("".join(safe_clauses))
             continue
@@ -317,6 +329,13 @@ def care_reply_violations(
     violations = []
     if _has_unsupported_regional_environment_claim(answer, context):
         violations.append("unsupported_regional_environment_claim")
+    if _is_care_context(message=message, context=context):
+        if UNCERTAINTY_FIRST_PATTERN.search(answer):
+            violations.append("uncertainty_first")
+        if OVERCONFIDENT_CAUSE_PATTERN.search(answer):
+            violations.append("overconfident_single_cause")
+        if UNSUPPORTED_INVASIVE_ACTION_PATTERN.search(answer):
+            violations.append("unsupported_invasive_action")
     if _repeats_recent_follow_up(answer=answer, context=context):
         violations.append("repeated_follow_up_question")
     if _requires_brand_bridge(message=message, context=context) and not (
@@ -324,6 +343,14 @@ def care_reply_violations(
     ):
         violations.append("missing_verified_brand_bridge")
     return violations
+
+
+def _is_care_context(*, message: str, context: ContextPackage) -> bool:
+    sales_action = context.session_state.get("sales_action")
+    return (
+        isinstance(sales_action, dict)
+        and sales_action.get("sales_action") == "discover_pain"
+    ) or any(marker in message for marker in CARE_MARKERS)
 
 
 def _requires_brand_bridge(*, message: str, context: ContextPackage) -> bool:
@@ -356,9 +383,17 @@ def _has_unsupported_regional_environment_claim(
     )
     locations = PROFILE_LOCATION_PATTERN.findall(profile_text)
     return any(
-        re.search(
-            rf"{re.escape(location)}.{{0,8}}{ENVIRONMENT_ASSERTION_PATTERN.pattern}",
-            answer,
+        any(
+            re.search(
+                rf"{re.escape(token)}.{{0,8}}{ENVIRONMENT_ASSERTION_PATTERN.pattern}",
+                answer,
+            )
+            for token in {
+                location,
+                location[:2],
+                location[:3],
+            }
+            if len(token) >= 2
         )
         for location in locations
     )
@@ -454,6 +489,22 @@ def _care_repair_prompt(prompt: str, violations: list[str]) -> str:
             "先根据客户本轮新增信息继续分析，必要时换成一个新的高信息量问题，"
             "否则不追问。"
         )
+    if any(
+        violation
+        in {
+            "uncertainty_first",
+            "overconfident_single_cause",
+            "unsupported_invasive_action",
+        }
+        for violation in violations
+    ):
+        instructions.append(
+            "按专家口径重写：第一句明确给出当前证据最支持的首要判断，"
+            "紧接着给一个低风险、现在就能做的检查或处理方案；"
+            "之后再补充其他可能性，以及看到什么现象时需要改变下一步。"
+            "不要以“还不能确定”开头，不要把首要判断说成已确诊，"
+            "也不要在证据不足时要求立即脱盆、剪根、停水或改成纯颗粒植料。"
+        )
     return (
         f"{prompt}\n\n"
         "# 质检退回\n"
@@ -488,6 +539,20 @@ def _finalize_repaired_care_answer(
         answer = f"{answer.rstrip()} {bridge}".strip()
     if "repeated_follow_up_question" in remaining:
         answer = _remove_trailing_care_question(answer)
+    if any(
+        violation
+        in {
+            "uncertainty_first",
+            "overconfident_single_cause",
+            "unsupported_invasive_action",
+        }
+        for violation in care_reply_violations(
+            answer,
+            message=message,
+            context=context,
+        )
+    ):
+        return "__HANDOFF__"
     return answer or "__HANDOFF__"
 
 
@@ -890,10 +955,10 @@ async def rag_chat(
         candidates = []
         stage_started = time.perf_counter()
         if product_recommendation:
-            candidates = _catalog_product_docs(
-                search_catalog_products(retrieval_question, limit=settings.rag_top_k),
-                allowed_source_groups,
-            )
+            # Product matching is owned by the local catalog business action.
+            # RAG must never perform a second product search or introduce a
+            # different product into the model context.
+            candidates = []
         else:
             for search_kb_id in search_kb_ids:
                 candidates.extend(

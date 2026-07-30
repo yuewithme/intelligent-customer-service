@@ -97,11 +97,7 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
     if commerce_type == "product":
         products = state.get("products") if isinstance(state.get("products"), list) else []
         if status == "not_found" and state.get("query_performed"):
-            return _commerce_final_reply(
-                "我按您当前的条件查了在售商品，暂时没有匹配项。"
-                "您可以放宽一个条件，我再继续帮您筛选。",
-                state,
-            )
+            return _product_no_match_handoff(state)
         if status != "found" or not products:
             return None
         else:
@@ -109,30 +105,7 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             if state.get("product_request_kind") == "selected_product_detail":
                 return _render_selected_product_detail(first, state)
             if state.get("product_request_kind") == "membership":
-                price = first.get("price_cent") if isinstance(first, dict) else None
-                price_text = (
-                    f"，现在是{price / 100:g}元" if isinstance(price, int) else ""
-                )
-                answer = (
-                    f"可以的，我们萧岚苑有陪伴养兰会员{price_text}。"
-                    "我把购买链接发您，点开卡片就能看详情和下单。"
-                )
-                return _commerce_final_reply(answer, state)
-            if state.get("product_request_kind") == "supply_shortage":
-                keywords = state.get("requested_product_keywords")
-                keywords = keywords if isinstance(keywords, list) else []
-                labels = []
-                if any("盆" in str(keyword) for keyword in keywords):
-                    labels.append("花盆")
-                if any("植料" in str(keyword) for keyword in keywords):
-                    labels.append("植料")
-                subject = "和".join(labels) or "养兰用品"
-                price = first.get("price_cent") if isinstance(first, dict) else None
-                price_text = f"，现在是{price / 100:g}元" if isinstance(price, int) else ""
-                answer = (
-                    f"我们店里有{_product_display_name(first)}{price_text}，"
-                    f"可以用来补您缺的{subject}。我把购买链接放下面，点开就能看规格和下单。"
-                )
+                answer = _membership_answer(first, state)
                 return _commerce_final_reply(answer, state)
             if state.get("send_product_image"):
                 if first.get("image_url"):
@@ -146,12 +119,17 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             price = first.get("price_cent") if isinstance(first, dict) else None
             price_text = f"，当前售价{price / 100:g}元" if isinstance(price, int) else ""
             card = state.get("mini_program")
-            if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
+            if (
+                state.get("send_purchase_card", True)
+                and isinstance(card, dict)
+                and card.get("app_id")
+                and card.get("page_path")
+            ):
                 next_step = "我把购买链接放下面，点开就能看详情和下单。"
-            elif first.get("h5_url"):
+            elif state.get("send_purchase_card", True) and first.get("h5_url"):
                 next_step = "我把购买链接放下面，点开就能看详情和下单。"
             else:
-                next_step = "如果需要下单，我再帮您确认购买入口。"
+                next_step = ""
             knowledge_text = _product_knowledge_text(first)
             capability_note = _requested_capability_note(state)
             answer = (
@@ -243,6 +221,56 @@ def _unsupported_order_action_handoff(state: dict) -> FinalReply:
             },
         },
     )
+
+
+def _product_no_match_handoff(state: dict) -> FinalReply:
+    return FinalReply(
+        answer="",
+        reply_type="human",
+        route="human",
+        need_human=True,
+        next_action="human_handoff",
+        metadata={
+            "business_facts_used": True,
+            "commerce_action": {
+                "commerce_type": "product",
+                "status": state.get("status"),
+                "card_sent": False,
+            },
+            "handoff": {
+                "reason": "matched_orchid_not_found",
+                "status": "pending",
+            },
+        },
+    )
+
+
+def _membership_answer(product: dict, state: dict) -> str:
+    price = product.get("price_cent") if isinstance(product, dict) else None
+    price_text = f"{price / 100:g}元" if isinstance(price, int) else ""
+    kind = str(state.get("membership_question_kind") or "capability")
+    capability_text = (
+        "我们萧岚苑有陪伴养兰会员，里面有系统视频课程，"
+        "也有老师结合您这盆兰花的实际情况做一对一指导，"
+        "会跟着根系、植料和养护环境一步步帮您调整。"
+    )
+    if kind == "capability":
+        return f"可以，{capability_text}"
+    if kind == "price":
+        return (
+            f"我们萧岚苑的陪伴养兰会员现在是{price_text}。"
+            if price_text
+            else "我们萧岚苑有陪伴养兰会员，具体价格以当前商品页为准。"
+        )
+    if kind == "combined":
+        price_sentence = (
+            f"现在是{price_text}。" if price_text else "价格以当前商品页为准。"
+        )
+        return (
+            f"可以，{capability_text}{price_sentence}"
+            "我把购买链接发您，点开卡片就能看详情和下单。"
+        )
+    return "可以，我把陪伴养兰会员的购买链接发您，点开卡片就能看详情和下单。"
 
 
 def _render_selected_product_detail(product: dict, state: dict) -> FinalReply:
@@ -352,7 +380,11 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
             outbound_messages.append(
                 {"type": "image", "content": image_url}
             )
-    card = state.get("mini_program")
+    allow_card = (
+        state.get("commerce_type") != "product"
+        or bool(state.get("send_purchase_card", True))
+    )
+    card = state.get("mini_program") if allow_card else None
     if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
         products = state.get("products") if isinstance(state.get("products"), list) else []
         card_products = (
@@ -377,7 +409,7 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
                     "content": json.dumps(product_card, ensure_ascii=False),
                 }
             )
-    elif state.get("commerce_type") == "product":
+    elif state.get("commerce_type") == "product" and allow_card:
         products = state.get("products") if isinstance(state.get("products"), list) else []
         card_products = (
             products[:3] if state.get("send_all_product_cards") else products[:1]

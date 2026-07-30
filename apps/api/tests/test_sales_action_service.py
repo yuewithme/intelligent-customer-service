@@ -52,6 +52,38 @@ def test_care_reply_prioritizes_expertise_and_optional_diagnostic_question():
     assert "萧岚苑" in decision.reply_goal
 
 
+@pytest.mark.parametrize(
+    ("question_kind", "expected_action"),
+    [
+        ("capability", "answer_current_question"),
+        ("price", "answer_current_question"),
+        ("purchase", "close_order"),
+        ("combined", "close_order"),
+    ],
+)
+def test_membership_sales_action_follows_current_question(question_kind, expected_action):
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="product_query",
+        primary_domain="product",
+        primary_goal="seek_help",
+        sales_stage="closing",
+        confidence=0.99,
+        slots={
+            "product_request_kind": "membership",
+            "membership_question_kind": question_kind,
+        },
+    )
+
+    decision = decide_sales_action(
+        user_state=UserState(user_id="member-user"),
+        intent=intent,
+    )
+
+    assert decision.sales_action == expected_action
+    assert decision.question_slot is None
+
+
 def test_pain_brand_value_is_not_injected_again_after_it_was_presented():
     from app.domains.conversations.services.chat_orchestrator import (
         _pain_brand_value_already_present,

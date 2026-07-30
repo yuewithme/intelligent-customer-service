@@ -438,6 +438,52 @@ def test_guard_rejects_unverified_membership_benefits_and_unpunctuated_question(
     assert "persona_guard" not in guarded_safe.metadata
 
 
+def test_follow_up_ending_with_zenmeyang_is_sent_as_separate_message():
+    from app.domains.decisioning.services.reply_guard_service import finalize_reply_spec
+
+    spec = ReplySpec(
+        route="rag_answer",
+        reply_type="rag",
+        reply_goal="先回答再追问",
+        suggested_copy=(
+            "先把浇水改成看盆心实际干湿，不要再按固定天数。"
+            "您现在室内通风情况怎么样"
+        ),
+    )
+
+    reply = finalize_reply_spec(spec)
+
+    assert [message.content for message in reply.outbound_messages] == [
+        "先把浇水改成看盆心实际干湿，不要再按固定天数。",
+        "您现在室内通风情况怎么样？",
+    ]
+
+
+def test_guard_rejects_card_language_when_current_reply_must_not_send_card():
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="只回答会员权益",
+        suggested_copy="我把购买链接发您，您点开看看。",
+        verified_facts={
+            "tool_state": {
+                "commerce_type": "product",
+                "product_request_kind": "membership",
+                "send_purchase_card": False,
+            }
+        },
+        metadata={"persona_original_copy": "会员包含视频课程和一对一指导。"},
+    )
+
+    guarded = guard_reply_spec(spec=spec, context=_context())
+
+    assert guarded.suggested_copy == "会员包含视频课程和一对一指导。"
+    assert (
+        guarded.metadata["persona_guard"]["reason"]
+        == "unexpected_product_card_action"
+    )
+
+
 def test_identity_question_has_role_first_fallback_copy():
     reply = build_chitchat_reply(
         IntentResult(

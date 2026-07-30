@@ -30,7 +30,7 @@ UNVERIFIED_PERSONA_FACT_PATTERNS = (
 )
 QUESTION_LANGUAGE_PATTERN = re.compile(
     r"(?:请问|想问|是否|能否|方便(?:说|发|提供|告诉)|"
-    r"可以.{0,8}吗|有没有|怎么|如何|为什么|多少|"
+    r"可以.{0,8}吗|有没有|怎么|怎么样|如何|为什么|多少|"
     r"哪(?:个|些|种|款|里|儿)?|什么|"
     r"是.{1,12}还是.{1,12}|"
     r"合不合适|好不好|行不行|可不可以|要不要|愿不愿意|能不能|"
@@ -38,7 +38,7 @@ QUESTION_LANGUAGE_PATTERN = re.compile(
 )
 TRAILING_QUESTION_PATTERN = re.compile(
     r"([^。！!\n]*?(?:"
-    r"吗(?:[啊呢呀吧])?|呢|什么|怎么|如何|为什么|多少|"
+    r"吗(?:[啊呢呀吧])?|呢|什么|怎么|怎么样|如何|为什么|多少|"
     r"哪(?:个|些|种|款|里|儿)?|"
     r"是.{1,12}还是.{1,12}|"
     r"合不合适|好不好|行不行|可不可以|要不要|愿不愿意|能不能"
@@ -53,6 +53,7 @@ PRODUCT_EXTENSION_ACTION_MARKERS = (
     "看看",
     "下单",
 )
+PRODUCT_CARD_ACTION_MARKERS = ("卡片", "链接", "点开", "点击", "下单", "购买入口")
 
 
 def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
@@ -123,6 +124,8 @@ def persona_extension_violation(spec: ReplySpec, answer: str) -> str | None:
         return "unverified_fact_claim"
     if _invalid_product_extension(spec, answer):
         return "invalid_product_extension"
+    if _disallowed_product_card_action(spec, answer):
+        return "unexpected_product_card_action"
     return None
 
 
@@ -138,6 +141,16 @@ def _invalid_product_extension(spec: ReplySpec, answer: str) -> bool:
     compact = "".join(answer.split())
     return len(compact) > 40 or not any(
         marker in compact for marker in PRODUCT_EXTENSION_ACTION_MARKERS
+    )
+
+
+def _disallowed_product_card_action(spec: ReplySpec, answer: str) -> bool:
+    tool_state = spec.verified_facts.get("tool_state")
+    return (
+        isinstance(tool_state, dict)
+        and tool_state.get("commerce_type") == "product"
+        and tool_state.get("send_purchase_card") is False
+        and any(marker in answer for marker in PRODUCT_CARD_ACTION_MARKERS)
     )
 
 
@@ -216,8 +229,8 @@ def _separate_follow_up_messages(
 
 def _split_follow_up_question(text: str) -> list[str]:
     value = str(text or "").strip()
-    if _question_count(value) != 1:
-        return [value] if value else []
+    if not value:
+        return []
     match = re.search(r"([^。！!\n]*[？?])\s*$", value)
     if match is None:
         match = TRAILING_QUESTION_PATTERN.search(value)
