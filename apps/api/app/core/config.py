@@ -50,10 +50,9 @@ class Settings(BaseSettings):
         default=30.0, ge=5.0, alias="EYUN_LOGIN_MONITOR_INTERVAL_SECONDS"
     )
     eyun_opening_text: str = (
-        "我是萧岚苑的养兰师傅🌹咱们资料包含：图文，视频课程，一对一群版本等\n"
-        "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n\n"
-        "1. 家里目前养了多少盆兰花？（还没养扣“0”😝）\n"
-        "2. 具体养了哪些品种？"
+        "兰友您好！欢迎来到萧岚苑，我是养兰师傅兰画🌹"
+        "我们专注国兰培育和养护，也会给兰友提供养兰资料、"
+        "视频课程和一对一养护指导。"
     )
     eyun_opening_image_url: str = ""
     eyun_link_card_default_thumb_url: str = Field(

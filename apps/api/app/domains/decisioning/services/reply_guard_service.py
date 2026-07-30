@@ -148,6 +148,10 @@ def finalize_reply_spec(spec: ReplySpec) -> FinalReply:
             outbound_messages.append(OutboundMessage(type="text", content=persona))
     elif spec.render_mode == "persona" and outbound_messages:
         outbound_messages = _replace_first_text(outbound_messages, spec.suggested_copy)
+    answer_segments = _separate_follow_up_segments(
+        answer_segments or ([answer] if answer.strip() else [])
+    )
+    outbound_messages = _separate_follow_up_messages(outbound_messages)
     metadata = dict(spec.metadata)
     metadata.pop("persona_original_copy", None)
     if spec.question_slot and _question_count(answer) == 1:
@@ -167,6 +171,47 @@ def finalize_reply_spec(spec: ReplySpec) -> FinalReply:
         next_action=spec.next_action,
         metadata=metadata,
     )
+
+
+def _separate_follow_up_segments(segments: list[str]) -> list[str]:
+    result: list[str] = []
+    for segment in segments:
+        result.extend(_split_follow_up_question(str(segment)))
+    return [item for item in result if item]
+
+
+def _separate_follow_up_messages(
+    messages: list[OutboundMessage],
+) -> list[OutboundMessage]:
+    result: list[OutboundMessage] = []
+    for message in messages:
+        if message.type != "text":
+            result.append(message)
+            continue
+        parts = _split_follow_up_question(message.content)
+        result.extend(
+            OutboundMessage(
+                type="text",
+                content=part,
+                material_id=message.material_id,
+            )
+            for part in parts
+        )
+    return result
+
+
+def _split_follow_up_question(text: str) -> list[str]:
+    value = str(text or "").strip()
+    if _question_count(value) != 1:
+        return [value] if value else []
+    match = re.search(r"([^。！!\n]*[？?])\s*$", value)
+    if match is None:
+        return [value]
+    question = match.group(1).strip()
+    prefix = value[: match.start(1)].strip()
+    if not prefix:
+        return [value]
+    return [prefix, question]
 
 
 def _guard_metadata(spec: ReplySpec, status: str, reason: str) -> dict:

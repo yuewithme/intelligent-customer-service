@@ -61,6 +61,14 @@ def resolve_business_action(*, message, intent, user_state) -> str:
     issues = set(getattr(intent, "issues", []) or [])
     metadata = getattr(user_state, "metadata", {})
     metadata = metadata if isinstance(metadata, dict) else {}
+    active_task = metadata.get("active_task")
+    active_task = active_task if isinstance(active_task, dict) else {}
+    if (
+        active_task.get("domain") == "order"
+        and active_task.get("status")
+        in {"awaiting_identity", "verified_requires_human", "requires_human"}
+    ):
+        return ORDER_VERIFY
 
     shipping_contact = slots.get("shipping_contact")
     has_shipping_mobile = (

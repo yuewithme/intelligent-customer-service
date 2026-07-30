@@ -24,8 +24,11 @@ PROMPT_BLOCKS = {
         "to distinguish it from other common causes. Never infer a single main cause from region or "
         "weather alone. Do not prescribe a fixed number-of-days watering schedule without verified "
         "context about the medium, pot, root condition, ventilation, temperature, and current "
-        "moisture. Prefer observable watering criteria over calendar intervals. Ask at most one "
-        "highest-information follow-up question when a key diagnostic fact is missing."
+        "moisture. Prefer observable watering criteria over calendar intervals. Before asking a "
+        "question, show expertise: explain the likely mechanism, why surface-only treatment may "
+        "recur, and one safe next step. If verified brand_value_facts are present and the customer's "
+        "pain is clear, add one natural sentence naming 萧岚苑 and connecting only those verified "
+        "service capabilities to the pain. Do not turn that sentence into an immediate sales pitch."
     ),
     "intent.orchid_problem": (
         "The user is describing an orchid problem. Respond with care first, then provide actionable advice."
@@ -65,7 +68,7 @@ PROMPT_BLOCKS = {
     ),
     "output.customer_reply": (
         "Only output customer-facing service copy. Write naturally and conversationally, like a real "
-        "WeChat reply. Keep replies under 100 Chinese characters as one complete message. For longer "
+        "WeChat reply. Keep replies under 180 Chinese characters as one complete message. For longer "
         "replies, organize the content into natural sentences and combine every two sentences into one "
         "message. Never split at every sentence or break a sentence in the middle. Do not limit the "
         "number of messages. Do not use Markdown, headings, bullet syntax, "
@@ -139,15 +142,30 @@ def _render_context(context) -> str:
                     "stage_objective",
                     "known_slots",
                     "question_slot",
+                    "allow_diagnostic_question",
+                    "brand_value_facts",
                     "prohibited_behaviors",
                 )
                 if sales_action.get(key) not in (None, "", [], {})
             }
+            if sales_action.get("question_slot"):
+                question_instruction = (
+                    "Ask at most one follow-up question, and only ask for question_slot. "
+                )
+            elif sales_action.get("allow_diagnostic_question"):
+                question_instruction = (
+                    "A follow-up is optional. Ask at most one highest-information diagnostic "
+                    "question, and only when its answer would materially change the next care step. "
+                    "Finish the answer/advice first, end it as a complete sentence, then put the "
+                    "question in a final standalone sentence. "
+                )
+            else:
+                question_instruction = "Do not ask a follow-up question. "
             parts.append(
                 "Sales reply requirements:\n"
                 f"{sales_constraints}\n"
                 "Answer the user's current question first. "
-                "Ask at most one follow-up question, and only ask for question_slot. "
+                f"{question_instruction}"
                 "Do not reveal internal field names, enum values, JSON, or stage reasoning. "
                 "Do not repeat known facts or fabricate product facts."
             )

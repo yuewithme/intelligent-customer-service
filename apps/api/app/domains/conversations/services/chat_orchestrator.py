@@ -5,14 +5,17 @@ from app.domains.conversations.schemas.chat import ChatRequest
 from app.shared.schemas.common import AppError, ErrorCode
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.policy import PolicyDecision
-from app.domains.decisioning.schemas.reply import FinalReply
+from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 from app.domains.conversations.services.channel_service import normalize_chat_request
 from app.domains.conversations.services.chat_log_service import record_chat_log
 from app.domains.decisioning.services.business_context_service import build_business_context
 from app.domains.decisioning.services.business_action_service import (
     resolve_business_action,
 )
-from app.domains.catalog.services.commerce_query_service import build_commerce_context
+from app.domains.catalog.services.commerce_query_service import (
+    build_commerce_context,
+    verified_membership_brand_facts,
+)
 from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
     conversation_blocks_ai,
@@ -349,6 +352,12 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_state=user_state,
             intent=routed_intent,
         )
+        if sales_action.sales_action == "discover_pain":
+            sales_action = sales_action.model_copy(
+                update={
+                    "brand_value_facts": verified_membership_brand_facts(),
+                }
+            )
         user_state.metadata["sales_action"] = sales_action.model_dump()
         user_state.metadata["sales_stage_decision"] = sales_stage_decision.model_dump(
             mode="json"
@@ -387,6 +396,13 @@ async def handle_chat(request: ChatRequest) -> dict:
             reply.metadata["policy_decision"] = rich_decision.model_dump()
         elif decision is not None:
             reply.metadata["policy_decision"] = decision.model_dump()
+        if _should_prepend_opening(
+            message=message,
+            user_state=user_state,
+            is_evaluation=is_evaluation,
+        ):
+            reply = _prepend_opening(reply)
+            user_state.metadata["opening_sent"] = True
 
         if not is_evaluation:
             schedule_reply_shadow_evaluation(
@@ -543,6 +559,44 @@ def _to_chat_data(
     }
 
 
+def _should_prepend_opening(*, message, user_state, is_evaluation: bool) -> bool:
+    if user_state.metadata.get("opening_sent"):
+        return False
+    return bool(message.metadata.get("prepend_opening")) or is_evaluation
+
+
+def _prepend_opening(reply: FinalReply) -> FinalReply:
+    from app.domains.decisioning.services.reply_builder import build_opening_reply
+
+    opening = build_opening_reply()
+    reply_segments = list(reply.answer_segments)
+    if not reply_segments and reply.answer.strip():
+        reply_segments = [reply.answer.strip()]
+    reply_messages = list(reply.outbound_messages)
+    if not reply_messages:
+        reply_messages = [
+            OutboundMessage(type="text", content=segment)
+            for segment in reply_segments
+        ]
+    answer_segments = [opening.answer, *reply_segments]
+    return reply.model_copy(
+        update={
+            "answer": "\n\n".join(
+                segment for segment in answer_segments if segment.strip()
+            ),
+            "answer_segments": answer_segments,
+            "outbound_messages": [
+                *opening.outbound_messages,
+                *reply_messages,
+            ],
+            "metadata": {
+                **reply.metadata,
+                "opening_prepended": True,
+            },
+        }
+    )
+
+
 def _public_reply_metadata(metadata: dict) -> dict:
     internal_keys = {
         "business_context",
@@ -586,6 +640,10 @@ def _is_evaluation_request(message) -> bool:
 
 
 async def _record_workbench_turn(*, message, result: dict, is_evaluation: bool) -> None:
+    if not is_evaluation and message.metadata.get("provider") == "eyun":
+        # The Eyun gateway records the exact queued outbound sequence, including
+        # opening messages and cards, after it composes the provider payload.
+        return
     if not is_evaluation:
         await record_ai_turn(message=message, result=result)
         return
@@ -600,6 +658,7 @@ async def _record_workbench_turn(*, message, result: dict, is_evaluation: bool) 
                 "evaluation_id": evaluation_id,
                 "is_evaluation": True,
                 "skip_customer_record": False,
+                "suppress_handoff_notification": True,
             },
         }
     )
@@ -607,10 +666,8 @@ async def _record_workbench_turn(*, message, result: dict, is_evaluation: bool) 
         message=workbench_message,
         result={
             **result,
-            # A simulated conversation may be inspected in the workbench, but
-            # it must never create a real handoff notification.
-            "need_human": False,
-            "handoff": None,
+            # Simulated conversations preserve the expected handoff state for
+            # evaluation while the message flag suppresses real notifications.
         },
     )
 

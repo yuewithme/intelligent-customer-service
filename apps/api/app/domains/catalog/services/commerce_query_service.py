@@ -67,6 +67,33 @@ CATALOG_KNOWLEDGE_FIELDS = {
 }
 VALUE_KNOWLEDGE_FIELDS = {"highlighted_features", "sales_copy"}
 SKU_KNOWLEDGE_FIELDS = {"price_budget", "market_price"}
+MEMBERSHIP_SERVICE_CAPABILITIES = (
+    "系统的视频课程",
+    "结合具体养护问题的一对一指导",
+)
+
+
+def verified_membership_brand_facts() -> list[dict]:
+    """Expose verified service value only when a live membership product exists."""
+
+    try:
+        products = search_catalog_products("会员", limit=3)
+        if not products:
+            products = search_catalog_products("陪伴养兰", limit=3)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Membership value lookup failed: %s", type(exc).__name__)
+        return []
+    if not products:
+        return []
+    product = products[0]
+    return [
+        {
+            "brand": "萧岚苑",
+            "product_type": "陪伴养兰会员",
+            "product_id": str(product.get("item_id") or ""),
+            "service_capabilities": list(MEMBERSHIP_SERVICE_CAPABILITIES),
+        }
+    ]
 
 
 async def build_commerce_context(
@@ -243,6 +270,11 @@ async def build_commerce_context(
             "requested_capabilities": _requested_capabilities(message.message),
             "business_action": business_action,
         }
+        if membership_request and product_data:
+            tool_state["brand"] = "萧岚苑"
+            tool_state["service_capabilities"] = list(
+                MEMBERSHIP_SERVICE_CAPABILITIES
+            )
         if product_data and product_data[0].get("page_path"):
             tool_state["mini_program"] = {
                 **base_card,
@@ -271,7 +303,24 @@ async def build_commerce_context(
     if order_service is None and evaluation_order_fixture is None:
         return BusinessFacts()
 
-    requested_action = str(intent.slots.get("order_action") or "").strip()
+    active_task = user_state.metadata.get("active_task")
+    active_task = active_task if isinstance(active_task, dict) else {}
+    requested_action = str(
+        intent.slots.get("order_action")
+        or (
+            active_task.get("action")
+            if active_task.get("domain") == "order"
+            else ""
+        )
+        or ""
+    ).strip()
+    if requested_action:
+        user_state.metadata["active_task"] = {
+            **active_task,
+            "domain": "order",
+            "action": requested_action,
+            "status": str(active_task.get("status") or "awaiting_identity"),
+        }
     tenant_id = str(getattr(message, "tenant_id", "tenant_default") or "tenant_default")
     external_user_id = str(getattr(message, "user_id", "") or "")
     binding = None
@@ -294,6 +343,8 @@ async def build_commerce_context(
     )
     if not mobile and binding is None:
         user_state.metadata["commerce_pending"] = "order_mobile"
+        if requested_action:
+            user_state.metadata["active_task"]["status"] = "awaiting_identity"
         tool_state = {"commerce_type": "order", "status": "missing_mobile"}
         if requested_action:
             tool_state["requested_action"] = requested_action
@@ -374,6 +425,17 @@ async def build_commerce_context(
     if requested_action:
         tool_state["requested_action"] = requested_action
         tool_state["requested_action_executed"] = False
+        user_state.metadata["active_task"] = {
+            **user_state.metadata.get("active_task", {}),
+            "domain": "order",
+            "action": requested_action,
+            "status": "verified_requires_human",
+            "order_nos": [
+                str(order.get("order_no") or "")
+                for order in tool_state["orders"]
+                if isinstance(order, dict) and order.get("order_no")
+            ],
+        }
     configured_order_card = order_card or _order_card(settings)
     if configured_order_card.get("page_path"):
         tool_state["mini_program"] = configured_order_card
@@ -538,6 +600,21 @@ def _evaluation_order_facts(
     if requested_action:
         tool_state["requested_action"] = requested_action
         tool_state["requested_action_executed"] = False
+        user_state.metadata["active_task"] = {
+            **(
+                user_state.metadata.get("active_task")
+                if isinstance(user_state.metadata.get("active_task"), dict)
+                else {}
+            ),
+            "domain": "order",
+            "action": requested_action,
+            "status": "verified_requires_human",
+            "order_nos": [
+                str(order.order_no)
+                for order in orders
+                if getattr(order, "order_no", None)
+            ],
+        }
     if order_card.get("page_path"):
         tool_state["mini_program"] = order_card
     return BusinessFacts(tool_state=tool_state)

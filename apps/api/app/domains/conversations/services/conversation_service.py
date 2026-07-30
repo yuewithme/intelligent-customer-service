@@ -140,7 +140,12 @@ async def record_ai_turn(*, message, result: dict) -> None:
     skip_customer_record = bool(message.metadata.get("skip_customer_record"))
     evaluation_metadata = _evaluation_metadata(message.metadata)
     now = _now()
-    should_notify_handoff = status == HANDOFF_PENDING
+    suppress_handoff_notification = bool(
+        message.metadata.get("suppress_handoff_notification")
+    )
+    should_notify_handoff = (
+        status == HANDOFF_PENDING and not suppress_handoff_notification
+    )
     with _get_session() as session:
         conversation = session.scalar(
             select(ConversationModel).where(
@@ -201,6 +206,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
         else:
             should_notify_handoff = (
                 status == HANDOFF_PENDING and conversation.status != HANDOFF_PENDING
+                and not suppress_handoff_notification
             )
             display_name = _metadata_text(
                 message.metadata,
@@ -294,25 +300,35 @@ async def record_ai_turn(*, message, result: dict) -> None:
                     created_at=now,
                 )
             )
-        answer_segments = _answer_segments(result)
-        for answer in answer_segments:
+        outbound_messages = _result_outbound_messages(result)
+        for outbound in outbound_messages:
+            message_type = outbound["type"]
+            outbound_content = outbound["content"]
+            outbound_metadata = _outbound_metadata(
+                message_type,
+                outbound_content,
+                {
+                    "sources": result.get("sources", []),
+                    "template": result.get("template", {}),
+                    **evaluation_metadata,
+                },
+            )
+            if evaluation_metadata:
+                outbound_metadata["provider"] = "evaluation"
+                outbound_metadata["simulated_delivery"] = True
             session.add(
                 ConversationMessageModel(
                     conversation_id=conversation_id,
                     trace_id=message.trace_id,
                     sender_type="ai",
                     sender_id="ai",
-                    content=answer,
+                    content=_outbound_display_content(
+                        message_type,
+                        outbound_content,
+                    ),
                     route=result.get("route"),
                     primary_intent=conversation.last_intent,
-                    metadata_json=json.dumps(
-                        {
-                            "sources": result.get("sources", []),
-                            "template": result.get("template", {}),
-                            **evaluation_metadata,
-                        },
-                        ensure_ascii=False,
-                    ),
+                    metadata_json=json.dumps(outbound_metadata, ensure_ascii=False),
                     created_at=now,
                 )
             )
@@ -369,6 +385,27 @@ def _answer_segments(result: dict) -> list[str]:
         return [str(segment).strip() for segment in segments if str(segment).strip()]
     answer = str(result.get("answer") or "").strip()
     return [answer] if answer else []
+
+
+def _result_outbound_messages(result: dict) -> list[dict[str, str]]:
+    messages = result.get("outbound_messages")
+    if isinstance(messages, list):
+        normalized = [
+            {
+                "type": str(message.get("type") or "").strip(),
+                "content": str(message.get("content") or "").strip(),
+            }
+            for message in messages
+            if isinstance(message, dict)
+            and str(message.get("type") or "").strip()
+            and str(message.get("content") or "").strip()
+        ]
+        if normalized:
+            return normalized
+    return [
+        {"type": "text", "content": answer}
+        for answer in _answer_segments(result)
+    ]
 
 
 async def record_customer_message(

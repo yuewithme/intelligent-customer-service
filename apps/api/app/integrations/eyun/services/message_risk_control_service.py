@@ -42,7 +42,6 @@ from app.domains.decisioning.services.intent_observation_service import (
     record_bypassed_intent_observation,
 )
 from app.domains.catalog.services.orchid_material_service import (
-    orchid_material_chat_result,
     orchid_material_video_issue_context,
 )
 from app.domains.customers.services.user_profile_service import (
@@ -768,24 +767,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         if has_sent_orchid_material and video_issue_context is not None:
             customer_snapshot.update(video_issue_context)
-        material_result = orchid_material_chat_result(batch_data["content"])
-        if material_result is not None:
-            chat_result = material_result
-            await record_bypassed_intent_observation(
-                trace_id=observation_trace_id,
-                channel="wechat",
-                user_id=user_id,
-                session_id=batch_data["from_group"],
-                user_message=batch_data["content"],
-                final_route="orchid_material_delivery",
-                primary_domain="care",
-                primary_goal="request_material",
-                issues=["material_resource"],
-                scope="in_scope",
-                reason="fixed_material_delivery",
-                metadata=observation_metadata,
-            )
-        elif all_images_failed:
+        if all_images_failed:
             if wrong_store_order_count == image_count:
                 chat_result = {
                     "answer": WRONG_STORE_ORDER_REPLY,
@@ -822,7 +804,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 )
                 _mark_batch(batch_id, "processed")
                 return
-        elif is_first_inbound and image_count == 0:
+        elif is_first_inbound:
             opening_result = _opening_chat_result()
             chat_result = await handle_chat(
                 ChatRequest(
@@ -903,7 +885,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     sender_id="ai",
                     route=str(
                         chat_result.get("route")
-                        or ("opening" if is_first_inbound and image_count == 0 else "")
+                        or ("opening" if is_first_inbound else "")
                     ),
                     created_after=batch_data["created_at"],
                 )

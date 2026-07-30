@@ -132,14 +132,16 @@ def apply_stage_knowledge_policy(
     knowledge_base_ids = _safe_care_kb_ids(plan.knowledge_base_ids)
     context_policy = dict(plan.context_policy)
     if business_action == CARE_ANSWER:
-        # Care answers must not inherit selected products, assistant copy, or sales
-        # opportunity state as factual context.
+        # Keep the conversational and care-safe parts of context so the model can
+        # avoid repeated questions and follow the current reply goal. Product,
+        # order and long-memory facts remain excluded.
         context_policy.update(
             {
-                "recent_turns": 0,
-                "include_profile_summary": False,
+                "recent_turns": 4,
+                "include_profile_summary": True,
+                "profile_fields": ["ai_summary", "pain_points"],
                 "include_long_memory_summary": False,
-                "include_session_state": False,
+                "include_session_state": True,
                 "include_memory_context": False,
             }
         )

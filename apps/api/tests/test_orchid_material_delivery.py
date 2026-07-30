@@ -2,13 +2,11 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.infrastructure.database.models import (
     ConversationMessageModel,
     EyunInboundBatchModel,
-    IntentObservationModel,
 )
 
 
@@ -51,6 +49,49 @@ def test_outbound_messages_keep_fixed_link_card_payload():
     assert messages[2]["content"] == (
         "http://150.158.52.233/static/orchid-material/"
         "companion-service-video-links.png"
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_core_prepends_opening_and_delivers_material_without_llm(
+    monkeypatch,
+):
+    from app.domains.conversations.schemas.chat import ChatRequest
+    from app.domains.conversations.services.chat_orchestrator import handle_chat
+    from app.domains.conversations.services import state_service
+    from app.integrations.ai.services import llm_service
+
+    async def fail_generate(*args, **kwargs):
+        del args, kwargs
+        pytest.fail("固定资料链路不应调用 LLM")
+
+    monkeypatch.setattr(llm_service, "generate_answer", fail_generate)
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "")
+    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "0")
+    get_settings.cache_clear()
+    user_id = "eval_material_core"
+    state_service._state_store.pop(user_id, None)
+
+    result = await handle_chat(
+        ChatRequest(
+            channel="api",
+            user_id=user_id,
+            session_id="material-core-session",
+            message="老师，怎样领取养兰资料？",
+            kb_id="kb_default",
+            metadata={"evaluation_id": "material-core"},
+        )
+    )
+
+    assert result["intent"]["primary_goal"] == "request_material"
+    assert [item["type"] for item in result["outbound_messages"]] == [
+        "text",
+        "link_card",
+        "text",
+        "image",
+    ]
+    assert result["outbound_messages"][0]["content"].startswith(
+        "兰友您好！欢迎来到萧岚苑"
     )
 
 
@@ -134,25 +175,28 @@ def test_material_video_issue_context_requires_a_sent_material():
         "直播间说有师傅教，有视频资料免费领取",
     ],
 )
-async def test_process_batch_sends_fixed_material_without_calling_ai(
+async def test_process_batch_sends_opening_then_core_material_reply(
     monkeypatch, content
 ):
     from app.integrations.eyun.services.message_risk_control_service import (
         _get_session,
         _process_inbound_batch,
     )
-    from app.domains.decisioning.services.intent_observation_service import (
-        _get_session as _get_intent_session,
+    from app.domains.catalog.services.orchid_material_service import (
+        orchid_material_chat_result,
     )
 
     monkeypatch.setenv("INTENT_OBSERVATION_ENABLED", "true")
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "")
+    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "0")
     get_settings.cache_clear()
     now = datetime(2026, 7, 20, 6, 0, tzinfo=timezone.utc)
     queued = []
+    handled = []
 
-    async def fail_handle_chat(request):
-        del request
-        pytest.fail("固定资料关键词不应调用 AI")
+    async def fake_handle_chat(request):
+        handled.append(request.message)
+        return orchid_material_chat_result(request.message)
 
     async def fake_enqueue_outbound(**kwargs):
         queued.append(kwargs)
@@ -168,7 +212,7 @@ async def test_process_batch_sends_fixed_material_without_calling_ai(
         lambda: 3,
     )
     monkeypatch.setattr(
-        "app.integrations.eyun.services.message_risk_control_service.handle_chat", fail_handle_chat
+        "app.integrations.eyun.services.message_risk_control_service.handle_chat", fake_handle_chat
     )
     monkeypatch.setattr(
         "app.integrations.eyun.services.message_risk_control_service.get_eyun_contact_snapshot",
@@ -206,26 +250,19 @@ async def test_process_batch_sends_fixed_material_without_calling_ai(
 
     await _process_inbound_batch(batch_id)
 
+    assert handled == [content]
     assert [row.get("message_type", "text") for row in queued] == [
+        "text",
         "link_card",
         "text",
         "image",
     ]
-    assert json.loads(queued[0]["content"])["url"].endswith(
+    assert queued[0]["content"].startswith("兰友您好！欢迎来到萧岚苑")
+    assert json.loads(queued[1]["content"])["url"].endswith(
         "noteAlias=0Ja8r3cajo"
     )
-    assert queued[1]["content"].startswith("直播间展示的是图文版资料")
-    assert queued[2]["content"].endswith("companion-service-video-links.png")
-    with _get_intent_session() as session:
-        observation = session.scalar(
-            select(IntentObservationModel).where(
-                IntentObservationModel.final_route
-                == "orchid_material_delivery"
-            )
-        )
-        assert observation is not None
-        assert observation.primary_goal == "request_material"
-        assert observation.issues_json == '["material_resource"]'
+    assert queued[2]["content"].startswith("直播间展示的是图文版资料")
+    assert queued[3]["content"].endswith("companion-service-video-links.png")
 
 
 @pytest.mark.asyncio

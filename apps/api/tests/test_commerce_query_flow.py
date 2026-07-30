@@ -248,9 +248,14 @@ async def test_membership_request_uses_local_product_and_exact_price_card():
     reply = await render_business_reply(_message("39.9元可以加入会员吗？"), facts)
 
     assert facts.tool_state["products"][0]["item_id"] == "membership-39"
+    assert facts.tool_state["brand"] == "萧岚苑"
+    assert facts.tool_state["service_capabilities"] == [
+        "系统的视频课程",
+        "结合具体养护问题的一对一指导",
+    ]
     assert state.metadata["commerce_last_product_id"] == "membership-39"
     assert reply is not None
-    assert "会员产品" in reply.answer
+    assert "萧岚苑有陪伴养兰会员" in reply.answer
     assert "39.9元" in reply.answer
     assert "购买链接" in reply.answer
     assert json.loads(reply.outbound_messages[1].content)["url"].endswith("member-39")
@@ -804,6 +809,56 @@ async def test_evaluation_order_fixture_returns_matching_mock_order_without_real
     reply = await render_business_reply(message, facts)
     assert "春兰【松针素】× 1，待发货" in reply.answer
     assert reply.metadata["commerce_action"]["fixture_used"] is True
+
+
+@pytest.mark.asyncio
+async def test_unexecutable_order_change_routes_to_human_without_customer_copy():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import ORDER_VERIFY
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    message = _message("下单手机号是13000000000，麻烦晚一天发货。").model_copy(
+        update={
+            "metadata": {
+                "evaluation_id": "order-change-handoff",
+                "tool_state": {
+                    "fixture_type": "order",
+                    "mobile": "13000000000",
+                    "orders": [
+                        {
+                            "order_no": "EVAL-HANDOFF-001",
+                            "created_at": "2026-07-30 10:20:00",
+                            "status": "WAIT_SELLER_SEND_GOODS",
+                            "status_text": "待发货",
+                            "item_summary": "陪伴养兰会员 × 1",
+                        }
+                    ],
+                },
+            }
+        }
+    )
+    state = UserState(user_id="eval-order-change")
+    intent = _intent("order_query").model_copy(
+        update={"slots": {"order_action": "shipping_date_change"}}
+    )
+
+    facts = await build_commerce_context(
+        message,
+        state,
+        intent,
+        business_action=ORDER_VERIFY,
+        allowed_source_groups={"order_facts"},
+    )
+    reply = await render_business_reply(message, facts)
+
+    assert state.metadata["active_task"]["status"] == "verified_requires_human"
+    assert reply is not None
+    assert reply.need_human is True
+    assert reply.route == "human"
+    assert reply.answer == ""
+    assert reply.metadata["handoff"]["reason"] == "order_action_requires_human"
 
 
 @pytest.mark.asyncio

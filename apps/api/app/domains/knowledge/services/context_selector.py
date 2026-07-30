@@ -12,7 +12,14 @@ async def select_context(request: ContextSelectionInput) -> ContextPackage:
         request.context_policy.get("include_memory_context", True)
     )
 
-    profile_summary = _profile_summary(request.profile) if include_profile else {}
+    profile_summary = (
+        _profile_summary(
+            request.profile,
+            allowed_fields=request.context_policy.get("profile_fields"),
+        )
+        if include_profile
+        else {}
+    )
     session_state = (
         {
             "sales_stage": request.state.get("sales_stage", "unknown"),
@@ -60,7 +67,11 @@ async def select_context(request: ContextSelectionInput) -> ContextPackage:
     )
 
 
-def _profile_summary(profile: dict) -> dict:
+def _profile_summary(
+    profile: dict,
+    *,
+    allowed_fields: list[str] | None = None,
+) -> dict:
     basic_info = profile.get("basic_info") if isinstance(profile.get("basic_info"), dict) else {}
     safe_basic_info = {
         key: str(basic_info.get(key))[:120]
@@ -76,7 +87,12 @@ def _profile_summary(profile: dict) -> dict:
         "product_interests": profile.get("product_interests", []),
         "active_opportunity": profile.get("active_opportunity", {}),
     }
-    return {key: value for key, value in values.items() if value not in (None, "", [], {})}
+    allowed = set(allowed_fields or values)
+    return {
+        key: value
+        for key, value in values.items()
+        if key in allowed and value not in (None, "", [], {})
+    }
 
 
 def _known_contact_fields(profile: dict) -> list[str]:

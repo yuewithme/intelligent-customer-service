@@ -122,7 +122,7 @@ def test_business_action_sources_are_exclusive_and_ignore_sales_stage():
     assert order_sources == {"order_facts", "service_sop"}
 
 
-def test_care_action_removes_sales_and_product_context_from_rag():
+def test_care_action_keeps_safe_conversation_context_without_product_sources():
     plan = ReplyPlan(
         action="rag_answer",
         reason="care",
@@ -142,8 +142,11 @@ def test_care_action_removes_sales_and_product_context_from_rag():
         "customer_context",
     ]
     assert "mode" not in result.retrieval_policy
-    assert result.context_policy["recent_turns"] == 0
-    assert result.context_policy["include_profile_summary"] is False
+    assert result.context_policy["recent_turns"] == 4
+    assert result.context_policy["include_profile_summary"] is True
+    assert result.context_policy["profile_fields"] == ["ai_summary", "pain_points"]
+    assert result.context_policy["include_session_state"] is True
+    assert result.context_policy["include_memory_context"] is False
 
 
 def test_reply_plan_rejects_non_care_kbs_and_records_stage_allowlist():

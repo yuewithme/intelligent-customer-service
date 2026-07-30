@@ -137,6 +137,9 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
     facts = business_facts.model_dump() if business_facts is not None else {}
     has_business_facts = bool(getattr(business_facts, "available", False))
     allow_persona_extension = bool(reply.metadata.get("allow_persona_extension"))
+    rewrite_business_copy = bool(
+        reply.metadata.get("persona_rewrite_business_copy")
+    )
     render_mode = "persona"
     if reply.need_human or not reply.answer:
         render_mode = "silent"
@@ -151,7 +154,11 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
         render_mode = "locked"
     composition_mode = (
         "anchor_plus_persona"
-        if render_mode == "persona" and reply.reply_type == "template"
+        if (
+            render_mode == "persona"
+            and reply.reply_type == "template"
+            and not rewrite_business_copy
+        )
         else "replace"
     )
     return ReplySpec(

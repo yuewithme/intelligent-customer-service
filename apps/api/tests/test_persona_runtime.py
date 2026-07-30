@@ -194,7 +194,8 @@ async def test_persona_renderer_uses_system_role_and_renders_question_once(monke
     final = finalize_reply_spec(guard_reply_spec(spec=rendered, context=_context()))
     assert final.answer_segments == [
         "可以先看一盆好养的建兰。",
-        "这盆更适合明亮散射光。您家阳台上午有直射光吗？",
+        "这盆更适合明亮散射光。",
+        "您家阳台上午有直射光吗？",
     ]
     assert final.metadata["emitted_question_slot"] == "阳台光照"
 

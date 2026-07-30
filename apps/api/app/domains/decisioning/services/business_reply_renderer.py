@@ -114,8 +114,8 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
                     f"，现在是{price / 100:g}元" if isinstance(price, int) else ""
                 )
                 answer = (
-                    f"我们店里目前有这个会员产品{price_text}。"
-                    "我把购买链接放下面，点开就能看详情和下单。"
+                    f"可以的，我们萧岚苑有陪伴养兰会员{price_text}。"
+                    "我把购买链接发您，点开卡片就能看详情和下单。"
                 )
                 return _commerce_final_reply(answer, state)
             if state.get("product_request_kind") == "supply_shortage":
@@ -162,6 +162,12 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
         return _commerce_final_reply(answer, state)
 
     requested_action = str(state.get("requested_action") or "")
+    if (
+        status == "found"
+        and requested_action
+        and state.get("requested_action_executed") is not True
+    ):
+        return _unsupported_order_action_handoff(state)
     if status == "missing_mobile":
         if requested_action == "shipping_date_change":
             answer = (
@@ -212,6 +218,31 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             "我不会先承诺已经开通。"
         )
     return _commerce_final_reply("\n".join(lines), state)
+
+
+def _unsupported_order_action_handoff(state: dict) -> FinalReply:
+    return FinalReply(
+        answer="",
+        reply_type="human",
+        route="human",
+        need_human=True,
+        next_action="human_handoff",
+        metadata={
+            "business_facts_used": True,
+            "commerce_action": {
+                "commerce_type": "order",
+                "status": state.get("status"),
+                "requested_action": state.get("requested_action"),
+                "requested_action_executed": False,
+                "card_sent": False,
+                **({"fixture_used": True} if state.get("fixture_used") else {}),
+            },
+            "handoff": {
+                "reason": "order_action_requires_human",
+                "status": "pending",
+            },
+        },
+    )
 
 
 def _render_selected_product_detail(product: dict, state: dict) -> FinalReply:
@@ -406,6 +437,10 @@ def _commerce_final_reply(answer: str, state: dict) -> FinalReply:
                     state.get("commerce_type") == "order"
                     and state.get("status") in {"missing_mobile", "found", "not_found"}
                 )
+            ),
+            "persona_rewrite_business_copy": (
+                state.get("commerce_type") == "product"
+                and state.get("status") == "found"
             ),
             "commerce_action": commerce_action,
         },

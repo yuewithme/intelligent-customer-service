@@ -61,8 +61,38 @@
             </ElTag>
           </div>
           <div class="content">
+            <a
+              v-if="linkCard(message)"
+              class="commerce-card"
+              :href="linkCard(message)?.url"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <img
+                v-if="linkCard(message)?.thumb_url"
+                :src="linkCard(message)?.thumb_url"
+                alt=""
+              />
+              <span>
+                <strong>{{ linkCard(message)?.title || '查看详情' }}</strong>
+                <small v-if="linkCard(message)?.description">
+                  {{ linkCard(message)?.description }}
+                </small>
+              </span>
+            </a>
+            <div v-else-if="miniProgramCard(message)" class="commerce-card">
+              <img
+                v-if="miniProgramCard(message)?.thumb_url"
+                :src="miniProgramCard(message)?.thumb_url"
+                alt=""
+              />
+              <span>
+                <strong>{{ miniProgramCard(message)?.title || '微信小程序' }}</strong>
+                <small>商品小程序卡片</small>
+              </span>
+            </div>
             <ElImage
-              v-if="isImageMessage(message) && mediaSource(message)"
+              v-else-if="isImageMessage(message) && mediaSource(message)"
               class="message-image"
               :src="mediaSource(message)"
               :preview-src-list="[mediaSource(message)]"
@@ -150,6 +180,14 @@ interface MediaMetadata {
   file_name?: string
   filename?: string
   name?: string
+}
+
+interface CommerceCardMetadata {
+  title?: string
+  description?: string
+  url?: string
+  thumb_url?: string
+  page_path?: string
 }
 
 const props = defineProps<{
@@ -280,6 +318,18 @@ const showOriginalLink = (message: ConversationMessage) =>
 const markVideoFailed = (message: ConversationMessage) => {
   failedMediaIds.value = new Set(failedMediaIds.value).add(message.id)
 }
+
+const cardMetadata = (
+  message: ConversationMessage,
+  key: 'link_card' | 'mini_program'
+): CommerceCardMetadata | undefined => {
+  const card = message.metadata[key]
+  return card && typeof card === 'object' ? (card as CommerceCardMetadata) : undefined
+}
+
+const linkCard = (message: ConversationMessage) => cardMetadata(message, 'link_card')
+const miniProgramCard = (message: ConversationMessage) =>
+  cardMetadata(message, 'mini_program')
 
 const canSelectMessage = (message: ConversationMessage) => {
   if (message.conversation_id !== props.conversationId || message.sender_type !== 'customer') {
@@ -565,6 +615,50 @@ p {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.commerce-card {
+  display: flex;
+  width: min(360px, 62vw);
+  min-height: 72px;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  background: rgb(255 255 255 / 72%);
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 8px;
+}
+
+.commerce-card img {
+  width: 88px;
+  object-fit: cover;
+  background: #f3f4f6;
+}
+
+.commerce-card span {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.commerce-card strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commerce-card small {
+  display: -webkit-box;
+  margin-top: 5px;
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 12px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .original-link {

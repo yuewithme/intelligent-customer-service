@@ -14,10 +14,9 @@ def test_opening_reply_contains_configured_text_and_image(monkeypatch):
     reply = build_opening_reply()
 
     assert reply.answer == (
-        "我是萧岚苑的养兰师傅🌹咱们资料包含：图文，视频课程，一对一群版本等\n"
-        "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n\n"
-        "1. 家里目前养了多少盆兰花？（还没养扣“0”😝）\n"
-        "2. 具体养了哪些品种？"
+        "兰友您好！欢迎来到萧岚苑，我是养兰师傅兰画🌹"
+        "我们专注国兰培育和养护，也会给兰友提供养兰资料、"
+        "视频课程和一对一养护指导。"
     )
     assert [message.model_dump() for message in reply.outbound_messages] == [
         {"type": "text", "content": reply.answer, "material_id": None},

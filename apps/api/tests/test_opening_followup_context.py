@@ -211,7 +211,7 @@ def test_intent_prompt_includes_recent_conversation():
 
 
 @pytest.mark.asyncio
-async def test_fixed_opening_then_orchid_profile_answer_uses_persisted_context(
+async def test_non_question_opening_does_not_force_profile_followup(
     monkeypatch,
 ):
     from app.services import message_risk_control_service as risk_control
@@ -282,5 +282,5 @@ async def test_fixed_opening_then_orchid_profile_answer_uses_persisted_context(
         "user",
         "assistant",
     ]
-    assert intent.route == "chitchat"
-    assert intent.primary_intent == "profile_answer"
+    assert intent.route == "clarify"
+    assert intent.primary_intent != "profile_answer"

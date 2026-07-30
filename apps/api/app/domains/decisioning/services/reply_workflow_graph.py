@@ -67,7 +67,18 @@ async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     stage_latencies = state["stage_latencies"]
     stage_started = time.perf_counter()
     plan = state["plan"]
-    if plan.business_facts.available:
+    if state["intent"].primary_goal == "request_material":
+        from app.domains.catalog.services.orchid_material_service import (
+            orchid_material_chat_result,
+        )
+
+        material_result = orchid_material_chat_result(state["message"].message)
+        reply = (
+            FinalReply.model_validate(material_result)
+            if material_result is not None
+            else None
+        )
+    elif plan.business_facts.available:
         reply = await render_business_reply(state["message"], plan.business_facts)
     else:
         reply = await build_default_template_reply(
@@ -323,6 +334,8 @@ def reply_guard_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
 
 
 def _route_reply(state: ReplyWorkflowState) -> str:
+    if state["intent"].primary_goal == "request_material":
+        return "template"
     action = state["plan"].action
     if action == "template_reply":
         return "template"

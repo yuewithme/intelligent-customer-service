@@ -48,6 +48,8 @@ class SalesActionDecision(BaseModel):
     reason: str = "stage_default"
     stage_objective: str | None = None
     prohibited_behaviors: list[str] = Field(default_factory=list)
+    allow_diagnostic_question: bool = False
+    brand_value_facts: list[dict] = Field(default_factory=list)
 
 
 def decide_sales_action(
@@ -121,6 +123,28 @@ def decide_sales_action(
             known_slots,
             customer_signal=signal,
             reason="intent_priority",
+        )
+
+    if (
+        intent.primary_domain == "care"
+        and intent.primary_goal != "request_material"
+    ):
+        return SalesActionDecision(
+            reply_goal=(
+                "先结合客户症状做专业分析，说明问题为什么容易反复并给出"
+                "安全可执行的处理方向；痛点已经明确时，再自然说明萧岚苑"
+                "能够提供的已核实养护服务价值"
+            ),
+            sales_action="discover_pain",
+            known_slots=known_slots,
+            customer_signal="interested",
+            reason="care_expertise_first",
+            allow_diagnostic_question=True,
+            prohibited_behaviors=[
+                "没有专业分析就连续追问",
+                "一次追问多个养护信息",
+                "把可能原因说成确定诊断",
+            ],
         )
 
     definition = get_sales_stage_definition(stage)

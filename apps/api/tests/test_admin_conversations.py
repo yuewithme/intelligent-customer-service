@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -89,8 +90,12 @@ def test_evaluation_turn_is_recorded_as_a_labeled_workbench_conversation(
                 "intent": {"primary_intent": "care_question"},
                 "sources": [],
                 "template": {},
-                "need_human": True,
-                "handoff": {"reason": "should_not_notify"},
+                "need_human": trace_id == "trace_eval_002",
+                "handoff": (
+                    {"reason": "should_not_notify"}
+                    if trace_id == "trace_eval_002"
+                    else None
+                ),
             },
             is_evaluation=True,
         )
@@ -116,7 +121,7 @@ def test_evaluation_turn_is_recorded_as_a_labeled_workbench_conversation(
     ).json()["data"]
     assert listing["total"] == 1
     assert listing["items"][0]["user_display_name"] == "测试案例｜classic-case-12"
-    assert listing["items"][0]["status"] == "ai_waiting"
+    assert listing["items"][0]["status"] == "handoff_pending"
 
     detail = client.get(
         "/api/v1/admin/conversations/"
@@ -139,6 +144,66 @@ def test_evaluation_turn_is_recorded_as_a_labeled_workbench_conversation(
         and item["metadata"]["is_evaluation"] is True
         for item in detail["messages"]
     )
+
+
+def test_evaluation_card_is_recorded_as_real_workbench_message(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    from app.domains.conversations.schemas.event import NormalizedMessage
+    from app.domains.conversations.services.chat_orchestrator import (
+        _record_workbench_turn,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    card = {
+        "title": "陪伴养兰会员",
+        "url": "https://h5.youzan.com/goods/member-39",
+        "description": "点击查看详情和下单",
+        "thumb_url": "https://cdn.example.com/member.jpg",
+    }
+    asyncio.run(
+        _record_workbench_turn(
+            message=NormalizedMessage(
+                trace_id="trace_eval_card",
+                channel="api",
+                user_id="eval_card_case",
+                session_id="session_eval_card",
+                message="把会员购买链接发我",
+                kb_id="kb_default",
+                metadata={"evaluation_id": "card-case"},
+            ),
+            result={
+                "answer": "可以的，我把购买链接发您。",
+                "answer_segments": ["可以的，我把购买链接发您。"],
+                "outbound_messages": [
+                    {"type": "text", "content": "可以的，我把购买链接发您。"},
+                    {"type": "link_card", "content": json.dumps(card, ensure_ascii=False)},
+                ],
+                "route": "template_reply",
+                "intent": {"primary_intent": "product_query"},
+                "sources": [],
+                "template": {},
+                "need_human": False,
+            },
+            is_evaluation=True,
+        )
+    )
+
+    detail = TestClient(app).get(
+        "/api/v1/admin/conversations/"
+        "wechat:eval_card_case:session_eval_card"
+    ).json()["data"]
+    ai_messages = [
+        item for item in detail["messages"] if item["sender_type"] == "ai"
+    ]
+    assert [item["metadata"]["message_type"] for item in ai_messages] == [
+        "text",
+        "link_card",
+    ]
+    assert ai_messages[1]["metadata"]["link_card"] == card
+    assert ai_messages[1]["metadata"]["simulated_delivery"] is True
 
 
 def test_hidden_conversation_reappears_after_new_customer_message(monkeypatch, tmp_path):

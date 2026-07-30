@@ -32,6 +32,26 @@ def test_discovery_asks_for_first_missing_sales_slot():
     assert decision.next_stage == "pain_discovery"
 
 
+def test_care_reply_prioritizes_expertise_and_optional_diagnostic_question():
+    intent = _intent().model_copy(
+        update={
+            "primary_domain": "care",
+            "primary_goal": "seek_help",
+        }
+    )
+
+    decision = decide_sales_action(
+        user_state=UserState(user_id="care_user", sales_stage="need_discovery"),
+        intent=intent,
+    )
+
+    assert decision.sales_action == "discover_pain"
+    assert decision.question_slot is None
+    assert decision.allow_diagnostic_question is True
+    assert "专业分析" in decision.reply_goal
+    assert "萧岚苑" in decision.reply_goal
+
+
 def test_discovery_does_not_repeat_an_asked_slot():
     state = UserState(
         user_id="user_1",
