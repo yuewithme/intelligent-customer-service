@@ -266,6 +266,88 @@ async def test_process_batch_sends_opening_then_core_material_reply(
 
 
 @pytest.mark.asyncio
+async def test_new_friend_opening_precedes_later_material_request(monkeypatch):
+    from app.domains.catalog.services.orchid_material_service import (
+        orchid_material_chat_result,
+    )
+    from app.integrations.eyun.services import (
+        message_risk_control_service as risk_control,
+    )
+
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "")
+    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "0")
+    get_settings.cache_clear()
+    clock = [datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)]
+    queued = []
+    handled = []
+
+    async def fake_handle_chat(request):
+        handled.append(request.message)
+        return orchid_material_chat_result(request.message)
+
+    async def fake_enqueue_outbound(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued), **kwargs}
+
+    async def ignore_memories(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(risk_control, "utcnow", lambda: clock[0])
+    monkeypatch.setattr(risk_control, "random_reply_delay_seconds", lambda: 0)
+    monkeypatch.setattr(risk_control, "random_outbound_spacing_seconds", lambda: 3)
+    monkeypatch.setattr(risk_control, "handle_chat", fake_handle_chat)
+    monkeypatch.setattr(
+        risk_control,
+        "get_eyun_contact_snapshot",
+        lambda **kwargs: _async_value({}),
+    )
+    monkeypatch.setattr(risk_control, "enqueue_eyun_outbound", fake_enqueue_outbound)
+    monkeypatch.setattr(risk_control, "_record_opening_memories", ignore_memories)
+    monkeypatch.setattr(risk_control, "_record_first_inbound_memories", ignore_memories)
+
+    opening_batch = await risk_control.enqueue_eyun_inbound(
+        {
+            "messageType": "60999",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_new_customer",
+                "toUser": "wxid_bot",
+                "content": "你已添加了新兰友，以上是打招呼的消息。",
+                "newMsgId": 7001,
+            },
+        }
+    )
+    await risk_control._process_inbound_batch(opening_batch["id"])
+
+    clock[0] += timedelta(seconds=1)
+    material_batch = await risk_control.enqueue_eyun_inbound(
+        {
+            "messageType": "60001",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_new_customer",
+                "toUser": "wxid_bot",
+                "content": "要资料",
+                "newMsgId": 7002,
+            },
+        }
+    )
+    await risk_control._process_inbound_batch(material_batch["id"])
+
+    assert handled == ["要资料"]
+    assert [row.get("message_type", "text") for row in queued] == [
+        "text",
+        "link_card",
+        "text",
+        "image",
+    ]
+    assert queued[0]["content"] == get_settings().eyun_opening_text
+    assert queued[1]["source_batch_key"] == "wid:wxid_new_customer"
+
+
+@pytest.mark.asyncio
 async def test_video_issue_after_material_delivery_requests_douyin_order_screenshot(
     monkeypatch,
 ):
