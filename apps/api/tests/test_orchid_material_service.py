@@ -5,6 +5,7 @@ from app.domains.catalog.services.orchid_material_service import (
     ORCHID_MATERIAL_CARD,
     ORCHID_MATERIAL_IMAGE_URL,
     ORCHID_MATERIAL_TEXT,
+    is_orchid_material_followup,
     is_orchid_material_request,
     orchid_material_chat_result,
 )
@@ -72,6 +73,70 @@ def test_orchid_material_reply_uses_fixed_youzan_card():
         "type": "image",
         "content": ORCHID_MATERIAL_IMAGE_URL,
     }
+
+
+def test_opening_context_turns_short_replies_into_material_requests():
+    recent_turns = [
+        {
+            "role": "assistant",
+            "route": "opening",
+            "content": "我们会给兰友提供养兰资料、视频课程和一对一养护指导。",
+        }
+    ]
+
+    for content in (
+        "1",
+        "[强]",
+        "怎么领？",
+        "没领到",
+        "还没收到",
+        "好的",
+        "好的，好的",
+        "养护",
+    ):
+        assert is_orchid_material_followup(content, recent_turns) is True
+    assert (
+        is_orchid_material_followup(
+            "[强]",
+            [
+                {
+                    "role": "assistant",
+                    "route": "chitchat",
+                    "content": "我们也会给兰友提供养兰资料和视频课程。",
+                }
+            ],
+        )
+        is True
+    )
+
+
+def test_material_followup_requires_opening_context_and_respects_blockers():
+    opening_turns = [
+        {
+            "role": "assistant",
+            "route": "opening",
+            "content": "我们会给兰友提供养兰资料。",
+        }
+    ]
+    ordinary_turns = [
+        {
+            "role": "assistant",
+            "route": "template_reply",
+            "content": "我帮您查一下订单。",
+        }
+    ]
+
+    assert is_orchid_material_followup("没领到", ordinary_turns) is False
+    assert is_orchid_material_followup("订单一直没收到", opening_turns) is False
+    assert is_orchid_material_followup("不用发资料", opening_turns) is False
+    assert is_orchid_material_followup("资料链接打不开", opening_turns) is False
+
+
+def test_confirmed_contextual_request_builds_fixed_material_reply():
+    result = orchid_material_chat_result("没领到", confirmed_request=True)
+
+    assert result is not None
+    assert result["route"] == "orchid_material_delivery"
 
 
 def test_non_material_message_does_not_build_fixed_reply():

@@ -149,6 +149,55 @@ async def test_opening_followup_uses_recent_assistant_question():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content",
+    ["1", "[强]", "怎么领？", "没领到", "好的，好的", "养护"],
+)
+async def test_opening_material_followup_preempts_ambiguous_short_intents(
+    monkeypatch, content
+):
+    from app.domains.conversations.schemas.chat import ChatRequest
+    from app.domains.conversations.services import chat_orchestrator, state_service
+
+    user_id = f"material-followup-{content}"
+    state_service._state_store.pop(user_id, None)
+
+    async def hydrate_opening_context(_user_id, user_state):
+        user_state.metadata["recent_turns"] = [
+            {
+                "role": "assistant",
+                "route": "opening",
+                "content": "我们会给兰友提供养兰资料、视频课程和一对一养护指导。",
+            }
+        ]
+
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "_hydrate_user_state_from_profile",
+        hydrate_opening_context,
+    )
+
+    result = await chat_orchestrator.handle_chat(
+        ChatRequest(
+            channel="wechat",
+            user_id=user_id,
+            session_id="default",
+            message=content,
+            kb_id="kb_default",
+            metadata={"provider": "eyun"},
+        )
+    )
+
+    assert result["route"] == "orchid_material_delivery"
+    assert result["intent"]["primary_goal"] == "request_material"
+    assert [item["type"] for item in result["outbound_messages"]] == [
+        "link_card",
+        "text",
+        "image",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_opening_followup_extracts_region_and_variety_from_classic_case():
     from app.domains.decisioning.services.intent_service import classify_intent
 

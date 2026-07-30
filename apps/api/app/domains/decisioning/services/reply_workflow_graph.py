@@ -72,7 +72,10 @@ async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
             orchid_material_chat_result,
         )
 
-        material_result = orchid_material_chat_result(state["message"].message)
+        material_result = orchid_material_chat_result(
+            state["message"].message,
+            confirmed_request=True,
+        )
         reply = (
             FinalReply.model_validate(material_result)
             if material_result is not None

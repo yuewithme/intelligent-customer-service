@@ -14,7 +14,10 @@ from app.domains.decisioning.services.intent_taxonomy_service import (
     prepare_intent_payload,
     taxonomy_values,
 )
-from app.domains.catalog.services.orchid_material_service import is_orchid_material_request
+from app.domains.catalog.services.orchid_material_service import (
+    is_orchid_material_followup,
+    is_orchid_material_request,
+)
 from app.domains.sales.services.shipping_contact_service import extract_shipping_contact
 from app.domains.sales.services.tag_catalog import normalize_system_value, system_tag_values
 from app.domains.decisioning.services.intent_shadow_service import (
@@ -852,6 +855,27 @@ def classify_by_fast_rule(text: str) -> IntentResult | None:
     if intent.confidence < settings.intent_fast_rule_threshold:
         return None
     return _with_decision_blocker(intent, text)
+
+
+def classify_material_followup(
+    text: str,
+    recent_turns: list[dict] | None,
+) -> IntentResult | None:
+    if not is_orchid_material_followup(text, recent_turns):
+        return None
+    return _validated_intent(
+        {
+            "primary_domain": "care",
+            "primary_goal": "request_material",
+            "issues": ["material_resource"],
+            "confidence": 0.99,
+            "slots": {
+                "material_type": "orchid_care",
+                "resource_type": "orchid_material",
+            },
+            "reason": "contextual_material_followup",
+        }
+    )
 
 
 async def classify_by_llm(

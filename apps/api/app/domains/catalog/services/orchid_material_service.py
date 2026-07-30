@@ -56,6 +56,58 @@ _NEGATIVE_TRIGGERS = (
     "无需资料",
     "不要养兰资料",
 )
+_CONTEXTUAL_NEGATIVE_TRIGGERS = (
+    "不要",
+    "不用",
+    "不需要",
+    "别发",
+    "已经领到",
+    "领到了",
+    "已经收到",
+    "收到了",
+)
+_CONTEXTUAL_BLOCKERS = (
+    "订单",
+    "快递",
+    "物流",
+    "包裹",
+    "发货",
+    "签收",
+    "退款",
+    "退货",
+    "投诉",
+    "人工",
+    "花盆",
+    "破损",
+    "苗体",
+)
+_CONTEXTUAL_SHORT_REPLIES = {
+    "1",
+    "好",
+    "好的",
+    "可以",
+    "要",
+    "需要",
+    "想要",
+    "发我",
+    "给我",
+    "资料",
+    "养护",
+    "视频",
+    "课程",
+    "领取",
+    "怎么领",
+    "怎么领取",
+    "如何领取",
+    "没领到",
+    "还没领到",
+    "没有领到",
+    "没收到",
+    "还没收到",
+    "没有收到",
+    "[强]",
+    "[握手]",
+}
 
 _VIDEO_ISSUE_PATTERNS = (
     r"(?:资料里|资料内|资料中的|你们的|发的|里面的)?.{0,6}"
@@ -101,8 +153,55 @@ def is_orchid_material_request(content: str) -> bool:
     return has_resource and has_request and has_orchid_context
 
 
-def orchid_material_chat_result(content: str) -> dict[str, Any] | None:
-    if not is_orchid_material_request(content):
+def is_orchid_material_followup(
+    content: str,
+    recent_turns: list[dict] | None,
+) -> bool:
+    recent_turns = recent_turns if isinstance(recent_turns, list) else []
+    latest_assistant = next(
+        (
+            turn
+            for turn in reversed(recent_turns)
+            if isinstance(turn, dict) and turn.get("role") == "assistant"
+        ),
+        None,
+    )
+    if latest_assistant is None:
+        return False
+    assistant_content = _normalize(str(latest_assistant.get("content") or ""))
+    assistant_route = str(latest_assistant.get("route") or "")
+    has_opening_offer = assistant_route == "opening" or (
+        "养兰资料" in assistant_content
+        and any(marker in assistant_content for marker in ("提供", "领取", "回复"))
+    )
+    if not has_opening_offer:
+        return False
+
+    normalized = _normalize(content)
+    compact = re.sub(r"[，。！？、,.!?\s]+", "", normalized)
+    if (
+        not compact
+        or any(marker in compact for marker in _CONTEXTUAL_NEGATIVE_TRIGGERS)
+        or any(marker in compact for marker in _CONTEXTUAL_BLOCKERS)
+        or any(marker in compact for marker in ("打不开", "失效", "看不了"))
+    ):
+        return False
+    return (
+        is_orchid_material_request(content)
+        or compact in _CONTEXTUAL_SHORT_REPLIES
+        or re.fullmatch(r"(?:(?:好的)|好|可以|嗯){1,3}", compact) is not None
+        or re.search(r"(?:怎么|如何).{0,3}(?:领|领取|获取)", compact) is not None
+        or re.search(r"(?:没|没有|还没).{0,2}(?:领|收到)", compact) is not None
+        or "[强]" in compact
+    )
+
+
+def orchid_material_chat_result(
+    content: str,
+    *,
+    confirmed_request: bool = False,
+) -> dict[str, Any] | None:
+    if not confirmed_request and not is_orchid_material_request(content):
         return None
     card_payload = {
         key: ORCHID_MATERIAL_CARD[key]
