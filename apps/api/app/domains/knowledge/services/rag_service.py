@@ -127,6 +127,14 @@ REGIONAL_ENVIRONMENT_CLAIM_PATTERN = re.compile(
     r"(?:干燥|潮湿|闷热|湿度大|湿度高|湿度低|多雨|"
     r"偏高|很高|较高|高|偏低|很低|较低|低|炎热|寒冷|热|冷)"
 )
+ENVIRONMENT_ASSERTION_PATTERN = re.compile(
+    r"(?:气候|空气|湿度|气温|温度).{0,10}"
+    r"(?:干燥|潮湿|闷热|湿度大|湿度高|湿度低|多雨|"
+    r"偏高|很高|较高|高|偏低|很低|较低|低|炎热|寒冷|热|冷)"
+)
+PROFILE_LOCATION_PATTERN = re.compile(
+    r"(?:客户)?(?:在|来自)([\u4e00-\u9fff]{2,8})(?=[，,。；;\s]|$)"
+)
 
 
 PROMPT_TEMPLATE = """
@@ -294,8 +302,7 @@ def care_reply_violations(
     if context is None:
         return []
     violations = []
-    regional_claim = REGIONAL_ENVIRONMENT_CLAIM_PATTERN.search(answer)
-    if regional_claim:
+    if _has_unsupported_regional_environment_claim(answer, context):
         violations.append("unsupported_regional_environment_claim")
     if _requires_brand_bridge(message=message, context=context) and not (
         _has_verified_brand_bridge(answer=answer, context=context)
@@ -318,6 +325,27 @@ def _requires_brand_bridge(*, message: str, context: ContextPackage) -> bool:
         and str(turn.get("role") or "") == "assistant"
         and "萧岚苑" in str(turn.get("content") or "")
         for turn in context.recent_turns
+    )
+
+
+def _has_unsupported_regional_environment_claim(
+    answer: str,
+    context: ContextPackage,
+) -> bool:
+    if REGIONAL_ENVIRONMENT_CLAIM_PATTERN.search(answer):
+        return True
+    profile_text = " ".join(
+        str(value)
+        for value in context.profile_summary.values()
+        if value not in (None, "", [], {})
+    )
+    locations = PROFILE_LOCATION_PATTERN.findall(profile_text)
+    return any(
+        re.search(
+            rf"{re.escape(location)}.{{0,8}}{ENVIRONMENT_ASSERTION_PATTERN.pattern}",
+            answer,
+        )
+        for location in locations
     )
 
 
@@ -381,7 +409,7 @@ def _finalize_repaired_care_answer(
         context=context,
     )
     if "unsupported_regional_environment_claim" in remaining:
-        answer = _remove_regional_environment_claims(answer)
+        answer = _remove_regional_environment_claims(answer, context)
         remaining = care_reply_violations(
             answer,
             message=message,
@@ -396,12 +424,19 @@ def _finalize_repaired_care_answer(
     return answer or "__HANDOFF__"
 
 
-def _remove_regional_environment_claims(answer: str) -> str:
+def _remove_regional_environment_claims(
+    answer: str,
+    context: ContextPackage | None,
+) -> str:
     parts = re.split(r"(?<=[。！？!?；;\n])", str(answer or ""))
     return "".join(
         part
         for part in parts
-        if part.strip() and not REGIONAL_ENVIRONMENT_CLAIM_PATTERN.search(part)
+        if part.strip()
+        and not (
+            context is not None
+            and _has_unsupported_regional_environment_claim(part, context)
+        )
     ).strip()
 
 

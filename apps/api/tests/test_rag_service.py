@@ -105,6 +105,7 @@ def test_rag_keeps_service_claims_backed_by_verified_membership_facts():
 
 def test_care_reply_quality_requires_evidence_and_one_verified_brand_bridge():
     context = ContextPackage(
+        profile_summary={"ai_summary": "客户在西安，刚入门。"},
         session_state={
             "sales_action": {
                 "sales_action": "discover_pain",
@@ -121,6 +122,14 @@ def test_care_reply_quality_requires_evidence_and_one_verified_brand_bridge():
         }
     )
 
+    assert rag_service.care_reply_violations(
+        "西安气候干燥，先减少浇水。",
+        message="一盆很多黑根空根，我修剪重新栽了。",
+        context=context,
+    ) == [
+        "unsupported_regional_environment_claim",
+        "missing_verified_brand_bridge",
+    ]
     assert rag_service.care_reply_violations(
         "西安现在气候干燥，先减少浇水。",
         message="一盆很多黑根空根，我修剪重新栽了。",
@@ -146,6 +155,7 @@ def test_care_reply_quality_requires_evidence_and_one_verified_brand_bridge():
 
 def test_care_reply_finalizer_removes_live_region_claim_and_closes_brand_gap():
     context = ContextPackage(
+        profile_summary={"ai_summary": "客户在西安，刚入门。"},
         session_state={
             "sales_action": {
                 "sales_action": "discover_pain",
@@ -162,12 +172,12 @@ def test_care_reply_finalizer_removes_live_region_claim_and_closes_brand_gap():
     )
 
     answer = rag_service._finalize_repaired_care_answer(
-        "西安现在气温低，兰花生长慢。先看植料实际干湿再浇水。",
+        "西安气温低，兰花生长慢。先看植料实际干湿再浇水。",
         message="黑根空根怎么处理？",
         context=context,
     )
 
-    assert "西安现在气温低" not in answer
+    assert "西安气温低" not in answer
     assert "先看植料实际干湿再浇水" in answer
     assert "萧岚苑" in answer
     assert "系统视频课" in answer
