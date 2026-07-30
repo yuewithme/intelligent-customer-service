@@ -29,6 +29,27 @@ def test_opening_reply_contains_configured_text_and_image(monkeypatch):
     get_settings.cache_clear()
 
 
+def test_opening_material_keeps_image_semantics_for_workbench(monkeypatch):
+    from app.core.config import get_settings
+    from app.domains.decisioning.services.reply_builder import build_opening_reply
+
+    monkeypatch.setenv(
+        "EYUN_OPENING_IMAGE_URL",
+        "https://bot.example.com/static/xiaolanyuan-opening.jpg",
+    )
+    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "7")
+    get_settings.cache_clear()
+
+    reply = build_opening_reply()
+
+    assert reply.outbound_messages[1].model_dump() == {
+        "type": "image",
+        "content": "https://bot.example.com/static/xiaolanyuan-opening.jpg",
+        "material_id": 7,
+    }
+    get_settings.cache_clear()
+
+
 def test_first_inbound_message_is_the_only_opening_trigger(monkeypatch, tmp_path):
     from app.core.config import get_settings
     from app.infrastructure.database.models import EyunInboundMessageModel

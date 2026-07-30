@@ -112,9 +112,25 @@ def resolve_business_action(*, message, intent, user_state) -> str:
         return CONVERSATION
 
     selected_product_id = str(metadata.get("commerce_last_product_id") or "").strip()
+    selected_product_kind = str(
+        slots.get("product_request_kind")
+        or metadata.get("commerce_last_product_kind")
+        or ""
+    ).strip()
     if slots.get("conversation_topic") == "order_information":
         return CONVERSATION
     if primary_intent == "payment_intent" and selected_product_id:
+        return CATALOG_SEARCH
+    if (
+        selected_product_id
+        and selected_product_kind == "membership"
+        and (
+            slots.get("product_request_kind") == "membership"
+            or primary_intent in {*_CATALOG_INTENTS, "payment_intent", "ask_price"}
+            or _CATALOG_PURCHASE_PATTERN.search(text)
+            or _SELECTED_PRODUCT_DETAIL_PATTERN.search(text)
+        )
+    ):
         return CATALOG_SEARCH
     if (
         selected_product_id

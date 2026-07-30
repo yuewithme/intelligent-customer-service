@@ -112,7 +112,7 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
     _configure_db(monkeypatch, tmp_path, "opening-sync")
     monkeypatch.setenv("EYUN_OPENING_TEXT", "欢迎开场")
     monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://example.com/opening.jpg")
-    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "0")
+    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "7")
     monkeypatch.setenv("EYUN_INBOUND_DEBOUNCE_SECONDS", "0")
     get_settings.cache_clear()
     now = datetime(2026, 7, 15, 8, 0, tzinfo=timezone.utc)

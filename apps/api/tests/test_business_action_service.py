@@ -182,3 +182,28 @@ def test_rejection_blocks_product_action_even_when_intent_is_wrong():
         intent=mistaken_membership_intent,
         user_state=UserState(user_id="customer-1"),
     ) == CONVERSATION
+
+
+def test_membership_price_and_purchase_followups_keep_catalog_action():
+    state = UserState(
+        user_id="customer-1",
+        metadata={
+            "commerce_last_product_id": "membership-39",
+            "commerce_last_product_kind": "membership",
+        },
+    )
+
+    assert resolve_business_action(
+        message=_message("会员现在多少钱？"),
+        intent=_intent("ask_price"),
+        user_state=state,
+    ) == CATALOG_SEARCH
+    assert resolve_business_action(
+        message=_message("可以，39.9元我能接受，把购买链接发我吧。"),
+        intent=_intent(
+            "order_intent",
+            primary_domain="product",
+            primary_goal="purchase",
+        ),
+        user_state=state,
+    ) == CATALOG_SEARCH

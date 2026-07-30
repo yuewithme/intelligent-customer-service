@@ -53,7 +53,15 @@ def build_opening_reply() -> FinalReply:
     settings = get_settings()
     answer = settings.eyun_opening_text
     outbound_messages = [{"type": "text", "content": answer}]
-    if settings.eyun_opening_material_id:
+    if settings.eyun_opening_material_id and settings.eyun_opening_image_url:
+        outbound_messages.append(
+            {
+                "type": "image",
+                "content": settings.eyun_opening_image_url,
+                "material_id": settings.eyun_opening_material_id,
+            }
+        )
+    elif settings.eyun_opening_material_id:
         outbound_messages.append(
             {
                 "type": "material",

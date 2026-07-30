@@ -1344,6 +1344,71 @@ async def test_membership_questions_answer_current_need_before_card(
 
 
 @pytest.mark.asyncio
+async def test_membership_purchase_followup_cannot_fall_back_to_orchid_card():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH
+
+    searches = []
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            searches.append((keyword, limit))
+            if keyword == "首单参与陪伴养兰客户 专享特惠链接":
+                return [
+                    YouzanProduct(
+                        item_id="membership-39",
+                        title="首单参与陪伴养兰客户 专享特惠链接",
+                        price_cent=3990,
+                        h5_url="https://h5.youzan.com/goods/member-39",
+                    )
+                ]
+            return [
+                YouzanProduct(
+                    item_id="orchid-1",
+                    title="建兰忆香荷",
+                    price_cent=2990,
+                    h5_url="https://h5.youzan.com/goods/orchid-1",
+                )
+            ]
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={
+            "commerce_last_product_id": "membership-39",
+            "commerce_last_product_keyword": "首单参与陪伴养兰客户 专享特惠链接",
+            "commerce_last_product_kind": "membership",
+        },
+    )
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="order_intent",
+        primary_domain="product",
+        primary_goal="purchase",
+        issues=["product_selection"],
+        slots={"conversation_topic": "product_recommendation"},
+        confidence=0.99,
+        need_template=True,
+    )
+
+    facts = await build_commerce_context(
+        _message("可以，39.9元我能接受。把购买链接发我吧。"),
+        state,
+        intent,
+        product_service=FakeProductService(),
+        business_action=CATALOG_SEARCH,
+        allowed_source_groups={"product_catalog"},
+    )
+
+    assert searches == [("首单参与陪伴养兰客户 专享特惠链接", 3)]
+    assert facts.tool_state["product_request_kind"] == "membership"
+    assert facts.tool_state["membership_question_kind"] == "combined"
+    assert facts.tool_state["send_purchase_card"] is True
+    assert [product["item_id"] for product in facts.tool_state["products"]] == [
+        "membership-39"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_accessory_result_is_removed_before_ai_context():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
     from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH
