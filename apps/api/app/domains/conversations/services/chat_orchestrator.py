@@ -663,6 +663,15 @@ def _answer_segments(
 
 
 def _success_log_payload(message, intent, decision, reply: FinalReply) -> dict:
+    evaluation_id = str(message.metadata.get("evaluation_id") or "").strip()
+    log_metadata = dict(reply.metadata)
+    if evaluation_id:
+        log_metadata.update(
+            {
+                "evaluation_id": evaluation_id,
+                "is_evaluation": True,
+            }
+        )
     return {
         **_message_log_base(message),
         "answer": reply.answer,
@@ -685,7 +694,7 @@ def _success_log_payload(message, intent, decision, reply: FinalReply) -> dict:
         "status": "success",
         "error_code": None,
         "error_message": None,
-        "metadata": reply.metadata,
+        "metadata": log_metadata,
         "created_at": _now_iso(),
     }
 

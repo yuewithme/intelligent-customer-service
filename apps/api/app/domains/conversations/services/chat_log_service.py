@@ -257,6 +257,7 @@ def _payload_to_model(payload: dict) -> ChatLogModel:
 
 
 def _model_to_item(row: ChatLogModel) -> dict:
+    metadata = _json_loads(row.metadata_json, {})
     return {
         "trace_id": row.trace_id,
         "channel": row.channel,
@@ -282,6 +283,7 @@ def _model_to_item(row: ChatLogModel) -> dict:
         "status": row.status,
         "error_code": row.error_code,
         "error_message": row.error_message,
+        "evaluation_id": metadata.get("evaluation_id"),
         "created_at": row.created_at.isoformat(),
     }
 

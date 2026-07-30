@@ -250,8 +250,9 @@ async def test_membership_request_uses_local_product_and_exact_price_card():
     assert facts.tool_state["products"][0]["item_id"] == "membership-39"
     assert state.metadata["commerce_last_product_id"] == "membership-39"
     assert reply is not None
-    assert "会员资格" in reply.answer
+    assert "会员产品" in reply.answer
     assert "39.9元" in reply.answer
+    assert "购买链接" in reply.answer
     assert json.loads(reply.outbound_messages[1].content)["url"].endswith("member-39")
 
 
@@ -365,7 +366,7 @@ async def test_selected_product_detail_queries_current_item_id_and_keeps_selecti
     assert facts.tool_state["products"][0]["skus"][0]["spec_name"] == "3苗裸根"
     assert reply is not None
     assert "3苗裸根" in reply.answer
-    assert "没有明确标注带盆" in reply.answer
+    assert "没写清楚是不是带盆" in reply.answer
 
 
 @pytest.mark.asyncio
@@ -469,7 +470,8 @@ async def test_supply_shortage_returns_real_pot_and_medium_cards():
         "medium-1",
     ]
     assert reply is not None
-    assert "花盆和植料能单独补" in reply.answer
+    assert "可以用来补您缺的花盆和植料" in reply.answer
+    assert "购买链接" in reply.answer
     assert [message.type for message in reply.outbound_messages] == [
         "text",
         "link_card",
@@ -1153,9 +1155,9 @@ async def test_product_renderer_returns_one_coherent_customer_message():
     reply = await render_business_reply(_message("我喜欢绿色的素花"), facts)
 
     assert reply.answer == (
-        "推荐您看看建兰芽黄素，当前售价68元，"
+        "按您说的情况，我们目前库里这款建兰芽黄素比较适合您，当前售价68元，"
         "新苗时期新芽呈淡黄色，随着生长逐渐转为黄绿色；"
-        "花朵呈淡黄色素花，清秀雅致。点击下方商品卡片就可以查看详情和下单。"
+        "花朵呈淡黄色素花，清秀雅致。我把购买链接放下面，点开就能看详情和下单。"
     )
     assert len(reply.outbound_messages) == 2
     assert reply.outbound_messages[0].model_dump()["split"] is False

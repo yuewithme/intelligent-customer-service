@@ -111,11 +111,11 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             if state.get("product_request_kind") == "membership":
                 price = first.get("price_cent") if isinstance(first, dict) else None
                 price_text = (
-                    f"，当前售价{price / 100:g}元" if isinstance(price, int) else ""
+                    f"，现在是{price / 100:g}元" if isinstance(price, int) else ""
                 )
                 answer = (
-                    f"可以，店里的会员资格可以直接购买{price_text}。"
-                    "下面是对应的真实商品卡片，点击就可以查看和下单。"
+                    f"我们店里目前有这个会员产品{price_text}。"
+                    "我把购买链接放下面，点开就能看详情和下单。"
                 )
                 return _commerce_final_reply(answer, state)
             if state.get("product_request_kind") == "supply_shortage":
@@ -127,9 +127,11 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
                 if any("植料" in str(keyword) for keyword in keywords):
                     labels.append("植料")
                 subject = "和".join(labels) or "养兰用品"
+                price = first.get("price_cent") if isinstance(first, dict) else None
+                price_text = f"，现在是{price / 100:g}元" if isinstance(price, int) else ""
                 answer = (
-                    f"可以，{subject}能单独补。下面是对应的真实商品卡片，"
-                    "您可以先看规格；如果需要估算数量，告诉我准备上盆多少株。"
+                    f"我们店里有{_product_display_name(first)}{price_text}，"
+                    f"可以用来补您缺的{subject}。我把购买链接放下面，点开就能看规格和下单。"
                 )
                 return _commerce_final_reply(answer, state)
             if state.get("send_product_image"):
@@ -145,15 +147,16 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
             price_text = f"，当前售价{price / 100:g}元" if isinstance(price, int) else ""
             card = state.get("mini_program")
             if isinstance(card, dict) and card.get("app_id") and card.get("page_path"):
-                next_step = "点击商品卡片就可以查看和下单。"
+                next_step = "我把购买链接放下面，点开就能看详情和下单。"
             elif first.get("h5_url"):
-                next_step = "点击下方商品卡片就可以查看详情和下单。"
+                next_step = "我把购买链接放下面，点开就能看详情和下单。"
             else:
                 next_step = "如果需要下单，我再帮您确认购买入口。"
             knowledge_text = _product_knowledge_text(first)
             capability_note = _requested_capability_note(state)
             answer = (
-                f"推荐您看看{_product_display_name(first)}{price_text}"
+                f"按您说的情况，我们目前库里这款{_product_display_name(first)}比较适合您"
+                f"{price_text}"
                 f"{knowledge_text}。{capability_note}{next_step}"
             )
         return _commerce_final_reply(answer, state)
@@ -227,15 +230,15 @@ def _render_selected_product_detail(product: dict, state: dict) -> FinalReply:
         specs.append(f"{spec_name}{price_text}")
     question = str(state.get("detail_question") or "")
     if specs:
-        answer = f"{name}当前同步到的规格有：{'、'.join(specs[:6])}。"
+        answer = f"我们目前库里这款{name}有{'、'.join(specs[:6])}可以选。"
         if "带盆" in question and not any(
             marker in spec for spec in specs for marker in ("带盆", "含盆", "盆栽", "种好")
         ):
-            answer += "现有规格没有明确标注带盆或种好发货，我不能先按带盆款承诺。"
+            answer += "商品页暂时没写清楚是不是带盆发货，我先不替您乱说，您点下面购买链接看看规格。"
     else:
         answer = (
-            f"{name}当前商品资料没有同步出可确认的苗数或带盆规格，"
-            "我不能凭商品名称猜测；请以商品卡片规格页为准。"
+            f"这款{name}的苗数或带盆信息在商品资料里没有写清楚，"
+            "我先不替您乱说，您点下面购买链接看看规格。"
         )
     return _commerce_final_reply(answer, state)
 

@@ -4,6 +4,44 @@ from app.core.config import get_settings
 from app.main import app
 
 
+def test_evaluation_id_is_added_to_success_log_metadata():
+    from app.domains.conversations.schemas.event import NormalizedMessage
+    from app.domains.conversations.services.chat_orchestrator import _success_log_payload
+    from app.domains.decisioning.schemas.intent import IntentResult
+    from app.domains.decisioning.schemas.policy import PolicyDecision
+    from app.domains.decisioning.schemas.reply import FinalReply
+
+    payload = _success_log_payload(
+        NormalizedMessage(
+            trace_id="trace-eval",
+            channel="api",
+            user_id="test-user",
+            session_id="test-session",
+            message="烂根怎么办",
+            kb_id="kb-default",
+            metadata={"evaluation_id": "classic-case-12", "mock_orders": [{"secret": True}]},
+        ),
+        IntentResult(
+            route="rag_answer",
+            primary_intent="care_question",
+            confidence=0.9,
+        ),
+        PolicyDecision(route="rag_answer", reason="care knowledge"),
+        FinalReply(
+            answer="先把烂根清理干净，再检查植料的透气和排水。",
+            reply_type="rag",
+            route="rag_answer",
+            metadata={"persona_id": "orchid_sales_v1"},
+        ),
+    )
+
+    assert payload["metadata"] == {
+        "persona_id": "orchid_sales_v1",
+        "evaluation_id": "classic-case-12",
+        "is_evaluation": True,
+    }
+
+
 def test_chat_log_metadata_keeps_reply_decision_trace_without_business_secrets():
     from app.domains.conversations.services.chat_log_service import sanitize_log_payload
 
@@ -83,7 +121,12 @@ async def _record_sample_log(**overrides):
         "status": "success",
         "error_code": None,
         "error_message": None,
-        "metadata": {"token": "secret", "safe": "ok"},
+        "metadata": {
+            "token": "secret",
+            "safe": "ok",
+            "evaluation_id": "eval-001",
+            "is_evaluation": True,
+        },
         "created_at": "2026-06-29T10:20:00+08:00",
     }
     payload.update(overrides)
@@ -123,13 +166,18 @@ def test_admin_chat_log_apis_return_list_detail_and_stats(monkeypatch, tmp_path)
     assert item["trace_id"] == "req_001"
     assert item["route"] == "template_reply"
     assert item["primary_intent"] == "price_objection"
+    assert item["evaluation_id"] == "eval-001"
 
     assert detail_response.status_code == 200
     detail = detail_response.json()["data"]
     assert detail["template_score"] == 0.91
     assert detail["policy_reason"] == "价格异议走固定模板"
     assert detail["stage_latencies"] == {"intent_ms": 420}
-    assert detail["metadata"] == {"safe": "ok"}
+    assert detail["metadata"] == {
+        "safe": "ok",
+        "evaluation_id": "eval-001",
+        "is_evaluation": True,
+    }
     assert detail["model_calls"][0]["model"] == "qwen3.6-flash"
     assert detail["model_calls"][0]["duration_ms"] == 250
 

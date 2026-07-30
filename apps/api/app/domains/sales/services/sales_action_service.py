@@ -5,7 +5,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from app.domains.decisioning.schemas.intent import IntentResult
-from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
+from app.domains.decisioning.schemas.reply import FinalReply
 from app.domains.sales.schemas.sales_flow import SalesStage
 from app.domains.sales.services.sales_stage_catalog import get_sales_stage_definition
 from app.domains.customers.schemas.state import UserState
@@ -160,10 +160,7 @@ def apply_sales_action(
 ) -> FinalReply:
     if reply.need_human or not reply.answer.strip() or not decision.question_slot:
         return reply
-    question = _QUESTION_BY_SLOT.get(decision.question_slot)
-    if not question:
-        return reply
-    if question in reply.answer or _contains_slot_question(
+    if _contains_slot_question(
         reply.answer,
         decision.question_slot,
     ):
@@ -175,31 +172,10 @@ def apply_sales_action(
                 }
             }
         )
-    bridge = _BRIDGE_BY_SLOT.get(decision.question_slot, "为了更准确地判断，")
-    follow_up = f"{bridge}{question}"
-    base_answer = (
-        _strip_question_sentences(reply.answer)
-        if _contains_question(reply.answer)
-        else reply.answer.rstrip()
-    )
-    outbound_messages = list(reply.outbound_messages)
-    if outbound_messages:
-        outbound_messages = _replace_first_text(outbound_messages, base_answer)
-        outbound_messages.append(OutboundMessage(type="text", content=follow_up))
-    return reply.model_copy(
-        update={
-            "answer": f"{base_answer}\n\n{follow_up}".strip(),
-            "answer_segments": [
-                *([base_answer] if base_answer else []),
-                follow_up,
-            ],
-            "outbound_messages": outbound_messages,
-            "metadata": {
-                **reply.metadata,
-                "emitted_question_slot": decision.question_slot,
-            },
-        }
-    )
+    # The sales decision describes what information would be useful next; it must
+    # not overwrite a natural model question or force a canned question into
+    # every reply. A later customer turn can still fill the missing slot.
+    return reply
 
 
 def _contains_question(text: str) -> bool:
@@ -222,32 +198,6 @@ def _contains_slot_question(text: str, slot: str) -> bool:
     if not _contains_question(text):
         return False
     return any(marker in text for marker in _SLOT_QUESTION_MARKERS.get(slot, ()))
-
-
-def _strip_question_sentences(text: str) -> str:
-    parts = re.findall(r"[^。！？!?\n]+[。！？!?]?", str(text or ""))
-    kept = [
-        part.strip()
-        for part in parts
-        if part.strip() and not _contains_question(part)
-    ]
-    return "".join(kept).strip()
-
-
-def _replace_first_text(
-    messages: list[OutboundMessage],
-    content: str,
-) -> list[OutboundMessage]:
-    replaced = False
-    result = []
-    for message in messages:
-        if message.type == "text" and not replaced:
-            replaced = True
-            if content:
-                result.append(message.model_copy(update={"content": content}))
-            continue
-        result.append(message)
-    return result
 
 
 def evolve_opportunity(
@@ -384,28 +334,6 @@ def _next_stage(stage: str) -> str | None:
         return SalesStage.RAPPORT.value
     index = sequence.index(stage)
     return sequence[index + 1] if index + 1 < len(sequence) else None
-
-
-_QUESTION_BY_SLOT = {
-    "need_track": "您这次更需要养护指导、选购产品，还是两者都需要？",
-    "desired_outcome": "您这次最希望达到什么效果？",
-    "pain_point": "目前最想优先解决的是哪个问题？",
-    "region": "您所在的地区是哪里？",
-    "placement": "平时主要放在室内还是阳台？",
-    "budget": "您的预算大概在哪个范围？",
-    "color_preference": "您更偏好什么花色？",
-    "selected_product_id": "目前您更倾向哪一个方案？",
-    "selected_sku_id": "您想确认哪个规格？",
-    "quantity": "您计划需要多少份？",
-    "decision_blocker": "您现在最顾虑的是价格、养护还是选择问题？",
-    "plant_count": "您大概有多少盆需要使用？",
-}
-
-_BRIDGE_BY_SLOT = {
-    "plant_count": "具体用量要结合您的实际使用数量判断，",
-    "budget": "为了把方案控制在合适范围，",
-    "region": "不同地区的环境和物流会有差异，",
-}
 
 
 def _priority_action(
