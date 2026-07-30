@@ -141,6 +141,13 @@ TRAILING_CARE_QUESTION_PATTERN = re.compile(
     r"哪(?:个|些|种|款|里|儿)?|是.{1,16}还是.{1,16}"
     r"))\s*$"
 )
+CARE_QUESTION_TOPICS = {
+    "medium": ("植料", "水苔", "树皮", "颗粒土", "混合土"),
+    "watering": ("浇水", "多久浇", "怎么浇", "干湿"),
+    "root_state": ("根系", "新根", "黑根", "空根", "烂根"),
+    "light": ("光照", "直射光", "散射光"),
+    "ventilation": ("通风", "风口"),
+}
 
 
 PROMPT_TEMPLATE = """
@@ -365,10 +372,20 @@ def _repeats_recent_follow_up(
     current = _trailing_care_question(answer)
     if not current:
         return False
+    current_topic = _care_question_topic(current)
     return any(
         isinstance(turn, dict)
         and str(turn.get("role") or "") == "assistant"
-        and _trailing_care_question(str(turn.get("content") or "")) == current
+        and (
+            _trailing_care_question(str(turn.get("content") or "")) == current
+            or (
+                current_topic
+                and _care_question_topic(
+                    _trailing_care_question(str(turn.get("content") or ""))
+                )
+                == current_topic
+            )
+        )
         for turn in context.recent_turns
     )
 
@@ -378,6 +395,17 @@ def _trailing_care_question(text: str) -> str:
     if match is None:
         return ""
     return re.sub(r"[\s，,。！？!?你您]", "", match.group(1))
+
+
+def _care_question_topic(question: str) -> str:
+    return next(
+        (
+            topic
+            for topic, markers in CARE_QUESTION_TOPICS.items()
+            if any(marker in question for marker in markers)
+        ),
+        "",
+    )
 
 
 def _has_verified_brand_bridge(*, answer: str, context: ContextPackage) -> bool:

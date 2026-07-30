@@ -211,6 +211,11 @@ def test_care_reply_rewrites_or_removes_a_repeated_follow_up_question():
         message="天气热，我两三天浇一次。",
         context=context,
     ) == "浇水要看植料实际干湿，不要只按天数。"
+    assert rag_service.care_reply_violations(
+        "先让根系恢复。您现在用的是纯颗粒还是混合土",
+        message="天气热，我两三天浇一次。",
+        context=context,
+    ) == ["repeated_follow_up_question"]
 
 
 def test_product_catalog_docs_only_include_fields_released_for_the_stage():
