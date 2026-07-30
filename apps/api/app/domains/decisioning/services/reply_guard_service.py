@@ -161,6 +161,11 @@ def finalize_reply_spec(spec: ReplySpec) -> FinalReply:
         answer_segments or ([answer] if answer.strip() else [])
     )
     outbound_messages = _separate_follow_up_messages(outbound_messages)
+    if not outbound_messages and answer_segments:
+        outbound_messages = [
+            OutboundMessage(type="text", content=segment)
+            for segment in answer_segments
+        ]
     metadata = dict(spec.metadata)
     metadata.pop("persona_original_copy", None)
     if spec.question_slot and _question_count(answer) == 1:

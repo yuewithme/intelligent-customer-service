@@ -211,15 +211,6 @@ def test_reply_guard_sends_trailing_question_without_punctuation_separately():
                 "黑根空根常和植料长期偏湿有关，先保持通风并观察盆内干湿。"
                 "你目前用的植料是什么"
             ),
-            outbound_messages=[
-                OutboundMessage(
-                    type="text",
-                    content=(
-                        "黑根空根常和植料长期偏湿有关，先保持通风并观察盆内干湿。"
-                        "你目前用的植料是什么"
-                    ),
-                )
-            ],
         )
     )
 
