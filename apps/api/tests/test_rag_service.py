@@ -129,12 +129,49 @@ def test_care_reply_quality_requires_evidence_and_one_verified_brand_bridge():
         "unsupported_regional_environment_claim",
         "missing_verified_brand_bridge",
     ]
+    assert "unsupported_regional_environment_claim" in (
+        rag_service.care_reply_violations(
+            "西安现在气温低，兰花生长会慢一些。",
+            message="怎么才能养好根？",
+            context=context,
+        )
+    )
     assert rag_service.care_reply_violations(
         "黑根空根常和根系长期缺氧有关，先按植料实际干湿控制浇水。"
         "萧岚苑有老师结合实际情况做一对一指导，能帮您逐步排掉反复烂根的诱因。",
         message="一盆很多黑根空根，我修剪重新栽了。",
         context=context,
     ) == []
+
+
+def test_care_reply_finalizer_removes_live_region_claim_and_closes_brand_gap():
+    context = ContextPackage(
+        session_state={
+            "sales_action": {
+                "sales_action": "discover_pain",
+                "brand_value_facts": [
+                    {
+                        "service_capabilities": [
+                            "系统的视频课程",
+                            "结合具体养护问题的一对一指导",
+                        ]
+                    }
+                ],
+            }
+        }
+    )
+
+    answer = rag_service._finalize_repaired_care_answer(
+        "西安现在气温低，兰花生长慢。先看植料实际干湿再浇水。",
+        message="黑根空根怎么处理？",
+        context=context,
+    )
+
+    assert "西安现在气温低" not in answer
+    assert "先看植料实际干湿再浇水" in answer
+    assert "萧岚苑" in answer
+    assert "系统视频课" in answer
+    assert "一对一指导" in answer
 
 
 def test_product_catalog_docs_only_include_fields_released_for_the_stage():

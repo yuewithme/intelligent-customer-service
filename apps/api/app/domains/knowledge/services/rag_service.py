@@ -122,17 +122,10 @@ CARE_PAIN_MARKERS = (
     "反复",
 )
 REGIONAL_ENVIRONMENT_CLAIM_PATTERN = re.compile(
-    r"[\u4e00-\u9fff]{2,8}(?:现在|这边|当地|地区)?(?:的)?"
-    r"(?:气候|空气|湿度).{0,10}(?:干燥|潮湿|闷热|湿度大|湿度高|湿度低|多雨)"
-)
-ENVIRONMENT_EVIDENCE_MARKERS = (
-    "干燥",
-    "潮湿",
-    "闷热",
-    "湿度大",
-    "湿度高",
-    "湿度低",
-    "多雨",
+    r"[\u4e00-\u9fff]{2,6}(?:现在|目前|这边|当地)(?:的)?"
+    r"(?:气候|空气|湿度|气温|温度).{0,10}"
+    r"(?:干燥|潮湿|闷热|湿度大|湿度高|湿度低|多雨|"
+    r"偏高|很高|较高|高|偏低|很低|较低|低|炎热|寒冷|热|冷)"
 )
 
 
@@ -301,20 +294,8 @@ def care_reply_violations(
     if context is None:
         return []
     violations = []
-    evidence_text = " ".join(
-        [
-            str(message or ""),
-            *[
-                str(turn.get("content") or "")
-                for turn in context.recent_turns
-                if isinstance(turn, dict)
-            ],
-        ]
-    )
     regional_claim = REGIONAL_ENVIRONMENT_CLAIM_PATTERN.search(answer)
-    if regional_claim and not any(
-        marker in evidence_text for marker in ENVIRONMENT_EVIDENCE_MARKERS
-    ):
+    if regional_claim:
         violations.append("unsupported_regional_environment_claim")
     if _requires_brand_bridge(message=message, context=context) and not (
         _has_verified_brand_bridge(answer=answer, context=context)
@@ -385,6 +366,57 @@ def _care_repair_prompt(prompt: str, violations: list[str]) -> str:
         "# 质检退回\n"
         "上一版未通过发送前质检，请完整重写一次，不要解释修改过程：\n"
         + "\n".join(f"- {instruction}" for instruction in instructions)
+    )
+
+
+def _finalize_repaired_care_answer(
+    answer: str,
+    *,
+    message: str,
+    context: ContextPackage | None,
+) -> str:
+    remaining = care_reply_violations(
+        answer,
+        message=message,
+        context=context,
+    )
+    if "unsupported_regional_environment_claim" in remaining:
+        answer = _remove_regional_environment_claims(answer)
+        remaining = care_reply_violations(
+            answer,
+            message=message,
+            context=context,
+        )
+    if (
+        "missing_verified_brand_bridge" in remaining
+        and context is not None
+        and (bridge := _verified_brand_bridge(context))
+    ):
+        answer = f"{answer.rstrip()} {bridge}".strip()
+    return answer or "__HANDOFF__"
+
+
+def _remove_regional_environment_claims(answer: str) -> str:
+    parts = re.split(r"(?<=[。！？!?；;\n])", str(answer or ""))
+    return "".join(
+        part
+        for part in parts
+        if part.strip() and not REGIONAL_ENVIRONMENT_CLAIM_PATTERN.search(part)
+    ).strip()
+
+
+def _verified_brand_bridge(context: ContextPackage) -> str:
+    capabilities = _verified_service_capabilities(context)
+    labels = []
+    if any("视频课程" in capability for capability in capabilities):
+        labels.append("系统视频课")
+    if any("一对一指导" in capability for capability in capabilities):
+        labels.append("针对具体问题的一对一指导")
+    if not labels:
+        return ""
+    return (
+        f"萧岚苑有{'和'.join(labels)}，"
+        "能帮您少走些反复试错的弯路。"
     )
 
 
@@ -836,6 +868,11 @@ async def rag_chat(
                 answer = remove_disallowed_business_claims(
                     answer,
                     allowed_source_groups,
+                )
+                answer = _finalize_repaired_care_answer(
+                    answer,
+                    message=message,
+                    context=context,
                 )
                 result["usage"] = _merge_usage(
                     result.get("usage", {}),
