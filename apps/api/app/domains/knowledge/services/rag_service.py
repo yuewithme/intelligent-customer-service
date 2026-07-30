@@ -128,12 +128,18 @@ REGIONAL_ENVIRONMENT_CLAIM_PATTERN = re.compile(
     r"偏高|很高|较高|高|偏低|很低|较低|低|炎热|寒冷|热|冷)"
 )
 ENVIRONMENT_ASSERTION_PATTERN = re.compile(
-    r"(?:气候|空气|湿度|气温|温度).{0,10}"
+    r"(?:天气|气候|空气|湿度|气温|温度).{0,10}"
     r"(?:干燥|潮湿|闷热|湿度大|湿度高|湿度低|多雨|"
     r"偏高|很高|较高|高|偏低|很低|较低|低|炎热|寒冷|热|冷)"
 )
 PROFILE_LOCATION_PATTERN = re.compile(
     r"(?:客户)?(?:在|来自)([\u4e00-\u9fff]{2,8})(?=[，,。；;\s]|$)"
+)
+TRAILING_CARE_QUESTION_PATTERN = re.compile(
+    r"([^。！!\n]{2,80}(?:"
+    r"[？?]|吗(?:[啊呢呀吧])?|呢|什么|怎么|如何|为什么|多少|"
+    r"哪(?:个|些|种|款|里|儿)?|是.{1,16}还是.{1,16}"
+    r"))\s*$"
 )
 
 
@@ -304,6 +310,8 @@ def care_reply_violations(
     violations = []
     if _has_unsupported_regional_environment_claim(answer, context):
         violations.append("unsupported_regional_environment_claim")
+    if _repeats_recent_follow_up(answer=answer, context=context):
+        violations.append("repeated_follow_up_question")
     if _requires_brand_bridge(message=message, context=context) and not (
         _has_verified_brand_bridge(answer=answer, context=context)
     ):
@@ -349,6 +357,29 @@ def _has_unsupported_regional_environment_claim(
     )
 
 
+def _repeats_recent_follow_up(
+    *,
+    answer: str,
+    context: ContextPackage,
+) -> bool:
+    current = _trailing_care_question(answer)
+    if not current:
+        return False
+    return any(
+        isinstance(turn, dict)
+        and str(turn.get("role") or "") == "assistant"
+        and _trailing_care_question(str(turn.get("content") or "")) == current
+        for turn in context.recent_turns
+    )
+
+
+def _trailing_care_question(text: str) -> str:
+    match = TRAILING_CARE_QUESTION_PATTERN.search(str(text or "").strip())
+    if match is None:
+        return ""
+    return re.sub(r"[\s，,。！？!?你您]", "", match.group(1))
+
+
 def _has_verified_brand_bridge(*, answer: str, context: ContextPackage) -> bool:
     if "萧岚苑" not in answer:
         return False
@@ -389,6 +420,12 @@ def _care_repair_prompt(prompt: str, violations: list[str]) -> str:
             "只能使用 Session state 中 brand_value_facts 已核实的视频课程或"
             "一对一指导，并说明它如何帮助客户减少反复试错；不要立即逼单。"
         )
+    if "repeated_follow_up_question" in violations:
+        instructions.append(
+            "不要重复 Recent conversation 里已经问过、但客户尚未回答的追问；"
+            "先根据客户本轮新增信息继续分析，必要时换成一个新的高信息量问题，"
+            "否则不追问。"
+        )
     return (
         f"{prompt}\n\n"
         "# 质检退回\n"
@@ -421,6 +458,8 @@ def _finalize_repaired_care_answer(
         and (bridge := _verified_brand_bridge(context))
     ):
         answer = f"{answer.rstrip()} {bridge}".strip()
+    if "repeated_follow_up_question" in remaining:
+        answer = _remove_trailing_care_question(answer)
     return answer or "__HANDOFF__"
 
 
@@ -453,6 +492,13 @@ def _verified_brand_bridge(context: ContextPackage) -> str:
         f"萧岚苑有{'和'.join(labels)}，"
         "能帮您少走些反复试错的弯路。"
     )
+
+
+def _remove_trailing_care_question(answer: str) -> str:
+    match = TRAILING_CARE_QUESTION_PATTERN.search(str(answer or "").strip())
+    if match is None:
+        return answer
+    return answer[: match.start(1)].rstrip()
 
 
 def _merge_usage(first: dict, second: dict) -> dict:

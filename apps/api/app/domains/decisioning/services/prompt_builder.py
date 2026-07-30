@@ -166,6 +166,7 @@ def _render_context(context) -> str:
                 f"{sales_constraints}\n"
                 "Answer the user's current question first. "
                 f"{question_instruction}"
+                "Never repeat a follow-up question already asked in Recent conversation. "
                 "Do not reveal internal field names, enum values, JSON, or stage reasoning. "
                 "Do not repeat known facts or fabricate product facts."
             )

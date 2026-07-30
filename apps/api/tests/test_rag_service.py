@@ -131,6 +131,13 @@ def test_care_reply_quality_requires_evidence_and_one_verified_brand_bridge():
         "missing_verified_brand_bridge",
     ]
     assert rag_service.care_reply_violations(
+        "西安天气热，两三天浇一次容易积水。",
+        message="天气热，我两三天浇一次。",
+        context=context,
+    ) == [
+        "unsupported_regional_environment_claim",
+    ]
+    assert rag_service.care_reply_violations(
         "西安现在气候干燥，先减少浇水。",
         message="一盆很多黑根空根，我修剪重新栽了。",
         context=context,
@@ -182,6 +189,28 @@ def test_care_reply_finalizer_removes_live_region_claim_and_closes_brand_gap():
     assert "萧岚苑" in answer
     assert "系统视频课" in answer
     assert "一对一指导" in answer
+
+
+def test_care_reply_rewrites_or_removes_a_repeated_follow_up_question():
+    repeated = "你目前用的植料是树皮还是水苔"
+    context = ContextPackage(
+        recent_turns=[
+            {"role": "assistant", "content": f"先保持通风。{repeated}"}
+        ],
+        session_state={"sales_action": {"sales_action": "discover_pain"}},
+    )
+    answer = f"浇水要看植料实际干湿，不要只按天数。{repeated}"
+
+    assert rag_service.care_reply_violations(
+        answer,
+        message="天气热，我两三天浇一次。",
+        context=context,
+    ) == ["repeated_follow_up_question"]
+    assert rag_service._finalize_repaired_care_answer(
+        answer,
+        message="天气热，我两三天浇一次。",
+        context=context,
+    ) == "浇水要看植料实际干湿，不要只按天数。"
 
 
 def test_product_catalog_docs_only_include_fields_released_for_the_stage():

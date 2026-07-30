@@ -355,7 +355,11 @@ async def handle_chat(request: ChatRequest) -> dict:
         if sales_action.sales_action == "discover_pain":
             sales_action = sales_action.model_copy(
                 update={
-                    "brand_value_facts": verified_membership_brand_facts(),
+                    "brand_value_facts": (
+                        []
+                        if _pain_brand_value_already_present(user_state)
+                        else verified_membership_brand_facts()
+                    ),
                 }
             )
         user_state.metadata["sales_action"] = sales_action.model_dump()
@@ -563,6 +567,23 @@ def _should_prepend_opening(*, message, user_state, is_evaluation: bool) -> bool
     if user_state.metadata.get("opening_sent"):
         return False
     return bool(message.metadata.get("prepend_opening")) or is_evaluation
+
+
+def _pain_brand_value_already_present(user_state) -> bool:
+    metadata = getattr(user_state, "metadata", {})
+    turns = metadata.get("recent_turns") if isinstance(metadata, dict) else None
+    if not isinstance(turns, list):
+        return False
+    return any(
+        isinstance(turn, dict)
+        and str(turn.get("role") or "") == "assistant"
+        and "萧岚苑" in str(turn.get("content") or "")
+        and any(
+            marker in str(turn.get("content") or "")
+            for marker in ("反复试错", "少走弯路", "理清养护", "结合具体", "针对具体")
+        )
+        for turn in turns
+    )
 
 
 def _prepend_opening(reply: FinalReply) -> FinalReply:

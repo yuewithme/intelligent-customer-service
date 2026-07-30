@@ -52,6 +52,29 @@ def test_care_reply_prioritizes_expertise_and_optional_diagnostic_question():
     assert "萧岚苑" in decision.reply_goal
 
 
+def test_pain_brand_value_is_not_injected_again_after_it_was_presented():
+    from app.domains.conversations.services.chat_orchestrator import (
+        _pain_brand_value_already_present,
+    )
+
+    state = UserState(
+        user_id="u1",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": (
+                        "萧岚苑有老师结合具体情况做指导，"
+                        "能帮您少走反复试错的弯路。"
+                    ),
+                }
+            ]
+        },
+    )
+
+    assert _pain_brand_value_already_present(state) is True
+
+
 def test_discovery_does_not_repeat_an_asked_slot():
     state = UserState(
         user_id="user_1",
