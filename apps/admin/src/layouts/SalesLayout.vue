@@ -50,8 +50,7 @@ const navigation = [
     { label: '首单销售流程', to: '/sales-flow' }
   ] },
   { title: '销售运营', items: [
-    { label: '真实问答日志', to: '/operations/chat-logs' },
-    { label: '意图标注日志', to: '/operations/intent-observations' },
+    { label: '意图标注日志', to: '/operations/chat-logs' },
     { label: '影子决策评测', to: '/operations/reply-shadows' },
     { label: '整案案例库', to: '/operations/conversation-cases' },
     { label: '标签管理', to: '/operations/tags' },

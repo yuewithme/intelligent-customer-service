@@ -138,6 +138,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
     handoff = result.get("handoff") or {}
     intent = result.get("intent") or {}
     skip_customer_record = bool(message.metadata.get("skip_customer_record"))
+    evaluation_metadata = _evaluation_metadata(message.metadata)
     now = _now()
     should_notify_handoff = status == HANDOFF_PENDING
     with _get_session() as session:
@@ -283,7 +284,11 @@ async def record_ai_turn(*, message, result: dict) -> None:
                     route=result.get("route"),
                     primary_intent=conversation.last_intent,
                     metadata_json=json.dumps(
-                        {"channel": message.channel, "tenant_id": message.tenant_id},
+                        {
+                            "channel": message.channel,
+                            "tenant_id": message.tenant_id,
+                            **evaluation_metadata,
+                        },
                         ensure_ascii=False,
                     ),
                     created_at=now,
@@ -304,6 +309,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                         {
                             "sources": result.get("sources", []),
                             "template": result.get("template", {}),
+                            **evaluation_metadata,
                         },
                         ensure_ascii=False,
                     ),
@@ -1399,6 +1405,16 @@ def _load_metadata(value: str | None) -> dict[str, Any]:
     except (json.JSONDecodeError, TypeError):
         return {}
     return metadata if isinstance(metadata, dict) else {}
+
+
+def _evaluation_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    evaluation_id = str(metadata.get("evaluation_id") or "").strip()
+    if not evaluation_id:
+        return {}
+    return {
+        "evaluation_id": evaluation_id,
+        "is_evaluation": True,
+    }
 
 
 def _eyun_result_message_id(result: Any) -> str | None:

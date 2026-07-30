@@ -438,8 +438,11 @@ async def handle_chat(request: ChatRequest) -> dict:
         stage_latencies["state_update_ms"] = _elapsed_ms(stage_started)
 
         result = _to_chat_data(message.session_id, message.trace_id, routed_intent, reply)
-        if not is_evaluation:
-            await record_ai_turn(message=message, result=result)
+        await _record_workbench_turn(
+            message=message,
+            result=result,
+            is_evaluation=is_evaluation,
+        )
         log_payload = _success_log_payload(
             message=message,
             intent=routed_intent,
@@ -582,6 +585,36 @@ def _is_evaluation_request(message) -> bool:
     return bool(getattr(message, "metadata", {}).get("evaluation_id"))
 
 
+async def _record_workbench_turn(*, message, result: dict, is_evaluation: bool) -> None:
+    if not is_evaluation:
+        await record_ai_turn(message=message, result=result)
+        return
+
+    evaluation_id = str(message.metadata.get("evaluation_id") or "").strip()
+    workbench_message = message.model_copy(
+        update={
+            "channel": "wechat",
+            "metadata": {
+                **message.metadata,
+                "display_name": f"测试案例｜{evaluation_id}",
+                "evaluation_id": evaluation_id,
+                "is_evaluation": True,
+                "skip_customer_record": False,
+            },
+        }
+    )
+    await record_ai_turn(
+        message=workbench_message,
+        result={
+            **result,
+            # A simulated conversation may be inspected in the workbench, but
+            # it must never create a real handoff notification.
+            "need_human": False,
+            "handoff": None,
+        },
+    )
+
+
 def _apply_evaluation_context(message, user_state) -> None:
     metadata = getattr(message, "metadata", {})
     context = metadata.get("evaluation_context") if isinstance(metadata, dict) else None
@@ -663,15 +696,6 @@ def _answer_segments(
 
 
 def _success_log_payload(message, intent, decision, reply: FinalReply) -> dict:
-    evaluation_id = str(message.metadata.get("evaluation_id") or "").strip()
-    log_metadata = dict(reply.metadata)
-    if evaluation_id:
-        log_metadata.update(
-            {
-                "evaluation_id": evaluation_id,
-                "is_evaluation": True,
-            }
-        )
     return {
         **_message_log_base(message),
         "answer": reply.answer,
@@ -694,7 +718,7 @@ def _success_log_payload(message, intent, decision, reply: FinalReply) -> dict:
         "status": "success",
         "error_code": None,
         "error_message": None,
-        "metadata": log_metadata,
+        "metadata": reply.metadata,
         "created_at": _now_iso(),
     }
 

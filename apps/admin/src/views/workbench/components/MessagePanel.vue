@@ -54,7 +54,12 @@
       >
         <div class="bubble">
           <span v-if="selectedMessageIds.has(message.id)" class="selected-mark">✓</span>
-          <div class="sender">{{ senderText(message.sender_type) }}</div>
+          <div class="sender">
+            {{ senderText(message.sender_type) }}
+            <ElTag v-if="message.metadata.is_evaluation" size="small" type="warning">
+              测试 · {{ message.metadata.evaluation_id }}
+            </ElTag>
+          </div>
           <div class="content">
             <ElImage
               v-if="isImageMessage(message) && mediaSource(message)"

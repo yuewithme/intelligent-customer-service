@@ -57,6 +57,90 @@ def test_admin_conversation_list_filters_by_channel(monkeypatch, tmp_path):
     assert data["items"][0]["user_id"] == "real_customer"
 
 
+def test_evaluation_turn_is_recorded_as_a_labeled_workbench_conversation(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    from app.domains.conversations.schemas.event import NormalizedMessage
+    from app.domains.conversations.services.chat_orchestrator import (
+        _record_workbench_turn,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    async def record_turn(message_text: str, answer_text: str, trace_id: str) -> None:
+        await _record_workbench_turn(
+            message=NormalizedMessage(
+                trace_id=trace_id,
+                channel="api",
+                user_id="eval_classic_case_12",
+                session_id="session_eval_12",
+                message=message_text,
+                kb_id="kb_default",
+                metadata={
+                    "evaluation_id": "classic-case-12",
+                    "skip_customer_record": True,
+                },
+            ),
+            result={
+                "answer": answer_text,
+                "answer_segments": [answer_text],
+                "route": "rag_answer",
+                "intent": {"primary_intent": "care_question"},
+                "sources": [],
+                "template": {},
+                "need_human": True,
+                "handoff": {"reason": "should_not_notify"},
+            },
+            is_evaluation=True,
+        )
+
+    asyncio.run(
+        record_turn(
+            "我的兰花烂根了，应该怎么办？",
+            "先把烂根清理掉，再换成透气、排水好的植料。",
+            "trace_eval_001",
+        )
+    )
+    asyncio.run(
+        record_turn(
+            "我现在用的是水苔。",
+            "那先把旧水苔清理干净，修掉发黑发软的根。",
+            "trace_eval_002",
+        )
+    )
+
+    client = TestClient(app)
+    listing = client.get(
+        "/api/v1/admin/conversations", params={"channel": "wechat"}
+    ).json()["data"]
+    assert listing["total"] == 1
+    assert listing["items"][0]["user_display_name"] == "测试案例｜classic-case-12"
+    assert listing["items"][0]["status"] == "ai_waiting"
+
+    detail = client.get(
+        "/api/v1/admin/conversations/"
+        "wechat:eval_classic_case_12:session_eval_12"
+    ).json()["data"]
+    assert [item["sender_type"] for item in detail["messages"]] == [
+        "customer",
+        "ai",
+        "customer",
+        "ai",
+    ]
+    assert [item["content"] for item in detail["messages"]] == [
+        "我的兰花烂根了，应该怎么办？",
+        "先把烂根清理掉，再换成透气、排水好的植料。",
+        "我现在用的是水苔。",
+        "那先把旧水苔清理干净，修掉发黑发软的根。",
+    ]
+    assert all(
+        item["metadata"]["evaluation_id"] == "classic-case-12"
+        and item["metadata"]["is_evaluation"] is True
+        for item in detail["messages"]
+    )
+
+
 def test_hidden_conversation_reappears_after_new_customer_message(monkeypatch, tmp_path):
     import asyncio
 

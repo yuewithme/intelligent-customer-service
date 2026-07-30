@@ -31,7 +31,6 @@ class ChatLogItem(BaseModel):
     status: str = "success"
     error_code: int | None = None
     error_message: str | None = None
-    evaluation_id: str | None = None
     created_at: str
 
 
