@@ -39,6 +39,17 @@ EYUN_PRIVATE_OTHER = "60999"
 EYUN_GROUP_TEXT = "80001"
 
 
+def is_eyun_new_friend_opening_event(payload: dict[str, Any]) -> bool:
+    if str(payload.get("messageType", "")) != EYUN_PRIVATE_OTHER:
+        return False
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    content = str(data.get("content") or "").strip()
+    return (
+        "你已添加了" in content
+        and "以上是打招呼的消息" in content
+    ) or "NewXmlOpenIMFriReqAcceptedInWxWork" in content
+
+
 def is_eyun_text_message(payload: dict[str, Any]) -> bool:
     return str(payload.get("messageType", "")) in {EYUN_PRIVATE_TEXT, EYUN_GROUP_TEXT}
 
@@ -174,6 +185,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             },
         )
     is_private_image = is_eyun_private_image_message(payload)
+    is_opening_event = is_eyun_new_friend_opening_event(payload)
     if is_private_image:
         logger.info(
             "Eyun image callback accepted messageType=%s originalMessageType=%s "
@@ -193,18 +205,32 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         message_id=_eyun_message_id(data),
         status=(
             AI_WAITING
-            if is_eyun_private_text_message(payload) or is_private_image
+            if is_eyun_private_text_message(payload)
+            or is_private_image
+            or is_opening_event
             else HANDOFF_PENDING
         ),
         route=(
             "inbound_text"
             if is_eyun_text_message(payload)
-            else "inbound_image" if is_private_image else "non_text"
+            else "inbound_image"
+            if is_private_image
+            else "opening_trigger"
+            if is_opening_event
+            else "non_text"
         ),
-        primary_intent="message" if is_eyun_text_message(payload) else _eyun_message_kind(message_type),
+        primary_intent=(
+            "message"
+            if is_eyun_text_message(payload)
+            else "opening_trigger"
+            if is_opening_event
+            else _eyun_message_kind(message_type)
+        ),
         handoff_reason=(
             None
-            if is_eyun_private_text_message(payload) or is_private_image
+            if is_eyun_private_text_message(payload)
+            or is_private_image
+            or is_opening_event
             else "unsupported_message_type"
         ),
         metadata=metadata,
@@ -229,6 +255,10 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         if media.get("url"):
             queued_payload["data"]["_image_url"] = str(media["url"])
         await enqueue_eyun_inbound(queued_payload)
+        return eyun_success()
+
+    if is_opening_event:
+        await enqueue_eyun_inbound({**payload, "_eyun_opening_trigger": True})
         return eyun_success()
 
     if not is_eyun_private_text_message(payload):
@@ -306,6 +336,8 @@ def _eyun_provider_message_id(data: dict[str, Any]) -> str | None:
 def _eyun_display_content(payload: dict[str, Any]) -> str:
     if is_eyun_text_message(payload):
         return str((payload.get("data") or {}).get("content") or "").strip() or "[空消息]"
+    if is_eyun_new_friend_opening_event(payload):
+        return str((payload.get("data") or {}).get("content") or "").strip()
     return _eyun_non_text_label(str(payload.get("messageType", "")))
 
 

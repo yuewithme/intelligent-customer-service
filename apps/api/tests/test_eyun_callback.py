@@ -124,6 +124,72 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
     ]
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        "你已添加了新兰友，以上是打招呼的消息。",
+        (
+            '<sysmsg type="NewXmlOpenIMFriReqAcceptedInWxWork">'
+            "<NewXmlOpenIMFriReqAcceptedInWxWork>"
+            "<username>wxid_customer</username>"
+            "</NewXmlOpenIMFriReqAcceptedInWxWork></sysmsg>"
+        ),
+    ],
+)
+def test_new_friend_event_enters_opening_flow_instead_of_handoff(
+    monkeypatch, tmp_path, content
+):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    recorded = []
+    queued = []
+
+    async def fake_ensure(user_id, **kwargs):
+        return {"user_id": user_id}
+
+    async def fake_record(**kwargs):
+        recorded.append(kwargs)
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_enqueue(payload):
+        queued.append(payload)
+        return {"batch_key": "wid:wxid_customer"}
+
+    monkeypatch.setattr(
+        eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
+    )
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
+    monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "account": "sales_a",
+            "messageType": "60999",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": content,
+                "newMsgId": 105,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert recorded[0]["status"] == "ai_waiting"
+    assert recorded[0]["route"] == "opening_trigger"
+    assert recorded[0]["primary_intent"] == "opening_trigger"
+    assert recorded[0]["handoff_reason"] is None
+    assert queued[0]["_eyun_opening_trigger"] is True
+
+
 def test_internal_workbench_title_callback_is_ignored(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 

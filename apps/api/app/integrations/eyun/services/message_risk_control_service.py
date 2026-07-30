@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -718,6 +718,29 @@ async def _process_inbound_batch(batch_id: int) -> None:
         if batch_data["from_group"]:
             _mark_batch(batch_id, "skipped")
             return
+        from app.integrations.eyun.services.eyun_callback_service import (
+            is_eyun_new_friend_opening_event,
+        )
+
+        has_opening_event = any(
+            is_eyun_new_friend_opening_event(payload)
+            for payload in inbound_payloads
+        )
+        inbound_payloads = [
+            payload
+            for payload in inbound_payloads
+            if not is_eyun_new_friend_opening_event(payload)
+        ]
+        needs_opening = has_opening_event and not _conversation_has_opening_message(
+            batch_data
+        )
+        if has_opening_event and not inbound_payloads:
+            if needs_opening:
+                await _send_opening_for_new_friend(batch_data)
+                _mark_batch(batch_id, "processed")
+            else:
+                _mark_batch(batch_id, "skipped")
+            return
         if _only_intent_capture_noise(inbound_payloads):
             _mark_batch(batch_id, "skipped")
             return
@@ -804,7 +827,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 )
                 _mark_batch(batch_id, "processed")
                 return
-        elif is_first_inbound:
+        elif is_first_inbound or needs_opening:
             opening_result = _opening_chat_result()
             chat_result = await handle_chat(
                 ChatRequest(
@@ -1358,12 +1381,73 @@ def is_first_eyun_inbound_message(session: Session, batch_key: str) -> bool:
     return len(messages) == 1
 
 
+def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
+    conversation_id = make_conversation_id(
+        "wechat",
+        batch["from_user"] or batch["target_wc_id"],
+        batch["from_group"],
+    )
+    opening_text = get_settings().eyun_opening_text.strip()
+    with _get_session() as session:
+        return session.scalar(
+            select(ConversationMessageModel.id)
+            .where(
+                ConversationMessageModel.conversation_id == conversation_id,
+                ConversationMessageModel.sender_type == "ai",
+                ConversationMessageModel.delivery_status.in_(("queued", "sent")),
+                or_(
+                    ConversationMessageModel.route == "opening",
+                    ConversationMessageModel.content == opening_text,
+                ),
+            )
+            .limit(1)
+        ) is not None
+
+
+async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
+    opening_result = _opening_chat_result()
+    outbound_messages = _outbound_messages(opening_result)
+    await _record_opening_memories(
+        {**batch, "content": ""},
+        opening_result.get("answer", ""),
+    )
+    due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
+    for index, message in enumerate(outbound_messages):
+        conversation_message = await ensure_outbound_conversation_message(
+            channel="wechat",
+            user_id=batch["from_user"] or batch["target_wc_id"],
+            session_id=batch["from_group"],
+            content=message["content"],
+            message_type=message["type"],
+            sender_type="ai",
+            sender_id="ai",
+            route="opening",
+            created_after=batch["created_at"],
+        )
+        kwargs = {
+            "w_id": batch["w_id"],
+            "wc_id": batch["target_wc_id"],
+            "content": message["content"],
+            "source_batch_key": batch["batch_key"],
+            "conversation_message_id": conversation_message["id"],
+            "due_at": due_at,
+        }
+        if message.get("material_id"):
+            kwargs["material_id"] = int(message["material_id"])
+        if message["type"] not in {"text", "material"}:
+            kwargs["message_type"] = message["type"]
+        await enqueue_eyun_outbound(**kwargs)
+        if index < len(outbound_messages) - 1:
+            due_at += timedelta(seconds=random_outbound_spacing_seconds())
+
+
 def _opening_chat_result() -> dict[str, Any]:
     from app.domains.decisioning.services.reply_builder import build_opening_reply
 
     reply = build_opening_reply()
     return {
         "answer": reply.answer,
+        "route": "opening",
         "outbound_messages": [message.model_dump() for message in reply.outbound_messages],
     }
 
