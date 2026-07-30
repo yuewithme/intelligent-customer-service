@@ -218,20 +218,6 @@ async def build_commerce_context(
                 base_card=base_card,
                 allowed_source_groups=allowed_source_groups,
             )
-        product_request_kind = str(
-            intent.slots.get("product_request_kind")
-            or (
-                user_state.metadata.get("commerce_last_product_kind")
-                if intent.primary_intent == "payment_intent"
-                else ""
-            )
-            or ""
-        ).strip()
-        if product_request_kind and product_request_kind not in {
-            "membership",
-            "matched_orchid",
-        }:
-            return BusinessFacts()
         product_keywords = [
             str(value).strip()
             for value in (
@@ -241,14 +227,45 @@ async def build_commerce_context(
             )
             if str(value).strip()
         ]
+        product_request_kind = str(
+            intent.slots.get("product_request_kind") or ""
+        ).strip()
+        last_product_kind = str(
+            user_state.metadata.get("commerce_last_product_kind") or ""
+        ).strip()
+        last_product_keyword = str(
+            user_state.metadata.get("commerce_last_product_keyword") or ""
+        ).strip()
+        continues_selected_product = bool(
+            not product_request_kind
+            and user_state.metadata.get("commerce_last_product_id")
+            and last_product_kind in {"membership", "matched_orchid"}
+            and (
+                intent.primary_intent in {"payment_intent", "order_intent"}
+                or _explicitly_requests_purchase_card(message.message)
+                or (
+                    product_keywords
+                    and last_product_keyword
+                    and all(
+                        keyword == last_product_keyword
+                        for keyword in product_keywords
+                    )
+                )
+            )
+        )
+        if continues_selected_product:
+            product_request_kind = last_product_kind
+        if product_request_kind and product_request_kind not in {
+            "membership",
+            "matched_orchid",
+        }:
+            return BusinessFacts()
         if (
             not product_keywords
-            and intent.primary_intent == "payment_intent"
-            and user_state.metadata.get("commerce_last_product_keyword")
+            and product_request_kind == last_product_kind
+            and last_product_keyword
         ):
-            product_keywords = [
-                str(user_state.metadata["commerce_last_product_keyword"]).strip()
-            ]
+            product_keywords = [last_product_keyword]
         membership_request = product_request_kind == "membership"
         if not product_request_kind:
             product_request_kind = "matched_orchid"
@@ -331,8 +348,7 @@ async def build_commerce_context(
                 tool_state={"commerce_type": "product", "status": "unavailable"}
             )
         membership_question_kind = (
-            str(intent.slots.get("membership_question_kind") or "").strip()
-            or _membership_question_kind(message.message)
+            _membership_question_kind(message.message)
             if membership_request
             else None
         )
