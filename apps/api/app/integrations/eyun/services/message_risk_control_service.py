@@ -1148,7 +1148,7 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
             role="assistant",
             content=answer,
             intent="opening",
-            route="chitchat",
+            route="opening",
             channel="wechat",
             owner_external_id=str(batch.get("w_id") or ""),
             source_id=f"{batch['batch_key']}:assistant",

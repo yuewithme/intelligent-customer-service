@@ -35,6 +35,7 @@ from app.domains.decisioning.services.intent_observation_service import (
 from app.domains.decisioning.services.intent_service import (
     classify_by_fast_rule,
     classify_intent,
+    classify_material_followup,
     schedule_intent_shadow_evaluation,
 )
 from app.domains.customers.services.memory_rollout_service import prepare_memory_context_for_request
@@ -214,6 +215,11 @@ async def handle_chat(request: ChatRequest) -> dict:
         stage_started = time.perf_counter()
         intent = await check_rules(message, user_state)
         stage_latencies["rule_guard_ms"] = _elapsed_ms(stage_started)
+        if intent is None:
+            intent = classify_material_followup(
+                message.message,
+                user_state.metadata.get("recent_turns", []),
+            )
         if intent is None:
             intent = classify_by_fast_rule(message.message)
             if intent is not None:
