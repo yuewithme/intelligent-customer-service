@@ -109,6 +109,31 @@ SKU_CLAIM_PATTERN = re.compile(r"\d+(?:\.\d+)?\s*元|售价|价格|库存|现货
 ORDER_CLAIM_PATTERN = re.compile(
     r"(?:订单|物流|快递|付款|支付).{0,24}(?:成功|完成|已|已经|未|没有|同步|发出|到达)"
 )
+CARE_PAIN_MARKERS = (
+    "烂根",
+    "空根",
+    "黑根",
+    "腐苗",
+    "黄叶",
+    "焦尖",
+    "黑斑",
+    "不开花",
+    "养死",
+    "反复",
+)
+REGIONAL_ENVIRONMENT_CLAIM_PATTERN = re.compile(
+    r"[\u4e00-\u9fff]{2,8}(?:现在|这边|当地|地区)?(?:的)?"
+    r"(?:气候|空气|湿度).{0,10}(?:干燥|潮湿|闷热|湿度大|湿度高|湿度低|多雨)"
+)
+ENVIRONMENT_EVIDENCE_MARKERS = (
+    "干燥",
+    "潮湿",
+    "闷热",
+    "湿度大",
+    "湿度高",
+    "湿度低",
+    "多雨",
+)
 
 
 PROMPT_TEMPLATE = """
@@ -174,7 +199,10 @@ def _source(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def remove_unverified_capability_claims(answer: str) -> str:
+def remove_unverified_capability_claims(
+    answer: str,
+    verified_capabilities: list[str] | None = None,
+) -> str:
     """Remove business commitments that product/care RAG is not allowed to make."""
 
     parts = re.split(r"(?<=[。！？!?；;\n])", str(answer or ""))
@@ -186,7 +214,15 @@ def remove_unverified_capability_claims(answer: str) -> str:
             EDUCATION_RESOURCE_PATTERN.search(part)
             and AFFIRMATIVE_RESOURCE_CLAIM_PATTERN.search(part)
         )
-        if resource_claim and not CAPABILITY_CAVEAT_PATTERN.search(part):
+        verified_claim = _matches_verified_capability_claim(
+            part,
+            verified_capabilities or [],
+        )
+        if (
+            resource_claim
+            and not verified_claim
+            and not CAPABILITY_CAVEAT_PATTERN.search(part)
+        ):
             clauses = re.split(r"(?<=[，,])", part)
             safe_clauses = [
                 clause
@@ -200,11 +236,32 @@ def remove_unverified_capability_claims(answer: str) -> str:
                 kept.append("".join(safe_clauses))
             continue
         unsupported = any(pattern.search(part) for pattern in UNVERIFIED_CAPABILITY_PATTERNS)
-        if unsupported and not CAPABILITY_CAVEAT_PATTERN.search(part):
+        if (
+            unsupported
+            and not verified_claim
+            and not CAPABILITY_CAVEAT_PATTERN.search(part)
+        ):
             continue
         kept.append(part)
     cleaned = "".join(kept).strip()
     return cleaned or "__HANDOFF__"
+
+
+def _matches_verified_capability_claim(
+    text: str,
+    verified_capabilities: list[str],
+) -> bool:
+    if "萧岚苑" not in text:
+        return False
+    return any(
+        capability in text
+        or ("视频课程" in capability and any(term in text for term in ("视频", "课程")))
+        or (
+            "一对一指导" in capability
+            and any(term in text for term in ("一对一", "老师带着", "老师指导"))
+        )
+        for capability in verified_capabilities
+    )
 
 
 def remove_disallowed_business_claims(
@@ -231,6 +288,117 @@ def remove_disallowed_business_claims(
         if part.strip() and not any(pattern.search(part) for pattern in forbidden)
     ]
     return "".join(kept).strip() or "__HANDOFF__"
+
+
+def care_reply_violations(
+    answer: str,
+    *,
+    message: str,
+    context: ContextPackage | None,
+) -> list[str]:
+    """Return repairable care-copy violations grounded in current evidence."""
+
+    if context is None:
+        return []
+    violations = []
+    evidence_text = " ".join(
+        [
+            str(message or ""),
+            *[
+                str(turn.get("content") or "")
+                for turn in context.recent_turns
+                if isinstance(turn, dict)
+            ],
+        ]
+    )
+    regional_claim = REGIONAL_ENVIRONMENT_CLAIM_PATTERN.search(answer)
+    if regional_claim and not any(
+        marker in evidence_text for marker in ENVIRONMENT_EVIDENCE_MARKERS
+    ):
+        violations.append("unsupported_regional_environment_claim")
+    if _requires_brand_bridge(message=message, context=context) and not (
+        _has_verified_brand_bridge(answer=answer, context=context)
+    ):
+        violations.append("missing_verified_brand_bridge")
+    return violations
+
+
+def _requires_brand_bridge(*, message: str, context: ContextPackage) -> bool:
+    sales_action = context.session_state.get("sales_action")
+    if (
+        not isinstance(sales_action, dict)
+        or sales_action.get("sales_action") != "discover_pain"
+        or not sales_action.get("brand_value_facts")
+        or not any(marker in message for marker in CARE_PAIN_MARKERS)
+    ):
+        return False
+    return not any(
+        isinstance(turn, dict)
+        and str(turn.get("role") or "") == "assistant"
+        and "萧岚苑" in str(turn.get("content") or "")
+        for turn in context.recent_turns
+    )
+
+
+def _has_verified_brand_bridge(*, answer: str, context: ContextPackage) -> bool:
+    if "萧岚苑" not in answer:
+        return False
+    return _matches_verified_capability_claim(
+        answer,
+        _verified_service_capabilities(context),
+    )
+
+
+def _verified_service_capabilities(context: ContextPackage | None) -> list[str]:
+    if context is None:
+        return []
+    sales_action = context.session_state.get("sales_action")
+    facts = (
+        sales_action.get("brand_value_facts")
+        if isinstance(sales_action, dict)
+        else []
+    )
+    return [
+        str(capability)
+        for fact in facts or []
+        if isinstance(fact, dict)
+        for capability in fact.get("service_capabilities", [])
+        if str(capability).strip()
+    ]
+
+
+def _care_repair_prompt(prompt: str, violations: list[str]) -> str:
+    instructions = []
+    if "unsupported_regional_environment_claim" in violations:
+        instructions.append(
+            "删除所有仅凭城市或地区得出的干燥、潮湿、闷热、湿度或气候判断；"
+            "只能使用客户明确说过的环境事实。"
+        )
+    if "missing_verified_brand_bridge" in violations:
+        instructions.append(
+            "在专业分析和安全建议之后，补一句自然的萧岚苑服务价值："
+            "只能使用 Session state 中 brand_value_facts 已核实的视频课程或"
+            "一对一指导，并说明它如何帮助客户减少反复试错；不要立即逼单。"
+        )
+    return (
+        f"{prompt}\n\n"
+        "# 质检退回\n"
+        "上一版未通过发送前质检，请完整重写一次，不要解释修改过程：\n"
+        + "\n".join(f"- {instruction}" for instruction in instructions)
+    )
+
+
+def _merge_usage(first: dict, second: dict) -> dict:
+    result = dict(second or {})
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        values = [
+            usage.get(key)
+            for usage in (first or {}, second or {})
+            if isinstance(usage.get(key), int)
+        ]
+        if values:
+            result[key] = sum(values)
+    return result
 
 
 def _rag_model_purpose(
@@ -637,17 +805,44 @@ async def rag_chat(
                 (time.perf_counter() - stage_started) * 1000
             )
             stage_started = time.perf_counter()
+            model_purpose = _rag_model_purpose(policy, docs)
             result = await llm_service.generate_answer(
                 prompt,
-                purpose=_rag_model_purpose(policy, docs),
+                purpose=model_purpose,
             )
-            stage_latencies["generation_ms"] = round(
-                (time.perf_counter() - stage_started) * 1000
+            verified_capabilities = _verified_service_capabilities(context)
+            answer = remove_unverified_capability_claims(
+                result["answer"],
+                verified_capabilities,
             )
-            answer = remove_unverified_capability_claims(result["answer"])
             answer = remove_disallowed_business_claims(
                 answer,
                 allowed_source_groups,
+            )
+            violations = care_reply_violations(
+                answer,
+                message=message,
+                context=context,
+            )
+            if violations:
+                repaired = await llm_service.generate_answer(
+                    _care_repair_prompt(prompt, violations),
+                    purpose=model_purpose,
+                )
+                answer = remove_unverified_capability_claims(
+                    repaired["answer"],
+                    verified_capabilities,
+                )
+                answer = remove_disallowed_business_claims(
+                    answer,
+                    allowed_source_groups,
+                )
+                result["usage"] = _merge_usage(
+                    result.get("usage", {}),
+                    repaired.get("usage", {}),
+                )
+            stage_latencies["generation_ms"] = round(
+                (time.perf_counter() - stage_started) * 1000
             )
             usage = result.get("usage", {})
         else:

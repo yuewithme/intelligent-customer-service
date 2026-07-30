@@ -200,6 +200,36 @@ async def test_persona_renderer_uses_system_role_and_renders_question_once(monke
     assert final.metadata["emitted_question_slot"] == "阳台光照"
 
 
+def test_reply_guard_sends_trailing_question_without_punctuation_separately():
+    final = finalize_reply_spec(
+        ReplySpec(
+            route="rag_answer",
+            reply_type="rag",
+            reply_goal="先分析再追问",
+            render_mode="locked",
+            suggested_copy=(
+                "黑根空根常和植料长期偏湿有关，先保持通风并观察盆内干湿。"
+                "你目前用的植料是什么"
+            ),
+            outbound_messages=[
+                OutboundMessage(
+                    type="text",
+                    content=(
+                        "黑根空根常和植料长期偏湿有关，先保持通风并观察盆内干湿。"
+                        "你目前用的植料是什么"
+                    ),
+                )
+            ],
+        )
+    )
+
+    assert final.answer_segments == [
+        "黑根空根常和植料长期偏湿有关，先保持通风并观察盆内干湿。",
+        "你目前用的植料是什么？",
+    ]
+    assert [message.content for message in final.outbound_messages] == final.answer_segments
+
+
 @pytest.mark.asyncio
 async def test_product_persona_extension_retries_after_contract_violation(monkeypatch):
     from app.services import persona_renderer

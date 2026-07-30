@@ -35,6 +35,13 @@ QUESTION_LANGUAGE_PATTERN = re.compile(
     r"合不合适|好不好|行不行|可不可以|要不要|愿不愿意|能不能|"
     r"吗(?:[啊呢呀吧])?(?:$|[，,。！!]))"
 )
+TRAILING_QUESTION_PATTERN = re.compile(
+    r"([^。！!\n]*?(?:"
+    r"吗(?:[啊呢呀吧])?|呢|什么|怎么|如何|为什么|多少|"
+    r"哪(?:个|些|种|款|里|儿)?|"
+    r"合不合适|好不好|行不行|可不可以|要不要|愿不愿意|能不能"
+    r"))\s*[？?]?\s*$"
+)
 PRODUCT_EXTENSION_ACTION_MARKERS = (
     "卡片",
     "链接",
@@ -206,11 +213,15 @@ def _split_follow_up_question(text: str) -> list[str]:
         return [value] if value else []
     match = re.search(r"([^。！!\n]*[？?])\s*$", value)
     if match is None:
+        match = TRAILING_QUESTION_PATTERN.search(value)
+    if match is None:
         return [value]
     question = match.group(1).strip()
     prefix = value[: match.start(1)].strip()
     if not prefix:
         return [value]
+    if question[-1:] not in {"?", "？"}:
+        question += "？"
     return [prefix, question]
 
 

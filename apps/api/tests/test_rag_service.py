@@ -91,6 +91,52 @@ def test_rag_removes_unverified_service_and_fulfillment_claims(answer, expected)
     assert rag_service.remove_unverified_capability_claims(answer) == expected
 
 
+def test_rag_keeps_service_claims_backed_by_verified_membership_facts():
+    answer = (
+        "这种根系问题容易反复，萧岚苑有系统的视频课程，"
+        "也有老师结合实际情况做一对一指导，能少走一些弯路。"
+    )
+
+    assert rag_service.remove_unverified_capability_claims(
+        answer,
+        ["系统的视频课程", "结合具体养护问题的一对一指导"],
+    ) == answer
+
+
+def test_care_reply_quality_requires_evidence_and_one_verified_brand_bridge():
+    context = ContextPackage(
+        session_state={
+            "sales_action": {
+                "sales_action": "discover_pain",
+                "brand_value_facts": [
+                    {
+                        "brand": "萧岚苑",
+                        "service_capabilities": [
+                            "系统的视频课程",
+                            "结合具体养护问题的一对一指导",
+                        ],
+                    }
+                ],
+            }
+        }
+    )
+
+    assert rag_service.care_reply_violations(
+        "西安现在气候干燥，先减少浇水。",
+        message="一盆很多黑根空根，我修剪重新栽了。",
+        context=context,
+    ) == [
+        "unsupported_regional_environment_claim",
+        "missing_verified_brand_bridge",
+    ]
+    assert rag_service.care_reply_violations(
+        "黑根空根常和根系长期缺氧有关，先按植料实际干湿控制浇水。"
+        "萧岚苑有老师结合实际情况做一对一指导，能帮您逐步排掉反复烂根的诱因。",
+        message="一盆很多黑根空根，我修剪重新栽了。",
+        context=context,
+    ) == []
+
+
 def test_product_catalog_docs_only_include_fields_released_for_the_stage():
     products = [
         {
