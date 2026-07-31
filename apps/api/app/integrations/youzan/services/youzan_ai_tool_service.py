@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.config import get_settings
-from app.integrations.youzan.client import YouzanClient, YouzanError
+from app.integrations.youzan.client import YouzanError
 from app.integrations.youzan.services.youzan_identity_store import YouzanIdentityStore
 from app.integrations.youzan.services.youzan_order_service import (
     YouzanCustomerIdentity,
@@ -16,6 +16,10 @@ from app.integrations.youzan.services.youzan_order_service import (
     YouzanOrderService,
 )
 from app.integrations.youzan.services.youzan_product_service import YouzanProductService
+from app.integrations.youzan.services.youzan_token_service import (
+    create_managed_youzan_client,
+    youzan_credentials_available,
+)
 from app.domains.catalog.services.product_knowledge_service import (
     get_catalog_product,
     list_catalog_products,
@@ -48,12 +52,9 @@ class YouzanAIToolService:
     @classmethod
     def from_settings(cls) -> "YouzanAIToolService":
         settings = get_settings()
-        if not settings.youzan_enabled or not settings.youzan_access_token.strip():
+        if not settings.youzan_enabled or not youzan_credentials_available():
             raise RuntimeError("Youzan read-only integration is not configured")
-        client = YouzanClient(
-            access_token=settings.youzan_access_token,
-            base_url=settings.youzan_base_url,
-        )
+        client = create_managed_youzan_client()
         return cls(
             product_service=YouzanProductService(
                 client,

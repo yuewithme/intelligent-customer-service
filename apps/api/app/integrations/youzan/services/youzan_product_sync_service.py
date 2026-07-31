@@ -30,6 +30,10 @@ from app.infrastructure.database.models import (
     YouzanProductSyncRunModel,
 )
 from app.integrations.youzan.client import YouzanClient
+from app.integrations.youzan.services.youzan_token_service import (
+    create_managed_youzan_client,
+    youzan_credentials_available,
+)
 
 
 logger = logging.getLogger("wechat_rag_bot.youzan_product_sync")
@@ -376,12 +380,9 @@ async def sync_youzan_products(
     client: YouzanClient | Any | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
-    if not settings.youzan_enabled or not settings.youzan_access_token.strip():
+    if not settings.youzan_enabled or not youzan_credentials_available():
         raise RuntimeError("有赞商品同步未配置")
-    client = client or YouzanClient(
-        access_token=settings.youzan_access_token,
-        base_url=settings.youzan_base_url,
-    )
+    client = client or create_managed_youzan_client()
     run_id = _start_sync_run(trigger)
     try:
         collections = await asyncio.gather(
@@ -436,7 +437,7 @@ async def youzan_product_sync_worker(stop_event: asyncio.Event) -> None:
     if (
         not settings.youzan_product_sync_enabled
         or not settings.youzan_enabled
-        or not settings.youzan_access_token.strip()
+        or not youzan_credentials_available()
     ):
         return
     if await _wait_or_stop(stop_event, settings.youzan_product_sync_startup_delay_seconds):

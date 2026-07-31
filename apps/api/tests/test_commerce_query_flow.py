@@ -663,6 +663,11 @@ async def test_order_query_without_mobile_asks_for_mobile_and_marks_pending():
         "status": "missing_mobile",
     }
     assert state.metadata["commerce_pending"] == "order_mobile"
+    assert state.metadata["active_task"] == {
+        "domain": "order",
+        "task_type": "order_query",
+        "status": "awaiting_identity",
+    }
 
 
 @pytest.mark.asyncio
@@ -741,6 +746,8 @@ async def test_order_query_uses_mobile_from_followup_and_returns_order_card():
     assert calls == [("13800138000", 3)]
     assert state.metadata["commerce_mobile"] == "13800138000"
     assert state.metadata.get("commerce_pending") is None
+    assert state.metadata["active_task"]["status"] == "completed"
+    assert state.metadata["active_task"]["last_result_status"] == "found"
     assert facts.tool_state["orders"][0]["order_no"] == "E001"
     assert facts.tool_state["mini_program"]["page_path"] == "pages/order/list"
 
@@ -1477,14 +1484,15 @@ async def test_same_product_card_is_not_repeated_without_explicit_request():
 
 
 @pytest.mark.asyncio
-async def test_phone_followup_keeps_pending_order_query_intent():
+@pytest.mark.parametrize("text", ["13800138000", "好的，13800138000"])
+async def test_phone_followup_keeps_pending_order_query_intent(text):
     from app.domains.decisioning.services.intent_service import classify_intent
 
     state = UserState(
         user_id="wxid-customer",
         metadata={"commerce_pending": "order_mobile"},
     )
-    intent = await classify_intent(_message("13800138000"), state)
+    intent = await classify_intent(_message(text), state)
 
     assert intent.primary_intent == "order_query"
     assert intent.route == "template_reply"

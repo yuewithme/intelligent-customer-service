@@ -1121,6 +1121,17 @@ class YouzanIdentityBindingModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class OrderWorkflowStateModel(Base):
+    __tablename__ = "order_workflow_states"
+
+    user_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    session_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(64), index=True)
+    state_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class YouzanEventReceiptModel(Base):
     __tablename__ = "youzan_event_receipts"
 

@@ -19,6 +19,10 @@ from app.infrastructure.database.models import (
     YouzanProductModel,
 )
 from app.integrations.youzan.client import YouzanClient
+from app.integrations.youzan.services.youzan_token_service import (
+    create_managed_youzan_client,
+    youzan_credentials_available,
+)
 
 
 CARE_MANUAL_TITLE_MARKER = "养护注意事项"
@@ -273,14 +277,10 @@ async def sync_care_manuals(
     *, trigger: str = "manual", client: YouzanClient | Any | None = None
 ) -> dict[str, Any]:
     settings = get_settings()
-    if not settings.youzan_enabled or not settings.youzan_access_token.strip():
+    if not settings.youzan_enabled or not youzan_credentials_available():
         raise RuntimeError("有赞养护手册同步未配置")
     run_id = _start_sync_run(trigger)
-    client = client or YouzanClient(
-        access_token=settings.youzan_access_token,
-        base_url=settings.youzan_base_url,
-        timeout=30,
-    )
+    client = client or create_managed_youzan_client(timeout=30)
     try:
         notes = await _fetch_all_notes(
             client,

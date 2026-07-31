@@ -1,14 +1,18 @@
 import logging
 import re
 from collections.abc import Collection
+from datetime import datetime, timezone
 
 from app.core.config import get_settings
-from app.integrations.youzan.client import YouzanClient
 from app.domains.decisioning.schemas.reply_plan import BusinessFacts
 from app.integrations.youzan.services.youzan_identity_store import YouzanIdentityStore
 from app.integrations.youzan.services.youzan_order_service import (
     YouzanOrderService,
     YouzanOrderSummary,
+)
+from app.integrations.youzan.services.youzan_token_service import (
+    create_managed_youzan_client,
+    youzan_credentials_available,
 )
 from app.domains.catalog.services.product_knowledge_service import (
     get_catalog_product,
@@ -185,12 +189,9 @@ async def build_commerce_context(
         and order_service is None
         and evaluation_order_fixture is None
     ):
-        if not settings.youzan_enabled or not settings.youzan_access_token.strip():
+        if not settings.youzan_enabled or not youzan_credentials_available():
             return BusinessFacts()
-        client = YouzanClient(
-            access_token=settings.youzan_access_token,
-            base_url=settings.youzan_base_url,
-        )
+        client = create_managed_youzan_client()
         order_service = YouzanOrderService(
             client,
             method=settings.youzan_order_search_method,
@@ -456,13 +457,13 @@ async def build_commerce_context(
         )
         or ""
     ).strip()
-    if requested_action:
-        user_state.metadata["active_task"] = {
-            **active_task,
-            "domain": "order",
-            "action": requested_action,
-            "status": str(active_task.get("status") or "awaiting_identity"),
-        }
+    user_state.metadata["active_task"] = {
+        **active_task,
+        "domain": "order",
+        "task_type": "order_query",
+        "status": str(active_task.get("status") or "querying"),
+        **({"action": requested_action} if requested_action else {}),
+    }
     tenant_id = str(getattr(message, "tenant_id", "tenant_default") or "tenant_default")
     external_user_id = str(getattr(message, "user_id", "") or "")
     binding = None
@@ -485,8 +486,7 @@ async def build_commerce_context(
     )
     if not mobile and binding is None:
         user_state.metadata["commerce_pending"] = "order_mobile"
-        if requested_action:
-            user_state.metadata["active_task"]["status"] = "awaiting_identity"
+        user_state.metadata["active_task"]["status"] = "awaiting_identity"
         tool_state = {"commerce_type": "order", "status": "missing_mobile"}
         if requested_action:
             tool_state["requested_action"] = requested_action
@@ -527,11 +527,20 @@ async def build_commerce_context(
             orders = lookup.orders
             identity_source = "official_wechat_openid"
         else:
+            user_state.metadata["active_task"]["status"] = "query_failed"
             return BusinessFacts(
                 tool_state={"commerce_type": "order", "status": "unavailable"}
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Youzan order query failed: %s", type(exc).__name__)
+        user_state.metadata["active_task"] = {
+            **user_state.metadata.get("active_task", {}),
+            "domain": "order",
+            "task_type": "order_query",
+            "status": "query_failed",
+            "last_result_status": "unavailable",
+            "last_queried_at": datetime.now(timezone.utc).isoformat(),
+        }
         return BusinessFacts(
             tool_state={"commerce_type": "order", "status": "unavailable"}
         )
@@ -563,6 +572,14 @@ async def build_commerce_context(
             or _mask_mobile(mobile)
         ),
         "orders": [order.model_dump() for order in orders],
+    }
+    user_state.metadata["active_task"] = {
+        **user_state.metadata.get("active_task", {}),
+        "domain": "order",
+        "task_type": "order_query",
+        "status": "completed" if orders else "awaiting_order_evidence",
+        "last_result_status": tool_state["status"],
+        "last_queried_at": datetime.now(timezone.utc).isoformat(),
     }
     if requested_action:
         tool_state["requested_action"] = requested_action

@@ -25,6 +25,9 @@ _CATALOG_PURCHASE_PATTERN = re.compile(
 _ORDER_LOOKUP_CONTINUATION_PATTERN = re.compile(
     r"手机号|订单号|刚才买|刚买|刚下|查订单|查询订单|按手机号查"
 )
+_ORDER_STATUS_FOLLOWUP_PATTERN = re.compile(
+    r"查到了|查到没|有没有查|订单|物流|快递|发货|我的货|货发了|到哪里|到哪了"
+)
 _BUDGET_PATTERN = re.compile(
     r"预算|性价比|便宜|实惠|划算|"
     r"\d+(?:\.\d+)?\s*元?\s*(?:以内|以下|之内|不超过|最多|左右|上下)|"
@@ -75,8 +78,15 @@ def resolve_business_action(*, message, intent, user_state) -> str:
         return CONVERSATION
     if (
         active_task.get("domain") == "order"
-        and active_task.get("status")
-        in {"awaiting_identity", "verified_requires_human", "requires_human"}
+        and (
+            active_task.get("status")
+            in {"awaiting_identity", "verified_requires_human", "requires_human"}
+            or (
+                active_task.get("status")
+                in {"querying", "query_failed", "completed", "awaiting_order_evidence"}
+                and _ORDER_STATUS_FOLLOWUP_PATTERN.search(text)
+            )
+        )
     ):
         return ORDER_VERIFY
 
