@@ -1,0 +1,282 @@
+{
+  "case_id": "case3_05",
+  "customer_id": "intent-case3_05-customer",
+  "source_file": "docs/案例库3-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "绿云啥价格"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "你是要老种的 还是要组培的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "各是啥价格，有啥区别"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "老种的800一苗",
+        "组培硬化5年以上的只要300一苗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "引种苗啥价格"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "老种的引种苗吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "是的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "300元一苗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "引种苗拍照看看"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这种带芽的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "是在您们那个小程序付款吗",
+        "还能优惠吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "现在只能寄养哈",
+        "发货的话 么有售后",
+        "因为杭州气温高 发货的话 腐苗风险大"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "是的",
+        "老种引种的可以选一个200以内的吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "有的哈",
+        "苗情和上面的差不多",
+        "我给您选好的",
+        "您是要200一苗的吗 还是两苗200呀？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "能带芽当然最好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "288给你发个两苗的",
+        "我自己给您选苗子"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个今天优惠是回馈粉丝吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "登记是一苗的 发货给您发2苗的",
+        "价格我没权利优惠了 发货的苗子规格我可以操作下"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "确定老品种吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的 不然任何适合您也遇不到100多一苗的老种绿云"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这个您放心 种源终身包对版的 假一赔十",
+        "是引种苗哈 不是特壮龙头子母苗",
+        "这个要先给您说清楚"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您的收货地址发我下 我来做寄养登记哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "之前有寄过的，我来查查",
+        "付款在哪里小程序吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这是我们的官方收款码 您点击就可以付了",
+        "走链接要发货 寄养不发货 不然要被扣我们的保证金"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的，等会付"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送收货或物流信息）",
+        "王总 还是这个地址吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送收货或物流信息）",
+        "对的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我先做寄养登记"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "到时拍照看一下"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "嗯好的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "大概啥时候可以邮寄，是不是9月以后"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "你们那边一般什么时候温度降下来？",
+        "我们这边在十月份才慢慢降"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "那就只能10月以后邮寄"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "嗯嗯好，到时候你通知我给您邮寄，秋季"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "广西全年平均温度都在25以上的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那10月左右就可以",
+        "寄养都是专人养护的，安全有保障您放心"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "都看您们家2年多了相信您们的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好\n谢谢老朋友的支持",
+        "您付好跟我说，我尽量选的时候挑壮一些的给您"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "您选吧，我这会有点忙，差不多1个小时后能付款"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 我这边还有几个客户咨询 您先忙",
+        "收到",
+        "我登记好了",
+        "您需要发货了 提前一周通知我即可哈"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "case_id": "case3_08",
+  "customer_id": "intent-case3_08-customer",
+  "source_file": "docs/案例库3-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送商品推荐：寒兰，推广正文已清理）",
+        "（客服发送视频）",
+        "于哥最近忙不忙"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "还行吧，年底了，有点开始忙了，最近贵公司估计也忙了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "嗯嗯",
+        "近期有很多年宵花",
+        "上市",
+        "你这边有喜欢的可以搞几株；放在客厅很美的哈",
+        "这个现在花剑开的正盛"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有花了，栽上也开不了呀，明年春天看看吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我给你原盆原土发货",
+        "回去就能赏花哈",
+        "如意红梅 祝于哥，新的一年，事事如意哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "家里温度有点高，湿度也达不到呀"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这个是寒兰，温度是适合的哈，湿度这块我们选用的是吸水性强的植料",
+        "这个你放心哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "所有的兰花我都没敢放家里"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我给你挑一盆，寓意好，还比较容易养护，关键是春节团聚来花赏花，不至于养那么多，没 花赏把",
+        "这个可以放家里的哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "挂了三盆了，有点担心"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "放心哈，我们售后保障你知道的呀",
+        "主要是想于哥你过年有个花赏，这个寓意又比较好",
+        "价格也比较实惠",
+        "要不是苗子特别壮，我也不给你推荐了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "多少米，贵了养不好也很可惜的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "120：5-6苗带花剑，今天有个赠送国风盆种好的名额",
+        "我直接留给你了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "现在有花，等过年花也就谢了呀"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "现在是大多都是花剑拔干，待盛开的",
+        "2月初预计会盛开，持续到3月底"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我给你个特惠链接",
+        "你拍完我给你选苗",
+        "于哥这个我是真心让你感受的",
+        "也是我一分心意"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "拍完，刚好明天我去兰园选苗",
+        "专门给你挑选一株"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "拍了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的哈"
+      ]
+    }
+  ]
+}

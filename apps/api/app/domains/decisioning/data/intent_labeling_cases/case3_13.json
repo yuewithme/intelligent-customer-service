@@ -1,0 +1,259 @@
+{
+  "case_id": "case3_13",
+  "customer_id": "intent-case3_13-customer",
+  "source_file": "docs/案例库3-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送活动或养护内容，群发正文已清理）",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "带原盆？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的 带盆带土发货的哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "原盆还是新种的盆"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "分苗之后栽种好的",
+        "已经栽种好5天了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "新种的啊",
+        "能寄养不"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的 老苗都要去掉的",
+        "可以寄养的哦",
+        "免费给您寄养的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "寄养多久"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您是会员用户可以免费寄养3-4个月的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好哪，帮我选一棵看看"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的我先做寄养单",
+        "等师傅选好苗子挂标拍照给您哈",
+        "（客服发送收货或物流信息）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "还是登记这个地址吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "不"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那您新的地址发我下哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送收货地址）"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "还缺少收件人信息哦",
+        "这是我们的官方收款码 您点击就可以付款了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "名字不变",
+        "给我看了图再付呀，万一苗品不满意呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送收货或物流信息）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "对"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 您稍等我安排师傅选苗子哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您看下 这是师傅选的苗子"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这是一盆不同角度啊"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的",
+        "师傅说这个是弹弓叉结构",
+        "很壮的苗子"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有没有花剑没这么高的？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "只要是寄养 花剑都留不住了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我想寄养一个多月还能看花的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "最多是十天八天就开花了",
+        "除非是不选苗子 等需要发货了再给您选带花的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "那也可以啊，等到时候嗯，你发货的时候再选苗，带花剑的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "也可以的哈",
+        "那这盆我就让师傅发给其他兰友了哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "苗情都是差不多的 到时我给您选好的苗子",
+        "我来做寄养登记哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好，最好不要有焦尖的嘛"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "避免不了的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "嗯"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我家是自然棚",
+        "多多少少都会有点",
+        "收到 我来登记哈",
+        "您需要发货了 提前一周通知我即可"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好，到时候帮我选苗哈"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 这个您放心哈"
+      ]
+    }
+  ]
+}
