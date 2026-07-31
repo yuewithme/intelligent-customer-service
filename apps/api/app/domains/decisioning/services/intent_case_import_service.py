@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,7 @@ from app.domains.decisioning.services.intent_observation_service import (
     get_intent_observation,
     record_intent_observation,
 )
+from app.shared.schemas.common import AppError, ErrorCode
 
 
 CASE_DATA_DIR = (
@@ -77,12 +80,14 @@ async def import_intent_labeling_case(
     case_id: str,
     *,
     classify_with_ai: bool = True,
+    resume_existing: bool = False,
 ) -> dict[str, Any]:
     payload = load_intent_labeling_case(case_id)
     turns = normalize_case_turns(payload["turns"])
     case_id = payload["case_id"]
     customer_id = payload["customer_id"]
     imported_trace_ids: list[str] = []
+    resumed_trace_ids: list[str] = []
     customer_turn_number = 0
 
     for turn_index, turn in enumerate(turns):
@@ -117,21 +122,42 @@ async def import_intent_labeling_case(
             ),
             "customer_turn": customer_turn_number,
             "source_message_count": len(turn["messages"]),
+            "source_fingerprint": _source_fingerprint(
+                message=message.message,
+                context=context,
+            ),
         }
+        existing = await get_intent_observation(trace_id)
+        if (
+            classify_with_ai
+            and resume_existing
+            and existing is not None
+            and existing.get("classifier_source") == "case_import"
+            and existing.get("taxonomy_version") == "2.1"
+            and existing.get("confidence") is not None
+            and existing.get("user_message") == message.message
+            and (existing.get("raw_prediction") or {}).get(
+                "source_fingerprint"
+            )
+            == case_metadata["source_fingerprint"]
+        ):
+            imported_trace_ids.append(trace_id)
+            resumed_trace_ids.append(trace_id)
+            continue
         candidates = []
         if classify_with_ai:
             candidates = await retrieve_intent_examples(
                 message.message,
                 top_k=get_settings().intent_example_top_k,
             )
-            predicted = await classify_by_llm(
-                message,
-                UserState(
+            predicted = await _classify_with_retry(
+                message=message,
+                user_state=UserState(
                     user_id=customer_id,
                     session_id=case_id,
                     metadata={"recent_turns": context},
                 ),
-                candidates,
+                candidates=candidates,
             )
             intent = predicted.model_copy(
                 update={
@@ -170,9 +196,37 @@ async def import_intent_labeling_case(
         "customer_id": customer_id,
         "customer_name": payload.get("customer_name"),
         "observation_count": len(imported_trace_ids),
+        "resumed_observation_count": len(resumed_trace_ids),
         "classified_with_ai": classify_with_ai,
         "trace_ids": imported_trace_ids,
     }
+
+
+async def _classify_with_retry(
+    *,
+    message: NormalizedMessage,
+    user_state: UserState,
+    candidates: list[dict],
+    max_attempts: int = 3,
+) -> IntentResult:
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await classify_by_llm(message, user_state, candidates)
+        except AppError as exc:
+            if exc.code != ErrorCode.LLM_FAILED or attempt >= max_attempts:
+                raise
+            await asyncio.sleep(attempt)
+    raise RuntimeError("intent classification retry loop exhausted")
+
+
+def _source_fingerprint(*, message: str, context: list[dict]) -> str:
+    source = json.dumps(
+        {"message": message, "context": context},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
 def _validate_case_payload(

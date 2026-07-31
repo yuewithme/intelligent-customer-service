@@ -1,0 +1,593 @@
+{
+  "case_id": "case3_07",
+  "customer_id": "intent-case3_07-customer",
+  "source_file": "docs/案例库3-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送商品或会员活动推荐，推广正文已清理）",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "免费寄养，寄过来带盆和土吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的 到时带盆带土发货的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我的四长红被我养成这样了，今天把它端回家里了",
+        "上个月入手的三个品种也要拿到室内来吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "你都拍照发我看看哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "五月麒麟、夏黄梅、君荷确切说是7月初入手的也要拿到家里吗",
+        "叶子放在树荫底下，没有太阳",
+        "市长红是不是要死了",
+        "看长势还不错",
+        "放在树荫下，上面搭了一个塑料棚"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的 长势还行哈",
+        "芦头来个特写"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送视频）"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "叶甲撕掉 看看芦头的状态"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送视频）",
+        "这个是焦了还是黄了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "暂时没事哈",
+        "您家里有多余的植料吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "在铺一点 把芦头盖住"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "外面三颗要不要拿进来？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "也可以",
+        "放在室外 遮阳遮雨也行的",
+        "夏季的通风一定要好哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "家里通风可能没这么好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那就继续在这个地方即可"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我这边中午有三十七八度，每天要浇水吗",
+        "中午要不要地上浇点水降温"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "不要",
+        "是我家的植料吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "是的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "现在3天浇水一次哈",
+        "晚上或者夜里浇水"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "墨企用你的植料现在挺好的",
+        "好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "确保每次浇水浇透哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好",
+        "黄金九华要春化，我是新手，有点难养哦"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您在苏州",
+        "和我们杭州的气温一样的",
+        "自然春化的 不用人为的来春化",
+        "只要自然养护 就会春化了",
+        "我们江浙沪是最适合养春兰 蕙兰的哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "你养的什么时候寄给我",
+        "这花的颜色我喜欢，这个花的香味怎么样"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "蕙兰是国兰中最香的哦",
+        "号称王者香",
+        "要秋季发货了 等气温凉快一点再发货"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "那你跟我来一颗呗",
+        "我应该怎么操作"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送收货或物流信息）",
+        "还是这个地址吗",
+        "我先做寄养登记"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "改下"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "正确的你发我哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送收货地址）"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "收到 我来寄养登记哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "就是温度要低个七八度吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这是我们的官方收款码 您点击就可以付了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "兰花放在室里，不怎么通风呢，就是温度要低个七八度吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "春化的要求吗？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我说的是市长红"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "在室内可以浇水之后 用风扇吹两个小时哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "哦",
+        "黄金九华春化有要求吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您这里不用考虑春化"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "君子兰养护。你们有经验吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "国庆之后 放在室外养护即可"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我家好几盆君子兰。去年都没开花"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "就会自动春化的",
+        "您这里的环境好"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我所有的花都放在室外，"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "只有两盆君子兰放在室内，今天把市长红端进来了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "春兰 蕙兰 莲瓣兰可以室外",
+        "其他的品种 冬季气温低于5度就要保暖了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我家没有春兰吧",
+        "五月麒麟、夏黄梅、君荷，墨企，还是就是刚下单的，有春兰吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "在我家是没结缘国兰的",
+        "没有春兰"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "兰之类的，我总养不好。今年来好好养养兰花"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "五月麒麟、夏黄梅、君荷 这些是建兰",
+        "墨企 墨兰"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "君子兰怎样才能养好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您发我看看"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "今早叶子上叶了花多多10号",
+        "还有一盘小一点的",
+        "（客户发送视频）"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "植料使用多就了",
+        "沥水性现在好不好",
+        "夏季要加强通风 降温 不然容易叶面液化的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "沥水性还好，可能是不通风吧",
+        "我现在。能用电风扇吹"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以的哈",
+        "夏季也不要上肥了哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我前两天用了缓释肥"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "不管是兰花还是君子兰 夏季就一个目的 保命"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的，谢谢",
+        "君子兰黄叶要拔掉吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以的",
+        "（客服发送商品推荐：红荷，推广正文已清理）",
+        "（客服发送视频）",
+        "（客服发送商品推荐：大雪素，推广正文已清理）",
+        "（客服发送视频）",
+        "（客服发送商品或会员活动推荐，推广正文已清理）",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "上边的叶子是左边红色圈的地方掉的，右边圈的叶子也黄啊",
+        "是不是根坏了",
+        "目前中间两个还行"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "通风不好呀",
+        "都是软腐"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "还是拿到外面去吧",
+        "晚上拿出去"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以的哈",
+        "啥品种来着"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "建兰巿长红"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您现在有时间吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "你说我要怎么操作"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "脱盆发我看下"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "把它整个拔起来吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对",
+        "植料倒出来"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送视频）"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "冲洗干净"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "把空根和坏的根是不是要剪掉啊"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这株草的操作步骤如下：要进行修理，剪去空根，烂根，黑根，芦头边上的角叶烂叶，如果芦头发黑也要剪去，只要有一丁点黑都要去除。接下来就要做，1，消杀15一20分【使用恶霉灵】，2，消杀后清水冲一下，3，晾根至根发软（3个小时以上）䁁时，根向上或平滩，4，栽种，原土不要再用，原盆要消毒，芦头要平于盆口或高于盆口，5，浇定根水。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的，谢谢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "腐苗的芦头是要剪掉的哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "它下面连着根也要剪掉吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的",
+        "然后把切口发我看看"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有点舍不得哦"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "也要切掉",
+        "来个特性",
+        "特写",
+        "红圈的地方"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个地方。我又修剪了一下"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "发我看看",
+        "用恶霉灵浸泡吧",
+        "按照上面的步骤来"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "今天种不了，明天种可以不"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以的哈 换新的植料哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的谢谢"
+      ]
+    }
+  ]
+}

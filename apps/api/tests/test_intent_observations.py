@@ -504,6 +504,23 @@ def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path)
         "case2_28": 19,
         "case2_29": 34,
         "case2_30": 11,
+        "case3_01": 14,
+        "case3_02": 11,
+        "case3_03": 9,
+        "case3_04": 19,
+        "case3_05": 21,
+        "case3_06": 24,
+        "case3_07": 44,
+        "case3_08": 10,
+        "case3_08_2": 11,
+        "case3_09": 58,
+        "case3_10": 1273,
+        "case3_11": 7,
+        "case3_12": 44,
+        "case3_13": 19,
+        "case3_14": 12,
+        "case3_15": 40,
+        "case3_16": 10,
     }
 
     async def import_all():
@@ -527,7 +544,7 @@ def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path)
         case_id: result["observation_count"]
         for case_id, result in results.items()
     } == expected_counts
-    assert observations["total"] == sum(expected_counts.values()) == 729
+    assert observations["total"] == sum(expected_counts.values()) == 2355
 
     merged_customer_turn = client.get(
         "/api/v1/admin/intent-observations/intent-case-case07-004"
@@ -597,6 +614,14 @@ def test_high_confidence_case_prediction_is_accepted_until_human_correction(
         return await service.import_intent_labeling_case("case01")
 
     result = anyio.run(import_with_ai)
+
+    async def resume_with_ai():
+        return await service.import_intent_labeling_case(
+            "case01",
+            resume_existing=True,
+        )
+
+    resumed_result = anyio.run(resume_with_ai)
     client = TestClient(app)
     pending = client.get(
         "/api/v1/admin/intent-observations",
@@ -611,6 +636,8 @@ def test_high_confidence_case_prediction_is_accepted_until_human_correction(
     ).json()["data"]
 
     assert result["classified_with_ai"] is True
+    assert resumed_result["resumed_observation_count"] == 7
+    assert len(seen_contexts) == 7
     assert pending["total"] == 0
     assert accepted["total"] == 7
     assert first["primary_domain"] == "product"

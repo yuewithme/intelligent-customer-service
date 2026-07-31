@@ -14,12 +14,14 @@ async def _import_cases(
     case_ids: list[str],
     *,
     classify_with_ai: bool,
+    resume_existing: bool,
 ) -> list[dict]:
     results = []
     for case_id in case_ids:
         result = await import_intent_labeling_case(
             case_id,
             classify_with_ai=classify_with_ai,
+            resume_existing=resume_existing,
         )
         results.append(result)
         print(
@@ -28,6 +30,9 @@ async def _import_cases(
                     "status": "case_complete",
                     "case_id": case_id,
                     "observation_count": result["observation_count"],
+                    "resumed_observation_count": result[
+                        "resumed_observation_count"
+                    ],
                     "classified_with_ai": classify_with_ai,
                 },
                 ensure_ascii=False,
@@ -51,6 +56,11 @@ def main() -> None:
         action="store_true",
         help="Import placeholders without calling the intent-classification model.",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip existing completed AI observations and resume an interrupted import.",
+    )
     args = parser.parse_args()
     case_ids = (
         list_intent_labeling_cases()
@@ -61,6 +71,7 @@ def main() -> None:
         _import_cases(
             case_ids,
             classify_with_ai=not args.without_ai,
+            resume_existing=args.resume,
         )
     )
     print(

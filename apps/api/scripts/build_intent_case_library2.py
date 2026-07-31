@@ -24,7 +24,7 @@ CASE_DATA_DIR = (
 CASE_HEADING_RE = re.compile(r"^###\s*案例(?P<number>\d+)[：:]?\s*$")
 TIMESTAMP_RE = re.compile(
     r"^(?P<sender>.+?)\s+"
-    r"(?P<date>\d{1,2}/\d{1,2})\s+"
+    r"(?P<date>(?:(?P<year>\d{4})/)?\d{1,2}/\d{1,2})\s+"
     r"(?P<time>\d{1,2}:\d{2}:\d{2})$"
 )
 MARKDOWN_LINK_RE = re.compile(r"^\[(?P<title>[^\]]+)]\((?P<url>https?://.+)\)$")
@@ -38,8 +38,11 @@ QUOTED_REPLY_WITH_TAIL_RE = re.compile(
     re.DOTALL,
 )
 QUOTED_REPLY_ONLY_RE = re.compile(r'^".+?"$', re.DOTALL)
-PRODUCT_TITLE_RE = re.compile(r"【(?P<title>[^】]{2,40})】")
-CLEAN_CASE_SECTION_RE = re.compile(r"(?m)(?=^###\s+case2_\d+(?:_\d+)?\s*$)")
+PRODUCT_TITLE_RE = re.compile(r"[【「](?P<title>[^】」]{2,40})[】」]")
+CLEAN_CASE_SECTION_RE = re.compile(
+    r"(?m)(?=^###\s+case\d+_\d+(?:_\d+)?\s*$)"
+)
+MERCHANT_PREFIXES = ("兰语", "兰隐", "若兰", "兰香", "兰亭", "兰韵")
 
 PROMOTION_KEYWORDS = (
     "原价",
@@ -52,6 +55,26 @@ PROMOTION_KEYWORDS = (
     "仅限",
     "首单朋友",
     "今日",
+)
+BROADCAST_MARKERS = (
+    "各位兰友",
+    "名品分享",
+    "强烈推荐",
+    "喜欢的回复",
+    "感兴趣结缘",
+    "回复【",
+    "回复“",
+    '回复"',
+    "会员专享",
+    "会员课程",
+    "限时福利",
+    "月底放漏",
+    "月底亏米",
+    "卖完无补",
+    "恢复原价",
+    "预留一株",
+    "抢购",
+    "下手晚",
 )
 
 
@@ -70,7 +93,7 @@ def _is_sender_line(line: str) -> re.Match[str] | None:
     if match is None:
         return None
     sender = match.group("sender")
-    if sender.startswith(("兰语", "兰隐", "若兰")):
+    if sender.startswith(MERCHANT_PREFIXES):
         return match
     if "@微信@微信联系人" in sender:
         return match
@@ -83,6 +106,10 @@ def _customer_key(sender: str) -> str:
     if "洪淑@微信" in sender:
         return "洪淑"
     return sender.split("@微信@微信联系人", 1)[0].strip()
+
+
+def _is_merchant_sender(sender: str) -> bool:
+    return sender.startswith(MERCHANT_PREFIXES)
 
 
 def parse_events(source: Path) -> dict[int, list[Event]]:
@@ -98,16 +125,15 @@ def parse_events(source: Path) -> dict[int, list[Event]]:
             content_lines = []
             return
         sender = current_meta.group("sender").strip()
-        role = (
-            "merchant"
-            if sender.startswith(("兰语", "兰隐", "若兰"))
-            else "customer"
-        )
+        role = "merchant" if _is_merchant_sender(sender) else "customer"
         content = "\n".join(line for line in content_lines if line.strip()).strip()
         if content:
             content = MARKDOWN_ESCAPE_RE.sub(r"\1", content)
+            date_value = current_meta.group("date")
+            if current_meta.group("year") is None:
+                date_value = f"2026/{date_value}"
             occurred_at = datetime.strptime(
-                f"2026/{current_meta.group('date')} {current_meta.group('time')}",
+                f"{date_value} {current_meta.group('time')}",
                 "%Y/%m/%d %H:%M:%S",
             )
             quoted_reply = (
@@ -117,7 +143,7 @@ def parse_events(source: Path) -> dict[int, list[Event]]:
             )
             if quoted_reply:
                 quoted_content = re.sub(
-                    r"^兰(?:语|隐)[^：]*：\s*",
+                    r"^(?:兰语|兰隐|若兰|兰香|兰亭|兰韵)[^：]*：\s*",
                     "",
                     quoted_reply.group("quoted"),
                     count=1,
@@ -218,6 +244,12 @@ def _looks_like_promotion(content: str) -> bool:
     )
 
 
+def _looks_like_broadcast(content: str) -> bool:
+    return len(content) >= 80 and any(
+        marker in content for marker in BROADCAST_MARKERS
+    )
+
+
 def _strip_quoted_reply(content: str) -> str | None:
     match = QUOTED_REPLY_WITH_TAIL_RE.match(content)
     if match:
@@ -269,6 +301,14 @@ def clean_content(event: Event) -> str | None:
         return "（客服发送商品或会员活动推荐，推广正文已清理）"
 
     product_title = PRODUCT_TITLE_RE.search(content)
+    if event.role == "merchant" and _looks_like_broadcast(content):
+        if product_title is not None:
+            return (
+                f"（客服发送商品推荐：{product_title.group('title')}，"
+                "推广正文已清理）"
+            )
+        return "（客服发送活动或养护内容，群发正文已清理）"
+
     if (
         event.role == "merchant"
         and len(content) >= 80
@@ -353,11 +393,12 @@ def _clean_case_sections(content: str) -> dict[str, str]:
     return sections
 
 
-def _case_sort_key(case_id: str) -> tuple[int, int]:
-    match = re.fullmatch(r"case2_(\d+)(?:_(\d+))?", case_id)
+def _case_sort_key(case_id: str) -> tuple[int, int, int]:
+    match = re.fullmatch(r"case(\d+)_(\d+)(?:_(\d+))?", case_id)
     return (
         int(match.group(1)) if match else 999_999,
-        int(match.group(2) or 1) if match else 1,
+        int(match.group(2)) if match else 999_999,
+        int(match.group(3) or 1) if match else 1,
     )
 
 
@@ -366,6 +407,7 @@ def _merge_clean_document(
     new_content: str,
     *,
     excluded_case_ids: set[str] | None = None,
+    document_title: str = "案例库2",
 ) -> str:
     sections = (
         _clean_case_sections(clean_output.read_text(encoding="utf-8"))
@@ -379,7 +421,7 @@ def _merge_clean_document(
         sections[case_id]
         for case_id in sorted(sections, key=_case_sort_key)
     ]
-    return "# 案例库2（意图识别清洗版）\n\n" + "\n\n".join(ordered) + "\n"
+    return f"# {document_title}（意图识别清洗版）\n\n" + "\n\n".join(ordered) + "\n"
 
 
 def _turns_fingerprint(turns: list[dict[str, object]]) -> str:
@@ -388,7 +430,7 @@ def _turns_fingerprint(turns: list[dict[str, object]]) -> str:
 
 def _existing_case_fingerprint_owners() -> dict[str, str]:
     owners: dict[str, str] = {}
-    for path in sorted(CASE_DATA_DIR.glob("case2_*.json")):
+    for path in sorted(CASE_DATA_DIR.glob("case*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
         owners.setdefault(
             _turns_fingerprint(payload["turns"]),
@@ -397,12 +439,18 @@ def _existing_case_fingerprint_owners() -> dict[str, str]:
     return owners
 
 
-def build_library(source: Path, clean_output: Path) -> list[dict[str, object]]:
+def build_library(
+    source: Path,
+    clean_output: Path,
+    *,
+    library_number: int = 2,
+) -> list[dict[str, object]]:
     parsed = parse_events(source)
     payloads: list[dict[str, object]] = []
     duplicate_case_ids: set[str] = set()
     fingerprint_owners = _existing_case_fingerprint_owners()
-    clean_sections = ["# 案例库2（意图识别清洗版）"]
+    document_title = f"案例库{library_number}"
+    clean_sections = [f"# {document_title}（意图识别清洗版）"]
 
     for case_number in sorted(parsed):
         events = parsed[case_number]
@@ -411,7 +459,7 @@ def build_library(source: Path, clean_output: Path) -> list[dict[str, object]]:
         conversations = split_customer_conversations(events)
         for part_number, conversation in enumerate(conversations, start=1):
             suffix = "" if part_number == 1 else f"_{part_number}"
-            case_id = f"case2_{case_number:02d}{suffix}"
+            case_id = f"case{library_number}_{case_number:02d}{suffix}"
             turns = group_turns(conversation)
             if not any(turn["role"] == "customer" for turn in turns):
                 continue
@@ -424,7 +472,7 @@ def build_library(source: Path, clean_output: Path) -> list[dict[str, object]]:
             payload = {
                 "case_id": case_id,
                 "customer_id": f"intent-{case_id}-customer",
-                "source_file": "docs/案例库2-意图识别清洗版.md",
+                "source_file": f"docs/案例库{library_number}-意图识别清洗版.md",
                 "content_quality": "cleaned_verbatim_chat_export",
                 "turns": turns,
             }
@@ -442,6 +490,7 @@ def build_library(source: Path, clean_output: Path) -> list[dict[str, object]]:
             clean_output,
             "\n\n".join(clean_sections) + "\n",
             excluded_case_ids=duplicate_case_ids,
+            document_title=document_title,
         ),
         encoding="utf-8",
     )
@@ -463,8 +512,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--clean-output", type=Path, default=DEFAULT_CLEAN_OUTPUT)
+    parser.add_argument("--library-number", type=int, default=2)
     args = parser.parse_args()
-    payloads = build_library(args.source, args.clean_output)
+    payloads = build_library(
+        args.source,
+        args.clean_output,
+        library_number=args.library_number,
+    )
     summary = []
     for payload in payloads:
         turns = payload["turns"]
