@@ -9,6 +9,7 @@ from app.infrastructure.database.models import (
     ConversationModel,
     EyunInboundBatchModel,
     EyunInboundMessageModel,
+    EyunOpeningControlModel,
     EyunOutboundMessageModel,
     EyunSendRateModel,
 )
@@ -36,6 +37,13 @@ def test_risk_control_defaults():
     assert settings.eyun_send_max_per_minute == 30
     assert settings.eyun_send_min_interval_seconds == 2.1
     assert settings.eyun_send_max_interval_seconds == 3.0
+    assert settings.eyun_opening_min_interval_seconds == 6.0
+    assert settings.eyun_opening_max_interval_seconds == 10.0
+    assert settings.eyun_opening_followup_min_seconds == 8.0
+    assert settings.eyun_opening_followup_max_seconds == 15.0
+    assert settings.eyun_opening_queue_pause_threshold == 40
+    assert settings.eyun_opening_failure_pause_threshold == 2
+    assert settings.eyun_opening_pause_minutes == 30
     assert settings.eyun_reply_jitter_min_seconds == 0
     assert settings.eyun_reply_jitter_max_seconds == 2
 
@@ -47,6 +55,7 @@ def test_risk_control_models_have_table_names():
     assert EyunInboundMessageModel.__tablename__ == "eyun_inbound_messages"
     assert EyunOutboundMessageModel.__tablename__ == "eyun_outbound_messages"
     assert EyunSendRateModel.__tablename__ == "eyun_send_rates"
+    assert EyunOpeningControlModel.__tablename__ == "eyun_opening_controls"
     image_prompt_rate_model = getattr(models, "EyunImagePromptRateModel", None)
     assert image_prompt_rate_model is not None
     assert image_prompt_rate_model.__tablename__ == "eyun_image_prompt_rates"
@@ -636,6 +645,228 @@ def test_random_outbound_spacing_uses_safe_thirty_per_minute_bounds(monkeypatch)
     assert random_outbound_spacing_seconds() == 2.5
     assert captured["bounds"][0] > 2
     assert captured["bounds"][1] > captured["bounds"][0]
+
+
+@pytest.mark.asyncio
+async def test_opening_slots_persistently_serialize_customers(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    monkeypatch.setattr(service, "random_reply_delay_seconds", lambda: 0)
+    monkeypatch.setattr(service, "random_opening_followup_seconds", lambda: 8)
+    monkeypatch.setattr(service, "random_opening_interval_seconds", lambda: 6)
+
+    first = await service._reserve_opening_delivery_slots(
+        w_id="wid",
+        message_count=2,
+    )
+    second = await service._reserve_opening_delivery_slots(
+        w_id="wid",
+        message_count=2,
+    )
+
+    assert first == [now, now + timedelta(seconds=8)]
+    assert second == [
+        now + timedelta(seconds=14),
+        now + timedelta(seconds=22),
+    ]
+    with service._get_session() as session:
+        control = session.get(EyunOpeningControlModel, "wid")
+        assert control.next_due_at.replace(tzinfo=timezone.utc) == now + timedelta(
+            seconds=28
+        )
+
+
+@pytest.mark.asyncio
+async def test_new_friend_opening_uses_dependencies_and_followup_slots(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://example.com/opening.jpg")
+    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "7")
+    get_settings.cache_clear()
+    now = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
+    queued = []
+
+    async def ignore_memories(*args, **kwargs):
+        return None
+
+    async def reserve_slots(**kwargs):
+        assert kwargs == {"w_id": "wid", "message_count": 2}
+        return [now, now + timedelta(seconds=8)]
+
+    async def ensure_message(**kwargs):
+        return {"id": 100 + len(queued)}
+
+    async def enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": 200 + len(queued)}
+
+    monkeypatch.setattr(service, "_record_opening_memories", ignore_memories)
+    monkeypatch.setattr(service, "_reserve_opening_delivery_slots", reserve_slots)
+    monkeypatch.setattr(service, "ensure_outbound_conversation_message", ensure_message)
+    monkeypatch.setattr(service, "enqueue_eyun_outbound", enqueue)
+
+    await service._send_opening_for_new_friend(
+        {
+            "w_id": "wid",
+            "target_wc_id": "customer",
+            "from_user": "customer",
+            "from_group": None,
+            "batch_key": "wid:customer",
+            "created_at": now,
+        }
+    )
+
+    assert [item["due_at"] for item in queued] == [
+        now,
+        now + timedelta(seconds=8),
+    ]
+    assert [item["depends_on_outbound_id"] for item in queued] == [None, 201]
+
+
+@pytest.mark.asyncio
+async def test_opening_backlog_auto_pauses_and_alerts(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    monkeypatch.setenv("EYUN_OPENING_QUEUE_PAUSE_THRESHOLD", "2")
+    get_settings.cache_clear()
+    now = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
+    alerts = []
+
+    async def capture_alert(content):
+        alerts.append(content)
+        return True
+
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    monkeypatch.setattr(service, "random_reply_delay_seconds", lambda: 0)
+    monkeypatch.setattr(service, "random_opening_followup_seconds", lambda: 8)
+    monkeypatch.setattr(service, "random_opening_interval_seconds", lambda: 6)
+    monkeypatch.setattr(service, "send_feishu_webhook_alert", capture_alert)
+
+    slots = await service._reserve_opening_delivery_slots(
+        w_id="wid",
+        message_count=3,
+    )
+
+    assert slots[0] == now + timedelta(minutes=30)
+    assert alerts and "开场白风控暂停" in alerts[0]
+    with service._get_session() as session:
+        control = session.get(EyunOpeningControlModel, "wid")
+        assert control.pause_reason == "opening_queue_backlog"
+        assert control.paused_until.replace(tzinfo=timezone.utc) == now + timedelta(
+            minutes=30
+        )
+
+
+@pytest.mark.asyncio
+async def test_opening_provider_risk_signal_pauses_immediately(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
+    alerts = []
+
+    async def capture_alert(content):
+        alerts.append(content)
+        return True
+
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    monkeypatch.setattr(service, "send_feishu_webhook_alert", capture_alert)
+    with service._get_session() as session:
+        message = ConversationMessageModel(
+            conversation_id="wechat:customer:default",
+            delivery_status="queued",
+            sender_type="ai",
+            sender_id="ai",
+            content="opening",
+            route="opening",
+            metadata_json="{}",
+            created_at=now,
+        )
+        session.add(message)
+        session.flush()
+        outbound = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="customer",
+            content="opening",
+            conversation_message_id=message.id,
+            status="queued",
+            priority=100,
+            due_at=now,
+            attempts=1,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(outbound)
+        session.commit()
+        outbound_id = outbound.id
+
+    await service._handle_opening_send_failure(
+        outbound_id,
+        RuntimeError("发送频率过快，请稍后重试"),
+    )
+
+    assert alerts and "开场白风控暂停" in alerts[0]
+    with service._get_session() as session:
+        control = session.get(EyunOpeningControlModel, "wid")
+        assert control.pause_reason == "provider_risk_signal"
+        assert control.consecutive_failures == 1
+
+
+@pytest.mark.asyncio
+async def test_existing_opening_queue_also_obeys_slow_send_interval(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    last_sent_at = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
+    now = last_sent_at + timedelta(seconds=1)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    monkeypatch.setattr(service, "random_opening_interval_seconds", lambda: 6)
+    with service._get_session() as session:
+        session.add(
+            EyunOpeningControlModel(
+                w_id="wid",
+                last_sent_at=last_sent_at,
+                consecutive_failures=0,
+                updated_at=last_sent_at,
+            )
+        )
+        message = ConversationMessageModel(
+            conversation_id="wechat:customer:default",
+            delivery_status="queued",
+            sender_type="ai",
+            sender_id="ai",
+            content="opening",
+            route="opening",
+            metadata_json="{}",
+            created_at=last_sent_at,
+        )
+        session.add(message)
+        session.flush()
+        outbound = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="customer",
+            content="opening",
+            conversation_message_id=message.id,
+            status="queued",
+            priority=100,
+            due_at=now,
+            attempts=0,
+            created_at=last_sent_at,
+            updated_at=last_sent_at,
+        )
+        session.add(outbound)
+        session.commit()
+        outbound_id = outbound.id
+
+    attempted = await service.process_due_eyun_outbound_messages()
+
+    assert attempted == 0
+    with service._get_session() as session:
+        outbound = session.get(EyunOutboundMessageModel, outbound_id)
+        assert outbound.status == "queued"
+        assert outbound.due_at.replace(tzinfo=timezone.utc) == last_sent_at + timedelta(
+            seconds=6
+        )
 
 
 def test_outbound_text_messages_are_plain_short_messages():
