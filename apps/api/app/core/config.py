@@ -79,6 +79,27 @@ class Settings(BaseSettings):
     eyun_send_max_interval_seconds: float = Field(
         default=3.0, ge=0, alias="EYUN_SEND_MAX_INTERVAL_SECONDS"
     )
+    eyun_opening_min_interval_seconds: float = Field(
+        default=6.0, ge=1.0, alias="EYUN_OPENING_MIN_INTERVAL_SECONDS"
+    )
+    eyun_opening_max_interval_seconds: float = Field(
+        default=10.0, ge=1.0, alias="EYUN_OPENING_MAX_INTERVAL_SECONDS"
+    )
+    eyun_opening_followup_min_seconds: float = Field(
+        default=8.0, ge=1.0, alias="EYUN_OPENING_FOLLOWUP_MIN_SECONDS"
+    )
+    eyun_opening_followup_max_seconds: float = Field(
+        default=15.0, ge=1.0, alias="EYUN_OPENING_FOLLOWUP_MAX_SECONDS"
+    )
+    eyun_opening_queue_pause_threshold: int = Field(
+        default=40, ge=2, alias="EYUN_OPENING_QUEUE_PAUSE_THRESHOLD"
+    )
+    eyun_opening_failure_pause_threshold: int = Field(
+        default=2, ge=1, alias="EYUN_OPENING_FAILURE_PAUSE_THRESHOLD"
+    )
+    eyun_opening_pause_minutes: int = Field(
+        default=30, ge=1, alias="EYUN_OPENING_PAUSE_MINUTES"
+    )
     eyun_reply_jitter_min_seconds: int = Field(default=0, alias="EYUN_REPLY_JITTER_MIN_SECONDS")
     eyun_reply_jitter_max_seconds: int = Field(default=2, alias="EYUN_REPLY_JITTER_MAX_SECONDS")
     eyun_worker_poll_seconds: float = Field(default=1.0, alias="EYUN_WORKER_POLL_SECONDS")

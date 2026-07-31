@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, inspect, or_, select, text
+from sqlalchemy import create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -20,6 +20,7 @@ from app.infrastructure.database.models import (
     EyunInboundMessageModel,
     EyunImagePromptRateModel,
     EyunMediaMaterialModel,
+    EyunOpeningControlModel,
     EyunOutboundMessageModel,
     EyunSendRateModel,
 )
@@ -43,6 +44,9 @@ from app.domains.decisioning.services.intent_observation_service import (
 )
 from app.domains.catalog.services.orchid_material_service import (
     orchid_material_video_issue_context,
+)
+from app.integrations.feishu.services.webhook_alert_service import (
+    send_feishu_webhook_alert,
 )
 from app.domains.customers.services.user_profile_service import (
     add_verified_customer_tag,
@@ -214,6 +218,246 @@ def random_outbound_spacing_seconds() -> float:
     minimum = _minimum_outbound_interval_seconds()
     maximum = max(minimum + 0.01, settings.eyun_send_max_interval_seconds)
     return random.uniform(minimum, maximum)
+
+
+def random_opening_interval_seconds() -> float:
+    settings = get_settings()
+    minimum = settings.eyun_opening_min_interval_seconds
+    maximum = max(minimum, settings.eyun_opening_max_interval_seconds)
+    return random.uniform(minimum, maximum)
+
+
+def random_opening_followup_seconds() -> float:
+    settings = get_settings()
+    minimum = settings.eyun_opening_followup_min_seconds
+    maximum = max(minimum, settings.eyun_opening_followup_max_seconds)
+    return random.uniform(minimum, maximum)
+
+
+async def _reserve_opening_delivery_slots(
+    *, w_id: str, message_count: int
+) -> list[datetime]:
+    if message_count <= 0:
+        return []
+    settings = get_settings()
+    now = utcnow()
+    pause_alert: str | None = None
+    with _get_session() as session:
+        control = session.get(EyunOpeningControlModel, w_id)
+        if control is None:
+            control = EyunOpeningControlModel(
+                w_id=w_id,
+                consecutive_failures=0,
+                updated_at=now,
+            )
+            session.add(control)
+            session.flush()
+        backlog = int(
+            session.scalar(
+                select(func.count(EyunOutboundMessageModel.id))
+                .select_from(EyunOutboundMessageModel)
+                .join(
+                    ConversationMessageModel,
+                    ConversationMessageModel.id
+                    == EyunOutboundMessageModel.conversation_message_id,
+                )
+                .where(
+                    EyunOutboundMessageModel.w_id == w_id,
+                    EyunOutboundMessageModel.status.in_(
+                        ("queued", "sending", "waiting_material")
+                    ),
+                    ConversationMessageModel.route == "opening",
+                )
+            )
+            or 0
+        )
+        paused_until = (
+            _ensure_aware(control.paused_until)
+            if control.paused_until is not None
+            else None
+        )
+        is_paused = paused_until is not None and paused_until > now
+        projected_backlog = backlog + message_count
+        if (
+            not is_paused
+            and projected_backlog > settings.eyun_opening_queue_pause_threshold
+        ):
+            paused_until = now + timedelta(
+                minutes=settings.eyun_opening_pause_minutes
+            )
+            control.paused_until = paused_until
+            control.pause_reason = "opening_queue_backlog"
+            pause_alert = (
+                "【开场白风控暂停】新好友开场白队列积压过高\n\n"
+                f"当前待发送：{projected_backlog} 条\n"
+                f"自动暂停：{settings.eyun_opening_pause_minutes} 分钟\n"
+                "暂停期间新开场白会继续排队，不会丢失。"
+            )
+        first_due_at = now + timedelta(seconds=random_reply_delay_seconds())
+        if control.next_due_at is not None:
+            first_due_at = max(first_due_at, _ensure_aware(control.next_due_at))
+        if paused_until is not None and paused_until > now:
+            first_due_at = max(first_due_at, paused_until)
+        due_slots = [first_due_at]
+        for _ in range(1, message_count):
+            due_slots.append(
+                due_slots[-1]
+                + timedelta(seconds=random_opening_followup_seconds())
+            )
+        control.next_due_at = due_slots[-1] + timedelta(
+            seconds=random_opening_interval_seconds()
+        )
+        control.updated_at = now
+        session.commit()
+    if pause_alert:
+        await send_feishu_webhook_alert(pause_alert)
+    return due_slots
+
+
+def _opening_control_for_outbound(
+    session: Session,
+    row: EyunOutboundMessageModel,
+    now: datetime,
+) -> EyunOpeningControlModel | None:
+    if row.conversation_message_id is None:
+        return None
+    message = session.get(ConversationMessageModel, row.conversation_message_id)
+    if message is None or message.route != "opening":
+        return None
+    control = session.get(EyunOpeningControlModel, row.w_id)
+    if control is None:
+        control = EyunOpeningControlModel(
+            w_id=row.w_id,
+            consecutive_failures=0,
+            updated_at=now,
+        )
+        session.add(control)
+    return control
+
+
+def _active_opening_pause_until(
+    control: EyunOpeningControlModel | None,
+    now: datetime,
+) -> datetime | None:
+    if control is None or control.paused_until is None:
+        return None
+    paused_until = _ensure_aware(control.paused_until)
+    return paused_until if paused_until > now else None
+
+
+def _next_allowed_opening_send_at(
+    control: EyunOpeningControlModel | None,
+) -> datetime | None:
+    if control is None or control.last_sent_at is None:
+        return None
+    return _ensure_aware(control.last_sent_at) + timedelta(
+        seconds=random_opening_interval_seconds()
+    )
+
+
+async def _handle_opening_send_failure(
+    outbound_id: int,
+    exc: Exception,
+) -> None:
+    settings = get_settings()
+    now = utcnow()
+    alert: str | None = None
+    with _get_session() as session:
+        row = session.get(EyunOutboundMessageModel, outbound_id)
+        if row is None or row.conversation_message_id is None:
+            return
+        message = session.get(ConversationMessageModel, row.conversation_message_id)
+        if message is None or message.route != "opening":
+            return
+        control = session.get(EyunOpeningControlModel, row.w_id)
+        if control is None:
+            control = EyunOpeningControlModel(
+                w_id=row.w_id,
+                consecutive_failures=0,
+                updated_at=now,
+            )
+            session.add(control)
+        control.consecutive_failures = (control.consecutive_failures or 0) + 1
+        error_text = str(exc).lower()
+        risk_signal = any(
+            marker in error_text
+            for marker in (
+                "风控",
+                "频率过快",
+                "发送频率",
+                "操作频繁",
+                "限制",
+                "risk",
+                "too frequent",
+                "frequency",
+            )
+        )
+        paused_until = (
+            _ensure_aware(control.paused_until)
+            if control.paused_until is not None
+            else None
+        )
+        is_paused = paused_until is not None and paused_until > now
+        if not is_paused and (
+            risk_signal
+            or control.consecutive_failures
+            >= settings.eyun_opening_failure_pause_threshold
+        ):
+            control.paused_until = now + timedelta(
+                minutes=settings.eyun_opening_pause_minutes
+            )
+            control.pause_reason = (
+                "provider_risk_signal" if risk_signal else "opening_send_failures"
+            )
+            alert = (
+                "【开场白风控暂停】开场白发送出现异常\n\n"
+                f"异常类型：{type(exc).__name__}\n"
+                f"连续失败：{control.consecutive_failures} 次\n"
+                f"自动暂停：{settings.eyun_opening_pause_minutes} 分钟\n"
+                "暂停期间新开场白会继续排队，不会丢失。"
+            )
+        control.updated_at = now
+        session.commit()
+    if alert:
+        await send_feishu_webhook_alert(alert)
+
+
+async def _handle_opening_send_success(
+    outbound_id: int,
+    sent_at: datetime,
+) -> None:
+    recovery_alert = False
+    now = _ensure_aware(sent_at)
+    with _get_session() as session:
+        row = session.get(EyunOutboundMessageModel, outbound_id)
+        if row is None or row.conversation_message_id is None:
+            return
+        message = session.get(ConversationMessageModel, row.conversation_message_id)
+        if message is None or message.route != "opening":
+            return
+        control = session.get(EyunOpeningControlModel, row.w_id)
+        if control is None:
+            return
+        control.last_sent_at = now
+        paused_until = (
+            _ensure_aware(control.paused_until)
+            if control.paused_until is not None
+            else None
+        )
+        recovery_alert = bool(
+            control.pause_reason
+            and (paused_until is None or paused_until <= now)
+        )
+        control.consecutive_failures = 0
+        if recovery_alert:
+            control.paused_until = None
+            control.pause_reason = None
+        control.updated_at = now
+        session.commit()
+    if recovery_alert:
+        await send_feishu_webhook_alert(
+            "【恢复通知】新好友开场白队列已恢复发送"
+        )
 
 
 async def enqueue_wechat_outbound(
@@ -452,6 +696,21 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             .limit(limit)
         ).all()
         for row in rows:
+            opening_control = _opening_control_for_outbound(session, row, now)
+            paused_until = _active_opening_pause_until(opening_control, now)
+            if paused_until is not None:
+                row.due_at = paused_until + timedelta(
+                    seconds=random_opening_interval_seconds()
+                )
+                row.updated_at = now
+                session.commit()
+                continue
+            opening_allowed_at = _next_allowed_opening_send_at(opening_control)
+            if opening_allowed_at is not None and opening_allowed_at > now:
+                row.due_at = opening_allowed_at
+                row.updated_at = now
+                session.commit()
+                continue
             if row.depends_on_outbound_id:
                 dependency = session.get(
                     EyunOutboundMessageModel, row.depends_on_outbound_id
@@ -515,6 +774,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                             update_outbound_message_delivery(
                                 row.conversation_message_id, status=row.status
                             )
+                        await _handle_opening_send_failure(row.id, exc)
                         continue
                     row.material_id = int(material["id"])
                     row.content = _encode_outbound_content(
@@ -639,6 +899,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     )
                 logger.warning("Eyun outbound send failed: %s", exc)
                 _sync_sop_outbound(row.source_batch_key, row.status, row.last_error)
+                await _handle_opening_send_failure(row.id, exc)
                 continue
 
             sent_at = _eyun_sent_at(send_result) or utcnow()
@@ -668,6 +929,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     provider_message_id=_eyun_provider_message_id_from_result(send_result),
                     sent_at=sent_at,
                 )
+            await _handle_opening_send_success(row.id, sent_at)
             break
     return attempted
 
@@ -714,6 +976,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
             before=batch_data["created_at"],
         )
 
+    opening_message_count = 0
     try:
         if batch_data["from_group"]:
             _mark_batch(batch_id, "skipped")
@@ -829,6 +1092,8 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 return
         elif is_first_inbound or needs_opening:
             opening_result = _opening_chat_result()
+            opening_messages = _outbound_messages(opening_result)
+            opening_message_count = len(opening_messages)
             chat_result = await handle_chat(
                 ChatRequest(
                     channel="wechat",
@@ -861,7 +1126,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 chat_result,
             )
             outbound_messages = [
-                *_outbound_messages(opening_result),
+                *opening_messages,
                 *_outbound_messages(chat_result),
             ]
             for message in outbound_messages:
@@ -900,7 +1165,33 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         if batch_data["w_id"] and batch_data["target_wc_id"]:
             outbound_messages = _outbound_messages(chat_result)
-            due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
+            opening_message_count = min(
+                opening_message_count,
+                len(outbound_messages),
+            )
+            if opening_message_count:
+                due_slots = await _reserve_opening_delivery_slots(
+                    w_id=batch_data["w_id"],
+                    message_count=opening_message_count,
+                )
+                next_due_at = due_slots[-1]
+                for _ in range(opening_message_count, len(outbound_messages)):
+                    next_due_at += timedelta(
+                        seconds=random_outbound_spacing_seconds()
+                    )
+                    due_slots.append(next_due_at)
+            else:
+                due_at = utcnow() + timedelta(
+                    seconds=random_reply_delay_seconds()
+                )
+                due_slots = []
+                for index in range(len(outbound_messages)):
+                    due_slots.append(due_at)
+                    if index < len(outbound_messages) - 1:
+                        due_at += timedelta(
+                            seconds=random_outbound_spacing_seconds()
+                        )
+            dependency_id: int | None = None
             for index, message in enumerate(outbound_messages):
                 conversation_message = await ensure_outbound_conversation_message(
                     channel="wechat",
@@ -911,8 +1202,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     sender_type="ai",
                     sender_id="ai",
                     route=str(
-                        chat_result.get("route")
-                        or ("opening" if is_first_inbound else "")
+                        "opening"
+                        if index < opening_message_count
+                        else chat_result.get("route")
+                        or ""
                     ),
                     created_after=batch_data["created_at"],
                 )
@@ -922,15 +1215,22 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     "content": message["content"],
                     "source_batch_key": batch_data["batch_key"],
                     "conversation_message_id": conversation_message["id"],
-                    "due_at": due_at,
+                    "due_at": due_slots[index],
                 }
+                if opening_message_count:
+                    kwargs["depends_on_outbound_id"] = dependency_id
                 if message.get("material_id"):
                     kwargs["material_id"] = int(message["material_id"])
                 if message["type"] not in {"text", "material"}:
                     kwargs["message_type"] = message["type"]
-                await enqueue_eyun_outbound(**kwargs)
-                if index < len(outbound_messages) - 1:
-                    due_at += timedelta(seconds=random_outbound_spacing_seconds())
+                queued = await enqueue_eyun_outbound(**kwargs)
+                if opening_message_count:
+                    queued_id = (
+                        queued.get("id") if isinstance(queued, dict) else None
+                    )
+                    dependency_id = (
+                        int(queued_id) if queued_id is not None else None
+                    )
         _mark_batch(batch_id, "processed")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
@@ -1453,7 +1753,11 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
         {**batch, "content": ""},
         opening_result.get("answer", ""),
     )
-    due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
+    due_slots = await _reserve_opening_delivery_slots(
+        w_id=batch["w_id"],
+        message_count=len(outbound_messages),
+    )
+    dependency_id: int | None = None
     for index, message in enumerate(outbound_messages):
         conversation_message = await ensure_outbound_conversation_message(
             channel="wechat",
@@ -1472,15 +1776,16 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
             "content": message["content"],
             "source_batch_key": batch["batch_key"],
             "conversation_message_id": conversation_message["id"],
-            "due_at": due_at,
+            "depends_on_outbound_id": dependency_id,
+            "due_at": due_slots[index],
         }
         if message.get("material_id"):
             kwargs["material_id"] = int(message["material_id"])
         if message["type"] not in {"text", "material"}:
             kwargs["message_type"] = message["type"]
-        await enqueue_eyun_outbound(**kwargs)
-        if index < len(outbound_messages) - 1:
-            due_at += timedelta(seconds=random_outbound_spacing_seconds())
+        queued = await enqueue_eyun_outbound(**kwargs)
+        queued_id = queued.get("id") if isinstance(queued, dict) else None
+        dependency_id = int(queued_id) if queued_id is not None else None
 
 
 def _opening_chat_result() -> dict[str, Any]:
@@ -1715,6 +2020,7 @@ def _get_session() -> Session:
                 EyunImagePromptRateModel.__table__,
                 EyunMediaMaterialModel.__table__,
                 EyunBulkSendJobModel.__table__,
+                EyunOpeningControlModel.__table__,
                 EyunOutboundMessageModel.__table__,
                 EyunSendRateModel.__table__,
             ],
@@ -1761,6 +2067,17 @@ def _ensure_risk_control_columns(factory: sessionmaker) -> None:
                 text(
                     "ALTER TABLE eyun_outbound_messages "
                     "ADD COLUMN priority INTEGER NOT NULL DEFAULT 50"
+                )
+            )
+        opening_control_columns = {
+            column["name"]
+            for column in inspect(bind).get_columns("eyun_opening_controls")
+        }
+        if "last_sent_at" not in opening_control_columns:
+            session.execute(
+                text(
+                    "ALTER TABLE eyun_opening_controls "
+                    "ADD COLUMN last_sent_at DATETIME"
                 )
             )
         message_columns = {

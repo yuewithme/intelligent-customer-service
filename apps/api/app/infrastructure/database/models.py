@@ -511,6 +511,24 @@ class EyunSendRateModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class EyunOpeningControlModel(Base):
+    __tablename__ = "eyun_opening_controls"
+
+    w_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    next_due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    paused_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pause_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class EyunImagePromptRateModel(Base):
     __tablename__ = "eyun_image_prompt_rates"
 
