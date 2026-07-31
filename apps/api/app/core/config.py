@@ -88,6 +88,9 @@ class Settings(BaseSettings):
     feishu_handoff_webhook_url: str = Field(
         default="", alias="FEISHU_HANDOFF_WEBHOOK_URL"
     )
+    feishu_alert_webhook_url: str = Field(
+        default="", alias="FEISHU_ALERT_WEBHOOK_URL"
+    )
     evaluation_mode: bool = Field(default=False, alias="EVALUATION_MODE")
     memory_v2_write_enabled: bool = Field(
         default=False, alias="MEMORY_V2_WRITE_ENABLED"
@@ -193,6 +196,9 @@ class Settings(BaseSettings):
     youzan_callback_enabled: bool = False
     youzan_client_id: str = ""
     youzan_client_secret: str = ""
+    youzan_token_refresh_skew_seconds: int = Field(
+        default=86400, ge=300, le=259200, alias="YOUZAN_TOKEN_REFRESH_SKEW_SECONDS"
+    )
     youzan_product_page_path_template: str = ""
     youzan_product_h5_url_template: str = ""
     youzan_mini_program_app_id: str = ""

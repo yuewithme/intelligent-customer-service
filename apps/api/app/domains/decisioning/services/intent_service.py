@@ -925,7 +925,7 @@ async def classify_intent(
     normalized = normalize_intent_text(message.message)
     if (
         user_state.metadata.get("commerce_pending") == "order_mobile"
-        and MOBILE_ONLY_PATTERN.fullmatch(normalized)
+        and re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", normalized)
     ):
         return _validated_intent(
             {

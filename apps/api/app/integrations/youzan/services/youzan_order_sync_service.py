@@ -19,6 +19,12 @@ from app.infrastructure.database.models import (
 )
 from app.integrations.youzan.client import YouzanClient
 from app.integrations.youzan.services.youzan_order_service import ORDER_STATUS_TEXT
+from app.integrations.youzan.services.youzan_token_service import (
+    create_managed_youzan_client,
+    notify_youzan_failure,
+    notify_youzan_recovery,
+    youzan_credentials_available,
+)
 
 
 logger = logging.getLogger("wechat_rag_bot.youzan_order_sync")
@@ -55,16 +61,13 @@ async def sync_youzan_orders(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
-    if not settings.youzan_enabled or not settings.youzan_access_token.strip():
+    if not settings.youzan_enabled or not youzan_credentials_available():
         raise RuntimeError("有赞订单同步未配置")
     now = _aware(now or _now())
     window_start = _next_window_start(now)
     window_end = now
     run_id = _start_run(trigger, window_start, window_end)
-    client = client or YouzanClient(
-        access_token=settings.youzan_access_token,
-        base_url=settings.youzan_base_url,
-    )
+    client = client or create_managed_youzan_client()
     try:
         order_count = 0
         cursor = window_start
@@ -91,7 +94,7 @@ async def youzan_order_sync_worker(stop_event: asyncio.Event) -> None:
     if (
         not settings.youzan_order_sync_enabled
         or not settings.youzan_enabled
-        or not settings.youzan_access_token.strip()
+        or not youzan_credentials_available()
     ):
         return
     if await _wait_or_stop(
@@ -102,8 +105,10 @@ async def youzan_order_sync_worker(stop_event: asyncio.Event) -> None:
         try:
             if _sync_is_due(settings.youzan_order_sync_interval_minutes):
                 await sync_youzan_orders(trigger="scheduled")
+                await notify_youzan_recovery("订单同步恢复")
         except Exception as exc:  # noqa: BLE001
             logger.warning("Scheduled Youzan order sync failed: %s", type(exc).__name__)
+            await notify_youzan_failure("订单同步", exc)
         if await _wait_or_stop(
             stop_event,
             min(60, settings.youzan_order_sync_interval_minutes * 60),
@@ -408,13 +413,29 @@ def _next_window_start(now: datetime) -> datetime:
 
 def _sync_is_due(interval_minutes: int) -> bool:
     with _session() as session:
-        last = session.scalar(
-            select(YouzanOrderSyncRunModel)
-            .where(YouzanOrderSyncRunModel.status == "success")
-            .order_by(desc(YouzanOrderSyncRunModel.id))
+        recent = list(
+            session.scalars(
+                select(YouzanOrderSyncRunModel)
+                .where(YouzanOrderSyncRunModel.finished_at.is_not(None))
+                .order_by(desc(YouzanOrderSyncRunModel.id))
+                .limit(20)
+            )
         )
-    return last is None or _now() - _aware(last.finished_at or last.started_at) >= timedelta(
-        minutes=interval_minutes
+    if not recent:
+        return True
+    last = recent[0]
+    delay_minutes = interval_minutes
+    if last.status == "failed":
+        consecutive_failures = 0
+        for row in recent:
+            if row.status != "failed":
+                break
+            consecutive_failures += 1
+        delay_minutes = (5, 15, 30, 60)[
+            min(max(consecutive_failures, 1), 4) - 1
+        ]
+    return _now() - _aware(last.finished_at or last.started_at) >= timedelta(
+        minutes=delay_minutes
     )
 
 

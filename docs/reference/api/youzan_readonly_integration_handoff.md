@@ -672,3 +672,45 @@ P2 增加监控：错误码、trace_id、接口延迟和连续失败告警
 - 有赞小程序推广路径说明：<https://help.youzan.com/displaylist/detail_4_4-1-21727>
 - 有赞“我的订单”路径说明：<https://help.youzan.com/displaylist/detail_5_5-1-26279>
 - 易云发送小程序：<https://wkteam.cn/docs/api-wen-dang2/xiao-xi-fa-song/sendApplets.html>
+
+## 16. 2026-07-31 订单链路可靠性改造
+
+生产订单查询统一采用以下链路：
+
+```text
+微信消息
+→ 持久化订单任务
+→ 微信客户/有赞身份绑定
+→ 托管Token的有赞只读客户端
+→ 客户、订单列表、订单详情
+→ 确定性回复
+→ Eyun持久化出站队列
+→ 完成或真实转人工
+```
+
+关键约束：
+
+- `access_token` 不再被当作永久配置。客户端遇到Token过期后，只允许通过
+  `client_id + client_secret + kdt_id` 的 `silent` 模式换取一次新Token，
+  然后原业务请求重试一次。
+- 新Token和到期时间只保存在运行内存；应用重启后可重新静默换取。
+  密钥和Webhook不得写入数据库、日志或仓库。
+- 订单任务的 `awaiting_identity/querying/query_failed/completed/
+  awaiting_order_evidence` 状态持久化到 `order_workflow_states`。
+  完整手机号不写入该任务表；验证成功后由既有身份绑定表受控保存。
+- Eyun侧任何 `need_human=true` 都必须同步把工作台会话更新成
+  `handoff_pending`，并向客户发送可见的等待说明，禁止空回复。
+- 订单同步失败按 5、15、30、60 分钟退避；恢复后回到正常同步周期。
+- 有赞故障和恢复通知通过飞书群机器人Webhook发送并去重。
+
+新增生产配置：
+
+```text
+YOUZAN_CLIENT_ID=
+YOUZAN_CLIENT_SECRET=
+YOUZAN_TOKEN_REFRESH_SKEW_SECONDS=86400
+FEISHU_ALERT_WEBHOOK_URL=
+```
+
+`FEISHU_ALERT_WEBHOOK_URL` 未设置时兼容复用
+`FEISHU_HANDOFF_WEBHOOK_URL`。

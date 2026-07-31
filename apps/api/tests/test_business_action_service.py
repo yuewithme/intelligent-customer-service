@@ -135,6 +135,25 @@ def test_pending_order_mobile_overrides_generic_order_intent():
     ) == ORDER_VERIFY
 
 
+def test_persisted_order_task_routes_status_followup_back_to_order_query():
+    state = UserState(
+        user_id="customer-1",
+        metadata={
+            "active_task": {
+                "domain": "order",
+                "task_type": "order_query",
+                "status": "query_failed",
+            }
+        },
+    )
+
+    assert resolve_business_action(
+        message=_message("查到了吗？"),
+        intent=_intent("ask_after_sale"),
+        user_state=state,
+    ) == ORDER_VERIFY
+
+
 def test_explicit_purchase_entry_switches_from_rag_to_catalog():
     state = UserState(user_id="customer-1")
     mistaken_knowledge_intent = _intent(

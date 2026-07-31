@@ -1,3 +1,10 @@
+import json
+from datetime import datetime, timezone
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.core.config import get_settings
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.reply import FinalReply
 from app.domains.customers.schemas.state import UserState
@@ -6,9 +13,11 @@ from app.domains.sales.services.tag_catalog import (
     filter_profile_tags,
     normalize_system_value,
 )
+from app.infrastructure.database.models import Base, OrderWorkflowStateModel
 
 
 _state_store: dict[str, UserState] = {}
+_state_sessionmakers: dict[str, sessionmaker] = {}
 _allowed_update_fields = {
     "sales_stage",
     "customer_tags",
@@ -27,6 +36,7 @@ async def get_user_state(user_id: str, session_id: str | None = None) -> UserSta
     state = _state_store.get(_key(user_id))
     if state is None:
         state = UserState(user_id=user_id, session_id=session_id)
+        state.metadata.update(_load_order_workflow(user_id))
         _state_store[_key(user_id)] = state
     elif session_id and not state.session_id:
         state.session_id = session_id
@@ -89,6 +99,7 @@ async def update_user_state(
             sales_action=action,
             stage_decision=_dict_value(reply.metadata.get("sales_stage_decision")),
         )
+    _persist_order_workflow(state)
 
 
 async def patch_user_state(user_id: str, updates: dict) -> UserState:
@@ -103,6 +114,7 @@ async def patch_user_state(user_id: str, updates: dict) -> UserState:
         elif field == "customer_tags":
             value = filter_profile_tags(value if isinstance(value, list) else [])
         setattr(state, field, value)
+    _persist_order_workflow(state)
     return state
 
 
@@ -168,3 +180,91 @@ def _replace_tag_values(
         if normalized and normalized not in result:
             result.append(normalized)
     return result
+
+
+def _state_session():
+    settings = get_settings()
+    factory = _state_sessionmakers.get(settings.chat_log_db_url)
+    if factory is None:
+        engine = create_engine(settings.chat_log_db_url)
+        Base.metadata.create_all(engine, tables=[OrderWorkflowStateModel.__table__])
+        factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        _state_sessionmakers[settings.chat_log_db_url] = factory
+    return factory()
+
+
+def _load_order_workflow(user_id: str) -> dict:
+    try:
+        with _state_session() as session:
+            row = session.get(OrderWorkflowStateModel, user_id)
+            if row is None:
+                return {}
+            payload = json.loads(row.state_json or "{}")
+    except Exception:  # noqa: BLE001
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _persist_order_workflow(state: UserState) -> None:
+    payload = _order_workflow_payload(state.metadata)
+    if not payload:
+        return
+    active_task = payload.get("active_task")
+    status = (
+        str(active_task.get("status") or "")
+        if isinstance(active_task, dict)
+        else ""
+    ) or (
+        "awaiting_identity"
+        if payload.get("commerce_pending") == "order_mobile"
+        else "active"
+    )
+    now = datetime.now(timezone.utc)
+    try:
+        with _state_session() as session:
+            row = session.get(OrderWorkflowStateModel, state.user_id)
+            if row is None:
+                row = OrderWorkflowStateModel(
+                    user_id=state.user_id,
+                    session_id=state.session_id,
+                    status=status,
+                    state_json="{}",
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(row)
+            row.session_id = state.session_id
+            row.status = status
+            row.state_json = json.dumps(payload, ensure_ascii=False)
+            row.updated_at = now
+            session.commit()
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _order_workflow_payload(metadata: dict) -> dict:
+    if not isinstance(metadata, dict):
+        return {}
+    payload = {}
+    if metadata.get("commerce_pending") == "order_mobile":
+        payload["commerce_pending"] = "order_mobile"
+    active_task = metadata.get("active_task")
+    if isinstance(active_task, dict) and active_task.get("domain") == "order":
+        payload["active_task"] = {
+            key: value
+            for key, value in active_task.items()
+            if key
+            in {
+                "domain",
+                "task_type",
+                "action",
+                "status",
+                "requested_action",
+                "last_result_status",
+                "last_queried_at",
+            }
+        }
+    last_result = metadata.get("commerce_last_order_result")
+    if isinstance(last_result, dict):
+        payload["commerce_last_order_result"] = last_result
+    return payload

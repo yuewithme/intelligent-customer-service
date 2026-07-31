@@ -109,3 +109,42 @@ async def test_order_sync_persists_incremental_orders_for_conversation_sidebar(
     assert data["items"][0]["status_text"] == "待发货"
     assert data["items"][0]["payment_amount"] == "168.00"
     assert data["items"][0]["items"][0]["title"] == "建兰皇帝"
+
+
+def test_failed_order_sync_uses_increasing_backoff(monkeypatch, tmp_path):
+    from app.integrations.youzan.services import youzan_order_sync_service as service
+
+    _configure(monkeypatch, tmp_path)
+    first = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "_now", lambda: first)
+    run_id = service._start_run("scheduled", first, first)
+    service._finish_run(run_id, error=RuntimeError("Token 不存在"))
+
+    monkeypatch.setattr(
+        service,
+        "_now",
+        lambda: datetime(2026, 7, 31, 1, 4, tzinfo=timezone.utc),
+    )
+    assert service._sync_is_due(5) is False
+    monkeypatch.setattr(
+        service,
+        "_now",
+        lambda: datetime(2026, 7, 31, 1, 5, tzinfo=timezone.utc),
+    )
+    assert service._sync_is_due(5) is True
+
+    second = datetime(2026, 7, 31, 1, 5, tzinfo=timezone.utc)
+    run_id = service._start_run("scheduled", second, second)
+    service._finish_run(run_id, error=RuntimeError("Token 不存在"))
+    monkeypatch.setattr(
+        service,
+        "_now",
+        lambda: datetime(2026, 7, 31, 1, 19, tzinfo=timezone.utc),
+    )
+    assert service._sync_is_due(5) is False
+    monkeypatch.setattr(
+        service,
+        "_now",
+        lambda: datetime(2026, 7, 31, 1, 20, tzinfo=timezone.utc),
+    )
+    assert service._sync_is_due(5) is True

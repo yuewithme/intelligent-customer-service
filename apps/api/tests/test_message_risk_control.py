@@ -52,6 +52,44 @@ def test_risk_control_models_have_table_names():
     assert image_prompt_rate_model.__tablename__ == "eyun_image_prompt_rates"
 
 
+@pytest.mark.asyncio
+async def test_eyun_handoff_updates_workbench_and_sends_customer_fallback(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    handoffs = []
+
+    async def fake_force_handoff(conversation_id, operator_id, reason):
+        handoffs.append((conversation_id, operator_id, reason))
+        return {"status": "handoff_pending"}
+
+    monkeypatch.setattr(service, "force_handoff", fake_force_handoff)
+    result = await service._finalize_eyun_handoff(
+        batch={
+            "from_user": "wxid_customer",
+            "target_wc_id": "wxid_customer",
+            "from_group": None,
+        },
+        chat_result={
+            "answer": "",
+            "route": "human",
+            "need_human": True,
+            "handoff": {"reason": "order_query_unavailable"},
+        },
+    )
+
+    assert handoffs == [
+        (
+            "wechat:wxid_customer:default",
+            "system",
+            "order_query_unavailable",
+        )
+    ]
+    assert "已经为您转接" in result["answer"]
+    assert result["outbound_messages"] == [
+        {"type": "text", "content": result["answer"]}
+    ]
+
+
 def test_build_eyun_batch_key_prefers_group():
     from app.integrations.eyun.services.message_risk_control_service import build_eyun_batch_key
 

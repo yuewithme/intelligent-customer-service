@@ -894,6 +894,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     },
                 )
             )
+        chat_result = await _finalize_eyun_handoff(
+            batch=batch_data,
+            chat_result=chat_result,
+        )
         if batch_data["w_id"] and batch_data["target_wc_id"]:
             outbound_messages = _outbound_messages(chat_result)
             due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
@@ -931,6 +935,44 @@ async def _process_inbound_batch(batch_id: int) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
         _mark_batch(batch_id, "failed")
+
+
+async def _finalize_eyun_handoff(
+    *,
+    batch: dict[str, Any],
+    chat_result: dict[str, Any],
+) -> dict[str, Any]:
+    if not chat_result.get("need_human"):
+        return chat_result
+    user_id = batch["from_user"] or batch["target_wc_id"]
+    conversation_id = make_conversation_id("wechat", user_id, batch["from_group"])
+    handoff = chat_result.get("handoff")
+    handoff = handoff if isinstance(handoff, dict) else {}
+    reason = str(handoff.get("reason") or "human_required")
+    await force_handoff(
+        conversation_id,
+        operator_id="system",
+        reason=reason,
+    )
+    if str(chat_result.get("answer") or "").strip():
+        return chat_result
+    fallback = (
+        "这个问题需要人工同事进一步核实，我已经为您转接，"
+        "请稍等一下，我们会继续在这里回复您。"
+    )
+    return {
+        **chat_result,
+        "answer": fallback,
+        "answer_segments": [fallback],
+        "outbound_messages": [
+            *(
+                chat_result.get("outbound_messages")
+                if isinstance(chat_result.get("outbound_messages"), list)
+                else []
+            ),
+            {"type": "text", "content": fallback},
+        ],
+    }
 
 
 def _batch_inbound_payloads(

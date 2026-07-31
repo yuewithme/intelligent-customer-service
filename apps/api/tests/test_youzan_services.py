@@ -99,6 +99,54 @@ async def test_youzan_client_rejects_business_failure_even_when_data_exists():
 
 
 @pytest.mark.asyncio
+async def test_youzan_client_refreshes_and_retries_once_after_token_expiry():
+    from app.integrations.youzan.client import YouzanClient
+
+    requested_tokens = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        token = request.url.params["access_token"]
+        requested_tokens.append(token)
+        if token == "expired-token":
+            return httpx.Response(
+                200,
+                json={
+                    "error_response": {
+                        "code": 40010,
+                        "msg": "token无效，该token不存在或已过期",
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"success": True, "code": 200, "data": {"items": []}},
+        )
+
+    class TokenProvider:
+        def __init__(self):
+            self.invalidated = []
+
+        async def get_access_token(self, *, force_refresh):
+            return "new-token" if force_refresh else "expired-token"
+
+        def invalidate(self, token):
+            self.invalidated.append(token)
+
+    provider = TokenProvider()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = YouzanClient(
+            access_token="",
+            http_client=http_client,
+            token_provider=provider,
+        )
+        result = await client.call("youzan.test", "1.0.0", {})
+
+    assert result == {"items": []}
+    assert requested_tokens == ["expired-token", "new-token"]
+    assert provider.invalidated == ["expired-token"]
+
+
+@pytest.mark.asyncio
 async def test_product_service_normalizes_item_and_builds_configured_page_path():
     from app.integrations.youzan.services.youzan_product_service import YouzanProductService
 
