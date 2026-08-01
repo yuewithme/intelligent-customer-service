@@ -4,6 +4,7 @@ from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.conversations.schemas.demo import DemoChatRequest, DemoOpeningRequest
 from app.domains.decisioning.services.demo_sales_agent_service import (
     chat_with_demo_sales_agent,
+    get_active_demo_sales_conversation,
     open_demo_sales_conversation,
 )
 
@@ -11,6 +12,12 @@ router = APIRouter(
     prefix="/api/v1/demo",
     tags=["demo"],
 )
+
+
+@router.get("/session", response_model=APIResponse)
+async def demo_session() -> APIResponse:
+    data = await get_active_demo_sales_conversation()
+    return APIResponse(code=0, message="success", data=data)
 
 @router.post("/opening", response_model=APIResponse)
 async def demo_opening(request: DemoOpeningRequest) -> APIResponse:

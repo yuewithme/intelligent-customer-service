@@ -16,7 +16,13 @@
       <div class="customer-bar">
         <ElInput v-model="customerName" placeholder="客户昵称" maxlength="128" />
         <ElInput v-model="customerId" placeholder="客户编号" maxlength="128" />
-        <ElButton :loading="loading" @click="newConversation()">新建会话</ElButton>
+        <ElButton :loading="loading" @click="switchConversation()">切换到该会话</ElButton>
+        <ElButton :loading="loading" type="primary" plain @click="newConversation()">
+          新建会话
+        </ElButton>
+        <p class="shared-session-hint">
+          当前会话在所有设备间共享；只有点击“切换”或“新建”才会更换。
+        </p>
       </div>
 
       <div ref="messageListRef" class="message-list">
@@ -93,7 +99,9 @@ import { ElMessage } from 'element-plus'
 import { salesStageText } from '@/utils/tagDisplay'
 import {
   chatWithDemoSalesAgent,
+  getActiveDemoConversation,
   openDemoSalesConversation,
+  type DemoHistoryMessage,
   type DemoOutboundMessage,
   type DemoChatResponse
 } from '@/api/demo'
@@ -158,36 +166,56 @@ const appendAgentMessages = (result: DemoChatResponse) => {
     return
   }
   for (const item of outbound) {
-    if (item.type === 'image') {
-      messages.value.push({ id: ++messageId, role: 'agent', content: '', imageUrl: item.content })
-    } else if (item.type === 'link_card' || item.type === 'mini_program') {
-      messages.value.push({ id: ++messageId, role: 'agent', content: '', card: parseCard(item) })
-    } else {
-      messages.value.push({ id: ++messageId, role: 'agent', content: item.content })
-    }
+    messages.value.push(toAgentMessage(item, ++messageId))
   }
 }
 
-const newConversation = async (showSuccess = true) => {
-  if (loading.value) return
-  conversationId.value = ''
-  messages.value = []
+const toAgentMessage = (item: DemoOutboundMessage, id: number): ChatMessage => {
+  if (item.type === 'image') {
+    return { id, role: 'agent', content: '', imageUrl: item.content }
+  }
+  if (item.type === 'link_card' || item.type === 'mini_program') {
+    return { id, role: 'agent', content: '', card: parseCard(item) }
+  }
+  return { id, role: 'agent', content: item.content }
+}
+
+const restoreActiveConversation = async () => {
+  const result = await getActiveDemoConversation()
+  customerId.value = result.customer_id
+  customerName.value = result.customer_name
+  conversationId.value = result.conversation_id
   latestResult.value = undefined
-  customerId.value = `visitor_${Date.now().toString(36)}`
+  messages.value = result.messages.map((item: DemoHistoryMessage) =>
+    item.role === 'customer'
+      ? { id: item.id, role: 'customer', content: item.content }
+      : toAgentMessage(item, item.id)
+  )
+  messageId = Math.max(0, ...messages.value.map((item) => item.id))
+  await scrollToBottom()
+}
+
+const switchConversation = async (showSuccess = true) => {
+  if (loading.value) return
+  const nextCustomerId = customerId.value.trim()
+  if (!nextCustomerId) return ElMessage.warning('请输入客户编号')
   loading.value = true
   try {
-    const result = await openDemoSalesConversation({
-      customer_id: customerId.value.trim(),
+    await openDemoSalesConversation({
+      customer_id: nextCustomerId,
       customer_name: customerName.value.trim() || undefined
     })
-    conversationId.value = result.conversation_id
-    latestResult.value = result
-    appendAgentMessages(result)
-    if (showSuccess) ElMessage.success('已创建新的测试客户')
+    await restoreActiveConversation()
+    if (showSuccess) ElMessage.success('已切换到该测试会话')
   } finally {
     loading.value = false
-    await scrollToBottom()
   }
+}
+
+const newConversation = async () => {
+  customerId.value = `visitor_${Date.now().toString(36)}`
+  await switchConversation(false)
+  ElMessage.success('已创建并切换到新会话')
 }
 
 const sendMessage = async () => {
@@ -207,14 +235,22 @@ const sendMessage = async () => {
     conversationId.value = result.conversation_id
     latestResult.value = result
     appendAgentMessages(result)
+  } catch {
+    await restoreActiveConversation()
+    ElMessage.warning('当前会话已同步，请重新发送刚才的消息')
   } finally {
     loading.value = false
     await scrollToBottom()
   }
 }
 
-onMounted(() => {
-  void newConversation(false)
+onMounted(async () => {
+  loading.value = true
+  try {
+    await restoreActiveConversation()
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 
@@ -278,10 +314,17 @@ onMounted(() => {
 
 .customer-bar {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr auto auto;
   gap: 12px;
   padding: 16px 24px;
   border-bottom: 1px solid #e8ecea;
+}
+
+.shared-session-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #6d7d77;
+  font-size: 12px;
 }
 
 .message-list {

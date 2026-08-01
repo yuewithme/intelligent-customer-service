@@ -7,17 +7,25 @@ from app.domains.conversations.schemas.chat import ChatRequest
 from app.domains.conversations.services.chat_orchestrator import handle_chat
 from app.domains.conversations.services.conversation_service import (
     ensure_outbound_conversation_message,
+    get_conversation_detail,
+    get_demo_platform_state,
+    make_conversation_id,
+    set_demo_platform_state,
     update_customer_identity,
     user_has_conversation_in_channels,
 )
 from app.domains.decisioning.services.reply_builder import build_opening_reply
 from app.domains.customers.services.user_profile_service import append_conversation_memory
 from app.core.ids import generate_id
+from app.shared.schemas.common import AppError, ErrorCode
 
 
 DemoChannel = Literal["web_demo", "mcp_demo"]
 DEMO_USER_PREFIX = "demo:"
 DEMO_CHANNELS = ("web_demo", "mcp_demo", "wechat")
+DEMO_PLATFORM_STATE_KEY = "web_demo_active"
+DEFAULT_DEMO_CUSTOMER_ID = "shared-test-customer"
+DEFAULT_DEMO_CUSTOMER_NAME = "共享测试客户"
 
 
 def demo_user_id(customer_id: str) -> str:
@@ -105,6 +113,13 @@ async def open_demo_sales_conversation(
         channel=runtime_channel,
         source_id=f"demo-opening:{session_id}",
     )
+    if channel == "web_demo":
+        set_demo_platform_state(
+            DEMO_PLATFORM_STATE_KEY,
+            customer_id=customer_id,
+            customer_name=customer_name or customer_id,
+            session_id=session_id,
+        )
 
     return {
         "reply": reply.answer,
@@ -123,6 +138,58 @@ async def open_demo_sales_conversation(
     }
 
 
+async def get_active_demo_sales_conversation() -> dict:
+    state = get_demo_platform_state(DEMO_PLATFORM_STATE_KEY)
+    if state is None:
+        await open_demo_sales_conversation(
+            channel="web_demo",
+            customer_id=DEFAULT_DEMO_CUSTOMER_ID,
+            customer_name=DEFAULT_DEMO_CUSTOMER_NAME,
+        )
+        state = get_demo_platform_state(DEMO_PLATFORM_STATE_KEY)
+    if state is None:
+        raise RuntimeError("failed to initialize shared demo conversation")
+
+    customer_id = str(state["customer_id"] or DEFAULT_DEMO_CUSTOMER_ID)
+    session_id = str(state["session_id"] or "default")
+    detail = await get_conversation_detail(
+        make_conversation_id("wechat", demo_user_id(customer_id), session_id)
+    )
+    return {
+        "customer_id": customer_id,
+        "customer_name": str(
+            detail.get("conversation", {}).get("user_display_name")
+            or state.get("customer_name")
+            or customer_id
+        ),
+        "conversation_id": session_id,
+        "messages": _demo_history_messages(detail.get("messages") or []),
+    }
+
+
+def _demo_history_messages(messages: list[dict]) -> list[dict]:
+    history: list[dict] = []
+    for message in messages:
+        metadata = message.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        sender_type = str(message.get("sender_type") or "")
+        role = "customer" if sender_type == "customer" else "agent"
+        message_type = "text"
+        content = str(message.get("content") or "")
+        if role == "agent":
+            message_type = str(metadata.get("message_type") or "text")
+            content = str(metadata.get("outbound_content") or content)
+        history.append(
+            {
+                "id": int(message.get("id") or 0),
+                "role": role,
+                "type": message_type,
+                "content": content,
+            }
+        )
+    return history
+
+
 async def chat_with_demo_sales_agent(
     *,
     channel: DemoChannel,
@@ -133,6 +200,19 @@ async def chat_with_demo_sales_agent(
 ) -> dict:
     runtime_channel = _runtime_channel(channel)
     user_id = demo_user_id(customer_id)
+    active = None
+    if channel == "web_demo":
+        active = get_demo_platform_state(DEMO_PLATFORM_STATE_KEY)
+        requested_session_id = conversation_id or "default"
+        if active is not None and (
+            active.get("customer_id") != customer_id
+            or active.get("session_id") != requested_session_id
+        ):
+            raise AppError(
+                ErrorCode.REQUEST_INVALID,
+                "当前测试会话已在其他端切换，请刷新后继续",
+                status_code=409,
+            )
     metadata = _entry_metadata(
         entry_channel=channel,
         customer_id=customer_id,
@@ -152,6 +232,17 @@ async def chat_with_demo_sales_agent(
             metadata=metadata,
         )
     )
+    if (
+        channel == "web_demo"
+        and active is None
+        and get_demo_platform_state(DEMO_PLATFORM_STATE_KEY) is None
+    ):
+        set_demo_platform_state(
+            DEMO_PLATFORM_STATE_KEY,
+            customer_id=customer_id,
+            customer_name=customer_name or customer_id,
+            session_id=str(result.get("session_id") or "default"),
+        )
     intent = result.get("intent") or {}
     metadata = result.get("metadata") or {}
     sales_action = metadata.get("sales_action") or {}
