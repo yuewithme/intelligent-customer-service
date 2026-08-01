@@ -39,12 +39,26 @@
           <div class="bubble">
             <span class="sender">{{ item.role === 'customer' ? customerName || '客户' : '销售 Agent' }}</span>
             <p v-if="item.content">{{ item.content }}</p>
-            <img
+            <ElImage
               v-if="item.imageUrl"
               class="opening-image"
               :src="item.imageUrl"
-              alt="开场介绍"
+              :preview-src-list="[item.imageUrl]"
+              fit="cover"
+              preview-teleported
             />
+            <video
+              v-else-if="item.videoUrl"
+              class="message-video"
+              :src="item.videoUrl"
+              controls
+            ></video>
+            <audio
+              v-else-if="item.audioUrl"
+              class="message-audio"
+              :src="item.audioUrl"
+              controls
+            ></audio>
             <a
               v-if="item.card?.url"
               class="message-card"
@@ -65,6 +79,13 @@
                 <small>{{ item.card.description }}</small>
               </span>
             </div>
+            <a
+              v-else-if="item.fileUrl"
+              class="message-file"
+              :href="item.fileUrl"
+              target="_blank"
+              rel="noreferrer"
+            >打开附件</a>
           </div>
         </div>
       </div>
@@ -118,6 +139,9 @@ interface ChatMessage {
   role: 'customer' | 'agent'
   content: string
   imageUrl?: string
+  videoUrl?: string
+  audioUrl?: string
+  fileUrl?: string
   card?: MessageCard
 }
 
@@ -138,23 +162,53 @@ const scrollToBottom = async () => {
   }
 }
 
-const parseCard = (message: DemoOutboundMessage): MessageCard => {
-  try {
-    const value = JSON.parse(message.content) as Record<string, unknown>
-    return {
-      title: String(value.title || (message.type === 'mini_program' ? '微信小程序' : '查看详情')),
-      description: String(
-        value.description || (message.type === 'mini_program' ? '商品小程序卡片' : '')
-      ),
-      thumbUrl: String(value.thumb_url || '') || undefined,
-      url: String(value.url || '') || undefined
-    }
-  } catch {
-    return {
-      title: message.type === 'mini_program' ? '微信小程序' : '查看详情',
-      description: message.content
-    }
+const objectValue = (value: unknown): Record<string, unknown> | undefined => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
   }
+  if (typeof value !== 'string') return undefined
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const firstText = (value: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const item = value[key]
+    if (typeof item === 'string' && item.trim()) return item.trim()
+  }
+  return ''
+}
+
+const parseCard = (message: DemoOutboundMessage): MessageCard => {
+  const value = objectValue(message.card) || objectValue(message.content) || {}
+  const miniProgram = message.type === 'mini_program'
+  return {
+    title: firstText(value, ['title', 'name']) || (miniProgram ? '微信小程序' : '查看详情'),
+    description:
+      firstText(value, ['description', 'desc', 'summary']) ||
+      (miniProgram ? '商品小程序卡片' : ''),
+    thumbUrl:
+      firstText(value, ['thumb_url', 'thumbUrl', 'image_url', 'imageUrl', 'pic_url']) ||
+      undefined,
+    url: firstText(value, ['url', 'jump_url', 'link']) || undefined
+  }
+}
+
+const mediaSource = (message: DemoOutboundMessage) => {
+  const media = objectValue(message.media)
+  const source = media ? firstText(media, ['url', 'preview_url', 'original_url']) : ''
+  if (source) return source
+  const contentValue = objectValue(message.content)
+  const contentSource = contentValue
+    ? firstText(contentValue, ['url', 'preview_url', 'original_url'])
+    : message.content.trim()
+  return /^(https?:|data:|\/)/i.test(contentSource) ? contentSource : ''
 }
 
 const appendAgentMessages = (result: DemoChatResponse) => {
@@ -166,18 +220,44 @@ const appendAgentMessages = (result: DemoChatResponse) => {
     return
   }
   for (const item of outbound) {
-    messages.value.push(toAgentMessage(item, ++messageId))
+    messages.value.push(toChatMessage(item, ++messageId, 'agent'))
   }
 }
 
-const toAgentMessage = (item: DemoOutboundMessage, id: number): ChatMessage => {
-  if (item.type === 'image') {
-    return { id, role: 'agent', content: '', imageUrl: item.content }
+const toChatMessage = (
+  item: DemoOutboundMessage,
+  id: number,
+  role: ChatMessage['role']
+): ChatMessage => {
+  const type = item.type.toLowerCase()
+  if (['image', 'received_image', 'emoji'].includes(type)) {
+    const source = mediaSource(item)
+    return source
+      ? { id, role, content: '', imageUrl: source }
+      : { id, role, content: item.content || '[图片]' }
   }
-  if (item.type === 'link_card' || item.type === 'mini_program') {
-    return { id, role: 'agent', content: '', card: parseCard(item) }
+  if (['video', 'received_video'].includes(type)) {
+    const source = mediaSource(item)
+    return source
+      ? { id, role, content: '', videoUrl: source }
+      : { id, role, content: item.content || '[视频]' }
   }
-  return { id, role: 'agent', content: item.content }
+  if (type === 'audio') {
+    const source = mediaSource(item)
+    return source
+      ? { id, role, content: '', audioUrl: source }
+      : { id, role, content: item.content || '[语音]' }
+  }
+  if (type === 'file' || type === 'material') {
+    const source = mediaSource(item)
+    if (/^(https?:|data:)/i.test(source)) {
+      return { id, role, content: '', fileUrl: source }
+    }
+  }
+  if (type === 'link_card' || type === 'mini_program') {
+    return { id, role, content: '', card: parseCard(item) }
+  }
+  return { id, role, content: item.content }
 }
 
 const restoreActiveConversation = async () => {
@@ -187,9 +267,7 @@ const restoreActiveConversation = async () => {
   conversationId.value = result.conversation_id
   latestResult.value = undefined
   messages.value = result.messages.map((item: DemoHistoryMessage) =>
-    item.role === 'customer'
-      ? { id: item.id, role: 'customer', content: item.content }
-      : toAgentMessage(item, item.id)
+    toChatMessage(item, item.id, item.role)
   )
   messageId = Math.max(0, ...messages.value.map((item) => item.id))
   await scrollToBottom()
@@ -385,6 +463,27 @@ onMounted(async () => {
   width: min(100%, 360px);
   margin-top: 12px;
   border-radius: 12px;
+}
+
+.message-video {
+  display: block;
+  width: min(100%, 420px);
+  max-height: 360px;
+  margin-top: 12px;
+  border-radius: 12px;
+}
+
+.message-audio {
+  display: block;
+  width: min(100%, 360px);
+  margin-top: 12px;
+}
+
+.message-file {
+  display: inline-block;
+  margin-top: 8px;
+  color: inherit;
+  text-decoration: underline;
 }
 
 .message-card {
