@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, func, inspect, or_, select, text
+from sqlalchemy import create_engine, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -239,9 +239,7 @@ async def _reserve_opening_delivery_slots(
 ) -> list[datetime]:
     if message_count <= 0:
         return []
-    settings = get_settings()
     now = utcnow()
-    pause_alert: str | None = None
     with _get_session() as session:
         control = session.get(EyunOpeningControlModel, w_id)
         if control is None:
@@ -252,47 +250,11 @@ async def _reserve_opening_delivery_slots(
             )
             session.add(control)
             session.flush()
-        backlog = int(
-            session.scalar(
-                select(func.count(EyunOutboundMessageModel.id))
-                .select_from(EyunOutboundMessageModel)
-                .join(
-                    ConversationMessageModel,
-                    ConversationMessageModel.id
-                    == EyunOutboundMessageModel.conversation_message_id,
-                )
-                .where(
-                    EyunOutboundMessageModel.w_id == w_id,
-                    EyunOutboundMessageModel.status.in_(
-                        ("queued", "sending", "waiting_material")
-                    ),
-                    ConversationMessageModel.route == "opening",
-                )
-            )
-            or 0
-        )
         paused_until = (
             _ensure_aware(control.paused_until)
             if control.paused_until is not None
             else None
         )
-        is_paused = paused_until is not None and paused_until > now
-        projected_backlog = backlog + message_count
-        if (
-            not is_paused
-            and projected_backlog > settings.eyun_opening_queue_pause_threshold
-        ):
-            paused_until = now + timedelta(
-                minutes=settings.eyun_opening_pause_minutes
-            )
-            control.paused_until = paused_until
-            control.pause_reason = "opening_queue_backlog"
-            pause_alert = (
-                "【开场白风控暂停】新好友开场白队列积压过高\n\n"
-                f"当前待发送：{projected_backlog} 条\n"
-                f"自动暂停：{settings.eyun_opening_pause_minutes} 分钟\n"
-                "暂停期间新开场白会继续排队，不会丢失。"
-            )
         first_due_at = now + timedelta(seconds=random_reply_delay_seconds())
         if control.next_due_at is not None:
             first_due_at = max(first_due_at, _ensure_aware(control.next_due_at))
@@ -309,8 +271,6 @@ async def _reserve_opening_delivery_slots(
         )
         control.updated_at = now
         session.commit()
-    if pause_alert:
-        await send_feishu_webhook_alert(pause_alert)
     return due_slots
 
 
@@ -2080,6 +2040,13 @@ def _ensure_risk_control_columns(factory: sessionmaker) -> None:
                     "ADD COLUMN last_sent_at DATETIME"
                 )
             )
+        session.execute(
+            text(
+                "UPDATE eyun_opening_controls "
+                "SET paused_until = NULL, pause_reason = NULL "
+                "WHERE pause_reason = 'opening_queue_backlog'"
+            )
+        )
         message_columns = {
             column["name"]
             for column in inspect(bind).get_columns("conversation_messages")

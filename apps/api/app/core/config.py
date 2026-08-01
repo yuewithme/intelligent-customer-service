@@ -91,9 +91,6 @@ class Settings(BaseSettings):
     eyun_opening_followup_max_seconds: float = Field(
         default=15.0, ge=1.0, alias="EYUN_OPENING_FOLLOWUP_MAX_SECONDS"
     )
-    eyun_opening_queue_pause_threshold: int = Field(
-        default=40, ge=2, alias="EYUN_OPENING_QUEUE_PAUSE_THRESHOLD"
-    )
     eyun_opening_failure_pause_threshold: int = Field(
         default=2, ge=1, alias="EYUN_OPENING_FAILURE_PAUSE_THRESHOLD"
     )

@@ -41,7 +41,6 @@ def test_risk_control_defaults():
     assert settings.eyun_opening_max_interval_seconds == 10.0
     assert settings.eyun_opening_followup_min_seconds == 8.0
     assert settings.eyun_opening_followup_max_seconds == 15.0
-    assert settings.eyun_opening_queue_pause_threshold == 40
     assert settings.eyun_opening_failure_pause_threshold == 2
     assert settings.eyun_opening_pause_minutes == 30
     assert settings.eyun_reply_jitter_min_seconds == 0
@@ -726,11 +725,9 @@ async def test_new_friend_opening_uses_dependencies_and_followup_slots(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_opening_backlog_auto_pauses_and_alerts(monkeypatch):
+async def test_opening_backlog_keeps_queueing_without_pause(monkeypatch):
     from app.integrations.eyun.services import message_risk_control_service as service
 
-    monkeypatch.setenv("EYUN_OPENING_QUEUE_PAUSE_THRESHOLD", "2")
-    get_settings.cache_clear()
     now = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
     alerts = []
 
@@ -746,17 +743,40 @@ async def test_opening_backlog_auto_pauses_and_alerts(monkeypatch):
 
     slots = await service._reserve_opening_delivery_slots(
         w_id="wid",
-        message_count=3,
+        message_count=50,
     )
 
-    assert slots[0] == now + timedelta(minutes=30)
-    assert alerts and "开场白风控暂停" in alerts[0]
+    assert len(slots) == 50
+    assert slots[0] == now
+    assert slots[-1] == now + timedelta(seconds=49 * 8)
+    assert alerts == []
     with service._get_session() as session:
         control = session.get(EyunOpeningControlModel, "wid")
-        assert control.pause_reason == "opening_queue_backlog"
-        assert control.paused_until.replace(tzinfo=timezone.utc) == now + timedelta(
-            minutes=30
+        assert control.pause_reason is None
+        assert control.paused_until is None
+
+
+def test_legacy_backlog_pause_is_cleared_on_startup():
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 8, 1, 1, 0, tzinfo=timezone.utc)
+    with service._get_session() as session:
+        session.add(
+            EyunOpeningControlModel(
+                w_id="wid",
+                paused_until=now + timedelta(minutes=30),
+                pause_reason="opening_queue_backlog",
+                consecutive_failures=0,
+                updated_at=now,
+            )
         )
+        session.commit()
+
+    service._initialized_urls.discard(get_settings().chat_log_db_url)
+    with service._get_session() as session:
+        control = session.get(EyunOpeningControlModel, "wid")
+        assert control.paused_until is None
+        assert control.pause_reason is None
 
 
 @pytest.mark.asyncio
