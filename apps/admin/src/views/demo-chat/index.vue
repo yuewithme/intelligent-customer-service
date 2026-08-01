@@ -32,13 +32,33 @@
         >
           <div class="bubble">
             <span class="sender">{{ item.role === 'customer' ? customerName || '客户' : '销售 Agent' }}</span>
-            <p>{{ item.content }}</p>
+            <p v-if="item.content">{{ item.content }}</p>
             <img
               v-if="item.imageUrl"
               class="opening-image"
               :src="item.imageUrl"
               alt="开场介绍"
             />
+            <a
+              v-if="item.card?.url"
+              class="message-card"
+              :href="item.card.url"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <img v-if="item.card.thumbUrl" :src="item.card.thumbUrl" alt="" />
+              <span>
+                <strong>{{ item.card.title }}</strong>
+                <small>{{ item.card.description }}</small>
+              </span>
+            </a>
+            <div v-else-if="item.card" class="message-card">
+              <img v-if="item.card.thumbUrl" :src="item.card.thumbUrl" alt="" />
+              <span>
+                <strong>{{ item.card.title }}</strong>
+                <small>{{ item.card.description }}</small>
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -74,14 +94,23 @@ import { salesStageText } from '@/utils/tagDisplay'
 import {
   chatWithDemoSalesAgent,
   openDemoSalesConversation,
+  type DemoOutboundMessage,
   type DemoChatResponse
 } from '@/api/demo'
+
+interface MessageCard {
+  title: string
+  description: string
+  thumbUrl?: string
+  url?: string
+}
 
 interface ChatMessage {
   id: number
   role: 'customer' | 'agent'
   content: string
   imageUrl?: string
+  card?: MessageCard
 }
 
 const customerName = ref('测试客户')
@@ -101,6 +130,44 @@ const scrollToBottom = async () => {
   }
 }
 
+const parseCard = (message: DemoOutboundMessage): MessageCard => {
+  try {
+    const value = JSON.parse(message.content) as Record<string, unknown>
+    return {
+      title: String(value.title || (message.type === 'mini_program' ? '微信小程序' : '查看详情')),
+      description: String(
+        value.description || (message.type === 'mini_program' ? '商品小程序卡片' : '')
+      ),
+      thumbUrl: String(value.thumb_url || '') || undefined,
+      url: String(value.url || '') || undefined
+    }
+  } catch {
+    return {
+      title: message.type === 'mini_program' ? '微信小程序' : '查看详情',
+      description: message.content
+    }
+  }
+}
+
+const appendAgentMessages = (result: DemoChatResponse) => {
+  const outbound = result.outbound_messages || []
+  if (!outbound.length) {
+    if (result.reply) {
+      messages.value.push({ id: ++messageId, role: 'agent', content: result.reply })
+    }
+    return
+  }
+  for (const item of outbound) {
+    if (item.type === 'image') {
+      messages.value.push({ id: ++messageId, role: 'agent', content: '', imageUrl: item.content })
+    } else if (item.type === 'link_card' || item.type === 'mini_program') {
+      messages.value.push({ id: ++messageId, role: 'agent', content: '', card: parseCard(item) })
+    } else {
+      messages.value.push({ id: ++messageId, role: 'agent', content: item.content })
+    }
+  }
+}
+
 const newConversation = async (showSuccess = true) => {
   if (loading.value) return
   conversationId.value = ''
@@ -115,12 +182,7 @@ const newConversation = async (showSuccess = true) => {
     })
     conversationId.value = result.conversation_id
     latestResult.value = result
-    messages.value.push({
-      id: ++messageId,
-      role: 'agent',
-      content: result.reply,
-      imageUrl: result.opening_image_url || undefined
-    })
+    appendAgentMessages(result)
     if (showSuccess) ElMessage.success('已创建新的测试客户')
   } finally {
     loading.value = false
@@ -144,7 +206,7 @@ const sendMessage = async () => {
     })
     conversationId.value = result.conversation_id
     latestResult.value = result
-    messages.value.push({ id: ++messageId, role: 'agent', content: result.reply })
+    appendAgentMessages(result)
   } finally {
     loading.value = false
     await scrollToBottom()
@@ -281,6 +343,35 @@ onMounted(() => {
   margin-top: 12px;
   border-radius: 12px;
 }
+
+.message-card {
+  display: flex;
+  width: min(360px, 64vw);
+  min-height: 76px;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  background: #f8faf9;
+  border: 1px solid #dce7e2;
+  border-radius: 10px;
+}
+
+.message-card img {
+  width: 92px;
+  object-fit: cover;
+  background: #edf2ef;
+}
+
+.message-card span {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  padding: 10px 12px;
+}
+
+.message-card strong { font-size: 14px; }
+.message-card small { margin-top: 5px; color: #6d7d77; line-height: 1.45; }
 
 .sender {
   font-size: 12px;

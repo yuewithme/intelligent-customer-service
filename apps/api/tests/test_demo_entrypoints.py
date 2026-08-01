@@ -95,7 +95,11 @@ def test_demo_opening_uses_wechat_opening_and_records_conversation(
     assert data["reply"] == "正式微信新联系人开场白"
     assert data["opening_image_url"] == "https://example.com/opening.jpg"
     assert data["route"] == "opening"
-    assert data["conversation_id"].startswith("sess_")
+    assert data["conversation_id"] == "default"
+    assert [item["type"] for item in data["outbound_messages"]] == [
+        "text",
+        "image",
+    ]
 
     conversations = client.get("/api/v1/demo-admin/conversations").json()["data"]
     assert conversations["total"] == 1
@@ -103,9 +107,11 @@ def test_demo_opening_uses_wechat_opening_and_records_conversation(
     detail = client.get(
         f"/api/v1/demo-admin/conversations/{conversation_id}"
     ).json()["data"]
+    assert detail["conversation"]["channel"] == "wechat"
     assert detail["conversation"]["user_display_name"] == "测试客户"
     assert [(item["sender_type"], item["content"]) for item in detail["messages"]] == [
-        ("ai", "正式微信新联系人开场白")
+        ("ai", "正式微信新联系人开场白"),
+        ("ai", "[图片]"),
     ]
 
 
@@ -142,42 +148,71 @@ def test_demo_chat_reuses_normal_sales_flow_for_first_message(monkeypatch, tmp_p
     assert response.status_code == 200
     assert response.json()["data"]["reply"] == "正常销售链路回复"
     assert response.json()["data"]["route"] == "rag_answer"
+    assert captured["request"].channel == "wechat"
     assert captured["request"].message == "我的兰花烂根了"
     assert captured["request"].session_id is None
+    assert captured["request"].metadata["provider"] == "eyun"
+    assert captured["request"].metadata["message_type"] == "60001"
+    assert captured["request"].metadata["provider_delivery_mode"] == "simulated"
+    assert captured["request"].metadata["prepend_opening"] is True
+    assert "demo" not in captured["request"].metadata
 
 
 def test_demo_chat_allows_question_marks_in_normal_text(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
 
-    response = client.post(
+    first = client.post(
         "/api/v1/demo/chat",
         json={"customer_id": "valid-customer", "message": "这个怎么用??"},
     )
+    conversation_id = first.json()["data"]["conversation_id"]
+    second = client.post(
+        "/api/v1/demo/chat",
+        json={
+            "customer_id": "valid-customer",
+            "conversation_id": conversation_id,
+            "message": "还有别的吗?",
+        },
+    )
+    detail = client.get(
+        f"/api/v1/demo-admin/conversations/wechat:{demo_user_id('valid-customer')}:{conversation_id}"
+    ).json()["data"]
+    customer_messages = [
+        item["content"]
+        for item in detail["messages"]
+        if item["sender_type"] == "customer"
+    ]
 
-    assert response.status_code == 200
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert customer_messages == ["这个怎么用??", "还有别的吗?"]
 
 
 def test_demo_admin_only_lists_demo_conversations(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
-    for channel, user_id in (("api", "real-user"), ("web_demo", "demo:user")):
-        response = client.post(
-            "/api/v1/chat",
-            json={
-                "channel": channel,
-                "user_id": user_id,
-                "session_id": "session-1",
-                "message": "你好",
-                "kb_id": "kb_default",
-                "metadata": {},
-            },
-        )
-        assert response.status_code == 200
+    formal = client.post(
+        "/api/v1/chat",
+        json={
+            "channel": "wechat",
+            "user_id": "real-user",
+            "session_id": "default",
+            "message": "hello",
+            "kb_id": "kb_default",
+            "metadata": {},
+        },
+    )
+    demo = client.post(
+        "/api/v1/demo/opening",
+        json={"customer_id": "test-user", "customer_name": "Test customer"},
+    )
+    assert formal.status_code == 200
+    assert demo.status_code == 200
 
     result = client.get("/api/v1/demo-admin/conversations")
     forbidden = client.get(
-        "/api/v1/demo-admin/conversations/api:real-user:session-1"
+        "/api/v1/demo-admin/conversations/wechat:real-user:default"
     )
     demo_user = result.json()["data"]["items"][0]["user_id"]
     profile = client.get(f"/api/v1/demo-admin/users/{demo_user}/profile")
@@ -187,11 +222,16 @@ def test_demo_admin_only_lists_demo_conversations(monkeypatch, tmp_path):
 
     assert result.status_code == 200
     items = result.json()["data"]["items"]
-    assert [item["channel"] for item in items] == ["web_demo"]
+    assert [item["channel"] for item in items] == ["wechat"]
     assert forbidden.status_code == 403
     assert profile.status_code == 200
     assert profile.json()["data"]["profile"]["user_id"] == demo_user
     assert forbidden_profile.status_code == 403
+
+    formal_items = client.get(
+        "/api/v1/admin/conversations?channel=wechat"
+    ).json()["data"]["items"]
+    assert [item["user_id"] for item in formal_items] == ["real-user"]
 
 
 def test_mcp_streamable_http_lists_sales_agent_tool(monkeypatch, tmp_path):

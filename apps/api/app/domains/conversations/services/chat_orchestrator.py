@@ -96,7 +96,7 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_id=message.user_id,
             session_id=message.session_id,
         ):
-            if message.metadata.get("provider") != "eyun" and not message.metadata.get(
+            if not _is_gateway_managed_eyun(message) and not message.metadata.get(
                 "skip_customer_record"
             ):
                 await record_customer_message(
@@ -464,6 +464,7 @@ async def handle_chat(request: ChatRequest) -> dict:
         stage_latencies["state_update_ms"] = _elapsed_ms(stage_started)
 
         result = _to_chat_data(message.session_id, message.trace_id, routed_intent, reply)
+        result = _with_eyun_handoff_fallback(message, result)
         await _record_workbench_turn(
             message=message,
             result=result,
@@ -662,12 +663,39 @@ def _legacy_handoff(handoff: dict | None) -> dict | None:
     return {**handoff, "reason": legacy_reason}
 
 
+def _with_eyun_handoff_fallback(message, result: dict) -> dict:
+    metadata = getattr(message, "metadata", {}) or {}
+    if (
+        metadata.get("provider") != "eyun"
+        or not result.get("need_human")
+        or str(result.get("answer") or "").strip()
+    ):
+        return result
+    fallback = (
+        "这个问题需要人工同事进一步核实，我已经为您转接，"
+        "请稍等一下，我们会继续在这里回复您。"
+    )
+    outbound_messages = result.get("outbound_messages")
+    outbound_messages = (
+        list(outbound_messages) if isinstance(outbound_messages, list) else []
+    )
+    return {
+        **result,
+        "answer": fallback,
+        "answer_segments": [fallback],
+        "outbound_messages": [
+            *outbound_messages,
+            {"type": "text", "content": fallback},
+        ],
+    }
+
+
 def _is_evaluation_request(message) -> bool:
     return bool(getattr(message, "metadata", {}).get("evaluation_id"))
 
 
 async def _record_workbench_turn(*, message, result: dict, is_evaluation: bool) -> None:
-    if not is_evaluation and message.metadata.get("provider") == "eyun":
+    if not is_evaluation and _is_gateway_managed_eyun(message):
         # The Eyun gateway records the exact queued outbound sequence, including
         # opening messages and cards, after it composes the provider payload.
         return
@@ -696,6 +724,14 @@ async def _record_workbench_turn(*, message, result: dict, is_evaluation: bool) 
             # Simulated conversations preserve the expected handoff state for
             # evaluation while the message flag suppresses real notifications.
         },
+    )
+
+
+def _is_gateway_managed_eyun(message) -> bool:
+    metadata = getattr(message, "metadata", {}) or {}
+    return (
+        metadata.get("provider") == "eyun"
+        and metadata.get("provider_delivery_mode") != "simulated"
     )
 
 

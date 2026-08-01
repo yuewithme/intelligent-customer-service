@@ -41,6 +41,8 @@ async def list_conversations(
     owner_id: str | None = None,
     keyword: str | None = None,
     channels: tuple[str, ...] | None = None,
+    user_id_prefix: str | None = None,
+    excluded_user_id_prefix: str | None = None,
     wechat_group_allowlist: tuple[str, ...] | None = None,
 ) -> dict:
     page = max(page, 1)
@@ -55,6 +57,12 @@ async def list_conversations(
             filters.append(ConversationModel.last_message.like(f"%{keyword}%"))
         if channels:
             filters.append(ConversationModel.channel.in_(channels))
+        if user_id_prefix:
+            filters.append(ConversationModel.user_id.like(f"{user_id_prefix}%"))
+        if excluded_user_id_prefix:
+            filters.append(
+                ConversationModel.user_id.not_like(f"{excluded_user_id_prefix}%")
+            )
         if wechat_group_allowlist is not None:
             filters.append(
                 or_(
@@ -155,6 +163,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
         if (
             not skip_customer_record
             and message.metadata.get("provider") == "eyun"
+            and message.metadata.get("provider_delivery_mode") != "simulated"
             and conversation is not None
         ):
             existing_customer_message = session.scalar(

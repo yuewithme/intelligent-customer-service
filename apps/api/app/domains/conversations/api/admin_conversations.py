@@ -38,6 +38,7 @@ from app.shared.schemas.common import AppError, ErrorCode
 from app.domains.conversations.services.workbench_media_service import (
     store_workbench_image,
 )
+from app.domains.decisioning.services.demo_sales_agent_service import DEMO_USER_PREFIX
 
 
 router = APIRouter(
@@ -94,6 +95,7 @@ async def conversations(
         owner_id=owner_id,
         keyword=keyword,
         channels=(channel,) if channel else None,
+        excluded_user_id_prefix=DEMO_USER_PREFIX,
         wechat_group_allowlist=(material_group_wc_id,) if material_group_wc_id else (),
     )
     return APIResponse(code=0, message="success", data=data)

@@ -19,7 +19,10 @@ from app.domains.conversations.services.conversation_service import (
     resolve_conversation,
     user_has_conversation_in_channels,
 )
-from app.domains.decisioning.services.demo_sales_agent_service import DEMO_CHANNELS
+from app.domains.decisioning.services.demo_sales_agent_service import (
+    DEMO_CHANNELS,
+    DEMO_USER_PREFIX,
+)
 from app.domains.customers.services.user_profile_service import get_profile_bundle
 from app.core.auth import require_gate_access
 
@@ -39,7 +42,11 @@ profile_router = APIRouter(
 
 async def _ensure_demo_conversation(conversation_id: str) -> None:
     detail = await get_conversation_detail(conversation_id)
-    if detail["conversation"].get("channel") not in DEMO_CHANNELS:
+    conversation = detail["conversation"]
+    if (
+        conversation.get("channel") not in DEMO_CHANNELS
+        or not str(conversation.get("user_id") or "").startswith(DEMO_USER_PREFIX)
+    ):
         raise AppError(
             ErrorCode.REQUEST_INVALID,
             "测试后台无权访问该会话",
@@ -49,7 +56,10 @@ async def _ensure_demo_conversation(conversation_id: str) -> None:
 
 @profile_router.get("/{user_id}/profile", response_model=APIResponse)
 async def demo_user_profile(user_id: str) -> APIResponse:
-    if not await user_has_conversation_in_channels(user_id, DEMO_CHANNELS):
+    if (
+        not user_id.startswith(DEMO_USER_PREFIX)
+        or not await user_has_conversation_in_channels(user_id, DEMO_CHANNELS)
+    ):
         raise AppError(
             ErrorCode.REQUEST_INVALID,
             "测试后台无权访问该客户画像",
@@ -77,6 +87,7 @@ async def conversations(
         owner_id=owner_id,
         keyword=keyword,
         channels=DEMO_CHANNELS,
+        user_id_prefix=DEMO_USER_PREFIX,
     )
     return APIResponse(code=0, message="success", data=data)
 
@@ -91,7 +102,13 @@ async def conversation_events(request: Request) -> StreamingResponse:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15)
                     conversation_id = str(event.get("conversation_id") or "")
-                    if not conversation_id.startswith(("web_demo:", "mcp_demo:")):
+                    if not conversation_id.startswith(
+                        (
+                            f"web_demo:{DEMO_USER_PREFIX}",
+                            f"mcp_demo:{DEMO_USER_PREFIX}",
+                            f"wechat:{DEMO_USER_PREFIX}",
+                        )
+                    ):
                         continue
                     payload = json.dumps(
                         {"type": "conversation.changed", **event}, ensure_ascii=False
