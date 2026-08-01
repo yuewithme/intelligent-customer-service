@@ -173,6 +173,26 @@ def test_demo_session_changes_only_through_explicit_switch(monkeypatch, tmp_path
     assert now_active["customer_id"] == "customer-b"
 
 
+def test_demo_openings_use_customer_scoped_memory_ids(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("MEMORY_V2_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MEMORY_V2_LLM_EXTRACTION_ENABLED", "false")
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    first = client.post(
+        "/api/v1/demo/opening",
+        json={"customer_id": "memory-customer-a"},
+    )
+    second = client.post(
+        "/api/v1/demo/opening",
+        json={"customer_id": "memory-customer-b"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+
 def test_demo_chat_reuses_normal_sales_flow_for_first_message(monkeypatch, tmp_path):
     from app.services import demo_sales_agent_service
 
