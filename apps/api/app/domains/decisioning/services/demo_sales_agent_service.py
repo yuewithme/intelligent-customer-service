@@ -111,7 +111,7 @@ async def open_demo_sales_conversation(
         intent="opening",
         route="chitchat",
         channel=runtime_channel,
-        source_id=f"demo-opening:{session_id}",
+        source_id=f"demo-opening:{user_id}:{session_id}",
     )
     if channel == "web_demo":
         set_demo_platform_state(
