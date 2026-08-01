@@ -7,7 +7,12 @@ from sqlalchemy import create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
-from app.infrastructure.database.models import Base, ConversationMessageModel, ConversationModel
+from app.infrastructure.database.models import (
+    Base,
+    ConversationMessageModel,
+    ConversationModel,
+    DemoPlatformStateModel,
+)
 from app.shared.schemas.common import AppError, ErrorCode
 from app.domains.conversations.services.conversation_event_service import conversation_event_broker
 from app.core.ids import generate_id
@@ -31,6 +36,52 @@ def _now() -> datetime:
 
 def make_conversation_id(channel: str, user_id: str, session_id: str | None) -> str:
     return f"{channel}:{user_id}:{session_id or 'default'}"
+
+
+def get_demo_platform_state(state_key: str) -> dict[str, str | None] | None:
+    with _get_session() as session:
+        state = session.get(DemoPlatformStateModel, state_key)
+        if state is None:
+            return None
+        return {
+            "customer_id": state.customer_id,
+            "customer_name": state.customer_name,
+            "session_id": state.session_id,
+            "updated_at": state.updated_at.isoformat(),
+        }
+
+
+def set_demo_platform_state(
+    state_key: str,
+    *,
+    customer_id: str,
+    customer_name: str | None,
+    session_id: str,
+) -> dict[str, str | None]:
+    now = _now()
+    with _get_session() as session:
+        state = session.get(DemoPlatformStateModel, state_key)
+        if state is None:
+            state = DemoPlatformStateModel(
+                state_key=state_key,
+                customer_id=customer_id,
+                customer_name=customer_name,
+                session_id=session_id,
+                updated_at=now,
+            )
+            session.add(state)
+        else:
+            state.customer_id = customer_id
+            state.customer_name = customer_name
+            state.session_id = session_id
+            state.updated_at = now
+        session.commit()
+    return {
+        "customer_id": customer_id,
+        "customer_name": customer_name,
+        "session_id": session_id,
+        "updated_at": now.isoformat(),
+    }
 
 
 async def list_conversations(
@@ -1347,6 +1398,7 @@ def _get_session() -> Session:
             tables=[
                 ConversationModel.__table__,
                 ConversationMessageModel.__table__,
+                DemoPlatformStateModel.__table__,
             ],
         )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)

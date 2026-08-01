@@ -115,6 +115,64 @@ def test_demo_opening_uses_wechat_opening_and_records_conversation(
     ]
 
 
+def test_demo_session_restores_shared_history_across_clients(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    first_client = TestClient(app)
+    opened = first_client.post(
+        "/api/v1/demo/opening",
+        json={"customer_id": "persistent-customer", "customer_name": "Persistent"},
+    )
+    conversation_id = opened.json()["data"]["conversation_id"]
+    sent = first_client.post(
+        "/api/v1/demo/chat",
+        json={
+            "customer_id": "persistent-customer",
+            "customer_name": "Persistent",
+            "conversation_id": conversation_id,
+            "message": "请记住这条消息",
+        },
+    )
+
+    second_client = TestClient(app)
+    restored = second_client.get("/api/v1/demo/session")
+    data = restored.json()["data"]
+
+    assert sent.status_code == 200
+    assert restored.status_code == 200
+    assert data["customer_id"] == "persistent-customer"
+    assert data["conversation_id"] == conversation_id
+    assert any(
+        item["role"] == "customer" and item["content"] == "请记住这条消息"
+        for item in data["messages"]
+    )
+    assert any(item["role"] == "agent" for item in data["messages"])
+
+
+def test_demo_session_changes_only_through_explicit_switch(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+    client.post(
+        "/api/v1/demo/opening",
+        json={"customer_id": "customer-a", "customer_name": "Customer A"},
+    )
+
+    stale_send = client.post(
+        "/api/v1/demo/chat",
+        json={"customer_id": "customer-b", "message": "should not switch"},
+    )
+    still_active = client.get("/api/v1/demo/session").json()["data"]
+    switched = client.post(
+        "/api/v1/demo/opening",
+        json={"customer_id": "customer-b", "customer_name": "Customer B"},
+    )
+    now_active = client.get("/api/v1/demo/session").json()["data"]
+
+    assert stale_send.status_code == 409
+    assert still_active["customer_id"] == "customer-a"
+    assert switched.status_code == 200
+    assert now_active["customer_id"] == "customer-b"
+
+
 def test_demo_chat_reuses_normal_sales_flow_for_first_message(monkeypatch, tmp_path):
     from app.services import demo_sales_agent_service
 

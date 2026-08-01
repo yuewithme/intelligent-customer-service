@@ -13,6 +13,18 @@ export interface DemoOutboundMessage {
   material_id?: number | null
 }
 
+export interface DemoHistoryMessage extends DemoOutboundMessage {
+  id: number
+  role: 'customer' | 'agent'
+}
+
+export interface DemoSessionResponse {
+  customer_id: string
+  customer_name: string
+  conversation_id: string
+  messages: DemoHistoryMessage[]
+}
+
 export interface DemoChatResponse {
   reply: string
   answer_segments?: string[]
@@ -30,6 +42,9 @@ export interface DemoChatResponse {
 }
 
 export type DemoOpeningRequest = Omit<DemoChatRequest, 'message'>
+
+export const getActiveDemoConversation = () =>
+  request.get<DemoSessionResponse>({ url: '/api/v1/demo/session' })
 
 export const openDemoSalesConversation = (data: DemoOpeningRequest) =>
   request.post<DemoChatResponse>({ url: '/api/v1/demo/opening', data })

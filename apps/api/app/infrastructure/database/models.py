@@ -599,6 +599,16 @@ class ConversationModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class DemoPlatformStateModel(Base):
+    __tablename__ = "demo_platform_state"
+
+    state_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    customer_id: Mapped[str] = mapped_column(String(128))
+    customer_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    session_id: Mapped[str] = mapped_column(String(256), default="default")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class ConversationMessageModel(Base):
     __tablename__ = "conversation_messages"
 
