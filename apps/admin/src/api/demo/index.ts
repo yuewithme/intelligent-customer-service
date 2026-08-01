@@ -8,9 +8,11 @@ export interface DemoChatRequest {
 }
 
 export interface DemoOutboundMessage {
-  type: 'text' | 'image' | 'link_card' | 'mini_program' | 'material'
+  type: string
   content: string
   material_id?: number | null
+  media?: Record<string, unknown> | null
+  card?: Record<string, unknown> | null
 }
 
 export interface DemoHistoryMessage extends DemoOutboundMessage {

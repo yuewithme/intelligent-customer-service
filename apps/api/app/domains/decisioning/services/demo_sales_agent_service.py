@@ -1,4 +1,5 @@
 import hashlib
+import json
 import re
 from typing import Literal
 
@@ -85,16 +86,17 @@ async def open_demo_sales_conversation(
     outbound_messages = [item.model_dump() for item in reply.outbound_messages]
 
     for index, item in enumerate(outbound_messages):
+        message_type = str(item.get("type") or "text")
         await ensure_outbound_conversation_message(
             channel=runtime_channel,
             user_id=user_id,
             session_id=session_id,
             content=str(item.get("content") or ""),
-            message_type=str(item.get("type") or "text"),
+            message_type=message_type,
             provider_message_id=f"demo-opening:{session_id}:{index}",
             delivery_status="sent",
             route="opening",
-            metadata=identity,
+            metadata={**identity, "message_type": message_type},
         )
     await update_customer_identity(
         channel=runtime_channel,
@@ -174,20 +176,62 @@ def _demo_history_messages(messages: list[dict]) -> list[dict]:
         metadata = metadata if isinstance(metadata, dict) else {}
         sender_type = str(message.get("sender_type") or "")
         role = "customer" if sender_type == "customer" else "agent"
-        message_type = "text"
+        message_type = _demo_message_type(metadata)
         content = str(message.get("content") or "")
         if role == "agent":
-            message_type = str(metadata.get("message_type") or "text")
             content = str(metadata.get("outbound_content") or content)
+        card = _demo_card_metadata(metadata, message_type)
+        media = metadata.get("media")
+        media = media if isinstance(media, dict) else None
+        if card is not None:
+            content = json.dumps(card, ensure_ascii=False)
+        elif media is not None:
+            source = str(media.get("url") or "").strip()
+            if not source and media.get("type") == "image" and media.get("thumb_base64"):
+                source = f"data:image/jpeg;base64,{media['thumb_base64']}"
+            if source:
+                content = source
         history.append(
             {
                 "id": int(message.get("id") or 0),
                 "role": role,
                 "type": message_type,
                 "content": content,
+                "media": media,
+                "card": card,
             }
         )
     return history
+
+
+def _demo_message_type(metadata: dict) -> str:
+    if isinstance(metadata.get("link_card"), dict):
+        return "link_card"
+    if isinstance(metadata.get("mini_program"), dict):
+        return "mini_program"
+    media = metadata.get("media")
+    if isinstance(media, dict):
+        media_type = str(media.get("type") or "").strip()
+        if media_type:
+            return media_type
+    message_type = str(metadata.get("message_type") or "text").strip()
+    return message_type if message_type in {
+        "text",
+        "image",
+        "video",
+        "audio",
+        "emoji",
+        "file",
+        "material",
+        "received_image",
+        "received_video",
+    } else "text"
+
+
+def _demo_card_metadata(metadata: dict, message_type: str) -> dict | None:
+    key = "mini_program" if message_type == "mini_program" else "link_card"
+    value = metadata.get(key)
+    return value if isinstance(value, dict) else None
 
 
 async def chat_with_demo_sales_agent(

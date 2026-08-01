@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -146,6 +148,69 @@ def test_demo_session_restores_shared_history_across_clients(monkeypatch, tmp_pa
         for item in data["messages"]
     )
     assert any(item["role"] == "agent" for item in data["messages"])
+
+
+def test_demo_session_restores_opening_image_as_media(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("EYUN_OPENING_TEXT", "开场白")
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://cdn.example.com/opening.jpg")
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    client.post(
+        "/api/v1/demo/opening",
+        json={"customer_id": "media-customer", "customer_name": "Media"},
+    )
+    messages = client.get("/api/v1/demo/session").json()["data"]["messages"]
+
+    assert [item["type"] for item in messages] == ["text", "image"]
+    assert messages[1]["content"] == "https://cdn.example.com/opening.jpg"
+    assert messages[1]["media"] == {
+        "type": "image",
+        "url": "https://cdn.example.com/opening.jpg",
+        "fallback": False,
+    }
+
+
+def test_demo_history_normalizes_cards_and_customer_media():
+    from app.domains.decisioning.services.demo_sales_agent_service import (
+        _demo_history_messages,
+    )
+
+    card = {
+        "title": "兰花套餐",
+        "url": "https://example.com/product",
+        "thumb_url": "https://cdn.example.com/product.jpg",
+    }
+    messages = _demo_history_messages(
+        [
+            {
+                "id": 1,
+                "sender_type": "ai",
+                "content": "[链接卡片] 兰花套餐",
+                "metadata": {"message_type": "60001", "link_card": card},
+            },
+            {
+                "id": 2,
+                "sender_type": "customer",
+                "content": "[图片]",
+                "metadata": {
+                    "message_type": "60002",
+                    "media": {
+                        "type": "image",
+                        "url": "https://cdn.example.com/customer.jpg",
+                    },
+                },
+            },
+        ]
+    )
+
+    assert messages[0]["type"] == "link_card"
+    assert json.loads(messages[0]["content"]) == card
+    assert messages[0]["card"] == card
+    assert messages[1]["role"] == "customer"
+    assert messages[1]["type"] == "image"
+    assert messages[1]["content"] == "https://cdn.example.com/customer.jpg"
 
 
 def test_demo_session_changes_only_through_explicit_switch(monkeypatch, tmp_path):
