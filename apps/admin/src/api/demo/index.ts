@@ -7,8 +7,16 @@ export interface DemoChatRequest {
   message: string
 }
 
+export interface DemoOutboundMessage {
+  type: 'text' | 'image' | 'link_card' | 'mini_program' | 'material'
+  content: string
+  material_id?: number | null
+}
+
 export interface DemoChatResponse {
   reply: string
+  answer_segments?: string[]
+  outbound_messages?: DemoOutboundMessage[]
   opening_image_url?: string | null
   customer_id: string
   conversation_id: string
