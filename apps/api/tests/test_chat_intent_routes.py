@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from uuid import uuid4
 
 from app.main import app
 
@@ -36,7 +37,7 @@ def test_rag_no_answer_detection_catches_empty_and_legacy_sentinels():
 def test_demo_product_interest_stays_in_discovery_without_handoff():
     data = _chat(
         "我想找好养活的，我不是很懂这个怎么养",
-        "intent_route_product_no_answer",
+        f"intent_route_product_no_answer_{uuid4().hex}",
         metadata={"demo": True},
     )
 
@@ -49,6 +50,12 @@ def test_demo_product_interest_stays_in_discovery_without_handoff():
         "template_not_found_to_handoff"
     )
     assert data["metadata"].get("commerce_action", {}).get("card_sent") is not True
+    assert "挑选" not in data["answer"]
+    assert "室内摆放还是阳台" not in data["answer"]
+    assert any(
+        marker in data["answer"] for marker in ("黄叶", "黑斑", "烂根", "腐苗")
+    )
+    assert data["metadata"]["sales_action"]["emitted_question_slot"] == "pain_point"
 
 
 def test_unclear_input_continues_without_handoff():
