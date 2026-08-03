@@ -336,13 +336,60 @@ async def test_live_product_link_purchase_phrase_uses_product_query_rule():
     assert intent.reason == "rule_product_purchase_query"
 
 
-def test_orchestrator_fast_rule_preserves_hard_purchase_precedence():
+def test_orchestrator_defers_purchase_language_to_contextual_llm():
     intent = classify_by_fast_rule("我想买忆香荷，怎么下单？")
 
-    assert intent is not None
-    assert intent.primary_intent == "order_intent"
-    assert intent.classifier_source == "hard_rule"
-    assert intent.slots["purchase_entry_requested"] is True
+    assert intent is None
+
+
+@pytest.mark.asyncio
+async def test_service_purchase_language_is_not_intercepted_by_product_rule(monkeypatch):
+    from app.core.config import get_settings
+    from app.services import intent_service
+
+    async def classify_membership(message, user_state, candidates=None):
+        del message, user_state, candidates
+        return IntentResult(
+            route="template_reply",
+            primary_intent="order_intent",
+            primary_domain="commerce",
+            primary_goal="transact",
+            issues=["order_process"],
+            classifier_source="llm",
+            confidence=0.82,
+            slots={
+                "product_request_kind": "membership",
+                "membership_question_kind": "purchase",
+            },
+            reason="llm_contextual_membership_purchase",
+        )
+
+    state = UserState(
+        user_id="user_intent",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "我们的陪伴养兰服务有视频课程和一对一指导。",
+                }
+            ]
+        },
+    )
+    monkeypatch.setenv("INTENT_LLM_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(intent_service, "classify_by_llm", classify_membership)
+
+    try:
+        intent = await classify_intent(
+            _message("那我要怎么买你们的服务？"),
+            state,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert intent.classifier_source == "llm"
+    assert intent.slots["product_request_kind"] == "membership"
+    assert intent.slots["membership_question_kind"] == "purchase"
 
 
 @pytest.mark.asyncio

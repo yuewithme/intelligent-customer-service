@@ -61,7 +61,7 @@ def test_risk_control_models_have_table_names():
 
 
 @pytest.mark.asyncio
-async def test_eyun_handoff_updates_workbench_and_sends_customer_fallback(monkeypatch):
+async def test_eyun_handoff_updates_workbench_and_stays_silent(monkeypatch):
     from app.integrations.eyun.services import message_risk_control_service as service
 
     handoffs = []
@@ -92,10 +92,8 @@ async def test_eyun_handoff_updates_workbench_and_sends_customer_fallback(monkey
             "order_query_unavailable",
         )
     ]
-    assert "已经为您转接" in result["answer"]
-    assert result["outbound_messages"] == [
-        {"type": "text", "content": result["answer"]}
-    ]
+    assert result["answer"] == ""
+    assert result.get("outbound_messages", []) == []
 
 
 def test_build_eyun_batch_key_prefers_group():
