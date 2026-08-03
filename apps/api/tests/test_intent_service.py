@@ -182,6 +182,69 @@ async def test_low_confidence_llm_membership_context_is_executed_without_clarify
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "你们有什么福利吗？买这个",
+        "这个服务有什么好处？这个我就买了",
+        "都包含什么？把购买链接发我",
+    ],
+)
+async def test_explicit_membership_action_overrides_inferred_price_objection(
+    monkeypatch,
+    text,
+):
+    from app.core.config import get_settings
+    from app.services import intent_service
+
+    async def misclassified_objection(message, user_state, candidates=None):
+        del message, user_state, candidates
+        return IntentResult(
+            route="template_reply",
+            primary_intent="price_objection",
+            primary_domain="commerce",
+            primary_goal="express_objection",
+            issues=["price_value"],
+            confidence=0.9,
+            slots={
+                "product_request_kind": "membership",
+                "membership_question_kind": "price",
+                "decision_blocker": {
+                    "type": "price",
+                    "detail": "客户认为价格偏高",
+                },
+            },
+            reason="llm_inferred_price_objection",
+        )
+
+    state = UserState(
+        user_id="user_intent",
+        metadata={
+            "commerce_last_product_id": "membership-39",
+            "commerce_last_product_kind": "membership",
+            "recent_turns": [
+                {"role": "assistant", "content": "这是陪伴养兰会员的商品卡片。"}
+            ],
+        },
+    )
+    monkeypatch.setenv("INTENT_LLM_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(intent_service, "classify_by_llm", misclassified_objection)
+
+    try:
+        intent = await classify_intent(_message(text), state)
+    finally:
+        get_settings.cache_clear()
+
+    assert intent.primary_intent == "order_intent"
+    assert intent.primary_goal == "transact"
+    assert intent.slots["product_request_kind"] == "membership"
+    assert intent.slots["membership_question_kind"] == "combined"
+    assert "decision_blocker" not in intent.slots
+    assert intent.reason == "contextual_explicit_action_reconciled"
+
+
+@pytest.mark.asyncio
 async def test_opening_failure_history_reaches_llm_instead_of_product_profile_rule(
     monkeypatch,
 ):

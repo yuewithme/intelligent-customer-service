@@ -231,6 +231,41 @@ def test_membership_price_and_purchase_followups_keep_catalog_action():
     ) == CATALOG_SEARCH
 
 
+def test_inferred_objection_without_customer_evidence_cannot_block_membership_facts():
+    intent = _intent(
+        "price_objection",
+        primary_domain="commerce",
+        primary_goal="express_objection",
+        issues=["price_value"],
+        slots={
+            "product_request_kind": "membership",
+            "membership_question_kind": "combined",
+        },
+    )
+
+    assert resolve_business_action(
+        message=_message("你们有什么福利吗？买这个"),
+        intent=intent,
+        user_state=UserState(user_id="customer-1"),
+    ) == CATALOG_SEARCH
+
+
+def test_explicit_price_objection_still_uses_conversation_handling():
+    intent = _intent(
+        "price_objection",
+        primary_domain="commerce",
+        primary_goal="express_objection",
+        issues=["price_value"],
+        slots={"product_request_kind": "membership"},
+    )
+
+    assert resolve_business_action(
+        message=_message("这个会员有点贵，我再考虑一下"),
+        intent=intent,
+        user_state=UserState(user_id="customer-1"),
+    ) == CONVERSATION
+
+
 def test_product_recommendation_is_blocked_until_discovery_is_complete():
     intent = _intent(
         "product_recommendation",

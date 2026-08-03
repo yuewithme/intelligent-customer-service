@@ -2,7 +2,6 @@ from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.policy import PolicyDecision
 from app.domains.customers.schemas.state import UserState
-from app.core.config import get_settings
 
 
 VALID_ROUTES = {
@@ -77,23 +76,6 @@ async def decide_route(
             route="template_reply",
             reason="unverified_handoff_blocked",
             fallback_route=intent.route,
-            original_route=intent.route,
-        )
-    if intent.confidence < get_settings().intent_confidence_threshold:
-        if intent.primary_intent in KNOWLEDGE_INTENTS or intent.route in {
-            "rag_answer",
-            "template_then_rag",
-            "clarify",
-        }:
-            return PolicyDecision(
-                route="rag_answer",
-                reason="low_confidence_knowledge_lookup",
-                fallback_route=intent.route or "clarify",
-                original_route=intent.route or "clarify",
-            )
-        return PolicyDecision(
-            route=intent.route if intent.route in VALID_ROUTES else "rag_answer",
-            reason="low_confidence_intent_route",
             original_route=intent.route,
         )
     if (

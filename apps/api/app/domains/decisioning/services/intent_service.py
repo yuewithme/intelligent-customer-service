@@ -373,7 +373,17 @@ def match_membership_product_request(text: str) -> bool:
 def membership_question_kind(text: str) -> str:
     asks_capability = hit_any(
         text,
-        ("服务", "权益", "包含", "老师", "一对一", "指导", "具体情况", "帮我看"),
+        (
+            "权益",
+            "福利",
+            "好处",
+            "包含",
+            "老师",
+            "一对一",
+            "指导",
+            "具体情况",
+            "帮我看",
+        ),
     )
     asks_price = hit_any(text, ("多少钱", "价格", "费用", "收费")) or bool(
         re.search(r"\d+(?:\.\d+)?元", text)
@@ -394,10 +404,15 @@ def membership_question_kind(text: str) -> str:
             "链接",
             "入口",
             "发我",
+            "怎么买",
+            "买这个",
+            "买这款",
+            "就买",
+            "我要买",
             "加入会员吗",
             "开通会员吗",
         ),
-    )
+    ) and not hit_any(text, PURCHASE_REJECTION_WORDS)
     if asks_purchase and (asks_capability or asks_price):
         return "combined"
     if asks_purchase:
@@ -407,6 +422,105 @@ def membership_question_kind(text: str) -> str:
     if asks_price:
         return "price"
     return "capability"
+
+
+def _reconcile_contextual_product_intent(
+    intent: IntentResult,
+    text: str,
+    metadata: dict | None,
+) -> IntentResult:
+    """Keep explicit customer actions from being overwritten by inferred motives.
+
+    The model remains responsible for semantic classification. This layer only
+    resolves a current verified product reference and rejects contradictions such
+    as classifying "buy this" as a price objection without objection evidence.
+    """
+
+    metadata = metadata if isinstance(metadata, dict) else {}
+    normalized = normalize_intent_text(text)
+    slots = dict(intent.slots)
+    product_kind = str(
+        slots.get("product_request_kind")
+        or metadata.get("commerce_last_product_kind")
+        or ""
+    ).strip()
+    if product_kind != "membership":
+        return intent
+
+    has_capability_question = hit_any(
+        normalized,
+        ("福利", "权益", "好处", "包含什么", "有什么", "提供什么", "怎么服务"),
+    )
+    has_price_question = hit_any(normalized, ("多少钱", "价格", "费用", "收费"))
+    has_purchase_action = (
+        match_product_purchase_query(normalized)
+        or match_explicit_order_intent(normalized)
+        or hit_any(normalized, ("买这个", "买这款", "就买", "我要买"))
+    ) and not hit_any(normalized, PURCHASE_REJECTION_WORDS)
+    if not (has_capability_question or has_price_question or has_purchase_action):
+        return intent
+
+    kind = membership_question_kind(normalized)
+    slots.update(
+        {
+            "conversation_topic": "product_recommendation",
+            "product_keywords": [MEMBERSHIP_PRODUCT_QUERY],
+            "product_request_kind": "membership",
+            "membership_question_kind": kind,
+        }
+    )
+    if match_price_intent(normalized) != "price_objection":
+        slots.pop("decision_blocker", None)
+
+    if kind in {"purchase", "combined"}:
+        if (
+            intent.primary_goal == "transact"
+            and intent.slots.get("membership_question_kind") == kind
+            and "decision_blocker" not in intent.slots
+        ):
+            return intent
+        issues = ["order_process"]
+        if has_price_question:
+            issues.append("price_value")
+        return intent.model_copy(
+            update={
+                "route": "template_reply",
+                "primary_intent": "order_intent",
+                "primary_domain": "commerce",
+                "primary_goal": "transact",
+                "issues": issues,
+                "sales_stage": "closing",
+                "need_template": True,
+                "need_rag": False,
+                "need_human": False,
+                "slots": slots,
+                "reason": "contextual_explicit_action_reconciled",
+            }
+        )
+
+    if (
+        intent.primary_goal == "seek_help"
+        and intent.slots.get("membership_question_kind") == kind
+        and "decision_blocker" not in intent.slots
+    ):
+        return intent
+    issues = ["product_selection"]
+    if has_price_question:
+        issues.append("price_value")
+    return intent.model_copy(
+        update={
+            "route": "template_reply",
+            "primary_intent": "product_query",
+            "primary_domain": "product",
+            "primary_goal": "seek_help",
+            "issues": issues,
+            "need_template": True,
+            "need_rag": False,
+            "need_human": False,
+            "slots": slots,
+            "reason": "contextual_product_question_reconciled",
+        }
+    )
 
 
 def match_price_intent(text: str) -> str | None:
@@ -993,6 +1107,11 @@ async def classify_intent(
     if llm_enabled:
         try:
             llm_intent = await classify_by_llm(message, user_state, candidates)
+            llm_intent = _reconcile_contextual_product_intent(
+                llm_intent,
+                message.message,
+                user_state.metadata,
+            )
             if (
                 llm_intent.primary_goal != "unclear"
                 or llm_intent.slots.get("product_request_kind") == "membership"
@@ -1114,13 +1233,8 @@ def schedule_intent_shadow_evaluation(
 def _with_decision_blocker(intent: IntentResult, text: str) -> IntentResult:
     normalized = normalize_intent_text(text)
     blocker = None
-    if (
-        (
-            intent.primary_intent in {"price_objection", "discount_request"}
-            and (not intent.issues or "price_value" in intent.issues)
-        )
-        or match_price_intent(normalized) == "price_objection"
-    ):
+    explicit_price_objection = match_price_intent(normalized) == "price_objection"
+    if explicit_price_objection:
         blocker = {"type": "price", "detail": "客户认为价格偏高"}
     elif hit_any(normalized, ("一直问", "反复问", "别再问", "直接看商品", "直接告诉")):
         blocker = {
@@ -1141,12 +1255,17 @@ def _with_decision_blocker(intent: IntentResult, text: str) -> IntentResult:
                 "timing",
                 "other",
             }
+            and _decision_blocker_is_grounded(str(candidate.get("type")), normalized)
         ):
             blocker = {
                 "type": candidate["type"],
                 "detail": str(candidate.get("detail") or "").strip(),
             }
     if blocker is None:
+        if isinstance(intent.slots.get("decision_blocker"), dict):
+            slots = dict(intent.slots)
+            slots.pop("decision_blocker", None)
+            return intent.model_copy(update={"slots": slots})
         return intent
     return intent.model_copy(
         update={"slots": {**intent.slots, "decision_blocker": blocker}}
@@ -1245,6 +1364,19 @@ def classify_opening_followup(
             "reason": "opening_profile_answer",
         }
     )
+
+
+def _decision_blocker_is_grounded(blocker_type: str, text: str) -> bool:
+    markers = {
+        "price": (*PRICE_OBJECTION_WORDS, *HESITATION_WORDS),
+        "trust": ("真假", "靠谱吗", "可靠", "被骗", "保障", "对版", "信不过"),
+        "care_risk": ("养不活", "养死", "不会养", "怕养不好", "总是死"),
+        "product_fit": ("适合我", "不适合", "合不合适", "不匹配"),
+        "choice": ("哪个好", "怎么选", "选不出", "纠结"),
+        "timing": ("晚点", "以后再说", "暂时", "再考虑", "再想想"),
+        "other": ("一直问", "反复问", "别再问", "直接告诉"),
+    }
+    return hit_any(text, tuple(markers.get(blocker_type, ())))
 
 
 def _opening_profile_slots(text: str) -> dict:
@@ -1886,20 +2018,21 @@ Required JSON:
 Rules:
 - Use only candidate domain and goal ids.
 - issues may only contain: {issue_values}
+- Confidence is telemetry; never use unclear only because confidence is low.
+- Objection, rejection, complaint and human request require explicit wording; neutral
+  questions about price, benefits or enrollment are not objections.
+- Explicit buy/join/pay/link actions override inferred motives; retain other needs in slots.
 - Use request_material for an explicit request to send or receive fixed learning
   materials; use ask_information when the customer only asks about information.
 - Labeled examples are trusted references, but copy their labels only when the current
   message has the same meaning after considering recent context.
-- Prefer explicit customer actions over inferred motives, and resolve pronouns such as
-  "这个服务", "你们说的那个", "怎么进" from recent context.
+- Resolve pronouns such as "这个服务", "你们说的那个", "怎么进" from recent context.
 - If recent context is about 陪伴养兰服务 and the customer asks about its
-  content, price, enrollment, purchase, payment, or link, set
+  content, benefits/福利, price, enrollment, purchase, payment, or link, set
   slots.product_request_kind="membership". Also set
   slots.membership_question_kind to capability, price, purchase, or combined.
 - For membership service intent, use product/seek_help/product_selection for service
   information, and commerce/transact/order_process for joining or purchasing.
-- Do not use unclear merely because confidence is low when recent context provides a
-  reasonable product or service referent. Make the best in-scope interpretation.
 - slots may include explicit facts and product/service references resolved from recent context.
 - Output JSON only. No evidence, explanation, route, sales stage, sentiment, or legacy intent fields.
 """

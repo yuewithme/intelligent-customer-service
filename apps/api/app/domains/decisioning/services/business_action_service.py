@@ -40,6 +40,10 @@ _PURCHASE_REJECTION_PATTERN = re.compile(
     r"不想买|先不买|暂时不买|暂时不考虑|先不考虑|不考虑了|"
     r"不买了|算了不买|别发链接|不用发链接"
 )
+_EXPLICIT_SALES_OBJECTION_PATTERN = re.compile(
+    r"太贵|有点贵|好贵|贵了|价格贵|不便宜|"
+    r"再考虑一下|考虑考虑|再想想|暂时不买|先不买"
+)
 _CARE_INTENTS = {
     "care_question",
     "orchid_care",
@@ -124,6 +128,7 @@ def resolve_business_action(
 
     if (
         primary_intent in {"price_objection", "discount_request", "hesitation"}
+        and _EXPLICIT_SALES_OBJECTION_PATTERN.search(text)
         and not re.search(r"\d+(?:\.\d+)?\s*元", text)
     ):
         return CONVERSATION
