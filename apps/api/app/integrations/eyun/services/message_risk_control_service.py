@@ -52,6 +52,7 @@ from app.domains.customers.services.user_profile_service import (
     add_verified_customer_tag,
     append_conversation_memory,
 )
+from app.domains.sales.services.sales_stage_catalog import normalize_sales_stage_value
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
@@ -1130,7 +1131,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 if isinstance(chat_result.get("intent"), dict)
                 else {}
             )
-            sales_stage = str(intent.get("sales_stage") or "").strip()
+            sales_stage = normalize_sales_stage_value(
+                intent.get("sales_stage"),
+                fallback="",
+            )
             sales_turn_id = str(chat_result.get("trace_id") or "").strip()
             sales_metadata = {
                 **({"sales_stage": sales_stage} if sales_stage else {}),

@@ -203,6 +203,8 @@ def normalize_sales_stage_reference(
 
     original_value = value.strip() if isinstance(value, str) else None
     normalized_value = original_value or ""
+    if normalized_value.startswith("SalesStage."):
+        normalized_value = normalized_value.split(".", 1)[1].strip().lower()
     if normalized_value.startswith("stage:"):
         normalized_value = normalized_value.split(":", 1)[1].strip()
 

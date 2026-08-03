@@ -53,6 +53,13 @@ def test_legacy_stage_values_normalize_to_the_new_contract():
     assert order_intent.signals == (CustomerSignal.READY_TO_BUY,)
 
 
+def test_serialized_sales_stage_enum_name_normalizes_to_its_value():
+    assert (
+        normalize_sales_stage_value("SalesStage.NEED_DISCOVERY")
+        == SalesStage.NEED_DISCOVERY.value
+    )
+
+
 def test_unknown_and_interruptions_are_not_main_sales_stages():
     assert normalize_sales_stage_reference("unknown").stage is None
     assert normalize_sales_stage_value("unknown") == "unknown"

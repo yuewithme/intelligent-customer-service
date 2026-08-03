@@ -16,6 +16,7 @@ from app.infrastructure.database.models import (
 )
 from app.shared.schemas.common import AppError, ErrorCode
 from app.domains.conversations.services.conversation_event_service import conversation_event_broker
+from app.domains.sales.services.sales_stage_catalog import normalize_sales_stage_value
 from app.core.ids import generate_id
 
 
@@ -240,7 +241,10 @@ async def record_ai_turn(*, message, result: dict) -> None:
     status = HANDOFF_PENDING if result.get("need_human") else AI_WAITING
     handoff = result.get("handoff") or {}
     intent = result.get("intent") or {}
-    sales_stage = str(intent.get("sales_stage") or "").strip()
+    sales_stage = normalize_sales_stage_value(
+        intent.get("sales_stage"),
+        fallback="",
+    )
     skip_customer_record = bool(message.metadata.get("skip_customer_record"))
     evaluation_metadata = _evaluation_metadata(message.metadata)
     turn_metadata = {
@@ -1504,8 +1508,16 @@ def _message_to_dict(
     sales_stage: str | None = None,
 ) -> dict:
     metadata = _load_metadata(row.metadata_json)
+    stored_sales_stage = normalize_sales_stage_value(
+        metadata.get("sales_stage"),
+        fallback="",
+    )
     if sales_stage:
-        metadata.setdefault("sales_stage", sales_stage)
+        stored_sales_stage = normalize_sales_stage_value(sales_stage, fallback="")
+    if stored_sales_stage:
+        metadata["sales_stage"] = stored_sales_stage
+    else:
+        metadata.pop("sales_stage", None)
     if metadata.get("provider") == "eyun" and not metadata.get("media"):
         from app.integrations.eyun.services.eyun_callback_service import extract_eyun_media_metadata
 
