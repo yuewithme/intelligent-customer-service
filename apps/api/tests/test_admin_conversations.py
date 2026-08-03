@@ -243,6 +243,7 @@ def test_conversation_detail_recovers_historical_sales_stage_from_chat_log(
             session_id="default",
             content="历史 AI 回复",
             trace_id="trace_historical_stage",
+            metadata={"sales_stage": "SalesStage.NEED_DISCOVERY"},
         )
     )
     asyncio.run(

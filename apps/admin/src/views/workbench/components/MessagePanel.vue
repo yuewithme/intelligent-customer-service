@@ -289,14 +289,13 @@ const senderText = (value: string) =>
 
 const messageSalesStage = (message: ConversationMessage) => {
   const stage = message.metadata.sales_stage
-  return typeof stage === 'string' ? stage : ''
+  if (typeof stage !== 'string' || !stage) return ''
+  return salesStageText(stage) === stage ? '' : stage
 }
 
 const messageSalesStageText = (message: ConversationMessage) => {
   const stage = messageSalesStage(message)
-  if (!stage) return '待识别'
-  const translated = salesStageText(stage)
-  return translated === stage ? '待识别' : translated
+  return stage ? salesStageText(stage) : ''
 }
 
 const salesTurnKey = (message: ConversationMessage) => {
