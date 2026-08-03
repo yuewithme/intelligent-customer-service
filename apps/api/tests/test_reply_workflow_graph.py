@@ -91,8 +91,59 @@ async def test_rag_answer_with_answer_returns_rag_reply(monkeypatch):
     assert reply.reply_type == "rag"
     assert reply.need_human is False
     assert reply.sources == [{"doc_id": "doc_1"}]
-    assert reply.metadata["persona"]["render_mode"] == "locked"
+    assert reply.metadata["persona"]["render_mode"] == "persona"
     assert reply.metadata["persona"]["version"] == "v1.1"
+
+
+@pytest.mark.asyncio
+async def test_rag_reply_is_persona_rendered_before_reply_guard(monkeypatch):
+    from app.services import reply_workflow_graph
+
+    order = []
+    grounded_answer = "浇水不要固定看天数，要根据植料干湿程度判断。"
+    original_guard = reply_workflow_graph.guard_reply_spec
+
+    async def answer_knowledge(message, user_state, policy_decision=None):
+        del message, user_state, policy_decision
+        return {"answer": grounded_answer, "sources": [{"doc_id": "care_1"}]}
+
+    async def render_persona_reply(*, spec, context, current_message):
+        del context, current_message
+        order.append("persona")
+        assert spec.render_mode == "persona"
+        assert spec.verified_facts["grounded_knowledge_answer"] == grounded_answer
+        return spec.model_copy(
+            update={
+                "suggested_copy": "浇水别固定看几天，主要看植料干湿。",
+                "metadata": {
+                    **spec.metadata,
+                    "persona": {"render_mode": "persona", "rendered": True},
+                },
+            }
+        )
+
+    def guard_reply_spec(*, spec, context):
+        order.append("guard")
+        assert spec.suggested_copy == "浇水别固定看几天，主要看植料干湿。"
+        return original_guard(spec=spec, context=context)
+
+    monkeypatch.setattr(
+        "app.domains.knowledge.services.rag_service.answer_knowledge",
+        answer_knowledge,
+    )
+    monkeypatch.setattr(reply_workflow_graph, "render_persona_reply", render_persona_reply)
+    monkeypatch.setattr(reply_workflow_graph, "guard_reply_spec", guard_reply_spec)
+
+    reply = await reply_workflow_graph.execute_reply_plan(
+        plan=_plan("rag_answer"),
+        intent=_intent("rag_answer"),
+        message=_message("下次几天浇水？"),
+        user_state=_state(),
+        stage_latencies={},
+    )
+
+    assert order == ["persona", "guard"]
+    assert reply.answer == "浇水别固定看几天，主要看植料干湿。"
 
 
 @pytest.mark.asyncio
@@ -350,7 +401,7 @@ async def test_rag_plan_uses_rag_without_legacy_template(monkeypatch):
     assert reply.reply_type == "rag"
     assert reply.need_human is False
     assert reply.sources == [{"doc_id": "doc_1"}]
-    assert reply.metadata["persona"]["render_mode"] == "locked"
+    assert reply.metadata["persona"]["render_mode"] == "persona"
     assert reply.metadata["persona"]["version"] == "v1.1"
 
 

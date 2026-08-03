@@ -15,18 +15,29 @@ def test_long_reply_groups_every_two_sentences():
         "".join(sentences[2:4]),
         sentences[4],
     ]
+    assert all(
+        len(message) <= 60
+        for message in split_customer_messages("".join(sentences))
+    )
 
 
 def test_blank_lines_preserve_semantic_message_boundaries():
     text = "已为您登记收货信息。\n\n请确认订单后，我会尽快安排发出。\n\n我这边持续跟进。"
 
-    assert split_customer_messages(text) == ["已为您登记收货信息。请确认订单后，我会尽快安排发出。我这边持续跟进。"]
+    assert split_customer_messages(text) == [
+        "已为您登记收货信息。",
+        "请确认订单后，我会尽快安排发出。",
+        "我这边持续跟进。",
+    ]
 
 
 def test_short_fragment_with_comma_is_merged_into_one_reply():
     text = "你好，\n\n我在的。\n\n你可以直接问产品、价格、养护、发货或售后问题。"
 
-    assert split_customer_messages(text) == ["你好，我在的。你可以直接问产品、价格、养护、发货或售后问题。"]
+    assert split_customer_messages(text) == [
+        "你好，我在的。",
+        "你可以直接问产品、价格、养护、发货或售后问题。",
+    ]
 
 
 def test_long_semantic_reply_merges_fragment_ending_with_comma():
@@ -46,6 +57,6 @@ def test_exceptionally_long_sentence_splits_at_clause_boundary():
 
     messages = split_customer_messages(sentence)
 
-    assert len(messages) == 2
+    assert len(messages) > 2
     assert "".join(messages) == sentence
-    assert all(len(message) <= 200 for message in messages)
+    assert all(len(message) <= 60 for message in messages)

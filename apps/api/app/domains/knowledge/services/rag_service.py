@@ -503,9 +503,10 @@ def _care_repair_prompt(prompt: str, violations: list[str]) -> str:
         )
     if "missing_verified_brand_bridge" in violations:
         instructions.append(
-            "在专业分析和安全建议之后，补一句自然的萧岚苑服务价值："
-            "只能使用 Session state 中 brand_value_facts 已核实的视频课程或"
-            "一对一指导，并说明它如何帮助客户减少反复试错；不要立即逼单。"
+            "不要在专业分析结束后另起一段广告。用‘所以’或‘这也是为什么’"
+            "承接前面的具体判断，再自然带出萧岚苑；只能从 Session state 的"
+            "brand_value_facts 中选择与当前痛点最相关的一项能力，说明它如何"
+            "帮助客户减少问题反复，不要同时罗列课程和一对一指导，也不要立即逼单。"
         )
     if "repeated_follow_up_question" in violations:
         instructions.append(

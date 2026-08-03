@@ -147,8 +147,6 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
     render_mode = "persona"
     if reply.need_human or not reply.answer:
         render_mode = "silent"
-    elif reply.reply_type == "rag":
-        render_mode = "locked"
     elif has_business_facts and not allow_persona_extension:
         render_mode = "locked"
     elif (
@@ -165,6 +163,11 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
         )
         else "replace"
     )
+    if reply.reply_type == "rag":
+        verified_facts = {
+            **verified_facts,
+            "grounded_knowledge_answer": reply.answer,
+        }
     return ReplySpec(
         route=reply.route,
         reply_type=reply.reply_type,

@@ -2,6 +2,9 @@ import re
 
 from app.domains.decisioning.schemas.persona import PersonaContext, ReplySpec
 from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
+from app.domains.decisioning.services.customer_reply_formatter import (
+    split_customer_messages,
+)
 
 
 INTERNAL_MARKERS = {
@@ -203,7 +206,8 @@ def finalize_reply_spec(spec: ReplySpec) -> FinalReply:
 def _separate_follow_up_segments(segments: list[str]) -> list[str]:
     result: list[str] = []
     for segment in segments:
-        result.extend(_split_follow_up_question(str(segment)))
+        for part in _split_follow_up_question(str(segment)):
+            result.extend(split_customer_messages(part))
     return [item for item in result if item]
 
 
@@ -215,7 +219,11 @@ def _separate_follow_up_messages(
         if message.type != "text":
             result.append(message)
             continue
-        parts = _split_follow_up_question(message.content)
+        parts = [
+            chunk
+            for part in _split_follow_up_question(message.content)
+            for chunk in split_customer_messages(part)
+        ]
         result.extend(
             OutboundMessage(
                 type="text",
