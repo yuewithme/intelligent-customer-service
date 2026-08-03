@@ -54,6 +54,14 @@ class Settings(BaseSettings):
         "我们专注国兰培育和养护，也会给兰友提供养兰资料、"
         "视频课程和一对一养护指导。"
     )
+    eyun_opening_followup_text: str = Field(
+        default=(
+            "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n"
+            "1. 家里目前养了多少盆兰花？（还没养扣“0”😝）\n"
+            "2. 具体养了哪些品种？"
+        ),
+        alias="EYUN_OPENING_FOLLOWUP_TEXT",
+    )
     eyun_opening_image_url: str = ""
     eyun_link_card_default_thumb_url: str = Field(
         default="", alias="EYUN_LINK_CARD_DEFAULT_THUMB_URL"

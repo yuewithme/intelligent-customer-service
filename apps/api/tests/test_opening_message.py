@@ -13,18 +13,26 @@ def test_opening_reply_contains_configured_text_and_image(monkeypatch):
 
     reply = build_opening_reply()
 
-    assert reply.answer == (
+    opening_text = (
         "兰友您好！欢迎来到萧岚苑，我是养兰师傅兰画🌹"
         "我们专注国兰培育和养护，也会给兰友提供养兰资料、"
         "视频课程和一对一养护指导。"
     )
+    followup_text = (
+        "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n"
+        "1. 家里目前养了多少盆兰花？（还没养扣“0”😝）\n"
+        "2. 具体养了哪些品种？"
+    )
+    assert reply.answer == f"{opening_text}\n\n{followup_text}"
+    assert reply.answer_segments == [opening_text, followup_text]
     assert [message.model_dump() for message in reply.outbound_messages] == [
-        {"type": "text", "content": reply.answer, "material_id": None},
+        {"type": "text", "content": opening_text, "material_id": None},
         {
             "type": "image",
             "content": "https://bot.example.com/static/xiaolanyuan-opening.jpg",
             "material_id": None,
         },
+        {"type": "text", "content": followup_text, "material_id": None},
     ]
     get_settings.cache_clear()
 
@@ -47,6 +55,8 @@ def test_opening_material_keeps_image_semantics_for_workbench(monkeypatch):
         "content": "https://bot.example.com/static/xiaolanyuan-opening.jpg",
         "material_id": 7,
     }
+    assert reply.outbound_messages[2].type == "text"
+    assert "家里目前养了多少盆兰花" in reply.outbound_messages[2].content
     get_settings.cache_clear()
 
 

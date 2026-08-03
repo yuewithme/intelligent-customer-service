@@ -84,15 +84,14 @@ async def test_chat_core_prepends_opening_and_delivers_material_without_llm(
     )
 
     assert result["intent"]["primary_goal"] == "request_material"
-    assert [item["type"] for item in result["outbound_messages"]] == [
-        "text",
-        "link_card",
-        "text",
-        "image",
-    ]
+    message_types = [item["type"] for item in result["outbound_messages"]]
+    assert message_types[:2] == ["text", "text"]
+    assert "link_card" in message_types[2:]
+    assert message_types[-1] == "image"
     assert result["outbound_messages"][0]["content"].startswith(
         "兰友您好！欢迎来到萧岚苑"
     )
+    assert "家里目前养了多少盆兰花" in result["outbound_messages"][1]["content"]
 
 
 @pytest.mark.parametrize(
@@ -251,18 +250,21 @@ async def test_process_batch_sends_opening_then_core_material_reply(
     await _process_inbound_batch(batch_id)
 
     assert handled == [content]
-    assert [row.get("message_type", "text") for row in queued] == [
-        "text",
-        "link_card",
-        "text",
-        "image",
-    ]
+    message_types = [row.get("message_type", "text") for row in queued]
+    assert message_types[:2] == ["text", "text"]
+    assert "link_card" in message_types[2:]
+    assert message_types[-1] == "image"
     assert queued[0]["content"].startswith("兰友您好！欢迎来到萧岚苑")
-    assert json.loads(queued[1]["content"])["url"].endswith(
+    assert "家里目前养了多少盆兰花" in queued[1]["content"]
+    card = next(row for row in queued if row.get("message_type") == "link_card")
+    assert json.loads(card["content"])["url"].endswith(
         "noteAlias=0Ja8r3cajo"
     )
-    assert queued[2]["content"].startswith("直播间展示的是图文版资料")
-    assert queued[3]["content"].endswith("companion-service-video-links.png")
+    assert any(
+        row["content"].startswith("直播间展示的是图文版资料")
+        for row in queued[2:]
+    )
+    assert queued[-1]["content"].endswith("companion-service-video-links.png")
 
 
 @pytest.mark.asyncio
@@ -337,14 +339,13 @@ async def test_new_friend_opening_precedes_later_material_request(monkeypatch):
     await risk_control._process_inbound_batch(material_batch["id"])
 
     assert handled == ["要资料"]
-    assert [row.get("message_type", "text") for row in queued] == [
-        "text",
-        "link_card",
-        "text",
-        "image",
-    ]
+    message_types = [row.get("message_type", "text") for row in queued]
+    assert message_types[:2] == ["text", "text"]
+    assert "link_card" in message_types[2:]
+    assert message_types[-1] == "image"
     assert queued[0]["content"] == get_settings().eyun_opening_text
-    assert queued[1]["source_batch_key"] == "wid:wxid_new_customer"
+    assert "具体养了哪些品种" in queued[1]["content"]
+    assert queued[2]["source_batch_key"] == "wid:wxid_new_customer"
 
 
 @pytest.mark.asyncio

@@ -51,8 +51,10 @@ def build_template_then_rag_reply(
 
 def build_opening_reply() -> FinalReply:
     settings = get_settings()
-    answer = settings.eyun_opening_text
-    outbound_messages = [{"type": "text", "content": answer}]
+    opening_text = settings.eyun_opening_text.strip()
+    followup_text = settings.eyun_opening_followup_text.strip()
+    answer_segments = [text for text in (opening_text, followup_text) if text]
+    outbound_messages = [{"type": "text", "content": opening_text}]
     if settings.eyun_opening_material_id and settings.eyun_opening_image_url:
         outbound_messages.append(
             {
@@ -73,8 +75,11 @@ def build_opening_reply() -> FinalReply:
         outbound_messages.append(
             {"type": "image", "content": settings.eyun_opening_image_url}
         )
+    if followup_text:
+        outbound_messages.append({"type": "text", "content": followup_text})
     return FinalReply(
-        answer=answer,
+        answer="\n\n".join(answer_segments),
+        answer_segments=answer_segments,
         outbound_messages=outbound_messages,
         reply_type="chitchat",
         route="chitchat",
