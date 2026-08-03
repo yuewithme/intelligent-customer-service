@@ -85,6 +85,29 @@ def test_product_interest_still_discovers_need_before_recommendation():
     assert "具体的养兰痛点" in decision.reply_goal
 
 
+def test_pain_discovery_replaces_premature_product_and_watering_question():
+    decision = decide_sales_action(
+        user_state=UserState(user_id="product_user", sales_stage="need_discovery"),
+        intent=_intent(need_track="product"),
+    )
+    reply = FinalReply(
+        answer=(
+            "没问题，咱们就从最适合新手的品种开始看。"
+            "您之前养花时，是更容易忘记浇水，还是担心浇多了烂根呢？"
+        ),
+        reply_type="llm",
+        route="llm_reply",
+    )
+
+    guarded = apply_sales_action(reply, decision)
+
+    assert "品种开始看" not in guarded.answer
+    assert "浇水" not in guarded.answer
+    assert any(marker in guarded.answer for marker in ("黑斑", "黄叶", "腐苗"))
+    assert guarded.metadata["emitted_question_slot"] == "pain_point"
+    assert guarded.metadata["sales_flow_guard"] == "pain_discovery_required"
+
+
 @pytest.mark.parametrize(
     ("question_kind", "expected_action"),
     [

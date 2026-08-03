@@ -256,9 +256,16 @@ def apply_sales_action(
 ) -> FinalReply:
     if reply.need_human or not reply.answer.strip() or not decision.question_slot:
         return reply
+    pain_discovery_required = (
+        decision.sales_action == "discover_pain"
+        and decision.question_slot == "pain_point"
+    )
     if _contains_slot_question(
         reply.answer,
         decision.question_slot,
+    ) and not (
+        pain_discovery_required
+        and _violates_pain_discovery_flow(reply.answer)
     ):
         return reply.model_copy(
             update={
@@ -268,10 +275,7 @@ def apply_sales_action(
                 }
             }
         )
-    if (
-        decision.sales_action == "discover_pain"
-        and decision.question_slot == "pain_point"
-    ):
+    if pain_discovery_required:
         return _enforce_pain_discovery(reply)
     # Other missing slots remain guidance rather than mandatory questions. Pain
     # discovery is stricter because recommending before the need is clear breaks
@@ -293,6 +297,31 @@ _DISCOVERY_PRODUCT_PUSH_MARKERS = (
     "购买",
     "下单",
 )
+_DISCOVERY_PREMATURE_RECOMMENDATION_MARKERS = (
+    "适合新手的品种",
+    "品种开始看",
+    "开始选品种",
+    "挑品种",
+    "推荐品种",
+    "推荐几款",
+)
+_DISCOVERY_NARROW_DIAGNOSTIC_MARKERS = (
+    "浇水",
+    "植料",
+    "施肥",
+    "摆放",
+    "室内",
+    "阳台",
+    "通风",
+)
+
+
+def _violates_pain_discovery_flow(text: str) -> bool:
+    if any(marker in text for marker in _DISCOVERY_PREMATURE_RECOMMENDATION_MARKERS):
+        return True
+    return _contains_question(text) and any(
+        marker in text for marker in _DISCOVERY_NARROW_DIAGNOSTIC_MARKERS
+    )
 
 
 def _enforce_pain_discovery(reply: FinalReply) -> FinalReply:

@@ -368,8 +368,12 @@ async def build_commerce_context(
             if product_data
             else ""
         )
-        explicitly_requested_card = _explicitly_requests_purchase_card(
-            message.message
+        explicitly_requested_card = (
+            _explicitly_requests_purchase_card(message.message)
+            or (
+                membership_request
+                and membership_question_kind in {"purchase", "combined"}
+            )
         )
         if (
             send_purchase_card
