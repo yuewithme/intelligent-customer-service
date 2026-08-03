@@ -1,6 +1,7 @@
 import re
 
 from app.domains.sales.schemas.sales_flow import SalesKnowledgeSource
+from app.domains.sales.services.sales_stage_service import normalize_sales_stage
 
 
 CATALOG_SEARCH = "catalog_search"
@@ -57,7 +58,9 @@ _ORDER_INTENTS = {
 }
 
 
-def resolve_business_action(*, message, intent, user_state) -> str:
+def resolve_business_action(
+    *, message, intent, user_state, sales_stage: str | None = None
+) -> str:
     """Resolve one authoritative business action for the current turn."""
 
     text = str(getattr(message, "message", "") or "").strip()
@@ -69,6 +72,10 @@ def resolve_business_action(*, message, intent, user_state) -> str:
     issues = set(getattr(intent, "issues", []) or [])
     metadata = getattr(user_state, "metadata", {})
     metadata = metadata if isinstance(metadata, dict) else {}
+    recommendation_stage_reached = _recommendation_stage_reached(
+        sales_stage,
+        user_state,
+    )
     active_task = metadata.get("active_task")
     active_task = active_task if isinstance(active_task, dict) else {}
     if (
@@ -155,7 +162,7 @@ def resolve_business_action(*, message, intent, user_state) -> str:
         return CATALOG_SEARCH
 
     if _is_budget_followup(text, metadata):
-        return CATALOG_SEARCH
+        return CATALOG_SEARCH if recommendation_stage_reached else CONVERSATION
 
     if (
         primary_intent in _CATALOG_INTENTS
@@ -166,7 +173,13 @@ def resolve_business_action(*, message, intent, user_state) -> str:
             and "product_selection" in issues
         )
     ):
-        return CATALOG_SEARCH
+        if primary_intent == "order_intent" and primary_goal in {
+            "confirm",
+            "purchase",
+            "transact",
+        }:
+            return CATALOG_SEARCH
+        return CATALOG_SEARCH if recommendation_stage_reached else CONVERSATION
 
     if (
         primary_intent in _CARE_INTENTS
@@ -227,4 +240,28 @@ def _is_budget_followup(text: str, metadata: dict) -> bool:
         or "budget" in asked_slots
         or bool(metadata.get("commerce_last_catalog_query"))
         or "预算" in text
+    )
+
+
+def _recommendation_stage_reached(sales_stage: str | None, user_state) -> bool:
+    candidates = [sales_stage, getattr(user_state, "sales_stage", None)]
+    metadata = getattr(user_state, "metadata", {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    opportunity = metadata.get("active_opportunity")
+    if isinstance(opportunity, dict):
+        candidates.extend(
+            [opportunity.get("current_stage"), opportunity.get("sales_stage")]
+        )
+    profile = metadata.get("profile")
+    if isinstance(profile, dict):
+        candidates.append(profile.get("current_stage"))
+    return any(
+        normalize_sales_stage(candidate)
+        in {
+            "solution_recommended",
+            "value_built",
+            "trial_close",
+            "closing",
+        }
+        for candidate in candidates
     )

@@ -74,15 +74,15 @@ def test_care_reply_with_specific_pain_stops_questioning_and_builds_service_valu
     assert "不要继续追问" in decision.reply_goal
 
 
-def test_explicit_orchid_product_need_is_not_forced_into_service_pain_probe():
+def test_product_interest_still_discovers_need_before_recommendation():
     decision = decide_sales_action(
         user_state=UserState(user_id="product_user", sales_stage="need_discovery"),
         intent=_intent(need_track="product", color_preference="红色"),
     )
 
-    assert decision.sales_action == "discover_need_track"
-    assert decision.question_slot is None
-    assert "购兰或选品需求" in decision.reply_goal
+    assert decision.sales_action == "discover_pain"
+    assert decision.question_slot == "pain_point"
+    assert "具体的养兰痛点" in decision.reply_goal
 
 
 @pytest.mark.parametrize(
