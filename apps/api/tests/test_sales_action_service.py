@@ -1,7 +1,7 @@
 import pytest
 
 from app.domains.decisioning.schemas.intent import IntentResult
-from app.domains.decisioning.schemas.reply import FinalReply
+from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 from app.domains.customers.schemas.state import UserState
 from app.domains.sales.services.sales_action_service import (
     apply_sales_action,
@@ -280,7 +280,7 @@ def test_order_service_does_not_append_sales_discovery_question():
     assert result.answer == reply.answer
 
 
-def test_template_reply_does_not_force_a_sales_question():
+def test_neutral_discovery_reply_without_question_is_preserved():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
         intent=_intent(),
@@ -294,11 +294,10 @@ def test_template_reply_does_not_force_a_sales_question():
     result = apply_sales_action(reply, decision)
 
     assert result.answer == "这款目前是199元。"
-    assert result.answer_segments == []
     assert "emitted_question_slot" not in result.metadata
 
 
-def test_chitchat_reply_does_not_force_a_sales_question():
+def test_chitchat_discovery_reply_without_question_is_preserved():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
         intent=_intent(),
@@ -315,7 +314,7 @@ def test_chitchat_reply_does_not_force_a_sales_question():
     assert "emitted_question_slot" not in result.metadata
 
 
-def test_existing_natural_question_is_preserved():
+def test_unrelated_discovery_question_is_replaced_with_pain_probe():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
         intent=_intent(),
@@ -328,11 +327,12 @@ def test_existing_natural_question_is_preserved():
 
     result = apply_sales_action(reply, decision)
 
-    assert result.answer == "您目前放在室内还是室外？"
-    assert "emitted_question_slot" not in result.metadata
+    assert "室内还是室外" not in result.answer
+    assert any(marker in result.answer for marker in ("黄叶", "黑斑", "烂根", "腐苗"))
+    assert result.metadata["emitted_question_slot"] == "pain_point"
 
 
-def test_natural_question_without_punctuation_is_preserved():
+def test_diagnostic_discovery_question_without_punctuation_is_replaced():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
         intent=_intent(),
@@ -345,17 +345,23 @@ def test_natural_question_without_punctuation_is_preserved():
 
     result = apply_sales_action(reply, decision)
 
-    assert result.answer == "先按您说的情况排查，您平时用什么植料种的"
-    assert "emitted_question_slot" not in result.metadata
+    assert "植料" not in result.answer
+    assert any(marker in result.answer for marker in ("黄叶", "黑斑", "烂根", "腐苗"))
+    assert result.metadata["emitted_question_slot"] == "pain_point"
 
 
-def test_planned_slot_remains_internal_when_reply_has_no_question():
+def test_discovery_guard_removes_product_card_before_pain_is_clear():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
         intent=_intent(),
     )
     reply = FinalReply(
-        answer="好的，我先按您说的情况处理。",
+        answer="我会为您挑选几款皮实好养的品种，请问放室内还是阳台？",
+        answer_segments=["我会为您挑选几款皮实好养的品种，请问放室内还是阳台？"],
+        outbound_messages=[
+            OutboundMessage(type="text", content="我会为您挑选几款皮实好养的品种，请问放室内还是阳台？"),
+            OutboundMessage(type="link_card", content="https://example.com/product"),
+        ],
         reply_type="template",
         route="template_reply",
     )
@@ -363,8 +369,12 @@ def test_planned_slot_remains_internal_when_reply_has_no_question():
     result = apply_sales_action(reply, decision)
 
     assert decision.question_slot == "pain_point"
-    assert result.answer == "好的，我先按您说的情况处理。"
-    assert "emitted_question_slot" not in result.metadata
+    assert "挑选" not in result.answer
+    assert "室内还是阳台" not in result.answer
+    assert any(marker in result.answer for marker in ("黄叶", "黑斑", "烂根", "腐苗"))
+    assert [message.type for message in result.outbound_messages] == ["text"]
+    assert result.outbound_messages[0].content == result.answer
+    assert result.metadata["emitted_question_slot"] == "pain_point"
 
 
 def test_objection_intent_overrides_stage_default_action():

@@ -5,7 +5,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from app.domains.decisioning.schemas.intent import IntentResult
-from app.domains.decisioning.schemas.reply import FinalReply
+from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 from app.domains.sales.schemas.sales_flow import SalesStage
 from app.domains.sales.services.sales_stage_catalog import get_sales_stage_definition
 from app.domains.customers.schemas.state import UserState
@@ -268,10 +268,75 @@ def apply_sales_action(
                 }
             }
         )
-    # The sales decision describes what information would be useful next; it must
-    # not overwrite a natural model question or force a canned question into
-    # every reply. A later customer turn can still fill the missing slot.
+    if (
+        decision.sales_action == "discover_pain"
+        and decision.question_slot == "pain_point"
+    ):
+        return _enforce_pain_discovery(reply)
+    # Other missing slots remain guidance rather than mandatory questions. Pain
+    # discovery is stricter because recommending before the need is clear breaks
+    # the service-first sales flow.
     return reply
+
+
+_PAIN_DISCOVERY_FALLBACKS = (
+    "养兰能不能养稳，关键还是要先看具体卡在哪里。您现在比较头疼的是黄叶黑斑，还是烂根、腐苗这类问题？",
+    "先不急着选品种，我想先了解您平时养护最难的地方。您手上的兰花更常见黄叶焦尖，还是烂根腐苗？",
+    "品种只是一个方面，日常养护里的问题没找准，后面还是容易反复。您目前遇到更多的是黑斑黄叶，还是烂根、腐苗？",
+)
+_DISCOVERY_PRODUCT_PUSH_MARKERS = (
+    "为您挑",
+    "帮您挑",
+    "给您挑",
+    "推荐品种",
+    "推荐几款",
+    "购买",
+    "下单",
+)
+
+
+def _enforce_pain_discovery(reply: FinalReply) -> FinalReply:
+    answer = reply.answer.strip()
+    has_commerce_card = any(
+        message.type in {"link_card", "mini_program"}
+        for message in reply.outbound_messages
+    )
+    should_replace = _contains_question(answer) or any(
+        marker in answer for marker in _DISCOVERY_PRODUCT_PUSH_MARKERS
+    )
+    if not should_replace and not has_commerce_card:
+        return reply
+    fallback = _PAIN_DISCOVERY_FALLBACKS[
+        sum(ord(character) for character in answer) % len(_PAIN_DISCOVERY_FALLBACKS)
+    ]
+    corrected = fallback if should_replace else f"{answer.rstrip('。')}。{fallback}"
+
+    outbound_messages: list[OutboundMessage] = []
+    text_added = False
+    for message in reply.outbound_messages:
+        if message.type == "text":
+            if not text_added:
+                outbound_messages.append(OutboundMessage(type="text", content=corrected))
+                text_added = True
+            continue
+        if message.type in {"link_card", "mini_program"}:
+            continue
+        outbound_messages.append(message)
+    if reply.outbound_messages and not text_added:
+        outbound_messages.insert(0, OutboundMessage(type="text", content=corrected))
+
+    return reply.model_copy(
+        update={
+            "answer": corrected,
+            "answer_segments": [corrected],
+            "outbound_messages": outbound_messages,
+            "metadata": {
+                **reply.metadata,
+                "emitted_question_slot": "pain_point",
+                "sales_flow_guard": "pain_discovery_required",
+            },
+        }
+    )
 
 
 def _contains_question(text: str) -> bool:
