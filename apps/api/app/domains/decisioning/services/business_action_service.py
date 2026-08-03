@@ -126,19 +126,24 @@ def resolve_business_action(
     ):
         return ORDER_VERIFY
 
-    if (
-        primary_intent in {"price_objection", "discount_request", "hesitation"}
-        and _EXPLICIT_SALES_OBJECTION_PATTERN.search(text)
-        and not re.search(r"\d+(?:\.\d+)?\s*元", text)
-    ):
-        return CONVERSATION
-
     selected_product_id = str(metadata.get("commerce_last_product_id") or "").strip()
     selected_product_kind = str(
         slots.get("product_request_kind")
         or metadata.get("commerce_last_product_kind")
         or ""
     ).strip()
+    selected_membership = selected_product_kind == "membership" and bool(
+        selected_product_id or slots.get("product_request_kind") == "membership"
+    )
+
+    if (
+        primary_intent in {"price_objection", "discount_request", "hesitation"}
+        and _EXPLICIT_SALES_OBJECTION_PATTERN.search(text)
+        and not re.search(r"\d+(?:\.\d+)?\s*元", text)
+        and not selected_membership
+    ):
+        return CONVERSATION
+
     if slots.get("product_request_kind") == "membership":
         return CATALOG_SEARCH
     if slots.get("conversation_topic") == "order_information":
@@ -150,7 +155,14 @@ def resolve_business_action(
         and selected_product_kind == "membership"
         and (
             slots.get("product_request_kind") == "membership"
-            or primary_intent in {*_CATALOG_INTENTS, "payment_intent", "ask_price"}
+            or primary_intent in {
+                *_CATALOG_INTENTS,
+                "payment_intent",
+                "ask_price",
+                "price_objection",
+                "discount_request",
+                "hesitation",
+            }
             or _CATALOG_PURCHASE_PATTERN.search(text)
             or _SELECTED_PRODUCT_DETAIL_PATTERN.search(text)
         )

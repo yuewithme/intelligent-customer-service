@@ -250,7 +250,7 @@ def test_inferred_objection_without_customer_evidence_cannot_block_membership_fa
     ) == CATALOG_SEARCH
 
 
-def test_explicit_price_objection_still_uses_conversation_handling():
+def test_explicit_membership_price_objection_reloads_verified_product_facts():
     intent = _intent(
         "price_objection",
         primary_domain="commerce",
@@ -263,7 +263,7 @@ def test_explicit_price_objection_still_uses_conversation_handling():
         message=_message("这个会员有点贵，我再考虑一下"),
         intent=intent,
         user_state=UserState(user_id="customer-1"),
-    ) == CONVERSATION
+    ) == CATALOG_SEARCH
 
 
 def test_product_recommendation_is_blocked_until_discovery_is_complete():

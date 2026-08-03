@@ -86,17 +86,50 @@ def decide_sales_action(
     if stage == "unknown":
         stage = normalize_sales_stage(user_state.sales_stage)
 
-    if intent.slots.get("product_request_kind") == "membership":
-        membership_kind = str(
-            intent.slots.get("membership_question_kind") or "capability"
+    membership_context = (
+        intent.slots.get("product_request_kind") == "membership"
+        or (
+            user_state.metadata.get("commerce_last_product_kind") == "membership"
+            and bool(user_state.metadata.get("commerce_last_product_id"))
         )
-        if membership_kind in {"capability", "price"}:
+    )
+    if membership_context:
+        membership_kind = str(
+            intent.slots.get("membership_question_kind")
+            or (
+                "objection"
+                if intent.primary_intent
+                in {"price_objection", "discount_request", "hesitation"}
+                else "capability"
+            )
+        )
+        is_membership_objection = (
+            membership_kind == "objection"
+            or intent.primary_intent
+            in {"price_objection", "discount_request", "hesitation"}
+        )
+        if (
+            membership_kind in {"capability", "price", "objection"}
+            or is_membership_objection
+        ):
             return _decision(
-                "先准确回答客户当前询问的会员权益或价格，不主动追加购买动作",
-                "answer_current_question",
+                "结合已核实的会员价格和权益自然回应当前顾虑，不说空话，不承诺未核实优惠，也不追问预算",
+                (
+                    "resolve_blocker"
+                    if is_membership_objection
+                    else "answer_current_question"
+                ),
                 known_slots,
-                customer_signal="interested",
-                reason="membership_question_priority",
+                customer_signal=(
+                    "objection"
+                    if is_membership_objection
+                    else "interested"
+                ),
+                reason=(
+                    "membership_objection_priority"
+                    if is_membership_objection
+                    else "membership_question_priority"
+                ),
             )
         return _decision(
             "回答客户当前问题后提供真实会员购买入口",

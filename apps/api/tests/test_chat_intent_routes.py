@@ -89,12 +89,16 @@ def test_refund_routes_to_human_without_normal_reply():
     assert data["metadata"]["handoff"]["status"] == "pending"
 
 
-def test_price_objection_uses_template_when_template_matches():
+def test_price_objection_continues_without_empty_default_template():
     data = _chat("这个有点贵", "intent_route_price")
 
     assert data["route"] == "template_reply"
     assert data["answer"]
-    assert data["template"]["template_id"] == "tpl_price_objection_default"
+    assert data["answer"] != "我理解您会关注价格。"
+    assert data["template"].get("template_id") is None
+    assert data["metadata"]["llm_fallback"]["reason"] == (
+        "template_not_found_to_handoff"
+    )
 
 
 def test_purchase_rejection_closes_naturally_without_form_language():
