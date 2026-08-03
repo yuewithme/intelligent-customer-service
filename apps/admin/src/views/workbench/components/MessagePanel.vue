@@ -41,7 +41,7 @@
       <ElEmpty v-if="!conversationIds.length" description="请选择左侧会话" />
       <ElEmpty v-else-if="!detail?.messages.length && !loading" description="暂无消息" />
       <div
-        v-for="message in detail?.messages || []"
+        v-for="(message, messageIndex) in detail?.messages || []"
         :key="message.id"
         :data-message-id="message.id"
         class="message-row"
@@ -142,7 +142,15 @@
               {{ resolvingMediaIds.has(message.id) ? '正在解析视频...' : '打开原链接' }}
             </a>
           </div>
-          <div class="time">{{ formatTime(message.created_at) }}</div>
+          <div class="message-footer">
+            <span
+              v-if="shouldShowSalesStage(message, messageIndex)"
+              class="sales-stage-label"
+            >
+              本轮阶段 · {{ salesStageText(messageSalesStage(message)) }}
+            </span>
+            <span class="time">{{ formatTime(message.created_at) }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -169,6 +177,7 @@ import {
 import { formatChinaTime } from '../time'
 import SaveActivityDialog from './SaveActivityDialog.vue'
 import { isTestGate } from '@/utils/gate'
+import { salesStageText } from '@/utils/tagDisplay'
 import { createWechatMaterialFromMessage } from '@/api/admin/wechatMaterials'
 
 interface MediaMetadata {
@@ -277,6 +286,27 @@ const load = async (options: { silent?: boolean } = {}) => {
 
 const senderText = (value: string) =>
   ({ customer: '客户', ai: 'AI', human: '人工', system: '系统' })[value] || value
+
+const messageSalesStage = (message: ConversationMessage) => {
+  const stage = message.metadata.sales_stage
+  return typeof stage === 'string' ? stage : ''
+}
+
+const salesTurnKey = (message: ConversationMessage) => {
+  const turnId = message.metadata.sales_turn_id
+  if (typeof turnId === 'string' && turnId) return turnId
+  return message.trace_id || ''
+}
+
+const shouldShowSalesStage = (message: ConversationMessage, messageIndex: number) => {
+  if (message.sender_type !== 'ai' || !messageSalesStage(message)) return false
+  const turnKey = salesTurnKey(message)
+  if (!turnKey) return true
+  return !(detail.value?.messages || []).slice(messageIndex + 1).some(
+    (candidate) =>
+      candidate.sender_type === 'ai' && salesTurnKey(candidate) === turnKey
+  )
+}
 
 const messageMedia = (message: ConversationMessage): MediaMetadata | undefined => {
   const media = message.metadata.media
@@ -584,6 +614,24 @@ p {
 .time {
   font-size: 12px;
   opacity: 0.75;
+}
+
+.message-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 18px;
+}
+
+.sales-stage-label {
+  color: #6366f1;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.time {
+  margin-left: auto;
 }
 
 .content {

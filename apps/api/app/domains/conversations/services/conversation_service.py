@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import get_settings
 from app.infrastructure.database.models import (
     Base,
+    ChatLogModel,
     ConversationMessageModel,
     ConversationModel,
     DemoPlatformStateModel,
@@ -204,12 +205,30 @@ async def get_conversation_detail(conversation_id: str) -> dict:
                 ConversationMessageModel.id.asc(),
             )
         ).all()
+        trace_ids = {row.trace_id for row in messages if row.trace_id}
+        sales_stage_by_trace = {}
+        if trace_ids:
+            sales_stage_by_trace = {
+                trace_id: sales_stage
+                for trace_id, sales_stage in session.execute(
+                    select(ChatLogModel.trace_id, ChatLogModel.sales_stage).where(
+                        ChatLogModel.trace_id.in_(trace_ids)
+                    )
+                ).all()
+                if sales_stage
+            }
     from app.domains.customers.services.user_profile_service import get_sales_opportunity
 
     sales_opportunity = await get_sales_opportunity(conversation.user_id)
     return {
         "conversation": _conversation_to_dict(conversation),
-        "messages": [_message_to_dict(row) for row in messages],
+        "messages": [
+            _message_to_dict(
+                row,
+                sales_stage=sales_stage_by_trace.get(row.trace_id or ""),
+            )
+            for row in messages
+        ],
         "sales_opportunity": sales_opportunity,
     }
 
@@ -221,8 +240,13 @@ async def record_ai_turn(*, message, result: dict) -> None:
     status = HANDOFF_PENDING if result.get("need_human") else AI_WAITING
     handoff = result.get("handoff") or {}
     intent = result.get("intent") or {}
+    sales_stage = str(intent.get("sales_stage") or "").strip()
     skip_customer_record = bool(message.metadata.get("skip_customer_record"))
     evaluation_metadata = _evaluation_metadata(message.metadata)
+    turn_metadata = {
+        **evaluation_metadata,
+        **({"sales_stage": sales_stage} if sales_stage else {}),
+    }
     now = _now()
     suppress_handoff_notification = bool(
         message.metadata.get("suppress_handoff_notification")
@@ -378,7 +402,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                         {
                             "channel": message.channel,
                             "tenant_id": message.tenant_id,
-                            **evaluation_metadata,
+                            **turn_metadata,
                         },
                         ensure_ascii=False,
                     ),
@@ -395,7 +419,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 {
                     "sources": result.get("sources", []),
                     "template": result.get("template", {}),
-                    **evaluation_metadata,
+                    **turn_metadata,
                 },
             )
             if evaluation_metadata:
@@ -1424,6 +1448,7 @@ def _get_session() -> Session:
                 ConversationModel.__table__,
                 ConversationMessageModel.__table__,
                 DemoPlatformStateModel.__table__,
+                ChatLogModel.__table__,
             ],
         )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -1473,8 +1498,14 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
     }
 
 
-def _message_to_dict(row: ConversationMessageModel) -> dict:
+def _message_to_dict(
+    row: ConversationMessageModel,
+    *,
+    sales_stage: str | None = None,
+) -> dict:
     metadata = _load_metadata(row.metadata_json)
+    if sales_stage:
+        metadata.setdefault("sales_stage", sales_stage)
     if metadata.get("provider") == "eyun" and not metadata.get("media"):
         from app.integrations.eyun.services.eyun_callback_service import extract_eyun_media_metadata
 
