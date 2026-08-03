@@ -288,6 +288,7 @@ async def handle_chat(request: ChatRequest) -> dict:
             message=message,
             intent=intent,
             user_state=user_state,
+            sales_stage=preliminary_decision.stage.value,
         )
         source_allowlist = allowed_knowledge_sources(
             preliminary_decision.stage,

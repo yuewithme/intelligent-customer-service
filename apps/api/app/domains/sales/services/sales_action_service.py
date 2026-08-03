@@ -192,7 +192,6 @@ def decide_sales_action(
         )
 
     definition = get_sales_stage_definition(stage)
-    explicit_product_need = known_slots.get("need_track") == "product"
     action_by_stage = {
         SalesStage.RAPPORT.value: ("自然回应并了解客户来意", "build_rapport"),
         SalesStage.NEED_DISCOVERY.value: (
@@ -218,17 +217,10 @@ def decide_sales_action(
     goal, action = action_by_stage.get(
         stage, ("自然回应并了解客户来意", "build_rapport")
     )
-    if explicit_product_need and stage in {
-        SalesStage.NEED_DISCOVERY.value,
-        SalesStage.PAIN_DISCOVERY.value,
-    }:
-        goal = "回应客户已经明确的购兰或选品需求，不强行转问养护痛点"
-        action = "discover_need_track"
     if stage in {SalesStage.NEED_DISCOVERY.value, SalesStage.PAIN_DISCOVERY.value}:
         actionable_missing = (
             ["pain_point"]
-            if not explicit_product_need
-            and not _has_specific_pain(known_slots)
+            if not _has_specific_pain(known_slots)
             and "pain_point" not in asked_slots
             else []
         )

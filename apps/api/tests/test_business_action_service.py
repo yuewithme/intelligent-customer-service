@@ -45,6 +45,7 @@ def test_classic_sales_dialogue_resolves_one_authoritative_action_per_turn():
         message=_message("推荐几款叶子细长、花香浓、新手适合的兰花"),
         intent=recommendation,
         user_state=state,
+        sales_stage="solution_recommended",
     ) == CATALOG_SEARCH
 
     state.metadata.update(
@@ -78,11 +79,13 @@ def test_classic_sales_dialogue_resolves_one_authoritative_action_per_turn():
         message=_message("100元以内，最好五六十左右"),
         intent=mistaken_knowledge_intent,
         user_state=state,
+        sales_stage="solution_recommended",
     ) == CATALOG_SEARCH
     assert resolve_business_action(
         message=_message("五六十左右"),
         intent=mistaken_knowledge_intent,
         user_state=state,
+        sales_stage="solution_recommended",
     ) == CATALOG_SEARCH
 
     supply_intent = _intent(
@@ -225,6 +228,51 @@ def test_membership_price_and_purchase_followups_keep_catalog_action():
             primary_goal="purchase",
         ),
         user_state=state,
+    ) == CATALOG_SEARCH
+
+
+def test_product_recommendation_is_blocked_until_discovery_is_complete():
+    intent = _intent(
+        "product_recommendation",
+        primary_domain="product",
+        primary_goal="seek_help",
+        issues=["product_selection"],
+        slots={"conversation_topic": "product_recommendation"},
+    )
+
+    assert resolve_business_action(
+        message=_message("给我推荐一盆好养的兰花"),
+        intent=intent,
+        user_state=UserState(user_id="customer-1", sales_stage="need_discovery"),
+        sales_stage="need_discovery",
+    ) == CONVERSATION
+    assert resolve_business_action(
+        message=_message("给我推荐一盆好养的兰花"),
+        intent=intent,
+        user_state=UserState(user_id="customer-1", sales_stage="pain_discovery"),
+        sales_stage="pain_discovery",
+    ) == CONVERSATION
+    assert resolve_business_action(
+        message=_message("给我推荐一盆好养的兰花"),
+        intent=intent,
+        user_state=UserState(user_id="customer-1", sales_stage="solution_recommended"),
+        sales_stage="solution_recommended",
+    ) == CATALOG_SEARCH
+
+
+def test_explicit_transaction_bypasses_discovery_gate():
+    intent = _intent(
+        "order_intent",
+        primary_domain="commerce",
+        primary_goal="transact",
+        issues=["order_process"],
+    )
+
+    assert resolve_business_action(
+        message=_message("这款我确定要，怎么买？"),
+        intent=intent,
+        user_state=UserState(user_id="customer-1", sales_stage="need_discovery"),
+        sales_stage="need_discovery",
     ) == CATALOG_SEARCH
 
 
