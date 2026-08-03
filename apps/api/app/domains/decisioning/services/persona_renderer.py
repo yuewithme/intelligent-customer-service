@@ -63,7 +63,8 @@ async def render_persona_reply(
         composition_instruction = ""
     question_instruction = (
         "question_slot 为 pain_point 时，只问一个具体自然的问题，"
-        "可用“有没有遇到黑斑、黄叶、腐苗等问题？”帮助客户表达；"
+        "结合上下文从黑斑、黄叶、腐苗、烂根、焦尖、不开花等表现中"
+        "灵活选一到三个方向，每次更换选择和说法，不得照抄示例或固定话术；"
         "不要问想要服务还是产品，也不要同时追问植料、浇水、地区。"
         if spec.question_slot == "pain_point"
         else ""
