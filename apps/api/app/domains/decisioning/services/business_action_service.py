@@ -127,6 +127,8 @@ def resolve_business_action(*, message, intent, user_state) -> str:
         or metadata.get("commerce_last_product_kind")
         or ""
     ).strip()
+    if slots.get("product_request_kind") == "membership":
+        return CATALOG_SEARCH
     if slots.get("conversation_topic") == "order_information":
         return CONVERSATION
     if primary_intent == "payment_intent" and selected_product_id:

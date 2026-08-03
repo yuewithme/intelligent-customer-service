@@ -50,14 +50,14 @@ def test_demo_product_recommendation_no_match_uses_llm_instead_of_handoff():
     )
 
 
-def test_unclear_input_silently_hands_off():
+def test_unclear_input_continues_without_handoff():
     data = _chat("乱七八糟不明确输入", "intent_route_clarify")
 
-    assert data["answer"] == ""
-    assert data["route"] == "human"
-    assert data["need_human"] is True
+    assert data["answer"] == "没关系，您接着说就行，我继续帮您。"
+    assert data["route"] == "chitchat"
+    assert data["need_human"] is False
     assert data["intent"]["slots"]["original_route"] == "clarify"
-    assert data["intent"]["reason"] == "clarify_to_handoff"
+    assert data["intent"]["reason"] == "ambiguous_continue_automatically"
 
 
 def test_identity_question_reaches_persona_reply_instead_of_handoff():

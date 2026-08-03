@@ -110,6 +110,12 @@ def build_chitchat_reply(intent: IntentResult) -> FinalReply:
             reply_type="chitchat",
             route="chitchat",
         )
+    if intent.primary_intent in {"unknown", "unsupported"}:
+        return FinalReply(
+            answer="没关系，您接着说就行，我继续帮您。",
+            reply_type="chitchat",
+            route="chitchat",
+        )
     return FinalReply(
         answer="您好，我在的。",
         reply_type="chitchat",

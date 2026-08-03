@@ -1289,8 +1289,8 @@ async def test_product_image_renderer_sends_text_image_and_card_without_symbols(
 @pytest.mark.parametrize(
     ("text", "expected_kind", "expects_card"),
     [
-        ("会员具体有哪些服务，老师会看我这盆的情况吗？", "capability", False),
-        ("会员多少钱？", "price", False),
+        ("会员具体有哪些服务，老师会看我这盆的情况吗？", "capability", True),
+        ("会员多少钱？", "price", True),
         ("怎么开通会员？把购买链接发我。", "purchase", True),
         ("那你们的服务怎么进？多少钱？", "combined", True),
     ],

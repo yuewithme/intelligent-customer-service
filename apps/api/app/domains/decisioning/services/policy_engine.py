@@ -8,6 +8,7 @@ from app.domains.customers.services.customer_level_service import (
 
 
 CARE_INTENTS = {"orchid_care", "care_question"}
+EXPLICIT_HUMAN_INTENTS = {"complaint", "refund_request", "human_request"}
 
 
 def _is_care_tag(tag: TagResult) -> bool:
@@ -61,7 +62,7 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
             retrieval_policy={},
         )
 
-    if tag.risk_level == "high" or tag.route == "human":
+    if tag.risk_level == "high" or tag.intent in EXPLICIT_HUMAN_INTENTS:
         return PolicyDecision(
             route="human",
             action="human",
@@ -156,9 +157,10 @@ async def decide_policy(tag: TagResult) -> PolicyDecision:
             },
         )
 
+    default_route = "chitchat" if tag.route == "human" else tag.route
     return PolicyDecision(
-        route=tag.route,
-        action=tag.route,
+        route=default_route,
+        action=default_route,
         reason="default_tag_policy",
         original_route=tag.route,
         prompt_block_ids=[
