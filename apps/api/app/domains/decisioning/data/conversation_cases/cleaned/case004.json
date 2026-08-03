@@ -1,0 +1,95 @@
+{
+  "case_id": "case004",
+  "customer_id": "intent-case004-customer",
+  "customer_name": "心向阳光",
+  "source_file": "docs/case04.md",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "老师，怎样领取养兰资料？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您好，请介绍一下您的养兰情况，我会根据实际情况给您提供资料和建议。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这盆兰花快养死了，不知道怎样养护，经常出现黑斑、焦尖、腐苗。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "问题主要不是药，而是植料透气性差、浇水控制不好，导致根部长期闷湿感染病菌。建议先调整植料和湿度，再配合苯甲中生、恶霉灵杀菌。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "原来是植料的问题，我一直都是凭感觉浇水，用药也只能缓解。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "养兰先解决根本问题。植料、浇水、环境调整好以后，再配合病害处理才能真正解决问题。我们长期为兰友提供一对一指导，还有大量视频课程。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "真心感谢，有老师带着学能少走很多弯路。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "除了资料，我们还有上百节视频课程，包括黑斑病、植料选择、浇水等内容，并且全程手把手指导。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我愿意跟着学习，会员有哪些服务？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "39.9元即可加入陪伴养兰会员，赠送建兰《飞煌腾达》，包含：\n\n- 一对一指导\n- 百节视频课程\n- 常见病害教学\n- 60天养死包赔\n- 长期售后服务"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "实操指导和课程都很吸引我，怎么开通？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我发您专属链接，下单后立即开通课程和学习权限。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "已完成下单。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我会安排发货，并先开通视频课程。您回头把养兰环境和植料拍给我，我继续指导。另外按照您的要求，20号以后再发货。"
+      ]
+    }
+  ],
+  "legacy_case_id": "case04",
+  "library_type": "cleaned",
+  "usage": "intent_labeling_and_shadow_replay"
+}

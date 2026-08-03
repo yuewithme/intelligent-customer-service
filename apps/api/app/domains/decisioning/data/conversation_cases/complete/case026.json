@@ -1,0 +1,180 @@
+{
+  "case_id": "case026",
+  "legacy_case_id": "case23",
+  "customer_id": "intent-case026-customer",
+  "source_file": "docs/首单成交案例-意图识别清洗版.md",
+  "library_type": "complete",
+  "usage": "archive_and_manual_review",
+  "content_quality": "complete_privacy_safe_transcript",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "这颗多少钱？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "中午好呀",
+        "我家的都是老种苗 室外露天培育的 苗子皮实耐造，成活率高，复花稳定 新手小白都可以养的很好",
+        "原价是100一苗的 今天五一活动限时返场 裸苗3-4苗带花苞的只要88",
+        "只要在我家结缘兰花，我们会第一时间发送该品种全套养护视频，并为您安排专属养兰师傅全程指导。从上盆、浇水、施肥、防病到分株，每一步都教得清清楚楚，养护中遇到任何问题，都可直接咨询师傅，不用自己摸索。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这颗快开败了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "给你发货的带花苞，就是还没开花的 你到货在养15-20天就开花了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "奥",
+        "几苗，几个花苞？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这个是建兰的奇花 花香很浓郁的",
+        "苗子的规格是3-4苗的 我家不催花的 一般就一个花苞 每个花苞有5-7朵花",
+        "每年可以开花3-5次的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "拍的照片看看"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（商家发送多张云追月实物苗子实拍图）",
+        "这个是3苗的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "那还不如那开花的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "苗子都是很壮实的 都是成年壮苗 根系也很健康"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "3苗开花还得几天"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "大概15-20天就开花了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（用户发来开花视频）"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的 开品就是视频中一样的",
+        "种源终身包对版的哈 假一赔十"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这颗花还能站几天"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "视频中的花已经开谢了，现在发货全部都是带花苞的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "奥3苗的多少钱"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "88，带花苞的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有点贵吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "别家的种苗大多是温室速生苗、小黑屋苗，看着价格便宜，但是您买到手之后极易养死、不开花。",
+        "我家绍兴的老种，露天自然环境养护，皮实好养、成活率高、年年稳定复花。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "那给发颗，找颗好的，上次的不太好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的，您放心这次我亲自给您挑选壮苗",
+        "我给您发个链接 您去下单"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "地址我发给你"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（发送商品下单链接）",
+        "上面是我们微信店铺链接，授权手机号、填好地址就能下单，权益和直播间一样，下单还有积分，后续可以直接兑换。",
+        "推荐选择【带盆发货】，我们用高端植料帮您种好发出，收到后每周浇一次水就行，很快就可以赏花闻香了！"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（用户完成下单付款）",
+        "吃饭了，过后"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的，您先吃饭，我等下给您安排发货哈"
+      ]
+    }
+  ]
+}

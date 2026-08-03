@@ -1,0 +1,65 @@
+{
+  "case_id": "case010",
+  "legacy_case_id": "case10",
+  "customer_id": "intent-case010-customer",
+  "source_file": "docs/case10.md",
+  "library_type": "complete",
+  "usage": "archive_and_manual_review",
+  "content_quality": "complete_privacy_safe_transcript",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "老师推荐几款叶子细长、花香浓的兰花，新手适合买什么？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我会根据您的预算推荐不同品种，购买后也提供一对一养护指导。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "兰花烂根一般是什么原因？我担心自己养不好。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "烂根主要原因不是药，而是植料不透气、浇水不当，以及夏季盆内温湿度失衡。解决根本问题才能避免反复烂根。\n\n先推荐蕙兰《温州素》：细叶名品、花香浓郁，3苗售价88元。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个价格略高，我想再看看性价比高一点的。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "再推荐春兰《吴凤》：细叶春兰、香味浓郁，3-4苗42.8元，7-8苗75.8元。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我想买多苗的，可以直接带盆种好发货吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以为您挑选10苗以上壮苗，用高脚盆种好发货，总价85元左右，包邮并赠送兰花专用肥，同时提供单品养护资料、浇水教学和长期一对一指导。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "可以，我已经通过微信付款，收货地址也发给您了。"
+      ]
+    }
+  ]
+}

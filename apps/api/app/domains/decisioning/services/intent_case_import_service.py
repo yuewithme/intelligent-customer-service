@@ -22,7 +22,10 @@ from app.shared.schemas.common import AppError, ErrorCode
 
 
 CASE_DATA_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "intent_labeling_cases"
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "conversation_cases"
+    / "cleaned"
 )
 ROLE_MAP = {"customer": "user", "merchant": "assistant"}
 

@@ -1,0 +1,94 @@
+{
+  "case_id": "case029",
+  "legacy_case_id": "case26",
+  "customer_id": "intent-case029-customer",
+  "source_file": "docs/首单成交案例-意图识别清洗版.md",
+  "library_type": "complete",
+  "usage": "archive_and_manual_review",
+  "content_quality": "complete_privacy_safe_transcript",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "漂亮👍想买又怕养不活，还是等养兰水平提高点再入手吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "养护水平不用担心，我们会手把手带着您去养兰花的，这个寒兰是老种苗很经典的名品，花艺双全",
+        "这个是很好的名品，但是价格很低，88，这个就是回馈我们的粉丝兰友，放心入，我给您带上盆土栽好，收到直接养护就行，有花苞的您放心",
+        "我会发给你单品的养护指导，你要相信自己也要相信我们的服务，假如没养活，我们养死包赔不用担心🥰"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "发个实物图片看一下嘛"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的",
+        "（兰花实拍图片）",
+        "我的拍照技术一般，随手拍的苗子都是如此之壮，寒兰的叶形态花杆出架各方面都是无可挑剔的，非常漂亮"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "行嘛，怎样下单"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（小程序商品卡片：寒兰【杨贵妃】88元起）",
+        "您拍这个链接就可以，拍好后您告诉我，我这边安排把兰苗进行消杀处理🌹"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "翻盆消杀吗，怕会消苞哦"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "师傅都是专业的，您放心",
+        "不会消苞的，我们常年发货，所以操作非常专业，不会出现这种低级错误的您放心"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我是怕我养消苞了",
+        "链接点开显示的是裸报发，是点88那个吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "是的",
+        "您拍裸苗 我发带培育盆给您"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好嘛，希望能养活",
+        "（用户付款86.66）",
+        "已付款"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的，我给您安排，您放心养，收到随时和我联络，有任何问题我们多交流",
+        "这是寒兰杨贵妃和5月份的养护注意事项，您点开先看，有不懂的您随时问我"
+      ]
+    }
+  ]
+}

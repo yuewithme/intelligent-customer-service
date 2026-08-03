@@ -26,21 +26,29 @@ router = APIRouter(
 @router.get("", response_model=APIResponse)
 async def conversation_cases(
     keyword: str | None = None,
-    source_group: str | None = None,
+    library_type: str = Query(
+        default="complete",
+        pattern="^(complete|cleaned)$",
+    ),
 ) -> APIResponse:
     return APIResponse(
         code=0,
         message="success",
         data=list_conversation_cases(
             keyword=keyword,
-            source_group=source_group,
+            library_type=library_type,
         ),
     )
 
 
 @router.get("/export")
-async def export_case_library() -> StreamingResponse:
-    items = export_conversation_cases()
+async def export_case_library(
+    library_type: str = Query(
+        default="complete",
+        pattern="^(complete|cleaned)$",
+    ),
+) -> StreamingResponse:
+    items = export_conversation_cases(library_type)
 
     def lines():
         for item in items:
@@ -51,7 +59,7 @@ async def export_case_library() -> StreamingResponse:
         media_type="application/x-ndjson; charset=utf-8",
         headers={
             "Content-Disposition": (
-                "attachment; filename=conversation-case-library.jsonl"
+                f"attachment; filename={library_type}-conversation-case-library.jsonl"
             )
         },
     )
@@ -95,8 +103,14 @@ async def run_conversation_case(case_id: str) -> APIResponse:
 
 
 @router.get("/{case_id}", response_model=APIResponse)
-async def conversation_case_detail(case_id: str) -> APIResponse:
-    data = get_conversation_case(case_id)
+async def conversation_case_detail(
+    case_id: str,
+    library_type: str = Query(
+        default="complete",
+        pattern="^(complete|cleaned)$",
+    ),
+) -> APIResponse:
+    data = get_conversation_case(case_id, library_type)
     if data is None:
         raise AppError(
             ErrorCode.REQUEST_INVALID,

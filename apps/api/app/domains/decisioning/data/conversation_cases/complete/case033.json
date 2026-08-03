@@ -1,0 +1,73 @@
+{
+  "case_id": "case033",
+  "legacy_case_id": "case2_02_2",
+  "customer_id": "intent-case033-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "library_type": "complete",
+  "usage": "archive_and_manual_review",
+  "content_quality": "complete_privacy_safe_transcript",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "✅想养兰又怕养死？闭眼入建兰大果冠！\n矮种金边鹤艺，无花单赏叶都高级，宽叶镶白边，摆书桌、茶桌巴掌大花盆就能放❤\n小草开大花，一杆爆 7-15 朵，黄绿花瓣配艳红舌，夏秋反复开，一年 2-3 次花，花期能撑俩月💖\n浓香飘满屋，天然室内香氛✨不用喷香水，新手随便养都冒芽开花，性价比天花板！\n今日福利价29.9￥🔥少量现货速拍扣“333”！！！"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "333",
+        "怎么拍",
+        "今年会开花吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您好 我分享给您专属的链接",
+        "是的 会"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "链接在哪"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您下单以后，我这边给您备注挑选一株壮苗的",
+        "并邀请您成为会员，享受陪伴养兰手把手机指导服务"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的",
+        "已拍好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 感谢您的支持\n目前家里养护有任何问题可以随时咨询我",
+        "（客服发送链接：兰花标准上盆示范）",
+        "（客服发送链接：刚种好的兰花如何浇定根水）",
+        "有时间可以把您的养兰环境拍照给我，根据你的环境提供一些专属的养护建议"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "后续我也会根据您的地区推荐一些适合养的名品品种，多了解多鉴赏，那不买没关系"
+      ]
+    }
+  ]
+}

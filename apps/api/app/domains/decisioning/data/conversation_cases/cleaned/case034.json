@@ -1,0 +1,254 @@
+{
+  "case_id": "case034",
+  "customer_id": "intent-case034-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "兰花多箭素有用吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "没有",
+        "容易损伤兰苗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "还有枯草芽胞杆菌呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "夏季先不施肥"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "一堆智商税啊",
+        "那一般什么时候施肥，促进花苞期呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "夏秋季施肥",
+        "（客服发送资料：缓释颗粒肥使用说明）",
+        "不要在外面乱买哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个现在有花吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送商品推荐：龙头子母2苗带花，推广正文已清理）",
+        "建兰现在有带花苞的，原价80/苗，墨宝昨天组团放漏的，两壮苗只要半价78",
+        "给您发一株吧赵总，超级好看 的花色和香味"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "是小型兰花吗，跟我上次买的一样吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "墨宝是中等株形的",
+        "不算高的",
+        "您上次拍的吴凤是细叶，墨宝的叶片不算细， 整体没有吴凤高"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "还有啥现在这个季节能开花的",
+        "我看你朋友圈有个三明鱼奔",
+        "是你特别推荐的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "三明主要是给新手纯小白试种的品种"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "现在这个季节能开花的，好点的有啥呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送视频）",
+        "比较好的品种有建兰 粉黛星云，比较与众不同 开多瓣奇花的品种。今天还有一个老朋友带。我发给您看看"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个就是粉黛星云呗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我们家兰园品种非常多，您如果喜欢花色艳的，香的，品种好有收藏和欣赏价值的，推荐 粉黛星云和墨宝 还有建兰好日子",
+        "是的 多瓣奇花 柱形也美丽",
+        "这款红花 好日子 也是值得收藏的品种，现在市面上量不多，可遇不可求"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这盆多大啊"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "中矮株形的 25-30公分的高度。目前有带花苞"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "什么价",
+        "我能把带骨朵的兰花养谢了，没开起来，一般什么原因"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "58一盆",
+        "消苞原因很多 我发课程给您 看一下",
+        "然后您把养护状况告诉我 我帮您分析"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "给我个链接吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的",
+        "（客服发送资料：兰隐专属链接【会员专用】】）",
+        "您拍这个链接就好，我给您把兰苗消杀处理发过去哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这一盆是几苗啊"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "5苗左右"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "拍了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的赵哥",
+        "墨宝明天给您随单发一株吗？",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "帮我选一个株型好点的，带苞多点的吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好 挑个两三支花的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "不了，有点太艳了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "粉黛星云这盆呢"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "等以后有眼缘的再买"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好滴",
+        "（客服发送资料：【建兰东方红荷】养护注意事项）",
+        "这个是单品的养护指导，您先看，收到有不懂的随时咨询我",
+        "我们不光指导您养兰花，而且还会带您真正认识兰花的品种，让您欣赏到兰花的美\n兰花一般分为几个颜色：红色代表热情，绿色代表清雅，粉色代表温柔，黄色代表富贵。您平时选择的兰花会更喜欢哪种颜色呢？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "白色吧，白雪公主，冰瀑都养过，不过我养的兰花都没开过花"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "不开花一般是因为 肥力 光照还有花期前的管理以及促花的动作有没有及时根据环境调节",
+        "可以从这两点查找原因：1，种苗没有选对 2，养护过程管理不当 不会养 不知道兰花缺少哪种元素",
+        "后面您多看一下咱们会员专享的视频教程",
+        "（客服发送资料：兰花为什么多年不开花？）",
+        "（客服发送资料：夏季兰花迟迟不开花）"
+      ]
+    }
+  ],
+  "legacy_case_id": "case2_03",
+  "library_type": "cleaned",
+  "usage": "intent_labeling_and_shadow_replay"
+}

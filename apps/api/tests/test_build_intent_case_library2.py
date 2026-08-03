@@ -1,4 +1,7 @@
+import json
 from datetime import datetime
+
+from scripts import build_intent_case_library2 as builder
 
 from scripts.build_intent_case_library2 import (
     Event,
@@ -110,3 +113,43 @@ def test_turn_fingerprint_detects_an_exact_duplicate_conversation():
     ]
 
     assert _turns_fingerprint(original) == _turns_fingerprint(duplicate)
+
+
+def test_new_import_uses_next_unified_id_and_writes_both_libraries(
+    tmp_path,
+    monkeypatch,
+):
+    complete_dir = tmp_path / "complete"
+    cleaned_dir = tmp_path / "cleaned"
+    cleaned_dir.mkdir()
+    (cleaned_dir / "case001.json").write_text(
+        json.dumps(
+            {
+                "case_id": "case001",
+                "turns": [{"role": "customer", "messages": ["旧案例"]}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(builder, "COMPLETE_CASE_DIR", complete_dir)
+    monkeypatch.setattr(builder, "CLEANED_CASE_DIR", cleaned_dir)
+    source = tmp_path / "new-cases.md"
+    source.write_text(
+        "### 案例1\n\n"
+        "兰语\\(兰语\\) 7/23 14:32:42\n\n您好\n\n"
+        "客户@微信@微信联系人 7/23 14:33:42\n\n多少钱\n",
+        encoding="utf-8",
+    )
+
+    payloads = builder.build_library(source, tmp_path / "clean.md")
+
+    assert [payload["case_id"] for payload in payloads] == ["case002"]
+    assert (complete_dir / "case002.json").is_file()
+    assert (cleaned_dir / "case002.json").is_file()
+    assert json.loads(
+        (complete_dir / "case002.json").read_text(encoding="utf-8")
+    )["library_type"] == "complete"
+    assert json.loads(
+        (cleaned_dir / "case002.json").read_text(encoding="utf-8")
+    )["library_type"] == "cleaned"

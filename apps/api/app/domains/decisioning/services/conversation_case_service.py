@@ -21,7 +21,11 @@ from app.integrations.ai.services.llm_service import generate_json
 
 
 logger = logging.getLogger("wechat_rag_bot.conversation_case")
-_CASE_DIR = Path(__file__).resolve().parents[1] / "data" / "intent_labeling_cases"
+_CASE_ROOT = Path(__file__).resolve().parents[1] / "data" / "conversation_cases"
+_CASE_DIRS = {
+    "complete": _CASE_ROOT / "complete",
+    "cleaned": _CASE_ROOT / "cleaned",
+}
 _CASE_CANDIDATE_VERSION = "case_shadow_v2_2"
 _CASE_PROMPT_VERSION = "conversation_case_v2_1"
 _MAX_REPLY_CHARS = 220
@@ -36,20 +40,23 @@ _sessionmakers: dict[str, sessionmaker] = {}
 _tasks: set[asyncio.Task] = set()
 
 
-def load_conversation_cases() -> list[dict[str, Any]]:
+def load_conversation_cases(
+    library_type: str = "complete",
+) -> list[dict[str, Any]]:
+    case_dir = _case_directory(library_type)
     cases = []
-    for path in sorted(_CASE_DIR.glob("*.json"), key=_case_sort_key):
+    for path in sorted(case_dir.glob("*.json"), key=_case_sort_key):
         payload = json.loads(path.read_text(encoding="utf-8"))
-        cases.append(_normalize_case(payload, path.name))
+        cases.append(_normalize_case(payload, path.name, library_type))
     return cases
 
 
 def list_conversation_cases(
     *,
     keyword: str | None = None,
-    source_group: str | None = None,
+    library_type: str = "complete",
 ) -> dict[str, Any]:
-    cases = load_conversation_cases()
+    cases = load_conversation_cases(library_type)
     if keyword:
         normalized = keyword.strip().lower()
         cases = [
@@ -58,30 +65,37 @@ def list_conversation_cases(
             if normalized in case["case_id"].lower()
             or normalized in case["preview"].lower()
         ]
-    if source_group:
-        cases = [
-            case for case in cases if case["source_group"] == source_group
-        ]
     return {
         "items": [_case_summary(case) for case in cases],
         "total": len(cases),
-        "source_counts": _source_counts(cases),
+        "library_counts": {
+            name: len(load_conversation_cases(name)) for name in _CASE_DIRS
+        },
     }
 
 
-def get_conversation_case(case_id: str) -> dict[str, Any] | None:
+def get_conversation_case(
+    case_id: str,
+    library_type: str = "complete",
+) -> dict[str, Any] | None:
     return next(
-        (case for case in load_conversation_cases() if case["case_id"] == case_id),
+        (
+            case
+            for case in load_conversation_cases(library_type)
+            if case["case_id"] == case_id
+        ),
         None,
     )
 
 
-def export_conversation_cases() -> list[dict[str, Any]]:
-    return load_conversation_cases()
+def export_conversation_cases(
+    library_type: str = "complete",
+) -> list[dict[str, Any]]:
+    return load_conversation_cases(library_type)
 
 
 def start_case_shadow_run(case_id: str) -> dict[str, Any]:
-    case = get_conversation_case(case_id)
+    case = get_conversation_case(case_id, "cleaned")
     if case is None:
         raise LookupError("conversation case not found")
     settings = get_settings()
@@ -232,7 +246,11 @@ async def _execute_case_shadow_run(
         )
 
 
-def _normalize_case(payload: dict[str, Any], file_name: str) -> dict[str, Any]:
+def _normalize_case(
+    payload: dict[str, Any],
+    file_name: str,
+    library_type: str,
+) -> dict[str, Any]:
     case_id = str(payload["case_id"])
     turns = []
     for index, raw_turn in enumerate(payload.get("turns") or [], start=1):
@@ -255,7 +273,6 @@ def _normalize_case(payload: dict[str, Any], file_name: str) -> dict[str, Any]:
             }
         )
     checkpoints = _build_checkpoints(case_id, turns)
-    source_group = _source_group(case_id)
     quality = str(
         payload.get("content_quality")
         or ("reconstructed_from_summary" if case_id == "case10" else "cleaned_transcript")
@@ -272,7 +289,9 @@ def _normalize_case(payload: dict[str, Any], file_name: str) -> dict[str, Any]:
     return {
         "schema_version": "conversation_case.v1",
         "case_id": case_id,
-        "source_group": source_group,
+        "legacy_case_id": payload.get("legacy_case_id"),
+        "library_type": library_type,
+        "usage": str(payload.get("usage") or ""),
         "source_file": str(payload.get("source_file") or file_name),
         "content_quality": quality,
         "preview": preview,
@@ -493,7 +512,9 @@ def _case_summary(case: dict[str, Any]) -> dict[str, Any]:
         key: case[key]
         for key in (
             "case_id",
-            "source_group",
+            "legacy_case_id",
+            "library_type",
+            "usage",
             "source_file",
             "content_quality",
             "preview",
@@ -506,27 +527,17 @@ def _case_summary(case: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _source_group(case_id: str) -> str:
-    if case_id.startswith("case2_"):
-        return "case_library_2"
-    number = int(case_id.removeprefix("case").split("_", 1)[0])
-    return "case_01_10" if number <= 10 else "first_order_cases"
+def _case_directory(library_type: str) -> Path:
+    try:
+        return _CASE_DIRS[library_type]
+    except KeyError as exc:
+        raise ValueError(
+            f"unsupported conversation case library: {library_type}"
+        ) from exc
 
 
-def _source_counts(cases: list[dict[str, Any]]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for case in cases:
-        counts[case["source_group"]] = counts.get(case["source_group"], 0) + 1
-    return counts
-
-
-def _case_sort_key(path: Path) -> tuple[int, int, int]:
-    stem = path.stem.removeprefix("case")
-    if stem.startswith("2_"):
-        parts = stem.split("_")
-        return (2, int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
-    parts = stem.split("_")
-    return (1, int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+def _case_sort_key(path: Path) -> int:
+    return int(path.stem.removeprefix("case"))
 
 
 def _get_session():

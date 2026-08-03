@@ -1,0 +1,184 @@
+{
+  "case_id": "case075",
+  "legacy_case_id": "case3_14",
+  "customer_id": "intent-case075-customer",
+  "source_file": "docs/案例库3-意图识别清洗版.md",
+  "library_type": "complete",
+  "usage": "archive_and_manual_review",
+  "content_quality": "complete_privacy_safe_transcript",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "你有小国魂和市长红吗？建议新手养小国魂还是市长红？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "两款都是家庭养兰必备，喜欢直立叶可以选小国魂",
+        "喜欢弓垂型的叶姿建议市长红",
+        "如果要勤芽勤花的，市长红必不可少，小国魂也是代表色花，细叶的 很不错"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "你这小国魂和市长红分别怎么卖？直播间里有吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "微信也可以店铺下单，微信会员客户下单，端午福利 送1年缓释肥",
+        "直播间每天排的品种不一样，市长红也是有的",
+        "市长红 2-3壮苗是39.9",
+        "大盆多苗的是68",
+        "小国魂 3苗39.9¥"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "小国魂的状态可以来花苞吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以的",
+        "都是壮苗，具备开花条件"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "市长红是不是容易腐苗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "老种的不容易腐呀",
+        "不要玩组培的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我有一盆，腐的差不多了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "两个品种都可以带一盆",
+        "小国魂比较值得养吧，非常主流的品种"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有盆吗？熟料盆？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "看着不像富山奇蝶，如果开个花的话可以拍个照片给我",
+        "盆器可以给您栽好种好一套发过去"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "右下角15的盆，再加上小国魂",
+        "你看做个链接给我",
+        "说实在，我也不知道什么，看着不像",
+        "也不知道是寒兰还是什么"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的",
+        "可以等开花的时候发给我，帮你辨别一下",
+        "看着像春蕙兰",
+        "您拍这个会员链接就好"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "已支付",
+        "可以拍个照片？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的，我这边给你安排",
+        "可能要等明天的时候给你拍",
+        "今天不行，今天太晚了兰鹏里面都已经关灯了",
+        "（客服发送链接：【建兰小国魂】养护注意事项）",
+        "你平时是比较喜欢红色的剑兰品种吗？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "嗯，理解，可以明天。",
+        "也不是，我也是才开始种兰花",
+        "之前种海棠盆景这些",
+        "有个你家的宋梅、墨兰"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那你新手刚开始玩的话，确实选择建兰更好上手"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "感觉市长红还在继续腐苗，估计很快就不行了，想看看再看看你家建兰，"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "建兰是比较勤花勤芽的",
+        "你明天也拍个照片给我",
+        "看看能不能及时杀菌处理一下"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "腐了，估计不行了。前段时间买了你们的恶霉灵"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那就尽早扔掉吧，有的传播感染"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "值料也不能要了吧？",
+        "晒晒还可以用吧？",
+        "我这个盆装了一些值料，怪可惜的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "不要了",
+        "感染细菌就不好了"
+      ]
+    }
+  ]
+}

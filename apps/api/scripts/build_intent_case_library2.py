@@ -12,14 +12,16 @@ API_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = API_ROOT.parents[1]
 DEFAULT_SOURCE = Path.home() / "Downloads" / "案例库2.md"
 DEFAULT_CLEAN_OUTPUT = PROJECT_ROOT / "docs" / "案例库2-意图识别清洗版.md"
-CASE_DATA_DIR = (
+CASE_DATA_ROOT = (
     API_ROOT
     / "app"
     / "domains"
     / "decisioning"
     / "data"
-    / "intent_labeling_cases"
+    / "conversation_cases"
 )
+COMPLETE_CASE_DIR = CASE_DATA_ROOT / "complete"
+CLEANED_CASE_DIR = CASE_DATA_ROOT / "cleaned"
 
 CASE_HEADING_RE = re.compile(r"^###\s*案例(?P<number>\d+)[：:]?\s*$")
 TIMESTAMP_RE = re.compile(
@@ -40,7 +42,7 @@ QUOTED_REPLY_WITH_TAIL_RE = re.compile(
 QUOTED_REPLY_ONLY_RE = re.compile(r'^".+?"$', re.DOTALL)
 PRODUCT_TITLE_RE = re.compile(r"[【「](?P<title>[^】」]{2,40})[】」]")
 CLEAN_CASE_SECTION_RE = re.compile(
-    r"(?m)(?=^###\s+case\d+_\d+(?:_\d+)?\s*$)"
+    r"(?m)(?=^###\s+case(?:\d{3,}|\d+_\d+(?:_\d+)?)\s*$)"
 )
 MERCHANT_PREFIXES = ("兰语", "兰隐", "若兰", "兰香", "兰亭", "兰韵")
 
@@ -342,7 +344,10 @@ def clean_content(event: Event) -> str | None:
         event.role == "customer"
         and "省" in content
         and "市" in content
-        and any(marker in content for marker in ("街道", "路", "号", "栋", "仓库"))
+        and any(
+            marker in content
+            for marker in ("街道", "路", "号", "栋", "仓库")
+        )
     ):
         return "（客户发送收货地址）"
 
@@ -382,6 +387,47 @@ def group_turns(events: list[Event]) -> list[dict[str, object]]:
     return turns
 
 
+def complete_content(event: Event) -> str | None:
+    content = MARKDOWN_ESCAPE_RE.sub(r"\1", event.content).strip()
+    if not content:
+        return None
+    if MARKDOWN_IMAGE_RE.fullmatch(content):
+        return _media_placeholder(event.role, "图片")
+    if content in {"[视频]", "[图片]", "[自定义表情]"}:
+        media_type = "视频" if "视频" in content else "图片"
+        return _media_placeholder(event.role, media_type)
+    link_match = MARKDOWN_LINK_RE.fullmatch(content)
+    if link_match:
+        speaker = "客户" if event.role == "customer" else "客服"
+        return f"（{speaker}发送链接：{link_match.group('title').strip()}）"
+    content = RAW_URL_RE.sub(_media_placeholder(event.role, "链接"), content)
+    if (
+        event.role == "customer"
+        and "省" in content
+        and "市" in content
+        and any(marker in content for marker in ("街道", "路", "号", "栋", "仓库"))
+    ):
+        return "（客户发送收货地址）"
+    content = PHONE_RE.sub("[手机号]", content)
+    content = LONG_NUMBER_RE.sub("[长数字]", content)
+    content = re.sub(r"[ \t]+", " ", content)
+    content = re.sub(r"\n{3,}", "\n\n", content)
+    return content.strip() or None
+
+
+def group_complete_turns(events: list[Event]) -> list[dict[str, object]]:
+    turns: list[dict[str, object]] = []
+    for event in events:
+        content = complete_content(event)
+        if not content:
+            continue
+        if turns and turns[-1]["role"] == event.role:
+            turns[-1]["messages"].append(content)
+        else:
+            turns.append({"role": event.role, "messages": [content]})
+    return turns
+
+
 def _clean_case_sections(content: str) -> dict[str, str]:
     sections: dict[str, str] = {}
     for section in CLEAN_CASE_SECTION_RE.split(content):
@@ -394,6 +440,9 @@ def _clean_case_sections(content: str) -> dict[str, str]:
 
 
 def _case_sort_key(case_id: str) -> tuple[int, int, int]:
+    unified = re.fullmatch(r"case(\d{3,})", case_id)
+    if unified:
+        return (0, int(unified.group(1)), 0)
     match = re.fullmatch(r"case(\d+)_(\d+)(?:_(\d+))?", case_id)
     return (
         int(match.group(1)) if match else 999_999,
@@ -430,13 +479,22 @@ def _turns_fingerprint(turns: list[dict[str, object]]) -> str:
 
 def _existing_case_fingerprint_owners() -> dict[str, str]:
     owners: dict[str, str] = {}
-    for path in sorted(CASE_DATA_DIR.glob("case*.json")):
+    for path in sorted(CLEANED_CASE_DIR.glob("case*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
         owners.setdefault(
             _turns_fingerprint(payload["turns"]),
             payload["case_id"],
         )
     return owners
+
+
+def _next_case_number() -> int:
+    numbers = [
+        int(match.group(1))
+        for path in CLEANED_CASE_DIR.glob("case*.json")
+        if (match := re.fullmatch(r"case(\d+)", path.stem))
+    ]
+    return max(numbers, default=0) + 1
 
 
 def build_library(
@@ -447,8 +505,8 @@ def build_library(
 ) -> list[dict[str, object]]:
     parsed = parse_events(source)
     payloads: list[dict[str, object]] = []
-    duplicate_case_ids: set[str] = set()
     fingerprint_owners = _existing_case_fingerprint_owners()
+    next_case_number = _next_case_number()
     document_title = f"案例库{library_number}"
     clean_sections = [f"# {document_title}（意图识别清洗版）"]
 
@@ -457,26 +515,40 @@ def build_library(
         if not any(event.role == "customer" for event in events):
             continue
         conversations = split_customer_conversations(events)
-        for part_number, conversation in enumerate(conversations, start=1):
-            suffix = "" if part_number == 1 else f"_{part_number}"
-            case_id = f"case{library_number}_{case_number:02d}{suffix}"
+        for conversation in conversations:
             turns = group_turns(conversation)
             if not any(turn["role"] == "customer" for turn in turns):
                 continue
             fingerprint = _turns_fingerprint(turns)
             existing_owner = fingerprint_owners.get(fingerprint)
-            if existing_owner is not None and existing_owner != case_id:
-                duplicate_case_ids.add(case_id)
+            if existing_owner is not None:
                 continue
+            case_id = f"case{next_case_number:03d}"
+            next_case_number += 1
             fingerprint_owners.setdefault(fingerprint, case_id)
             payload = {
                 "case_id": case_id,
                 "customer_id": f"intent-{case_id}-customer",
                 "source_file": f"docs/案例库{library_number}-意图识别清洗版.md",
+                "library_type": "cleaned",
+                "usage": "intent_labeling_and_shadow_replay",
                 "content_quality": "cleaned_verbatim_chat_export",
                 "turns": turns,
             }
-            payloads.append(payload)
+            payloads.append(
+                {
+                    "cleaned": payload,
+                    "complete": {
+                        "case_id": case_id,
+                        "customer_id": f"intent-{case_id}-customer",
+                        "source_file": source.name,
+                        "library_type": "complete",
+                        "usage": "archive_and_manual_review",
+                        "content_quality": "complete_privacy_safe_transcript",
+                        "turns": group_complete_turns(conversation),
+                    },
+                }
+            )
 
             clean_sections.append(f"### {case_id}")
             for turn in turns:
@@ -489,23 +561,24 @@ def build_library(
         _merge_clean_document(
             clean_output,
             "\n\n".join(clean_sections) + "\n",
-            excluded_case_ids=duplicate_case_ids,
             document_title=document_title,
         ),
         encoding="utf-8",
     )
-    CASE_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    for case_id in duplicate_case_ids:
-        duplicate_output = CASE_DATA_DIR / f"{case_id}.json"
-        if duplicate_output.exists():
-            duplicate_output.unlink()
-    for payload in payloads:
-        output = CASE_DATA_DIR / f"{payload['case_id']}.json"
-        output.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-    return payloads
+    for directory in (COMPLETE_CASE_DIR, CLEANED_CASE_DIR):
+        directory.mkdir(parents=True, exist_ok=True)
+    for pair in payloads:
+        for library_type, directory in (
+            ("complete", COMPLETE_CASE_DIR),
+            ("cleaned", CLEANED_CASE_DIR),
+        ):
+            payload = pair[library_type]
+            output = directory / f"{payload['case_id']}.json"
+            output.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+    return [pair["cleaned"] for pair in payloads]
 
 
 def main() -> None:
