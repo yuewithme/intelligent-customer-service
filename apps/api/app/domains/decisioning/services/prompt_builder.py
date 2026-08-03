@@ -29,9 +29,14 @@ PROMPT_BLOCKS = {
         "context about the medium, pot, root condition, ventilation, temperature, and current "
         "moisture. Prefer observable watering criteria over calendar intervals. Before asking a "
         "question, show expertise: explain the most likely mechanism, why surface-only treatment may "
-        "recur, and one safe next step before covering alternatives. If verified brand_value_facts are present and the customer's "
-        "pain is clear, add one natural sentence naming 萧岚苑 and connecting only those verified "
-        "service capabilities to the pain. Do not turn that sentence into an immediate sales pitch."
+        "recur, and one safe next step before covering alternatives. Once the customer has named a "
+        "concrete pain such as black spots, yellow leaves, root rot, seedling rot, or failure to "
+        "flower, stop broad discovery and do not keep narrowing one diagnostic detail. Explain which "
+        "care basics make the problem recur and why ongoing guidance matters. If verified "
+        "brand_value_facts are present and the customer's pain is clear, add one natural sentence "
+        "naming 萧岚苑 and connecting only those verified service capabilities to reducing repeated "
+        "trial and error. Do not turn that sentence into an immediate sales pitch, and do not "
+        "recommend an orchid unless the customer explicitly asks to buy or select one."
     ),
     "intent.orchid_problem": (
         "The user is describing an orchid problem. Respond with care first, then provide actionable advice."
@@ -152,9 +157,17 @@ def _render_context(context) -> str:
                 if sales_action.get(key) not in (None, "", [], {})
             }
             if sales_action.get("question_slot"):
-                question_instruction = (
-                    "Ask at most one follow-up question, and only ask for question_slot. "
-                )
+                if sales_action.get("question_slot") == "pain_point":
+                    question_instruction = (
+                        "Ask exactly one concrete, conversational pain-discovery question. Use examples "
+                        "such as '有没有遇到黑斑、黄叶、腐苗等问题？' to help the customer answer. "
+                        "Do not ask whether they want service or products, do not ask an abstract goal, "
+                        "and do not combine this with questions about medium, watering, region, or other details. "
+                    )
+                else:
+                    question_instruction = (
+                        "Ask at most one follow-up question, and only ask for question_slot. "
+                    )
             elif sales_action.get("allow_diagnostic_question"):
                 question_instruction = (
                     "A follow-up is optional. Ask at most one highest-information diagnostic "

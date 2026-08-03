@@ -292,8 +292,8 @@ async def test_orchestrator_uses_sales_stage_decision_for_state_updates(monkeypa
     assert result["intent"]["sales_stage"] == "need_discovery"
     assert captured["state_update"]["sales_stage"] == "need_discovery"
     assert captured["profile_stage"] == "need_discovery"
-    assert captured["reply_sales_action"]["sales_action"] == "discover_need_track"
-    assert captured["reply_sales_action"]["question_slot"] == "need_track"
+    assert captured["reply_sales_action"]["sales_action"] == "discover_pain"
+    assert captured["reply_sales_action"]["question_slot"] == "pain_point"
     assert captured["profile_sales_action"] == captured["reply_sales_action"]
 
 

@@ -218,6 +218,47 @@ def test_care_reply_rewrites_or_removes_a_repeated_follow_up_question():
     ) == ["repeated_follow_up_question"]
 
 
+def test_care_reply_does_not_switch_to_another_question_after_customer_skips_previous_one():
+    context = ContextPackage(
+        recent_turns=[
+            {
+                "role": "assistant",
+                "content": "先别急着浇水。您这盆现在用的什么植料？",
+            }
+        ],
+        session_state={"sales_action": {"sales_action": "discover_pain"}},
+    )
+    answer = "黑根说明根系状态已经受影响，先剪掉完全腐烂的部分。平时多久浇一次水？"
+
+    assert rag_service.care_reply_violations(
+        answer,
+        message="昨天被狗碰坏一盆，底下都是黑根，都烂了。",
+        context=context,
+    ) == ["repeated_follow_up_question"]
+    assert rag_service._finalize_repaired_care_answer(
+        answer,
+        message="昨天被狗碰坏一盆，底下都是黑根，都烂了。",
+        context=context,
+    ) == "黑根说明根系状态已经受影响，先剪掉完全腐烂的部分。"
+
+
+def test_care_reply_does_not_treat_an_old_answered_question_as_still_pending():
+    context = ContextPackage(
+        recent_turns=[
+            {"role": "assistant", "content": "您这盆用的什么植料？"},
+            {"role": "user", "content": "树皮加颗粒。"},
+            {"role": "assistant", "content": "这个搭配透气性通常够，后面按实际干湿浇水。"},
+        ],
+        session_state={"sales_action": {"sales_action": "discover_pain"}},
+    )
+
+    assert rag_service.care_reply_violations(
+        "先观察新根恢复情况。最近有没有继续出现黑根？",
+        message="我已经重新种好了。",
+        context=context,
+    ) == []
+
+
 def test_care_reply_requires_confident_lead_without_false_diagnosis():
     context = ContextPackage(
         session_state={"sales_action": {"sales_action": "discover_pain"}}

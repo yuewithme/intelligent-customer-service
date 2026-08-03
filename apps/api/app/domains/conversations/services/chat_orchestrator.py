@@ -358,7 +358,7 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_state=user_state,
             intent=routed_intent,
         )
-        if sales_action.sales_action == "discover_pain":
+        if _should_attach_membership_brand_value(sales_action):
             sales_action = sales_action.model_copy(
                 update={
                     "brand_value_facts": (
@@ -591,6 +591,17 @@ def _pain_brand_value_already_present(user_state) -> bool:
         )
         for turn in turns
     )
+
+
+def _should_attach_membership_brand_value(sales_action) -> bool:
+    if sales_action.sales_action not in {
+        "discover_pain",
+        "recommend_solution",
+        "build_value",
+    }:
+        return False
+    known_slots = getattr(sales_action, "known_slots", {})
+    return not isinstance(known_slots, dict) or known_slots.get("need_track") != "product"
 
 
 def _prepend_opening(reply: FinalReply) -> FinalReply:

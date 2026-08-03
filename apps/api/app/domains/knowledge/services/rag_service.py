@@ -336,7 +336,7 @@ def care_reply_violations(
             violations.append("overconfident_single_cause")
         if UNSUPPORTED_INVASIVE_ACTION_PATTERN.search(answer):
             violations.append("unsupported_invasive_action")
-    if _repeats_recent_follow_up(answer=answer, context=context):
+    if _repeats_recent_follow_up(answer=answer, message=message, context=context):
         violations.append("repeated_follow_up_question")
     if _requires_brand_bridge(message=message, context=context) and not (
         _has_verified_brand_bridge(answer=answer, context=context)
@@ -402,13 +402,14 @@ def _has_unsupported_regional_environment_claim(
 def _repeats_recent_follow_up(
     *,
     answer: str,
+    message: str,
     context: ContextPackage,
 ) -> bool:
     current = _trailing_care_question(answer)
     if not current:
         return False
     current_topic = _care_question_topic(current)
-    return any(
+    if any(
         isinstance(turn, dict)
         and str(turn.get("role") or "") == "assistant"
         and (
@@ -422,6 +423,29 @@ def _repeats_recent_follow_up(
             )
         )
         for turn in context.recent_turns
+    ):
+        return True
+    previous_assistant = next(
+        (
+            turn
+            for turn in reversed(context.recent_turns)
+            if isinstance(turn, dict)
+            and str(turn.get("role") or "") == "assistant"
+        ),
+        None,
+    )
+    previous_question = _trailing_care_question(
+        str(previous_assistant.get("content") or "")
+        if isinstance(previous_assistant, dict)
+        else ""
+    )
+    previous_topic = _care_question_topic(previous_question)
+    return bool(
+        previous_topic
+        and not any(
+            marker in str(message or "")
+            for marker in CARE_QUESTION_TOPICS[previous_topic]
+        )
     )
 
 
@@ -486,8 +510,7 @@ def _care_repair_prompt(prompt: str, violations: list[str]) -> str:
     if "repeated_follow_up_question" in violations:
         instructions.append(
             "不要重复 Recent conversation 里已经问过、但客户尚未回答的追问；"
-            "先根据客户本轮新增信息继续分析，必要时换成一个新的高信息量问题，"
-            "否则不追问。"
+            "客户转到新信息时就跟随新信息分析，本轮收住，不要换个养护方向继续追问。"
         )
     if any(
         violation
@@ -582,8 +605,9 @@ def _verified_brand_bridge(context: ContextPackage) -> str:
     if not labels:
         return ""
     return (
-        f"萧岚苑有{'和'.join(labels)}，"
-        "能帮您少走些反复试错的弯路。"
+        "这类问题只处理眼前还不够，浇水、植料和通风这些基础没理顺，"
+        f"后面还容易反复。萧岚苑有{'和'.join(labels)}，"
+        "有人结合实际情况陪着调整，会比自己反复试错更稳。"
     )
 
 

@@ -34,33 +34,56 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
         stage=SalesStage.NEED_DISCOVERY,
         display_name="挖需求",
         sequence=2,
-        objective="判断客户是服务需求、产品需求还是复合需求",
+        objective=(
+            "围绕养兰困难引导客户说出具体痛点；首单默认优先匹配陪伴养兰服务，"
+            "客户明确表达购兰需求时再进入产品方向"
+        ),
         entry_evidence_any=["responded", "service_need", "product_need", "combined_need", "price_interest"],
         exit_evidence_any=["need_track", "service_need", "product_need", "combined_need"],
-        allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.DISCOVER_NEED_TRACK],
+        allowed_actions=[
+            SalesAction.ANSWER_CURRENT_QUESTION,
+            SalesAction.DISCOVER_NEED_TRACK,
+            SalesAction.DISCOVER_PAIN,
+        ],
         allowed_knowledge_sources=COMMON_KNOWLEDGE_SOURCES,
         conditional_knowledge_sources=[SalesKnowledgeSource.PRODUCT_CATALOG],
-        required_slot_groups=[["need_track"], ["desired_outcome"], ["pain_point"]],
-        prohibited_behaviors=["未回答客户当前问题就开始问卷", "重复询问已经明确的需求"],
+        required_slot_groups=[["pain_point"]],
+        prohibited_behaviors=[
+            "未回答客户当前问题就开始问卷",
+            "重复询问已经明确或客户未回答的问题",
+            "用服务还是产品、想达到什么效果等空泛二选一问题挖需",
+            "客户没有明确购兰需求时优先推荐兰花",
+        ],
     ),
     SalesStageDefinition(
         stage=SalesStage.PAIN_DISCOVERY,
         display_name="找痛点",
         sequence=3,
-        objective="明确核心困难、期望结果或购买动机",
+        objective=(
+            "用黑斑、黄叶、腐苗等具体例子试探核心养兰痛点；痛点明确后停止横向追问，"
+            "讲清基础知识与持续陪伴对避免问题反复的重要性"
+        ),
         entry_evidence_any=["pain_revealed", "desired_outcome", "product_need", "combined_need"],
         exit_evidence_any=["pain_point", "desired_outcome", "selected_product_id"],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.DISCOVER_PAIN],
         allowed_knowledge_sources=COMMON_KNOWLEDGE_SOURCES,
         conditional_knowledge_sources=[SalesKnowledgeSource.PRODUCT_CATALOG],
-        required_slot_groups=[["pain_point"], ["desired_outcome"], ["selected_product_id"]],
-        prohibited_behaviors=["夸大客户损失", "在证据不足时给出确定性诊断"],
+        required_slot_groups=[["pain_point"]],
+        prohibited_behaviors=[
+            "夸大客户损失",
+            "在证据不足时给出确定性诊断",
+            "客户已关注具体痛点后继续追问其他养护方向",
+            "追着客户未回答的单一诊断问题反复询问",
+        ],
     ),
     SalesStageDefinition(
         stage=SalesStage.SOLUTION_RECOMMENDED,
         display_name="推品",
         sequence=4,
-        objective="基于客户信息推荐可解释的产品或服务方案",
+        objective=(
+            "首单优先推荐能解决养兰痛点的陪伴服务；只有客户明确表达购兰或选品需求时，"
+            "才推荐可解释的兰花方案"
+        ),
         entry_evidence_any=["recommendation_ready", "selected_product_id", "preference_revealed"],
         exit_evidence_any=["recommendation_engaged", "selected_product_id", "price_interest"],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.RECOMMEND_SOLUTION],
@@ -74,13 +97,17 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
             ["need_track", "placement", "color_preference"],
             ["need_track", "pain_point"],
         ],
-        prohibited_behaviors=["缺少商品事实时推荐具体商品", "一次堆砌大量商品"],
+        prohibited_behaviors=[
+            "缺少商品事实时推荐具体商品",
+            "一次堆砌大量商品",
+            "客户没有明确购兰需求时用兰花替代陪伴服务作为首要方案",
+        ],
     ),
     SalesStageDefinition(
         stage=SalesStage.VALUE_BUILT,
         display_name="塑品",
         sequence=5,
-        objective="建立客户对苗质、服务和方案适配价值的认知",
+        objective="优先建立客户对陪伴养兰、系统基础知识和持续指导价值的认知",
         entry_evidence_any=["recommendation_engaged", "selected_product_id"],
         exit_evidence_any=["value_acknowledged", "price_interest", "ready_to_buy"],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.BUILD_VALUE],

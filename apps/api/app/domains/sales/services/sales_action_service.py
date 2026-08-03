@@ -28,6 +28,17 @@ LONG_TERM_OPPORTUNITY_SLOTS = {
     "difficulty_preference",
     "collection_preference",
 }
+GENERIC_PAIN_POINTS = {
+    "",
+    "养不好",
+    "不会养",
+    "不懂养护",
+    "想学习",
+    "怕养不好",
+    "新手",
+    "不清楚",
+    "unknown",
+}
 QUESTION_LANGUAGE_PATTERN = re.compile(
     r"(?:请问|想问|是否|能否|方便(?:说|发|提供|告诉)|"
     r"可以.{0,8}吗|有没有|怎么|如何|为什么|多少|"
@@ -145,46 +156,93 @@ def decide_sales_action(
             reason="intent_priority",
         )
 
-    if (
-        intent.primary_domain == "care"
-        and intent.primary_goal != "request_material"
-    ):
+    if intent.primary_domain == "care" and intent.primary_goal != "request_material":
+        pain_is_specific = _has_specific_pain(known_slots)
+        should_probe_pain = not pain_is_specific and "pain_point" not in asked_slots
         return SalesActionDecision(
             reply_goal=(
-                "先结合客户症状做专业分析，说明问题为什么容易反复并给出"
-                "安全可执行的处理方向；痛点已经明确时，再自然说明萧岚苑"
-                "能够提供的已核实养护服务价值"
+                (
+                    "先回应客户当前情况，再用一个具体、自然的引导问题了解养兰痛点，"
+                    "例如有没有遇到黑斑、黄叶、腐苗等问题；不要追问植料、浇水等单一"
+                    "诊断方向，也不要问客户想要服务还是产品"
+                )
+                if should_probe_pain
+                else (
+                    "先结合客户已经说出的痛点做专业分析，讲清相关养护基础为什么会让"
+                    "问题反复，再自然说明有人长期陪伴、结合实际情况指导的重要性；"
+                    "不要继续追问植料、浇水或其他痛点，不要急着推荐兰花"
+                )
             ),
             sales_action="discover_pain",
+            required_slots=["pain_point"] if should_probe_pain else [],
+            question_slot="pain_point" if should_probe_pain else None,
             known_slots=known_slots,
             customer_signal="interested",
             reason="care_expertise_first",
-            allow_diagnostic_question=True,
+            allow_diagnostic_question=False,
             prohibited_behaviors=[
                 "没有专业分析就连续追问",
-                "一次追问多个养护信息",
+                "追着客户未回答的植料、浇水或其他诊断问题反复询问",
+                "客户已说出具体痛点后继续挖其他方向",
+                "用服务还是产品、想达到什么效果等空泛二选一问题挖需",
                 "把可能原因说成确定诊断",
+                "客户没有明确购兰需求时优先推荐兰花",
             ],
         )
 
     definition = get_sales_stage_definition(stage)
+    explicit_product_need = known_slots.get("need_track") == "product"
     action_by_stage = {
         SalesStage.RAPPORT.value: ("自然回应并了解客户来意", "build_rapport"),
-        SalesStage.NEED_DISCOVERY.value: ("确认客户属于服务、产品还是复合需求", "discover_need_track"),
-        SalesStage.PAIN_DISCOVERY.value: ("确认客户最想解决的问题", "discover_pain"),
-        SalesStage.SOLUTION_RECOMMENDED.value: ("基于客户信息推荐合适方案", "recommend_solution"),
-        SalesStage.VALUE_BUILT.value: ("说明方案价值并确认客户是否认可", "build_value"),
+        SalesStage.NEED_DISCOVERY.value: (
+            "围绕养兰困难引导客户说出具体痛点，优先了解是否有黑斑、黄叶、腐苗等问题，"
+            "不要让客户在服务和产品之间做空泛选择",
+            "discover_pain",
+        ),
+        SalesStage.PAIN_DISCOVERY.value: (
+            "围绕已明确痛点讲清养护基础和问题反复的原因，塑造有人陪伴养兰的重要性",
+            "discover_pain",
+        ),
+        SalesStage.SOLUTION_RECOMMENDED.value: (
+            "首单优先推荐已核实的陪伴养兰服务；只有客户明确表达购兰或选品需求时才推荐兰花",
+            "recommend_solution",
+        ),
+        SalesStage.VALUE_BUILT.value: (
+            "优先说明陪伴养兰服务如何减少反复试错，再说明其他已核实方案价值",
+            "build_value",
+        ),
         SalesStage.TRIAL_CLOSE.value: ("给出可信方案并确认客户购买意愿", "trial_close"),
         SalesStage.CLOSING.value: ("针对当前阻碍推进真实下单", "resolve_blocker"),
     }
     goal, action = action_by_stage.get(
         stage, ("自然回应并了解客户来意", "build_rapport")
     )
-    missing = _most_relevant_missing_slots(definition, known_slots)
-    actionable_missing = [slot for slot in missing if slot not in asked_slots]
+    if explicit_product_need and stage in {
+        SalesStage.NEED_DISCOVERY.value,
+        SalesStage.PAIN_DISCOVERY.value,
+    }:
+        goal = "回应客户已经明确的购兰或选品需求，不强行转问养护痛点"
+        action = "discover_need_track"
+    if stage in {SalesStage.NEED_DISCOVERY.value, SalesStage.PAIN_DISCOVERY.value}:
+        actionable_missing = (
+            ["pain_point"]
+            if not explicit_product_need
+            and not _has_specific_pain(known_slots)
+            and "pain_point" not in asked_slots
+            else []
+        )
+    else:
+        missing = _most_relevant_missing_slots(definition, known_slots)
+        actionable_missing = [slot for slot in missing if slot not in asked_slots]
     question_slot = actionable_missing[0] if actionable_missing else None
     if question_slot:
-        goal = f"先回答客户当前问题，再确认{_slot_label(question_slot)}"
+        if question_slot == "pain_point":
+            goal = (
+                "先自然回应客户当前消息，再只问一个具体的养兰痛点问题，"
+                "例如“您平时有没有遇到黑斑、黄叶、腐苗这些问题？”"
+            )
+        else:
+            goal = f"先回答客户当前问题，再确认{_slot_label(question_slot)}"
     return SalesActionDecision(
         reply_goal=goal,
         sales_action=action,
@@ -235,6 +293,7 @@ _SLOT_QUESTION_MARKERS = {
     "selected_sku_id": ("规格", "几苗", "哪种套餐"),
     "quantity": ("多少", "几份", "数量"),
     "plant_count": ("多少盆", "几盆", "多少株"),
+    "pain_point": ("黑斑", "黄叶", "腐苗", "烂根", "焦尖", "不开花", "养护问题"),
 }
 
 
@@ -370,6 +429,16 @@ def _most_relevant_missing_slots(definition, known_slots: dict) -> list[str]:
     if any(not missing for _, missing in groups):
         return []
     return min(groups, key=lambda item: (len(item[1]), item[0]))[1]
+
+
+def _has_specific_pain(known_slots: dict) -> bool:
+    value = str(known_slots.get("pain_point") or "").strip().lower()
+    if value in GENERIC_PAIN_POINTS:
+        return False
+    return not any(
+        marker in value
+        for marker in ("养不好", "不会养", "不懂", "想学习", "想学", "怕养不好", "新手")
+    )
 
 
 def _next_stage(stage: str) -> str | None:
