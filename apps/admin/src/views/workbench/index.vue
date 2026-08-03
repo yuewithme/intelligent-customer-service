@@ -241,6 +241,14 @@ onBeforeUnmount(() => {
   border-radius: 6px;
 }
 
+.panel.side {
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 @media (max-width: 1100px) {
   .workbench {
     grid-template-columns: 280px minmax(0, 1fr);
