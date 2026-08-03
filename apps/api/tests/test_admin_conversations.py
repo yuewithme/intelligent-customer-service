@@ -373,6 +373,87 @@ def test_handoff_pending_suppresses_ai_and_preserves_conversation_state(
     ]
 
 
+def test_unclaimed_legacy_fallback_handoff_recovers_before_next_turn(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    from app.domains.conversations.services.conversation_service import (
+        conversation_blocks_ai,
+        recover_automatic_handoff,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="api",
+            user_id="legacy_fallback_customer",
+            session_id="legacy_fallback_session",
+            content="那你们的服务怎么进？多少钱？",
+            route="human",
+            primary_intent="ask_price",
+            handoff_reason="template_not_found_to_handoff",
+        )
+    )
+    assert conversation_blocks_ai(
+        channel="api",
+        user_id="legacy_fallback_customer",
+        session_id="legacy_fallback_session",
+    )
+
+    recovered = asyncio.run(
+        recover_automatic_handoff(
+            channel="api",
+            user_id="legacy_fallback_customer",
+            session_id="legacy_fallback_session",
+        )
+    )
+
+    assert recovered is True
+    assert not conversation_blocks_ai(
+        channel="api",
+        user_id="legacy_fallback_customer",
+        session_id="legacy_fallback_session",
+    )
+
+
+def test_explicit_human_handoff_does_not_auto_recover(monkeypatch, tmp_path):
+    import asyncio
+
+    from app.domains.conversations.services.conversation_service import (
+        conversation_blocks_ai,
+        recover_automatic_handoff,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="api",
+            user_id="explicit_human_customer",
+            session_id="explicit_human_session",
+            content="我要找人工",
+            route="human",
+            primary_intent="human_request",
+            handoff_reason="human_required",
+        )
+    )
+
+    recovered = asyncio.run(
+        recover_automatic_handoff(
+            channel="api",
+            user_id="explicit_human_customer",
+            session_id="explicit_human_session",
+        )
+    )
+
+    assert recovered is False
+    assert conversation_blocks_ai(
+        channel="api",
+        user_id="explicit_human_customer",
+        session_id="explicit_human_session",
+    )
+
+
 def test_human_active_suppresses_ai_until_admin_releases_it(monkeypatch, tmp_path):
     import asyncio
 
