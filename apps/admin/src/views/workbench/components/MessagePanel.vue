@@ -147,7 +147,7 @@
               v-if="shouldShowSalesStage(message, messageIndex)"
               class="sales-stage-label"
             >
-              本轮阶段 · {{ salesStageText(messageSalesStage(message)) }}
+              本轮阶段 · {{ messageSalesStageText(message) }}
             </span>
             <span class="time">{{ formatTime(message.created_at) }}</span>
           </div>
@@ -290,6 +290,13 @@ const senderText = (value: string) =>
 const messageSalesStage = (message: ConversationMessage) => {
   const stage = message.metadata.sales_stage
   return typeof stage === 'string' ? stage : ''
+}
+
+const messageSalesStageText = (message: ConversationMessage) => {
+  const stage = messageSalesStage(message)
+  if (!stage) return '待识别'
+  const translated = salesStageText(stage)
+  return translated === stage ? '待识别' : translated
 }
 
 const salesTurnKey = (message: ConversationMessage) => {
