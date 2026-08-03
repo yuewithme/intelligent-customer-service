@@ -1,4 +1,5 @@
 import json
+import re
 
 from app.core.config import get_settings
 from app.domains.decisioning.schemas.persona import PersonaContext, ReplySpec
@@ -69,6 +70,21 @@ async def render_persona_reply(
         if spec.question_slot == "pain_point"
         else ""
     )
+    rag_instruction = (
+        "grounded_knowledge_answer 是已经知识库校验的原始答案。"
+        "必须保留其核心结论、必要条件和风险边界，只做人格化改写、"
+        "精简和分消息，不得新增事实或改变原意。"
+        if spec.reply_type == "rag"
+        else ""
+    )
+    brand_instruction = (
+        "verified_facts 中存在 brand_value_facts 时，不要另起广告话题。"
+        "先用第一条消息回答客户当前问题并给一个关键建议；如果确实需要体现品牌价值，"
+        "第二条必须用因果关系承接前面的具体判断，说明萧岚苑为什么能帮助减少这个问题反复。"
+        "只选择与当前痛点最相关的一项已核实能力，不要同时罗列视频课程、一对一指导或其他权益。"
+        if spec.verified_facts.get("brand_value_facts")
+        else ""
+    )
     payload = {
         "customer_message": current_message,
         "reply_spec": {
@@ -97,13 +113,16 @@ async def render_persona_reply(
             "role": "user",
             "content": (
                 f"请依据下列数据生成这一轮的微信客户回复。{composition_instruction}"
-                f"{question_instruction}"
+                f"{question_instruction}{rag_instruction}{brand_instruction}"
                 "先完成 reply_goal。question_slot 有值时，只能自然追问该项，"
                 "不要顺带询问相邻信息；question_slot 为空时，不得出现问句，"
                 "也不得用命令句索要手机号、订单号、图片或其他资料。"
                 "suggested_copy 只供参考表达，不是事实来源。不得输出字段名，"
                 "不得增加 verified_facts 之外的商品、价格、库存、订单、物流、"
-                "优惠、服务能力或时效事实。\n"
+                "优惠、服务能力或时效事实。默认总共不超过两条消息："
+                "第一条直接回答并给一个关键建议，第二条只放必要的自然承接；"
+                "每条1到2句、约60字。不同消息之间必须用一个空行分隔，"
+                "同一语义不要机械拆开。\n"
                 + json.dumps(payload, ensure_ascii=False, sort_keys=True)
             ),
         },
@@ -113,7 +132,7 @@ async def render_persona_reply(
         purpose="persona",
         temperature=get_settings().persona_reply_temperature,
     )
-    answer = plain_customer_text(str(result.get("answer") or "")).strip()
+    answer = _plain_persona_answer(str(result.get("answer") or ""))
     violation = _candidate_violation(spec, answer)
     if violation and _is_product_extension(spec):
         retry = await generate_messages(
@@ -132,7 +151,7 @@ async def render_persona_reply(
             purpose="persona",
             temperature=0.1,
         )
-        answer = plain_customer_text(str(retry.get("answer") or "")).strip()
+        answer = _plain_persona_answer(str(retry.get("answer") or ""))
         result = {
             **retry,
             "usage": _merge_usage(result.get("usage") or {}, retry.get("usage")),
@@ -155,6 +174,12 @@ async def render_persona_reply(
     return spec.model_copy(
         update=update
     )
+
+
+def _plain_persona_answer(text: str) -> str:
+    paragraphs = re.split(r"\r?\n\s*\r?\n+", str(text or ""))
+    cleaned = [plain_customer_text(paragraph).strip() for paragraph in paragraphs]
+    return "\n\n".join(paragraph for paragraph in cleaned if paragraph)
 
 
 def _candidate_violation(spec: ReplySpec, answer: str) -> str | None:

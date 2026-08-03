@@ -1,9 +1,9 @@
 import re
 
 
-SHORT_REPLY_CHARS = 100
+SHORT_REPLY_CHARS = 60
 SENTENCES_PER_MESSAGE = 2
-EMERGENCY_SENTENCE_CHARS = 200
+EMERGENCY_SENTENCE_CHARS = 60
 _WEAK_MESSAGE_ENDINGS = "，,、；;：:"
 _MARKDOWN_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _MARKDOWN_PREFIX_RE = re.compile(
@@ -41,28 +41,57 @@ def plain_customer_text(text: str) -> str:
 
 
 def split_customer_messages(text: str) -> list[str]:
-    """Keep ordinary replies intact; split long replies every two sentences."""
+    """Keep replies near 60 chars and at most two sentences per message."""
     semantic_messages = _semantic_messages(text)
     if len(semantic_messages) > 1:
-        return coalesce_customer_messages(semantic_messages)
+        split_messages: list[str] = []
+        pending = ""
+        for message in semantic_messages:
+            parts = _split_normalized_message(message)
+            if pending and parts:
+                parts[0] = f"{pending}{parts[0]}"
+                pending = ""
+            if parts and parts[-1].endswith(tuple(_WEAK_MESSAGE_ENDINGS)):
+                pending = parts.pop()
+            split_messages.extend(parts)
+        if pending:
+            if split_messages:
+                split_messages[-1] = f"{split_messages[-1]}{pending}"
+            else:
+                split_messages.append(pending)
+        return [message for message in split_messages if message]
 
     plain = plain_customer_text(text)
     normalized = " ".join(plain.splitlines()).strip()
     if not normalized:
         return []
+    return coalesce_customer_messages(_split_normalized_message(normalized))
+
+
+def _split_normalized_message(normalized: str) -> list[str]:
     if len(normalized) <= SHORT_REPLY_CHARS:
         return [normalized]
 
     sentences = [part.strip() for part in _SENTENCE_BOUNDARY_RE.split(normalized) if part.strip()]
     messages: list[str] = []
-    for index in range(0, len(sentences), SENTENCES_PER_MESSAGE):
-        group = sentences[index : index + SENTENCES_PER_MESSAGE]
-        if all(len(sentence) <= EMERGENCY_SENTENCE_CHARS for sentence in group):
-            messages.append("".join(group))
-            continue
-        for sentence in group:
-            messages.extend(_split_exceptionally_long_sentence(sentence))
-    return coalesce_customer_messages(messages)
+    current: list[str] = []
+    for sentence in sentences:
+        sentence_parts = _split_exceptionally_long_sentence(sentence)
+        for part in sentence_parts:
+            candidate = "".join([*current, part])
+            if current and (
+                len(current) >= SENTENCES_PER_MESSAGE
+                or len(candidate) > SHORT_REPLY_CHARS
+            ):
+                messages.append("".join(current))
+                current = []
+            current.append(part)
+            if len(current) >= SENTENCES_PER_MESSAGE or len(part) > SHORT_REPLY_CHARS:
+                messages.append("".join(current))
+                current = []
+    if current:
+        messages.append("".join(current))
+    return messages
 
 
 def coalesce_customer_messages(messages: list[str]) -> list[str]:
@@ -79,6 +108,9 @@ def coalesce_customer_messages(messages: list[str]) -> list[str]:
     pending = ""
     for message in cleaned:
         current = f"{pending}{message}"
+        if pending and len(pending) > 12 and len(current) > SHORT_REPLY_CHARS:
+            merged.append(pending)
+            current = message
         pending = ""
         if len(current) <= SHORT_REPLY_CHARS and current.endswith(tuple(_WEAK_MESSAGE_ENDINGS)):
             pending = current

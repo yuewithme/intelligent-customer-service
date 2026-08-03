@@ -229,6 +229,111 @@ async def test_persona_renderer_uses_system_role_and_renders_question_once(monke
     assert final.metadata["emitted_question_slot"] == "阳台光照"
 
 
+@pytest.mark.asyncio
+async def test_rag_persona_renderer_preserves_grounded_answer_contract(monkeypatch):
+    from app.services import persona_renderer
+
+    captured = {}
+
+    async def generate_messages(messages, *, purpose, temperature):
+        del purpose, temperature
+        captured["prompt"] = messages[1]["content"]
+        return {"answer": "浇水不要固定看天数，主要看植料干湿。", "usage": {}}
+
+    monkeypatch.setattr(persona_renderer, "generate_messages", generate_messages)
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_model_config",
+        lambda purpose: SimpleNamespace(provider="deepseek", model="deepseek-chat"),
+    )
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_settings",
+        lambda: SimpleNamespace(persona_reply_enabled=True, persona_reply_temperature=0.3),
+    )
+    original = "浇水不能按固定天数，需要根据植料的实际干湿程度判断。"
+    spec = ReplySpec(
+        route="rag_answer",
+        reply_type="rag",
+        reply_goal="回答浇水频率",
+        suggested_copy=original,
+        verified_facts={"grounded_knowledge_answer": original},
+        metadata={"persona_original_copy": original},
+    )
+
+    rendered = await persona_renderer.render_persona_reply(
+        spec=spec,
+        context=_context(mode="care_companion"),
+        current_message="下一次浇水需要多少天？",
+    )
+
+    assert "只做人格化改写、精简和分消息" in captured["prompt"]
+    assert "默认总共不超过两条消息" in captured["prompt"]
+    assert "不同消息之间必须用一个空行分隔" in captured["prompt"]
+    assert rendered.suggested_copy == "浇水不要固定看天数，主要看植料干湿。"
+
+
+@pytest.mark.asyncio
+async def test_persona_brand_bridge_preserves_semantic_message_boundaries(monkeypatch):
+    from app.services import persona_renderer
+
+    captured = {}
+
+    async def generate_messages(messages, *, purpose, temperature):
+        del purpose, temperature
+        captured["prompt"] = messages[1]["content"]
+        return {
+            "answer": (
+                "单纯多晒太阳不一定能改善花小，先把植料透气和养分节奏调顺。\n\n"
+                "所以萧岚苑会结合这盆兰花的实际状态持续指导，避免反复试错。"
+            ),
+            "usage": {},
+        }
+
+    monkeypatch.setattr(persona_renderer, "generate_messages", generate_messages)
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_model_config",
+        lambda purpose: SimpleNamespace(provider="deepseek", model="deepseek-chat"),
+    )
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_settings",
+        lambda: SimpleNamespace(persona_reply_enabled=True, persona_reply_temperature=0.3),
+    )
+    spec = ReplySpec(
+        route="rag_answer",
+        reply_type="rag",
+        reply_goal="回答花小并自然说明陪伴价值",
+        suggested_copy="花小需要结合植料和养分节奏调整。",
+        verified_facts={
+            "grounded_knowledge_answer": "花小需要结合植料和养分节奏调整。",
+            "brand_value_facts": [
+                {
+                    "brand": "萧岚苑",
+                    "service_capabilities": ["结合具体养护问题的一对一指导"],
+                }
+            ],
+        },
+        metadata={"persona_original_copy": "花小需要结合植料和养分节奏调整。"},
+    )
+
+    rendered = await persona_renderer.render_persona_reply(
+        spec=spec,
+        context=_context(mode="care_companion"),
+        current_message="多晒太阳就可以了吗？",
+    )
+    final = finalize_reply_spec(guard_reply_spec(spec=rendered, context=_context()))
+
+    assert "不要另起广告话题" in captured["prompt"]
+    assert "只选择与当前痛点最相关的一项" in captured["prompt"]
+    assert final.answer_segments == [
+        "单纯多晒太阳不一定能改善花小，先把植料透气和养分节奏调顺。",
+        "所以萧岚苑会结合这盆兰花的实际状态持续指导，避免反复试错。",
+    ]
+    assert [message.content for message in final.outbound_messages] == final.answer_segments
+
+
 def test_reply_guard_sends_trailing_question_without_punctuation_separately():
     final = finalize_reply_spec(
         ReplySpec(
