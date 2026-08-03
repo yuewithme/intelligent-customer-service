@@ -86,8 +86,6 @@
         <ElSkeleton v-if="profileLoading" :rows="4" animated />
         <ElEmpty v-else-if="!hasProfileDetail" description="暂无画像" :image-size="72" />
         <dl v-else class="profile-detail">
-          <dt>当前阶段</dt>
-          <dd>{{ salesStageText(profile?.current_stage) }}</dd>
           <dt>风险等级</dt>
           <dd>{{ riskLevelText(profile?.risk_level) }}</dd>
           <dt>产品兴趣</dt>
@@ -126,7 +124,7 @@ import {
 } from '@/api/admin/conversations'
 import type { UserProfile } from '@/api/user-profile'
 import { useUserStore } from '@/store/modules/user'
-import { intentText, riskLevelText, salesStageText, tagValueText } from '@/utils/tagDisplay'
+import { intentText, riskLevelText, tagValueText } from '@/utils/tagDisplay'
 import { formatChinaTime } from '../time'
 import ReplyComposer from './ReplyComposer.vue'
 import SalesOpportunityPanel from './SalesOpportunityPanel.vue'
@@ -154,8 +152,7 @@ const hasProfileDetail = computed(
   () =>
     Boolean(props.profile) &&
     Boolean(
-      props.profile?.current_stage ||
-        props.profile?.risk_level ||
+      props.profile?.risk_level ||
         productInterestText.value !== '-' ||
         painPointText.value !== '-' ||
         profileMemory.value ||

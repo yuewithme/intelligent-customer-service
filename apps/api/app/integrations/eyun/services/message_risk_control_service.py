@@ -1125,6 +1125,17 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         if batch_data["w_id"] and batch_data["target_wc_id"]:
             outbound_messages = _outbound_messages(chat_result)
+            intent = (
+                chat_result.get("intent")
+                if isinstance(chat_result.get("intent"), dict)
+                else {}
+            )
+            sales_stage = str(intent.get("sales_stage") or "").strip()
+            sales_turn_id = str(chat_result.get("trace_id") or "").strip()
+            sales_metadata = {
+                **({"sales_stage": sales_stage} if sales_stage else {}),
+                **({"sales_turn_id": sales_turn_id} if sales_turn_id else {}),
+            }
             opening_message_count = min(
                 opening_message_count,
                 len(outbound_messages),
@@ -1168,6 +1179,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         or ""
                     ),
                     created_after=batch_data["created_at"],
+                    metadata=sales_metadata,
                 )
                 kwargs = {
                     "w_id": batch_data["w_id"],
