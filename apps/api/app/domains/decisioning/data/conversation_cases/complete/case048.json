@@ -1,0 +1,156 @@
+{
+  "case_id": "case048",
+  "legacy_case_id": "case2_17",
+  "customer_id": "intent-case048-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "library_type": "complete",
+  "usage": "archive_and_manual_review",
+  "content_quality": "complete_privacy_safe_transcript",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "❤名品寒兰【初恋｜烈焰红唇】实拍开品奉上！\n✨直立细叶飘逸耐看，绿瓣衬整片血红舌，开品艳丽大气，颜值对标高端红素\n🔥价格亲民性价比拉满，收藏入门首选。\n很多兰友担心夏天高温难养活，咱们原盆原土带花苞🌺发货\n🌱配专属度夏养护指南，遮阴控水简单操作，高温季也能安稳服盆。\n❤初见惊艳，越看越心动，喜欢红素别错过！",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "下午好！这寒兰怎么拍？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我家的都是老种苗 室外露天培育的 苗子皮实耐造，成活率高，复花稳定 新手小白都可以养的很好\n原价是100一苗的 今天月末回馈新老兰友 【龙头子母2苗带花】的只要￥78"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我拍过你家的苗子！很健壮！！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "谢谢您的信任和支持",
+        "这个寒兰初恋 今天活动价 您可以结缘一个哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "找一个大点的3苗的有吗？拍个图片看看！！！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这品种是去年春季分单育苗的 到现在基本都是3苗的 或着2苗带大芽的",
+        "我们发货要把老头苗去掉",
+        "就是龙头子母两苗的了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送图片）",
+        "有实拍图片吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "有的 您稍等哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送图片）"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您看下 去掉老头苗 基本都是2大苗带芽的了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送图片）",
+        "不错！很健壮！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "结缘一个不"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "给我拣一株根系好的！拜托你美女妹妹！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "必须的哈",
+        "保证让您满意",
+        "现在气温高 可以免费寄养的哦",
+        "等9月中下旬在发货也是可以的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "没问题！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "养的都很不错哈",
+        "您的收货地址发我下哦 我来做寄养登记哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "先发个链接给我！我把款先付了！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这是我们的官方收款码 您点击就可以付了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "王健☎：[手机号]\n南通市通州区石港镇敬老院东红芳百货店",
+        "已经付好了！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 我来做寄养登记哈",
+        "等需要发货了 您提前一周通知我即可",
+        "我到时给您带盆发货"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "（客户发送图片）"
+      ]
+    }
+  ]
+}

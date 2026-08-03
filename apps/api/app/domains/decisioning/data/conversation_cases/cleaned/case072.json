@@ -1,0 +1,106 @@
+{
+  "case_id": "case072",
+  "customer_id": "intent-case072-customer",
+  "source_file": "docs/案例库3-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "你好，叶子长铁锈病怎么治"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "王哥，你家不是有那个养护大礼包吗？你把那个带斑锈的叶子拔掉以后再用那个药喷一下"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我没有养护大礼包，用什么药喷"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这是我们兰园亲测，给家庭养兰精配的养护大礼包，里面包含2种杀菌2种防虫害以及1种叶面水溶肥修复壮苗促花的\n常见的病虫害预防用这1套足够了的；黑斑炭疽腐苗都可以防治",
+        "兰草就是预防为主，像咱们兰园上万盆兰苗，像兰友家 几十盆，一旦出现问题就难治了，十天半个月药预防一次。这才是养兰的关键"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我买的建兰胭脂有四五片叶子有了铁锈斑"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您拍个照片给我 我来看看",
+        "这不是斑绣，这像是晒伤的，老苗有 新苗没有",
+        "这没事的",
+        "这盆很壮，长得也很快"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "收到，谢谢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您客气了王哥，平时有遇到疑虑的 拍个照片过来 我就可以帮您看一下"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个时候栽兰花还行吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这套药您最好是备用一份，接下来天气热了 7-10天最少要用一次 防治腐苗病害，养兰花就是防大于治",
+        "可以的用 5月份不算热，兰花不怕的，等七八月份就不适合了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "仙山红和大礼包多少钱"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "仙山红裸苗带花苞是88一株，大礼包32.8一套\n随单给您发 120",
+        "这颗是我刚刚挑出来的 带的有新芽有花苞，这款留给您 好\n株型也相当漂亮",
+        "（客服发送收货或物流信息）",
+        "您再核实一下地址哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "对"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好~我来安排",
+        "（客服发送资料：【建兰仙山红】养护注意事项）",
+        "（客服发送资料：养兰大礼包使用说明）",
+        "这个是养护大礼包的使用方法，收到 可以先使用苯甲中生，您点开可以先看，有不懂的随时可以咨询我"
+      ]
+    }
+  ],
+  "legacy_case_id": "case3_11",
+  "library_type": "cleaned",
+  "usage": "intent_labeling_and_shadow_replay"
+}

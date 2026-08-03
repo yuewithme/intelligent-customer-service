@@ -4,17 +4,18 @@
 
 整案案例库以“一位客户的一整段聊天”为最小存储、运行和审核单位。对话内部保留原始顺序，并生成顺序检查点，但不会把检查点拆成独立案例。
 
-当前案例库会自动加载此前导入的全部 47 个客户会话：
+当前 77 个客户会话统一编号为 `case001`～`case077`，编号不再体现导入批次。后续导入会读取当前最大编号并顺延，不重新分批编号。
 
-- `case01`～`case10`：10 个；
-- 首单成交资料 `case11`～`case27` 及同一资料中拆出的独立客户会话：20 个；
-- 第二批案例库 `case2_01`～`case2_16` 及独立客户会话：17 个。
+每个编号对应两个物理隔离的版本：
 
-以后只要在 `apps/api/app/domains/decisioning/data/intent_labeling_cases/` 增加符合现有格式的完整会话 JSON，案例库就会自动纳入，不需要再手工维护案例清单。
+- `data/conversation_cases/complete/`：完整案例库，用于归档与人工核对；
+- `data/conversation_cases/cleaned/`：清洗后案例库，用于意图标注与影子回放。
+
+两个版本不可互相替代或合并；运行时通过 `library_type=complete|cleaned` 明确选择。
 
 ## 数据原则
 
-1. 每个文件对应一个客户会话和一个稳定 `case_id`。
+1. 每个编号在两个库中各有一个文件，并共享稳定 `case_id`。
 2. `turns` 保留客户与历史客服的完整轮次；每条轮次都有稳定 `turn_id`。
 3. 客户轮次会生成 `checkpoint_id`，仅用于顺序执行和定位结果。
 4. 历史客服回复是 `reference_only`，只用于人工对照，不是标准答案。
@@ -22,7 +23,7 @@
 
 ## 影子回放
 
-从管理端“整案案例库”启动一个案例后，系统按客户轮次顺序生成影子回复：
+从管理端“清洗后案例库”启动一个案例后，系统按客户轮次顺序生成影子回复；完整案例库不会进入模型回放：
 
 ```mermaid
 flowchart LR
@@ -55,10 +56,10 @@ flowchart LR
 ## 管理入口
 
 - 页面：`/operations/conversation-cases`
-- 列表接口：`GET /api/v1/admin/conversation-cases`
-- 完整案例：`GET /api/v1/admin/conversation-cases/{case_id}`
+- 列表接口：`GET /api/v1/admin/conversation-cases?library_type=complete|cleaned`
+- 案例详情：`GET /api/v1/admin/conversation-cases/{case_id}?library_type=complete|cleaned`
 - 启动回放：`POST /api/v1/admin/conversation-cases/{case_id}/runs`
 - 运行详情：`GET /api/v1/admin/conversation-cases/runs/{run_id}`
-- 导出案例库：`GET /api/v1/admin/conversation-cases/export`
+- 导出案例库：`GET /api/v1/admin/conversation-cases/export?library_type=complete|cleaned`
 
 同一案例已有 `pending` 或 `running` 任务时，重复启动会返回现有任务，避免重复模型调用。

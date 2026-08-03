@@ -522,6 +522,10 @@ def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path)
         "case3_15": 40,
         "case3_16": 10,
     }
+    expected_counts = {
+        f"case{index:03d}": count
+        for index, count in enumerate(expected_counts.values(), start=1)
+    }
 
     async def import_all():
         return {
@@ -547,7 +551,7 @@ def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path)
     assert observations["total"] == sum(expected_counts.values()) == 2355
 
     merged_customer_turn = client.get(
-        "/api/v1/admin/intent-observations/intent-case-case07-004"
+        "/api/v1/admin/intent-observations/intent-case-case007-004"
     ).json()["data"]
     assert merged_customer_turn["user_message"] == (
         "不知道。\n另外端午节会员活动还有吗？如果可以，我想参加学习。"
@@ -555,13 +559,13 @@ def test_all_bundled_cases_import_expected_customer_turns(monkeypatch, tmp_path)
     assert merged_customer_turn["raw_prediction"]["source_message_count"] == 2
 
     merged_merchant_context = client.get(
-        "/api/v1/admin/intent-observations/intent-case-case03-003"
+        "/api/v1/admin/intent-observations/intent-case-case003-003"
     ).json()["data"]["context"][-1]["content"]
     assert "请把订单截图发给我" in merged_merchant_context
     assert "经核实，您购买的是其他店铺的兰花" in merged_merchant_context
 
     reconstructed = client.get(
-        "/api/v1/admin/intent-observations/intent-case-case10-002"
+        "/api/v1/admin/intent-observations/intent-case-case010-002"
     ).json()["data"]
     assert reconstructed["raw_prediction"]["content_quality"] == (
         "reconstructed_from_summary"

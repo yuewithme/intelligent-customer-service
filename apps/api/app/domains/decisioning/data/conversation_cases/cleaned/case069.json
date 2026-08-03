@@ -1,0 +1,168 @@
+{
+  "case_id": "case069",
+  "customer_id": "intent-case069-customer",
+  "source_file": "docs/案例库3-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送商品或会员活动推荐，推广正文已清理）",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "333"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "周末愉快",
+        "原价50一苗，今天放漏 6-8苗整盆88米，还有超大爆盆的十几二十苗128",
+        "这是莲瓣兰的名品 名气很大的品种，下山云南 曾经百万一苗的荷瓣，您知道有了解过吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "嗯嗯好",
+        "那给您留一盆 大的好吗",
+        "多苗的 还是漂亮"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "能不能种好发货"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "可以的",
+        "我这边给您带培育盆土一起发过去好吗？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "能不能换好土发货"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您家里有盆吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "没有",
+        "主要不会种"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那我就直接给您带培育盆土发回去收到您直接养护就行",
+        "或者我这边也有紫砂盆紫砂盆，帮您栽好到家直接养也可以"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "可以"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那给您培育盆，还是紫砂盆呢？紫砂盆+80用的是手工定制的",
+        "你用大盆规格的还是小盆？规格的？苗情都是一样壮，只是有大盆的苗多"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "二十苗来一盆"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "大盆的",
+        "我给您挑的话就是最大盆的",
+        "紫砂盆 用给您栽种吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "行",
+        "有花没有"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "是带花剑的",
+        "收到的话刚好可以赏花",
+        "我这边给您再弄好一整套发过去，包括这个产品的养护方法，我也会发给您，到时候您参考过程当中有任何问题都可以及时联系我"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "行"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您拍这个专属链接就可以，等您下单好，我这边备注发大盆滴",
+        "（客服发送资料：【莲瓣兰朱丝玉荷】养护注意事项）",
+        "这个是莲瓣兰朱丝玉荷的养护事项，您收藏一下"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "付了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的哥，我这边给您安排",
+        "您平时家里面养的有蕙兰吗？",
+        "蕙兰现在到花期了，也蛮漂亮的，很香，很香"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "没养过"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "要不要给您挑一盆感受一下，一起发给您闻闻，蕙兰花期刚刚开始也是",
+        "蕙兰是国兰七大类最浓香的品种，我们这边又叫九节兰，能开很多花量，栽培历史最久的品类"
+      ]
+    }
+  ],
+  "legacy_case_id": "case3_08_2",
+  "library_type": "cleaned",
+  "usage": "intent_labeling_and_shadow_replay"
+}

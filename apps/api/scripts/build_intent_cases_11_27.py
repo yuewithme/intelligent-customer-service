@@ -7,19 +7,18 @@ import re
 from pathlib import Path
 
 from app.integrations.ai.services.llm_service import generate_json
+from scripts.build_intent_case_library2 import (
+    CLEANED_CASE_DIR,
+    COMPLETE_CASE_DIR,
+    _existing_case_fingerprint_owners,
+    _next_case_number,
+    _turns_fingerprint,
+)
 
 
 API_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = API_ROOT.parents[1]
 DEFAULT_SOURCE = PROJECT_ROOT / "docs" / "首单成交案例-意图识别清洗版.md"
-OUTPUT_DIR = (
-    API_ROOT
-    / "app"
-    / "domains"
-    / "decisioning"
-    / "data"
-    / "intent_labeling_cases"
-)
 CASE_HEADING = re.compile(r"^###\s*案例(\d+)[：:]?\s*$")
 VALID_ROLES = {"customer", "merchant"}
 ROLE_CHUNK_SIZE = 10
@@ -210,26 +209,51 @@ async def classify_roles(
 
 async def build_cases(source: Path, case_numbers: list[int]) -> None:
     parsed = parse_cases(source)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    COMPLETE_CASE_DIR.mkdir(parents=True, exist_ok=True)
+    CLEANED_CASE_DIR.mkdir(parents=True, exist_ok=True)
+    fingerprint_owners = _existing_case_fingerprint_owners()
+    next_case_number = _next_case_number()
     for case_number in case_numbers:
         messages = parsed.get(case_number)
         if not messages:
             raise ValueError(f"case{case_number:02d} not found in {source}")
-        for case_id, segment_messages in split_case_conversations(
+        for legacy_case_id, segment_messages in split_case_conversations(
             case_number, messages
         ):
-            roles = await classify_roles(case_number, case_id, segment_messages)
+            roles = await classify_roles(
+                case_number,
+                legacy_case_id,
+                segment_messages,
+            )
             turns = group_turns(segment_messages, roles)
+            fingerprint = _turns_fingerprint(turns)
+            if fingerprint in fingerprint_owners:
+                continue
+            case_id = f"case{next_case_number:03d}"
+            next_case_number += 1
+            fingerprint_owners[fingerprint] = case_id
             payload = {
                 "case_id": case_id,
                 "customer_id": f"intent-{case_id}-customer",
                 "source_file": "docs/首单成交案例-意图识别清洗版.md",
+                "library_type": "cleaned",
+                "usage": "intent_labeling_and_shadow_replay",
                 "content_quality": "cleaned_verbatim_case_transcript",
                 "turns": turns,
             }
-            output = OUTPUT_DIR / f"{case_id}.json"
-            output.write_text(
+            (CLEANED_CASE_DIR / f"{case_id}.json").write_text(
                 json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            complete_payload = {
+                **payload,
+                "source_file": source.name,
+                "library_type": "complete",
+                "usage": "archive_and_manual_review",
+                "content_quality": "complete_privacy_safe_transcript",
+            }
+            (COMPLETE_CASE_DIR / f"{case_id}.json").write_text(
+                json.dumps(complete_payload, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
             customer_turns = sum(turn["role"] == "customer" for turn in turns)

@@ -1,0 +1,101 @@
+{
+  "case_id": "case001",
+  "customer_id": "intent-case001-customer",
+  "customer_name": "闯天涯",
+  "source_file": "docs/case01.md",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "兰友您好，我是萧兰苑养兰老师（兰悦），专业养兰20年。请问您目前养了几盆兰花？都是什么品种？所在省份？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我是甘肃天水的，我养的全是建兰。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "甘肃比较适合养建兰。您养护过程中有没有遇到黑斑、黄叶、腐苗等问题？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "经常遇到，去年的现在全军覆没了。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您的兰花在哪里买的？商家有没有安排师傅指导？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "都是抖音直播买的，没有师傅指导。今年又买了白玉凤、蓝水仙、翠玉玲珑、翡翠水晶。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这些大多属于温室科技苗，家庭养护难度较高。如果没有专业指导，很容易出现黑斑、腐苗等问题。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "难怪一直养不活。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我们专门指导兰友养兰，会根据地区推荐品种，并提供一对一指导和视频课程，帮助解决黑斑、腐苗等常见问题。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的，谢谢。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "如果您想真正学会养兰，可以加入我们的陪伴养兰会员。\n\n会员包含：\n\n- 一对一指导\n- 百节视频课程\n- 常见病害处理\n- 新手养护教学\n- 60天养死包赔\n- 赠送建兰名品《七仙女》\n\n活动价：39.9 元。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "怎么加入？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我发您会员专属链接，填写地址下单即可。"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "已购买完成。"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "欢迎加入会员。我先给您开通课程，并发送七仙女养护资料。后续您可以把养兰环境拍给我，我继续指导您养护。"
+      ]
+    }
+  ],
+  "legacy_case_id": "case01",
+  "library_type": "cleaned",
+  "usage": "intent_labeling_and_shadow_replay"
+}

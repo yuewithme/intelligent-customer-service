@@ -1,0 +1,162 @@
+{
+  "case_id": "case047",
+  "customer_id": "intent-case047-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "您之前购买的兰花 商家有给您发系统的养兰【视频课程】教您怎么养好兰花吗？ 遇到养兰过程疑难杂症时，会安排专业的养兰师傅【一对一指导】您操作吗？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "没有指导过商家"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这几盆养的还行ha"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "养了每年都出苗子，但是就是不开花，一直放在室内养护的，不知道什么原因"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "施肥了吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "偶尔施一下",
+        "也不敢太勒快施肥",
+        "怕烧死"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "用缓释肥"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "什么缓释肥",
+        "什么牌子的缓释肥"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "兰花缓释肥",
+        "这个缓释肥是我们兰园自己使用的 肥效180天，为了防止兰友操作不当导致烧苗，方便兰友使用，我们都是单独分装好的，一包一盆，一年只要使用2-3次即可"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我下单买了",
+        "不知道好不好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好用的很",
+        "我们兰园自己使用的",
+        "一年只要使用两次即可",
+        "其他的肥料都是不要使用了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "什么时候发货",
+        "我已经下单了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我看到了",
+        "今天发出哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "收到货之后可以用吗夏天高温",
+        "有影响吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "等秋季再使用",
+        "兰花高温进入休眠期了",
+        "使用了也不会吸收"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的谢谢",
+        "夏天室室养兰几天浇一次水适合",
+        "内"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您使用的植料发我看看"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "就是普通士质掺了一些陶粒",
+        "你看一下上面植料"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "具体比例呢",
+        "你方便抓一把发我看看吗"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "土质3份陶粒2份松树皮1份这是大概比例"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "5-7天一次即可",
+        "采用淋浴法浇水",
+        "每次都要浇透哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "明白"
+      ]
+    }
+  ],
+  "legacy_case_id": "case2_16",
+  "library_type": "cleaned",
+  "usage": "intent_labeling_and_shadow_replay"
+}

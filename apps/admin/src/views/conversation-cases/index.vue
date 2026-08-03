@@ -6,7 +6,9 @@
         <p>一位客户的一整段聊天作为一个案例；检查点只用于顺序回放，不会把案例拆散。</p>
       </div>
       <div class="head-actions">
-        <ElButton :loading="exporting" @click="exportLibrary">导出完整案例 JSONL</ElButton>
+        <ElButton :loading="exporting" @click="exportLibrary">
+          导出{{ libraryText(activeLibrary) }} JSONL
+        </ElButton>
         <ElButton type="primary" @click="load">刷新</ElButton>
       </div>
     </div>
@@ -20,10 +22,24 @@
     />
 
     <div class="metrics">
-      <div><span>完整客户会话</span><strong>{{ total }}</strong></div>
-      <div><span>原始案例 01–10</span><strong>{{ sourceCounts.case_01_10 || 0 }}</strong></div>
-      <div><span>首单成交案例</span><strong>{{ sourceCounts.first_order_cases || 0 }}</strong></div>
-      <div><span>第二批案例库</span><strong>{{ sourceCounts.case_library_2 || 0 }}</strong></div>
+      <button
+        type="button"
+        :class="{ active: activeLibrary === 'complete' }"
+        @click="selectLibrary('complete')"
+      >
+        <span>完整案例库</span>
+        <strong>{{ libraryCounts.complete || 0 }}</strong>
+        <small>保留完整客户对话，用于归档与人工核对</small>
+      </button>
+      <button
+        type="button"
+        :class="{ active: activeLibrary === 'cleaned' }"
+        @click="selectLibrary('cleaned')"
+      >
+        <span>清洗后案例库</span>
+        <strong>{{ libraryCounts.cleaned || 0 }}</strong>
+        <small>独立清洗版本，用于意图标注与影子回放</small>
+      </button>
     </div>
 
     <div class="filters">
@@ -34,18 +50,12 @@
         @clear="load"
         @keyup.enter="load"
       />
-      <ElSelect v-model="filters.source_group" clearable placeholder="案例来源" @change="load">
-        <ElOption label="原始案例 01–10" value="case_01_10" />
-        <ElOption label="首单成交案例" value="first_order_cases" />
-        <ElOption label="第二批案例库" value="case_library_2" />
-      </ElSelect>
     </div>
 
     <ElTable v-loading="loading" :data="items" row-key="case_id" @row-dblclick="openCase">
-      <ElTableColumn label="案例" width="130">
+      <ElTableColumn label="案例" width="110">
         <template #default="{ row }">
           <strong>{{ row.case_id }}</strong>
-          <small class="block">{{ sourceText(row.source_group) }}</small>
         </template>
       </ElTableColumn>
       <ElTableColumn label="客户开场" min-width="360">
@@ -67,18 +77,19 @@
 
     <ElDrawer
       v-model="drawerVisible"
-      :title="detail ? `${detail.case_id} · 完整会话` : '完整会话'"
+      :title="detail ? `${detail.case_id} · ${libraryText(detail.library_type)}` : '案例详情'"
       size="min(1180px, 96vw)"
       @closed="stopPolling"
     >
       <template v-if="detail">
         <div class="drawer-head">
           <div>
-            <ElTag effect="plain">{{ sourceText(detail.source_group) }}</ElTag>
+            <ElTag effect="plain">{{ libraryText(detail.library_type) }}</ElTag>
             <ElTag effect="plain" type="info">{{ qualityText(detail.content_quality) }}</ElTag>
             <span>{{ detail.turn_count }} 轮 · {{ detail.checkpoint_count }} 个检查点</span>
           </div>
           <ElButton
+            v-if="detail.library_type === 'cleaned'"
             type="primary"
             :disabled="readOnly || runInProgress"
             :loading="starting"
@@ -89,7 +100,15 @@
         </div>
 
         <ElAlert
-          v-if="readOnly"
+          v-if="detail.library_type === 'complete'"
+          title="完整案例仅用于归档与人工核对；意图标注和影子回放固定使用同编号的清洗后案例。"
+          type="info"
+          :closable="false"
+          class="notice"
+        />
+
+        <ElAlert
+          v-else-if="readOnly"
           title="测试身份为只读模式，不能启动会产生模型调用的整案回放。"
           type="info"
           :closable="false"
@@ -97,7 +116,7 @@
         />
 
         <ElTabs v-model="activeTab">
-          <ElTabPane label="完整原始会话" name="transcript">
+          <ElTabPane :label="libraryText(detail.library_type)" name="transcript">
             <div class="transcript">
               <article
                 v-for="turn in detail.turns"
@@ -113,7 +132,11 @@
             </div>
           </ElTabPane>
 
-          <ElTabPane :label="`影子回放记录（${runs.length}）`" name="runs">
+          <ElTabPane
+            v-if="detail.library_type === 'cleaned'"
+            :label="`影子回放记录（${runs.length}）`"
+            name="runs"
+          >
             <div v-if="selectedRun" class="run-summary">
               <div>
                 <strong>{{ statusText(selectedRun.status) }}</strong>
@@ -229,8 +252,8 @@ import {
   getConversationCases,
   startConversationCaseRun,
   type ConversationCaseDetail,
+  type ConversationCaseLibrary,
   type ConversationCaseRun,
-  type ConversationCaseSource,
   type ConversationCaseSummary
 } from '@/api/admin/conversationCases'
 import { isTestGate } from '@/utils/gate'
@@ -244,10 +267,13 @@ const items = ref<ConversationCaseSummary[]>([])
 const detail = ref<ConversationCaseDetail | null>(null)
 const runs = ref<ConversationCaseRun[]>([])
 const selectedRun = ref<ConversationCaseRun | null>(null)
-const total = ref(0)
-const sourceCounts = ref<Record<string, number>>({})
+const libraryCounts = ref<Record<ConversationCaseLibrary, number>>({
+  complete: 0,
+  cleaned: 0
+})
+const activeLibrary = ref<ConversationCaseLibrary>('complete')
 const readOnly = isTestGate()
-const filters = reactive({ keyword: '', source_group: '' })
+const filters = reactive({ keyword: '' })
 let pollTimer: number | undefined
 
 const runInProgress = computed(() =>
@@ -261,11 +287,10 @@ const load = async () => {
   try {
     const result = await getConversationCases({
       keyword: filters.keyword || undefined,
-      source_group: filters.source_group || undefined
+      library_type: activeLibrary.value
     })
     items.value = result.items
-    total.value = result.total
-    sourceCounts.value = result.source_counts
+    libraryCounts.value = result.library_counts
   } finally {
     loading.value = false
   }
@@ -273,8 +298,11 @@ const load = async () => {
 
 const openCase = async (row: ConversationCaseSummary) => {
   stopPolling()
-  detail.value = await getConversationCase(row.case_id)
-  runs.value = await getConversationCaseRuns(row.case_id)
+  detail.value = await getConversationCase(row.case_id, activeLibrary.value)
+  runs.value =
+    activeLibrary.value === 'cleaned'
+      ? await getConversationCaseRuns(row.case_id)
+      : []
   selectedRun.value = runs.value[0] || null
   if (selectedRun.value) await refreshSelectedRun()
   activeTab.value = 'transcript'
@@ -337,11 +365,11 @@ const stopPolling = () => {
 const exportLibrary = async () => {
   exporting.value = true
   try {
-    const blob = await downloadConversationCaseLibrary()
+    const blob = await downloadConversationCaseLibrary(activeLibrary.value)
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = 'conversation-case-library.jsonl'
+    anchor.download = `${activeLibrary.value}-conversation-case-library.jsonl`
     anchor.click()
     URL.revokeObjectURL(url)
   } finally {
@@ -349,18 +377,21 @@ const exportLibrary = async () => {
   }
 }
 
-const sourceText = (value: ConversationCaseSource) =>
-  ({
-    case_01_10: '原始案例 01–10',
-    first_order_cases: '首单成交案例',
-    case_library_2: '第二批案例库'
-  })[value] || value
+const selectLibrary = (value: ConversationCaseLibrary) => {
+  if (activeLibrary.value === value) return
+  activeLibrary.value = value
+  load()
+}
+
+const libraryText = (value: ConversationCaseLibrary) =>
+  ({ complete: '完整案例库', cleaned: '清洗后案例库' })[value]
 
 const qualityText = (value: string) =>
   ({
     cleaned_transcript: '清洗后的完整会话',
     cleaned_verbatim_case_transcript: '清洗后的逐字会话',
     cleaned_verbatim_chat_export: '清洗后的聊天导出',
+    complete_privacy_safe_transcript: '完整会话（隐私字段已保护）',
     reconstructed_from_summary: '由摘要重建'
   })[value] || value
 
@@ -427,21 +458,33 @@ small {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
 
-.metrics > div {
+.metrics > button {
   padding: 16px;
   border: 1px solid var(--el-border-color-light);
   border-radius: 10px;
   background: var(--el-bg-color);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.metrics > button.active {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px var(--el-color-primary-light-7);
 }
 
 .metrics span,
 .metrics strong {
   display: block;
+}
+
+.metrics small {
+  margin-top: 6px;
 }
 
 .metrics strong {
@@ -450,9 +493,6 @@ small {
 }
 
 .filters {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) 220px;
-  gap: 12px;
   margin-bottom: 14px;
 }
 

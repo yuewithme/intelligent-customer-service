@@ -1,0 +1,476 @@
+{
+  "case_id": "case037",
+  "customer_id": "intent-case037-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "customer",
+      "messages": [
+        "有啥好的推荐",
+        "经典名品的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "有，西神梅-春兰无上神品",
+        "五大名荷-翠盖荷 和环球荷鼎",
+        "还有春兰的老八种，除了宋梅，其他7种绝对指导收藏"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有图片啥的吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "有的有图片，有视频，有链接，我分享给你了解一下"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "谢谢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您既然要收藏的话，赵哥也可以买一套，夏天入手也很便宜，刚好到月底了冲冲业绩给你一个打包价"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "要不了那么多，选个好看喜欢的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好",
+        "（客服发送视频）",
+        "这些是既好看又好养，非常适合您现阶段的",
+        "（客服发送视频）",
+        "彩素和姜氏荷 是值得收藏的精品，其实价格也比像以前那么高不可攀了，月底都有折扣，会员放漏的",
+        "最推荐您的 就是翠盖 环球 西神"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "上面哪个视频呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这两个看见了",
+        "这个是环球吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "最下面是环球荷鼎"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "都比宋梅好吗",
+        "我看视频里浸盆浸到这个程度，是不有误区"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "春兰界扛把子",
+        "错误示范",
+        "浸盆的话 迈过盆口就可以了",
+        "迈过盆口"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我这个在盆口下，怕淹了芦"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "不浸过盆口 浇不透的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这样吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "是的",
+        "然后浇完放在通风的位置"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "泡多长时间"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "10分钟以上",
+        "十几二十分钟都可以",
+        "能灌透为止"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "啥时有活动价",
+        "上面的花"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "现在是月底 就是活动价的",
+        "你要哪一个品种嘛各"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "最推荐哪盆呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "翠盖荷"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "她有多高",
+        "好像苗不大，是吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "掌中宝，最推荐入手翠盖，咱们兰友很受欢迎的，高度12公分左右"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "多钱"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "月底活动价 给您算68",
+        "会员专属优惠价"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有几颗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "苗数有5苗以上",
+        "一整株，苗很漂亮的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "也是你图片的感觉吗",
+        "要是太少，我感觉就不好看了",
+        "适合多大的盆"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "一株苗不少的，其他的品种一般只有3苗左右，翠盖最少有5苗的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "就是这种感觉，多一些好看"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "也有这么大颗的 120一盆"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个价格怎么改呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "生长周期不一样，大盆的是没有分株的",
+        "我给您上个会员链接"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "你那有5株的效果图吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这个是5苗的上盆效果"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "拍了，别发货啊，几天能到长春",
+        "2天吧，周四发，周六到"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "你没那么快 3天左右",
+        "宋梅不带来了吗“",
+        "您今晚不是要拍宋梅的吗\n春兰之王 梅瓣代表"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我看了下，以前的2单都是2天到的，下周四发吧",
+        "就算周六不到，周日到也行",
+        "你不建议我买这个了吗",
+        "家里花多，养不过来了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的，下周四给您发货",
+        "嗯嗯，可以带一颗春兰不占地方的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个什么价"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "宋梅和我今天晚上跟你分享的这几个经典的名品都是值得你后面收藏的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "刚看了你朋友圈"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "你眼光真好，这个品种是我昨天晚上开始给会员放漏的，原价3百一苗，月底特惠价是188 2苗",
+        "彩素这个品种 就比较稀有，可以寄养在我们兰园，秋季的时候给您发回家"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "就是寄回来直接带花骨了，是吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "是啊，可以寄养到有花苞的时候有新芽的时候都可以"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "2株的效果，是不还不如他"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "肯定不一样呀"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我就比较喜欢这种郁郁葱葱的感觉"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "精品不可能用那么宽的叶子，也不会有那么多的苗子",
+        "兰花讲究的是以稀为贵，主要看品种，不看大小"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这个就是2颗苗子吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "是的",
+        "我可以帮你挑一个带新芽的，帮你寄养着"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有没有3苗那样的",
+        "这叶宽了吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "有3苗的呀，3苗地更壮，春兰彩素三苗地是260",
+        "你拍的这个苗子不细的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "188能不能给个3苗的啊"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "价格差太多了，本身这个品种原价买都要3百一苗的",
+        "您给我凑够200吧，你是老朋友了，我给您挑一颗壮的",
+        "今天优惠给其他会员老客户的没有议价的，因为这个已经是活动价便宜了一半多"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "升级下吧，这才多久都在你这买了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "我知道的，但是这个是精品",
+        "每一苗都几百块的东西",
+        "相当于您加了12块钱，我给你挑了一个3苗\n这个福利没有，第二个人能够给他的",
+        "到这个点也是该下班了，所以我就把唯一的这个权限给您了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我这不怕养不好吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "你放心，你在这儿，我们这儿寄养几个月，苗子也更壮了，而且肯定也有新芽养出来都算你的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "来吧，给个链接"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的，您稍等，我给您发个会员链接"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "嗯嗯，给挑一个啊"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的，您放心，3苗的，而且挑壮的哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "拍了，相信你了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那就翠盖荷给您下周四发货，然后春兰彩素给您寄养在咱们兰园",
+        "谢谢谢谢老朋友的信赖和支持"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "👌",
+        "慢慢来",
+        "养好了，养不好都会再复购"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "养护上有任何的问题，一定要及时联系我，我的任务不光给你谋福利，还会手把手的教你学会养兰花",
+        "谢谢您，谢谢您"
+      ]
+    }
+  ],
+  "legacy_case_id": "case2_06",
+  "library_type": "cleaned",
+  "usage": "intent_labeling_and_shadow_replay"
+}

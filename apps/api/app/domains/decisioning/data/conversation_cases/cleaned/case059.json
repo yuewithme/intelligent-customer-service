@@ -1,0 +1,471 @@
+{
+  "case_id": "case059",
+  "customer_id": "intent-case059-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "content_quality": "cleaned_verbatim_chat_export",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "养兰跟着【萧岚苑】，少走弯路不迷路！\n兰花不难养的，只要选择一个【对版的老种苗】+萧岚苑【一对一手把手】的指导，轻轻松松养出爆盆的兰花！！！",
+        "我们通过【视频教程】+【一对一手把手】指导，教兰友养好兰花 ，不同的地区适合养护的品种不同，麻烦回答下面问题👇\n您这边在哪个省份呢？\n家里养了多少盆兰花？\n便于我给您发适合的养兰资料！"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "来领养兰资料了",
+        "河南新乡\n四盆兰花"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您之前购买的兰花 商家有给您发系统的养兰【视频课程】教您怎么养好兰花吗？ 遇到养兰过程疑难杂症时，会安排专业的养兰师傅【一对一指导】您操作吗？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "之前没有",
+        "全靠问豆包"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "那您遇到我们就太幸运了，我们不光卖兰花 更主要的是教兰友怎么养好兰花；\n通过【视频】解决您养兰的理论知识，看完视频后仍然不会操作的【一对一指导】解决您养兰的实操问题 这个是我们和其他兰园最大的区别 ！！！",
+        "（客服发送商品或会员活动推荐，推广正文已清理）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "第二种\n送哪款兰花？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "有三款皮实耐造的 勤花勤芽品中可以选"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "中"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "根据您的地区气候和养护水平 推荐建兰 飞煌腾达",
+        "那我给您发个链接 你去下单 即可参加我们的陪伴养兰服务了",
+        "上面是我们参加【陪伴养兰】的专属微信店铺链接，授权手机号、填好地址就能下单，权益和直播间一样，下单还有积分，后续可以直接抵现。\n下单之后给您分配专属的养兰指导群，全程指导你养好兰花！！！"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "你先看看我现在养的，如果再添，就添个不一样的吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "下单之后我会要邀请您进专业的养兰指导群 给您开通视频教程的观看权限"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "除了这几款，你哪里还能送哪款？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "第一 第二盆是杂交兰",
+        "很难开花的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "看来我是买上当了"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "新手不懂 被忽悠是正常的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "不过第一盆买来的时候倒是带了花苞，开了一阵子"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "赠送的推荐您选这个建兰的飞煌腾达 每年开花3-5次的 勤花勤芽的很"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这是第一盆开的花，你再给鉴定一下"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "香水香兰 但是一点都不香"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "对呀！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "之后也很难开花了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "啊！？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "杂交兰的特性导致的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "扔了又可惜",
+        "这俩是同一款吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "这个是寒兰彩凤",
+        "两个不是一个品种哈",
+        "这个是建兰"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "赠送的推荐您选这个建兰的飞煌腾达 每年开花3-5次的 勤花勤芽的很",
+        "第二个是飞黄腾达吗？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的就选这个 飞煌腾达"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "🀄"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "下单之后我会要邀请您进专业的养兰指导群 给您开通视频教程的观看权限"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "下过单了",
+        "看到了吧",
+        "刘先生，就是我"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "看到了哈",
+        "（客服发送群聊邀请）",
+        "亲爱的兰友，我是您的专属养兰师傅，邀您加入专属养兰服务群～\n看完养护视频后，实操遇到任何问题，都能在群里随时提问，专业师傅在线答疑。还能和各地兰友交流养兰心得哦！",
+        "上方链接是【萧岚苑】服务了10W+兰友之后，总结录制的实操视频，覆盖了您养兰过程中95%的常见问题，视频的永久权限已经给您开通 随时都可以点开观看... ...\n您看下我们录制的视频课程 你可以打开学习吗？"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "可以观看"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "有养兰疑问随时交流哈",
+        "您家里植料有的哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "有的",
+        "有松树皮"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 明天晚上可以先浸泡了哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "哦！好的",
+        "里面还用掺别的吗？",
+        "另外问一下，我前两天给我这几盆兰花，都用稀薄的柠檬酸配硫酸亚铁水，用浸盆法灌了一下，没事儿吧"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "最好是加点颗粒料",
+        "纯软植料 容易腐烂"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "达摩和小国红，哪个香味更好，开花更勤？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "达摩冬季开花的",
+        "小国魂 属于建兰 每年开花3-5次的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "达摩夏秋季不开花吗",
+        "香味呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的",
+        "不同的品种 开花的时间不同",
+        "小国魂的香味好一点"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "现在主播手里拿的禅月达摩，说是现在就能开呀"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您收的事禅月达摩",
+        "你说完哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "达摩还不一样？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "达摩 一般都是墨兰的",
+        "您说的这禅月达摩是建兰"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "那这禅月达摩和小国红对比呢"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "禅月达摩好一点",
+        "矮种的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "哪个好养，哪个勤花？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "很经典的品种",
+        "禅月达摩好养一点"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "要带一盘吗",
+        "我给您安排一起发货"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "嗯嗯",
+        "要带花剑的啊"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "对的 带花苞的哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "多给关照一下，选好的"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 起亲自给你选",
+        "上面是我们微信店铺链接，授权手机号、填好地址就能下单，权益和直播间一样，下单还有积分，后续可以直接抵现。\n推荐选择【带盆发货】，我们用高端植料帮您种好发出，收到后每周浇一次水就行，很快就可以赏花闻香了！！！！"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "那个红紫砂和浮雕的，哪个更适合养？",
+        "我再买个好盆，你帮我弄好",
+        "最好能把前面送我的那个飞黄腾达也给带个普通盆种好"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "浮雕的紫砂盆好看一点",
+        "推荐选择这个盆子 我使用高端的复合植料 给您栽种好发货",
+        "好的"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "已拍",
+        "多谢关照！"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的 你不用客气 养兰有疑问 我们随时交流哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "好的",
+        "我的这几个，哪个最适合扔了？",
+        "我怕耽误功夫，摆不下"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "您先看看能不能摆的下",
+        "都死一个生命",
+        "丢了也不忍心"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "要真摆，还是能摆下的",
+        "就怕费劲不开花"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "不开花是大概率的",
+        "杂交兰很不好开花的",
+        "养着吧 就当联系技术了"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "嗯嗯",
+        "以后多求教你们"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "随时欢迎哈"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "我力争养开花"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "各种养兰问题都可以哦"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "都选好苗，装好盆啊",
+        "养好了，以后继续买"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "嗯这个您放心哈 我一定要让您养好"
+      ]
+    }
+  ],
+  "legacy_case_id": "case2_29",
+  "library_type": "cleaned",
+  "usage": "intent_labeling_and_shadow_replay"
+}

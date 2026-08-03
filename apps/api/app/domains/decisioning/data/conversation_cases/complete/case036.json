@@ -1,0 +1,120 @@
+{
+  "case_id": "case036",
+  "legacy_case_id": "case2_05",
+  "customer_id": "intent-case036-customer",
+  "source_file": "docs/案例库2-意图识别清洗版.md",
+  "library_type": "complete",
+  "usage": "archive_and_manual_review",
+  "content_quality": "complete_privacy_safe_transcript",
+  "turns": [
+    {
+      "role": "merchant",
+      "messages": [
+        "首单朋友，快来参与60天养死包赔活动吧！\n学会养好算你的，养不活退款算我的～🌹\n💛【养兰农民的心声】兰花圈找我交个朋友你不吃亏！\n开花冠军「金煌如帝」的建兰皇帝🥳 分享给您\n它在6-11月花期，一年开3-5趟花，每次开花时间20-30天，是一款“香水”兰花💛\n❤原价68元，今日仅需39.9￥即可结缘成为会员~\n以兰会友，一对一 手把手 的教你养开花，终生陪伴式服务🤲\n想真心学习养兰之友回复：888预留名额给您~",
+        "（客服发送视频）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "这款花香不？",
+        "有花苞？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "浓香型的带花苞",
+        "这款花色漂亮，株形也很美丽"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "根系大吗？需要多大花盆？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "15-20高度的花盆都可以的",
+        "根系健壮，很好"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "几株呢？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "3-4壮苗一株",
+        "发货都是带盆土栽好 收到可闻香"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "收到可以立即换盆吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "目前是带着花苞的，建议花期过了以后再移盆"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "给我来一株"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的孙大哥"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "回来立马浇水？"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "带盆收到以后 您看我发的养护教程，跟着上手就可以",
+        "（客服发送链接：带紫砂盆或培育盆的兰花收到如何处理）"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "已付"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "好的，感谢老朋友支持",
+        "我来安排，兰苗进行消杀好发过去，等您收到告诉我 我发单品养护教程给您"
+      ]
+    },
+    {
+      "role": "customer",
+      "messages": [
+        "发货了吗"
+      ]
+    },
+    {
+      "role": "merchant",
+      "messages": [
+        "今天在消杀预备，因为前几天下雨了，明天发货，孙总"
+      ]
+    }
+  ]
+}

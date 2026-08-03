@@ -1,13 +1,12 @@
 import request from '@/config/axios'
 
-export type ConversationCaseSource =
-  | 'case_01_10'
-  | 'first_order_cases'
-  | 'case_library_2'
+export type ConversationCaseLibrary = 'complete' | 'cleaned'
 
 export interface ConversationCaseSummary {
   case_id: string
-  source_group: ConversationCaseSource
+  legacy_case_id?: string | null
+  library_type: ConversationCaseLibrary
+  usage: string
   source_file: string
   content_quality: string
   preview: string
@@ -40,7 +39,7 @@ export interface ConversationCaseDetail extends ConversationCaseSummary {
 export interface ConversationCaseList {
   items: ConversationCaseSummary[]
   total: number
-  source_counts: Record<string, number>
+  library_counts: Record<ConversationCaseLibrary, number>
 }
 
 export interface CaseShadowDecision {
@@ -100,16 +99,20 @@ export interface ConversationCaseRun {
 
 export const getConversationCases = (params?: {
   keyword?: string
-  source_group?: string
+  library_type?: ConversationCaseLibrary
 }) =>
   request.get<ConversationCaseList>({
     url: '/api/v1/admin/conversation-cases',
     params
   })
 
-export const getConversationCase = (caseId: string) =>
+export const getConversationCase = (
+  caseId: string,
+  libraryType: ConversationCaseLibrary
+) =>
   request.get<ConversationCaseDetail>({
-    url: `/api/v1/admin/conversation-cases/${encodeURIComponent(caseId)}`
+    url: `/api/v1/admin/conversation-cases/${encodeURIComponent(caseId)}`,
+    params: { library_type: libraryType }
   })
 
 export const startConversationCaseRun = (caseId: string) =>
@@ -128,8 +131,11 @@ export const getConversationCaseRun = (runId: string) =>
     url: `/api/v1/admin/conversation-cases/runs/${encodeURIComponent(runId)}`
   })
 
-export const downloadConversationCaseLibrary = () =>
+export const downloadConversationCaseLibrary = (
+  libraryType: ConversationCaseLibrary
+) =>
   request.get<Blob>({
     url: '/api/v1/admin/conversation-cases/export',
+    params: { library_type: libraryType },
     responseType: 'blob'
   })
