@@ -136,6 +136,10 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
     business_facts = getattr(plan, "business_facts", None)
     facts = business_facts.model_dump() if business_facts is not None else {}
     has_business_facts = bool(getattr(business_facts, "available", False))
+    verified_facts = facts if has_business_facts else {}
+    brand_value_facts = sales_action.get("brand_value_facts")
+    if isinstance(brand_value_facts, list) and brand_value_facts:
+        verified_facts = {**verified_facts, "brand_value_facts": brand_value_facts}
     allow_persona_extension = bool(reply.metadata.get("allow_persona_extension"))
     rewrite_business_copy = bool(
         reply.metadata.get("persona_rewrite_business_copy")
@@ -168,7 +172,7 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
         render_mode=render_mode,
         composition_mode=composition_mode,
         suggested_copy=reply.answer,
-        verified_facts=facts if has_business_facts else {},
+        verified_facts=verified_facts,
         question_slot=_optional_text(sales_action.get("question_slot")),
         prohibited_claims=_string_list(sales_action.get("prohibited_behaviors")),
         template_id=reply.template_id,

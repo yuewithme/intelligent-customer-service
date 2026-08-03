@@ -141,6 +141,35 @@ def test_plain_template_uses_anchor_plus_persona_composition():
     assert spec.composition_mode == "anchor_plus_persona"
 
 
+def test_reply_spec_exposes_verified_membership_value_without_product_facts():
+    reply = FinalReply(
+        answer="先把眼前的黄叶问题理清。",
+        reply_type="chitchat",
+        route="chitchat",
+    )
+    plan = ReplyPlan(action="chitchat", reason="pain_discovery")
+    brand_value_facts = [
+        {
+            "brand": "萧岚苑",
+            "product_type": "陪伴养兰会员",
+            "service_capabilities": ["系统的视频课程", "结合具体养护问题的一对一指导"],
+        }
+    ]
+    state = UserState(
+        user_id="u1",
+        metadata={
+            "sales_action": {
+                "reply_goal": "说明有人陪伴养兰的重要性",
+                "brand_value_facts": brand_value_facts,
+            }
+        },
+    )
+
+    spec = build_reply_spec(reply=reply, plan=plan, user_state=state)
+
+    assert spec.verified_facts["brand_value_facts"] == brand_value_facts
+
+
 @pytest.mark.asyncio
 async def test_persona_renderer_uses_system_role_and_renders_question_once(monkeypatch):
     from app.services import persona_renderer

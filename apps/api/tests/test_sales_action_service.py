@@ -20,19 +20,21 @@ def _intent(**slots) -> IntentResult:
     )
 
 
-def test_discovery_asks_for_first_missing_sales_slot():
+def test_discovery_uses_a_concrete_pain_probe_instead_of_service_product_choice():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
         intent=_intent(),
     )
 
-    assert decision.sales_action == "discover_need_track"
-    assert decision.question_slot == "need_track"
-    assert decision.required_slots == ["need_track"]
+    assert decision.sales_action == "discover_pain"
+    assert decision.question_slot == "pain_point"
+    assert decision.required_slots == ["pain_point"]
+    assert "黑斑、黄叶、腐苗" in decision.reply_goal
+    assert "服务还是产品" not in decision.reply_goal
     assert decision.next_stage == "pain_discovery"
 
 
-def test_care_reply_prioritizes_expertise_and_optional_diagnostic_question():
+def test_care_reply_without_specific_pain_asks_one_guided_pain_question():
     intent = _intent().model_copy(
         update={
             "primary_domain": "care",
@@ -46,10 +48,39 @@ def test_care_reply_prioritizes_expertise_and_optional_diagnostic_question():
     )
 
     assert decision.sales_action == "discover_pain"
+    assert decision.question_slot == "pain_point"
+    assert decision.allow_diagnostic_question is False
+    assert "黑斑、黄叶、腐苗" in decision.reply_goal
+
+
+def test_care_reply_with_specific_pain_stops_questioning_and_builds_service_value():
+    intent = _intent(pain_point="烂根").model_copy(
+        update={"primary_domain": "care", "primary_goal": "seek_help"}
+    )
+
+    decision = decide_sales_action(
+        user_state=UserState(user_id="care_user", sales_stage="pain_discovery"),
+        intent=intent,
+    )
+
+    assert decision.sales_action == "discover_pain"
     assert decision.question_slot is None
-    assert decision.allow_diagnostic_question is True
-    assert "专业分析" in decision.reply_goal
-    assert "萧岚苑" in decision.reply_goal
+    assert decision.required_slots == []
+    assert decision.allow_diagnostic_question is False
+    assert "问题反复" in decision.reply_goal
+    assert "长期陪伴" in decision.reply_goal
+    assert "不要继续追问" in decision.reply_goal
+
+
+def test_explicit_orchid_product_need_is_not_forced_into_service_pain_probe():
+    decision = decide_sales_action(
+        user_state=UserState(user_id="product_user", sales_stage="need_discovery"),
+        intent=_intent(need_track="product", color_preference="红色"),
+    )
+
+    assert decision.sales_action == "discover_need_track"
+    assert decision.question_slot is None
+    assert "购兰或选品需求" in decision.reply_goal
 
 
 @pytest.mark.parametrize(
@@ -115,7 +146,7 @@ def test_discovery_does_not_repeat_an_asked_slot():
             "profile": {
                 "active_opportunity": {
                     "slots": {},
-                    "asked_slots": ["need_track"],
+                    "asked_slots": ["pain_point"],
                 }
             }
         },
@@ -125,6 +156,7 @@ def test_discovery_does_not_repeat_an_asked_slot():
 
     assert decision.question_slot is None
     assert decision.required_slots == []
+    assert decision.sales_action == "discover_pain"
 
 
 def test_sales_action_reads_synchronous_active_opportunity():
@@ -134,7 +166,7 @@ def test_sales_action_reads_synchronous_active_opportunity():
         metadata={
             "active_opportunity": {
                 "slots": {"budget": "100"},
-                "asked_slots": ["need_track"],
+                "asked_slots": ["pain_point"],
             }
         },
     )
@@ -328,7 +360,7 @@ def test_planned_slot_remains_internal_when_reply_has_no_question():
 
     result = apply_sales_action(reply, decision)
 
-    assert decision.question_slot == "need_track"
+    assert decision.question_slot == "pain_point"
     assert result.answer == "好的，我先按您说的情况处理。"
     assert "emitted_question_slot" not in result.metadata
 

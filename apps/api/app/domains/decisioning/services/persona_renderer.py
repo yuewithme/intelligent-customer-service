@@ -61,6 +61,13 @@ async def render_persona_reply(
         )
     else:
         composition_instruction = ""
+    question_instruction = (
+        "question_slot 为 pain_point 时，只问一个具体自然的问题，"
+        "可用“有没有遇到黑斑、黄叶、腐苗等问题？”帮助客户表达；"
+        "不要问想要服务还是产品，也不要同时追问植料、浇水、地区。"
+        if spec.question_slot == "pain_point"
+        else ""
+    )
     payload = {
         "customer_message": current_message,
         "reply_spec": {
@@ -89,6 +96,7 @@ async def render_persona_reply(
             "role": "user",
             "content": (
                 f"请依据下列数据生成这一轮的微信客户回复。{composition_instruction}"
+                f"{question_instruction}"
                 "先完成 reply_goal。question_slot 有值时，只能自然追问该项，"
                 "不要顺带询问相邻信息；question_slot 为空时，不得出现问句，"
                 "也不得用命令句索要手机号、订单号、图片或其他资料。"

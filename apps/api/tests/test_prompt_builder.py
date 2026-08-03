@@ -71,3 +71,26 @@ async def test_customer_reply_prompt_requires_friendly_plain_short_messages():
     assert "short conversational sentences" in prompt
     assert "Do not use Markdown" in prompt
     assert "Do not limit the number of messages" in prompt
+
+
+@pytest.mark.asyncio
+async def test_pain_discovery_prompt_uses_concrete_examples_and_blocks_abstract_choice():
+    prompt = await build_prompt(
+        PromptBuildInput(
+            prompt_block_ids=["base.customer_service", "scenario.orchid_care"],
+            context=ContextPackage(
+                session_state={
+                    "sales_action": {
+                        "sales_action": "discover_pain",
+                        "question_slot": "pain_point",
+                        "reply_goal": "用具体问题引导客户说出养兰痛点",
+                    }
+                }
+            ),
+            user_message="我刚入门，养了几盆都不太好。",
+        )
+    )
+
+    assert "有没有遇到黑斑、黄叶、腐苗等问题？" in prompt
+    assert "Do not ask whether they want service or products" in prompt
+    assert "do not recommend an orchid unless the customer explicitly asks" in prompt
