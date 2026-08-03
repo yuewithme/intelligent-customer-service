@@ -97,7 +97,7 @@ def _render_commerce_reply(facts: BusinessFacts) -> FinalReply | None:
     if commerce_type == "product":
         products = state.get("products") if isinstance(state.get("products"), list) else []
         if status == "not_found" and state.get("query_performed"):
-            return _product_no_match_handoff(state)
+            return _product_no_match_reply(state)
         if status != "found" or not products:
             return None
         else:
@@ -223,23 +223,17 @@ def _unsupported_order_action_handoff(state: dict) -> FinalReply:
     )
 
 
-def _product_no_match_handoff(state: dict) -> FinalReply:
+def _product_no_match_reply(state: dict) -> FinalReply:
     return FinalReply(
-        answer="",
-        reply_type="human",
-        route="human",
-        need_human=True,
-        next_action="human_handoff",
+        answer="我这边暂时没匹配到对应商品，您把想买的品种或商品截图发我，我继续帮您找。",
+        reply_type="template",
+        route="template_reply",
         metadata={
             "business_facts_used": True,
             "commerce_action": {
                 "commerce_type": "product",
                 "status": state.get("status"),
                 "card_sent": False,
-            },
-            "handoff": {
-                "reason": "matched_orchid_not_found",
-                "status": "pending",
             },
         },
     )

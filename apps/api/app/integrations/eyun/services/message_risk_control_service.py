@@ -1230,25 +1230,7 @@ async def _finalize_eyun_handoff(
         operator_id="system",
         reason=reason,
     )
-    if str(chat_result.get("answer") or "").strip():
-        return chat_result
-    fallback = (
-        "这个问题需要人工同事进一步核实，我已经为您转接，"
-        "请稍等一下，我们会继续在这里回复您。"
-    )
-    return {
-        **chat_result,
-        "answer": fallback,
-        "answer_segments": [fallback],
-        "outbound_messages": [
-            *(
-                chat_result.get("outbound_messages")
-                if isinstance(chat_result.get("outbound_messages"), list)
-                else []
-            ),
-            {"type": "text", "content": fallback},
-        ],
-    }
+    return chat_result
 
 
 def _batch_inbound_payloads(

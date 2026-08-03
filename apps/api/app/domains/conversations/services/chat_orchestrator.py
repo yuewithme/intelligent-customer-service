@@ -471,7 +471,6 @@ async def handle_chat(request: ChatRequest) -> dict:
         stage_latencies["state_update_ms"] = _elapsed_ms(stage_started)
 
         result = _to_chat_data(message.session_id, message.trace_id, routed_intent, reply)
-        result = _with_eyun_handoff_fallback(message, result)
         await _record_workbench_turn(
             message=message,
             result=result,
@@ -682,33 +681,6 @@ def _legacy_handoff(handoff: dict | None) -> dict | None:
         "rag_no_answer_to_handoff": "rag_no_answer",
     }.get(reason, reason)
     return {**handoff, "reason": legacy_reason}
-
-
-def _with_eyun_handoff_fallback(message, result: dict) -> dict:
-    metadata = getattr(message, "metadata", {}) or {}
-    if (
-        metadata.get("provider") != "eyun"
-        or not result.get("need_human")
-        or str(result.get("answer") or "").strip()
-    ):
-        return result
-    fallback = (
-        "这个问题需要人工同事进一步核实，我已经为您转接，"
-        "请稍等一下，我们会继续在这里回复您。"
-    )
-    outbound_messages = result.get("outbound_messages")
-    outbound_messages = (
-        list(outbound_messages) if isinstance(outbound_messages, list) else []
-    )
-    return {
-        **result,
-        "answer": fallback,
-        "answer_segments": [fallback],
-        "outbound_messages": [
-            *outbound_messages,
-            {"type": "text", "content": fallback},
-        ],
-    }
 
 
 def _is_evaluation_request(message) -> bool:

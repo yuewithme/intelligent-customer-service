@@ -69,7 +69,6 @@ async def test_business_reply_uses_customer_language(
     "tool_state",
     [
         {"order_lookup": "not_found"},
-        {"commerce_type": "product", "status": "not_found", "products": []},
         {"commerce_type": "product", "status": "unavailable", "products": []},
         {"commerce_type": "order", "status": "not_found", "orders": []},
     ],
@@ -90,3 +89,25 @@ async def test_unanswerable_business_facts_do_not_render_fallback_reply(
     )
 
     assert reply is None
+
+
+@pytest.mark.asyncio
+async def test_product_no_match_replies_normally_without_handoff():
+    from app.services import business_reply_renderer
+
+    reply = await business_reply_renderer.render_business_reply(
+        _message(
+            "我想买这个",
+            {
+                "commerce_type": "product",
+                "status": "not_found",
+                "products": [],
+                "query_performed": True,
+            },
+        )
+    )
+
+    assert reply is not None
+    assert reply.route == "template_reply"
+    assert reply.need_human is False
+    assert "暂时没匹配到对应商品" in reply.answer

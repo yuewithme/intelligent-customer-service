@@ -186,6 +186,12 @@ MEMBERSHIP_ACTION_WORDS = (
     "一对一",
     "指导",
 )
+SEMANTIC_COMMERCE_FALLBACK_REASONS = frozenset(
+    {
+        "rule_explicit_order_intent",
+        "rule_product_purchase_query",
+    }
+)
 UNSUPPORTED_WORDS = ("写代码", "彩票", "股票推荐", "医疗诊断", "法律意见", "无关业务")
 ORDER_QUERY_WORDS = (
     "查订单",
@@ -823,13 +829,16 @@ def classify_by_fast_rule(text: str) -> IntentResult | None:
     if not settings.intent_fast_rules_enabled:
         return None
     hard_intent = classify_by_hard_rules(text)
+    if (
+        hard_intent is not None
+        and hard_intent.reason in SEMANTIC_COMMERCE_FALLBACK_REASONS
+    ):
+        return None
     if hard_intent is not None and hard_intent.reason in {
         "rule_material_request",
         "rule_product_image_request",
-        "rule_product_purchase_query",
         "rule_product_recommendation_request",
         "rule_orchid_supply_shortage",
-        "rule_explicit_order_intent",
         "rule_order_service_action",
         "rule_explicit_price_objection",
     }:
@@ -902,7 +911,13 @@ async def classify_intent(
     candidates: list[dict] | None = None,
 ) -> IntentResult:
     hard_intent = classify_by_hard_rules(message.message)
-    if hard_intent is not None:
+    semantic_commerce_fallback = None
+    if (
+        hard_intent is not None
+        and hard_intent.reason in SEMANTIC_COMMERCE_FALLBACK_REASONS
+    ):
+        semantic_commerce_fallback = hard_intent
+    elif hard_intent is not None:
         return _with_decision_blocker(hard_intent, message.message)
 
     normalized = normalize_intent_text(message.message)
@@ -960,7 +975,8 @@ async def classify_intent(
     llm_enabled = bool(getattr(settings, "intent_llm_enabled", False))
     rule_intent = classify_by_soft_rules(message.message)
     if (
-        settings.intent_fast_rules_enabled
+        semantic_commerce_fallback is None
+        and settings.intent_fast_rules_enabled
         and rule_intent.confidence >= settings.intent_fast_rule_threshold
     ):
         return _with_decision_blocker(rule_intent, message.message)
@@ -992,6 +1008,9 @@ async def classify_intent(
                 "reason": "fallback_membership_product_request",
             }
         )
+
+    if semantic_commerce_fallback is not None:
+        return _with_decision_blocker(semantic_commerce_fallback, message.message)
 
     if candidates and rule_intent.route == candidates[0].get("route"):
         rule_intent = rule_intent.model_copy(
