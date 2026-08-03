@@ -6,6 +6,7 @@
       :active-key="selectedGroupKey"
       @select="selectConversation"
       @hidden="handleHidden"
+      @view-change="clearSelection"
     />
     <MessagePanel
       ref="messagePanelRef"
@@ -75,6 +76,10 @@ const handleChanged = async () => {
 
 const handleHidden = (conversationIds: string[]) => {
   if (!selectedIds.value.some((id) => conversationIds.includes(id))) return
+  clearSelection()
+}
+
+const clearSelection = () => {
   selectedId.value = ''
   selectedIds.value = []
   selectedGroupKey.value = ''

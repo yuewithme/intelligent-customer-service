@@ -116,12 +116,18 @@ def test_evaluation_turn_is_recorded_as_a_labeled_workbench_conversation(
     )
 
     client = TestClient(app)
-    listing = client.get(
+    regular_listing = client.get(
         "/api/v1/admin/conversations", params={"channel": "wechat"}
     ).json()["data"]
-    assert listing["total"] == 1
-    assert listing["items"][0]["user_display_name"] == "测试案例｜classic-case-12"
-    assert listing["items"][0]["status"] == "handoff_pending"
+    test_listing = client.get(
+        "/api/v1/admin/conversations",
+        params={"test_only": True},
+    ).json()["data"]
+    assert regular_listing["items"] == []
+    assert regular_listing["total"] == 0
+    assert test_listing["total"] == 1
+    assert test_listing["items"][0]["user_display_name"] == "测试案例｜classic-case-12"
+    assert test_listing["items"][0]["status"] == "handoff_pending"
 
     detail = client.get(
         "/api/v1/admin/conversations/"

@@ -374,7 +374,11 @@ def test_demo_admin_only_lists_demo_conversations(monkeypatch, tmp_path):
     formal_items = client.get(
         "/api/v1/admin/conversations?channel=wechat"
     ).json()["data"]["items"]
+    admin_test_items = client.get(
+        "/api/v1/admin/conversations?test_only=true"
+    ).json()["data"]["items"]
     assert [item["user_id"] for item in formal_items] == ["real-user"]
+    assert [item["user_id"] for item in admin_test_items] == [demo_user]
 
 
 def test_mcp_streamable_http_lists_sales_agent_tool(monkeypatch, tmp_path):
