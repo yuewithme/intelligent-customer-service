@@ -19,6 +19,7 @@ from app.domains.catalog.services.commerce_query_service import (
 from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
     conversation_blocks_ai,
+    recover_automatic_handoff,
     record_ai_turn,
     record_customer_message,
 )
@@ -91,6 +92,12 @@ async def handle_chat(request: ChatRequest) -> dict:
         is_evaluation = _is_evaluation_request(message)
         stage_latencies["normalize_ms"] = _elapsed_ms(stage_started)
 
+        if not is_evaluation:
+            await recover_automatic_handoff(
+                channel=message.channel,
+                user_id=message.user_id,
+                session_id=message.session_id,
+            )
         if not is_evaluation and conversation_blocks_ai(
             channel=message.channel,
             user_id=message.user_id,

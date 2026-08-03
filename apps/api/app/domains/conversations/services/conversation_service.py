@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, func, inspect, or_, select, text
+from sqlalchemy import create_engine, func, inspect, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -26,6 +26,17 @@ HANDOFF_PENDING = "handoff_pending"
 HUMAN_ACTIVE = "human_active"
 RESOLVED = "resolved"
 AI_BLOCKED_STATUSES = frozenset({HANDOFF_PENDING, HUMAN_ACTIVE, RESOLVED})
+RECOVERABLE_AUTOMATIC_HANDOFF_REASONS = frozenset(
+    {
+        "business_facts_unanswerable_to_handoff",
+        "clarify_to_handoff",
+        "invalid_route_to_handoff",
+        "matched_orchid_not_found",
+        "rag_no_answer_to_handoff",
+        "template_not_found_to_handoff",
+        "unsupported_to_handoff",
+    }
+)
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _initialized_urls: set[str] = set()
@@ -193,6 +204,42 @@ def conversation_blocks_ai(
             )
         )
     return status in AI_BLOCKED_STATUSES
+
+
+async def recover_automatic_handoff(
+    *, channel: str, user_id: str, session_id: str | None
+) -> bool:
+    """Resume AI for obsolete, unclaimed system fallbacks from older releases."""
+    conversation_id = make_conversation_id(channel, user_id, session_id)
+    now = _now()
+    with _get_session() as session:
+        result = session.execute(
+            update(ConversationModel)
+            .where(
+                ConversationModel.conversation_id == conversation_id,
+                ConversationModel.status == HANDOFF_PENDING,
+                ConversationModel.owner_id.is_(None),
+                ConversationModel.handoff_reason.in_(
+                    RECOVERABLE_AUTOMATIC_HANDOFF_REASONS
+                ),
+            )
+            .values(
+                status=AI_ACTIVE,
+                handoff_reason=None,
+                handoff_ticket_id=None,
+                updated_at=now,
+            )
+        )
+        session.commit()
+        recovered = bool(result.rowcount)
+    if not recovered:
+        return False
+
+    from app.domains.customers.services.user_profile_service import clear_human_handoff
+
+    await clear_human_handoff(user_id)
+    _publish_change(conversation_id, "automatic_handoff_recovered")
+    return True
 
 
 async def get_conversation_detail(conversation_id: str) -> dict:
