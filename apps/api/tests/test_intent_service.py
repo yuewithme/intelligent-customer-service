@@ -7,6 +7,7 @@ from app.domains.decisioning.services.intent_service import (
     classify_by_fast_rule,
     classify_by_hard_rules,
     classify_intent,
+    match_membership_product_request,
 )
 
 
@@ -107,6 +108,7 @@ async def test_supply_shortage_stays_in_care_and_does_not_request_products():
         "怎么加入会员？",
         "店里的会员多少钱？",
         "39.9元可以开通会员吗？",
+        "那你们的服务怎么进？多少钱？",
     ],
 )
 async def test_membership_qualification_routes_to_local_product_catalog(text):
@@ -120,7 +122,13 @@ async def test_membership_qualification_routes_to_local_product_catalog(text):
     assert intent.issues == ["product_selection"]
     assert intent.slots["product_keywords"] == ["首单参与陪伴养兰客户"]
     assert intent.slots["product_request_kind"] == "membership"
+    if "怎么进" in text:
+        assert intent.slots["membership_question_kind"] == "combined"
     assert intent.reason == "rule_membership_product_request"
+
+
+def test_generic_service_complaint_is_not_treated_as_membership_purchase():
+    assert match_membership_product_request("你们的服务怎么这么差？") is False
 
 
 @pytest.mark.asyncio

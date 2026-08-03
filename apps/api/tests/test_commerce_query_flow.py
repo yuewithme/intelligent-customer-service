@@ -1292,6 +1292,7 @@ async def test_product_image_renderer_sends_text_image_and_card_without_symbols(
         ("会员具体有哪些服务，老师会看我这盆的情况吗？", "capability", False),
         ("会员多少钱？", "price", False),
         ("怎么开通会员？把购买链接发我。", "purchase", True),
+        ("那你们的服务怎么进？多少钱？", "combined", True),
     ],
 )
 async def test_membership_questions_answer_current_need_before_card(
@@ -1344,6 +1345,9 @@ async def test_membership_questions_answer_current_need_before_card(
     assert facts.tool_state["send_purchase_card"] is expects_card
     if expected_kind == "capability":
         assert "一对一指导" in reply.answer
+    if expected_kind == "combined":
+        assert "后面还容易反复" in reply.answer
+        assert "39.9元" in reply.answer
     assert (
         any(message.type in {"mini_program", "link_card"} for message in reply.outbound_messages)
         is expects_card
