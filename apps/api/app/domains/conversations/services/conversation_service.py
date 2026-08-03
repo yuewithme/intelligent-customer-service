@@ -95,6 +95,7 @@ async def list_conversations(
     user_id_prefix: str | None = None,
     excluded_user_id_prefix: str | None = None,
     wechat_group_allowlist: tuple[str, ...] | None = None,
+    test_data: bool | None = None,
 ) -> dict:
     page = max(page, 1)
     page_size = max(min(page_size, 200), 1)
@@ -113,6 +114,30 @@ async def list_conversations(
         if excluded_user_id_prefix:
             filters.append(
                 ConversationModel.user_id.not_like(f"{excluded_user_id_prefix}%")
+            )
+        if test_data is not None:
+            test_message_exists = (
+                select(ConversationMessageModel.id)
+                .where(
+                    ConversationMessageModel.conversation_id
+                    == ConversationModel.conversation_id,
+                    or_(
+                        ConversationMessageModel.metadata_json.like(
+                            '%"evaluation_id"%'
+                        ),
+                        ConversationMessageModel.metadata_json.like('%"test_entry"%'),
+                        ConversationMessageModel.metadata_json.like('%"is_evaluation"%'),
+                    ),
+                )
+                .exists()
+            )
+            is_test_conversation = or_(
+                ConversationModel.user_id.like("demo:%"),
+                ConversationModel.channel.in_(("web_demo", "mcp_demo")),
+                test_message_exists,
+            )
+            filters.append(
+                is_test_conversation if test_data else ~is_test_conversation
             )
         if wechat_group_allowlist is not None:
             filters.append(

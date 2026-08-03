@@ -7,6 +7,13 @@
         <ElOption label="人工接管中" value="human_active" />
         <ElOption label="已结束" value="resolved" />
       </ElSelect>
+      <ElButton
+        v-if="!testGate"
+        :type="testView ? 'primary' : 'default'"
+        @click="toggleTestView"
+      >
+        {{ testView ? '返回正式对话' : '测试对话' }}
+      </ElButton>
       <ElButton :icon="Refresh" circle @click="load()" />
     </div>
     <ElInput
@@ -19,7 +26,10 @@
     />
 
     <div v-loading="loading" class="items">
-      <ElEmpty v-if="!items.length && !loading" description="暂无会话" />
+      <ElEmpty
+        v-if="!items.length && !loading"
+        :description="testView ? '暂无测试对话' : '暂无会话'"
+      />
       <button
         v-for="item in items"
         :key="item.group_key"
@@ -69,11 +79,14 @@ defineProps<{ activeKey: string }>()
 const emit = defineEmits<{
   select: [item: ConversationGroupItem]
   hidden: [conversationIds: string[]]
+  viewChange: []
 }>()
 
+const testGate = isTestGate()
 const loading = ref(false)
 const status = ref('')
 const keyword = ref('')
+const testView = ref(testGate)
 const items = ref<ConversationGroupItem[]>([])
 let pendingLoad: Promise<void> | undefined
 
@@ -91,10 +104,11 @@ const load = async (options: { silent?: boolean } = {}) => {
       page_size: 50,
       status: status.value || undefined,
       keyword: keyword.value || undefined,
-      channel: isTestGate() ? undefined : 'wechat'
+      channel: testView.value ? undefined : 'wechat',
+      test_only: testGate ? undefined : testView.value
     })
     items.value = groupConversationsByCustomer(data.items, {
-      collapseTestData: isTestGate()
+      collapseTestData: testGate
     })
   })()
   try {
@@ -107,8 +121,16 @@ const load = async (options: { silent?: boolean } = {}) => {
   }
 }
 
+const toggleTestView = async () => {
+  testView.value = !testView.value
+  items.value = []
+  emit('viewChange')
+  if (pendingLoad) await pendingLoad
+  await load()
+}
+
 const hideItem = async (item: ConversationGroupItem) => {
-  if (isTestGate()) return
+  if (testGate || testView.value) return
   try {
     await ElMessageBox.confirm(
       `隐藏“${displayName(item)}”后，它将不再出现在会话列表中，但聊天记录不会删除。`,
@@ -172,7 +194,7 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
 
 .toolbar {
   display: grid;
-  grid-template-columns: 1fr 32px;
+  grid-template-columns: minmax(0, 1fr) auto 32px;
   gap: 8px;
 }
 

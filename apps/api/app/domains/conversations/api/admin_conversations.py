@@ -86,6 +86,7 @@ async def conversations(
     owner_id: str | None = None,
     keyword: str | None = None,
     channel: str | None = None,
+    test_only: bool = False,
 ) -> APIResponse:
     material_group_wc_id = get_settings().eyun_material_group_wc_id.strip()
     data = await list_conversations(
@@ -95,8 +96,9 @@ async def conversations(
         owner_id=owner_id,
         keyword=keyword,
         channels=(channel,) if channel else None,
-        excluded_user_id_prefix=DEMO_USER_PREFIX,
+        excluded_user_id_prefix=None if test_only else DEMO_USER_PREFIX,
         wechat_group_allowlist=(material_group_wc_id,) if material_group_wc_id else (),
+        test_data=test_only,
     )
     return APIResponse(code=0, message="success", data=data)
 
