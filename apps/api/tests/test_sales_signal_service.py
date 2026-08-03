@@ -192,6 +192,58 @@ def test_care_question_is_service_need_not_automatic_after_sale():
     assert CustomerSignal.PURCHASED not in result.signals
 
 
+def test_opening_profile_answer_does_not_imply_product_need():
+    intent = IntentResult(
+        route="chitchat",
+        primary_intent="profile_answer",
+        primary_domain="product",
+        primary_goal="provide_information",
+        confidence=0.98,
+        slots={"plant_count": 4},
+    )
+
+    result = normalize_sales_signals(
+        message=_message("目前还有四盆"),
+        user_state=UserState(user_id="user_1"),
+        intent=intent,
+        tag_result=_tag(intent),
+    )
+
+    assert CustomerSignal.PRODUCT_NEED not in result.signals
+    assert result.slots.get("need_track") != "product"
+
+
+def test_legacy_profile_product_track_is_corrected_to_service_default():
+    intent = IntentResult(
+        route="chitchat",
+        primary_intent="profile_answer",
+        primary_domain="product",
+        primary_goal="provide_information",
+        confidence=0.98,
+        slots={"plant_count": 4},
+    )
+    state = UserState(
+        user_id="user_1",
+        metadata={
+            "profile": {"last_intent": "profile_answer"},
+            "active_opportunity": {
+                "slots": {"plant_count": 4, "need_track": "product"},
+                "last_sales_action": "discover_need_track",
+            },
+        },
+    )
+
+    result = normalize_sales_signals(
+        message=_message("死了买，买了死"),
+        user_state=state,
+        intent=intent,
+        tag_result=_tag(intent),
+    )
+
+    assert CustomerSignal.PRODUCT_NEED not in result.signals
+    assert result.slots["need_track"] == "service"
+
+
 def test_decision_blocker_uses_the_canonical_types():
     intent = _intent(
         "hesitation",

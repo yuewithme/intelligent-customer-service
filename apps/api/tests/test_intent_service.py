@@ -182,6 +182,55 @@ async def test_low_confidence_llm_membership_context_is_executed_without_clarify
 
 
 @pytest.mark.asyncio
+async def test_opening_failure_history_reaches_llm_instead_of_product_profile_rule(
+    monkeypatch,
+):
+    from app.core.config import get_settings
+    from app.services import intent_service
+
+    async def classify_care_failure(message, user_state, candidates=None):
+        del message, user_state, candidates
+        return IntentResult(
+            route="rag_answer",
+            primary_intent="care_question",
+            primary_domain="care",
+            primary_goal="ask_information",
+            issues=["pain_outcome"],
+            classifier_source="llm",
+            confidence=0.9,
+            need_rag=True,
+        )
+
+    state = UserState(
+        user_id="user_intent",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "家里目前养了多少盆兰花？具体养了哪些品种？",
+                }
+            ]
+        },
+    )
+    monkeypatch.setenv("INTENT_LLM_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(intent_service, "classify_by_llm", classify_care_failure)
+
+    try:
+        intent = await classify_intent(
+            _message("安徽省淮南市，目前还有四盆，死了买，买了死"),
+            state,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert intent.classifier_source == "llm"
+    assert intent.primary_domain == "care"
+    assert intent.primary_intent == "care_question"
+    assert intent.reason != "opening_profile_answer"
+
+
+@pytest.mark.asyncio
 async def test_price_only_followup_reuses_selected_membership_product():
     state = UserState(
         user_id="user_intent",

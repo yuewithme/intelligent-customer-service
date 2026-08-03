@@ -105,6 +105,16 @@ CARE_INCIDENT_WORDS = (
     "重新栽",
     "病虫害",
 )
+CARE_FAILURE_HISTORY_WORDS = (
+    "养死",
+    "死了",
+    "总死",
+    "反复死",
+    "没养活",
+    "养不活",
+    "买了死",
+    "死了买",
+)
 CARE_WORDS = (
     "养护",
     "养不活",
@@ -1217,7 +1227,7 @@ def classify_opening_followup(
     if not asked_for_profile:
         return None
     normalized = normalize_intent_text(text)
-    if hit_any(normalized, CARE_INCIDENT_WORDS):
+    if hit_any(normalized, (*CARE_INCIDENT_WORDS, *CARE_FAILURE_HISTORY_WORDS)):
         return None
     if not (
         PLANT_COUNT_PATTERN.search(normalized)
