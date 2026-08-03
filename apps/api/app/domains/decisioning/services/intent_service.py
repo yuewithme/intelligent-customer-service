@@ -163,6 +163,31 @@ DEFER_FOLLOWUP_PATTERNS = (
 )
 MEMBERSHIP_PRODUCT_QUERY = "首单参与陪伴养兰客户"
 MEMBERSHIP_EXCLUSION_WORDS = ("会员专属", "会员商品", "会员价商品")
+MEMBERSHIP_SERVICE_TARGET_WORDS = ("陪伴养兰", "养兰服务", "陪伴服务")
+MEMBERSHIP_SERVICE_REFERENCE_PATTERN = re.compile(
+    r"(?:你们|你家|咱们|这个|这种|刚才说的|上面说的)的?服务"
+)
+MEMBERSHIP_SERVICE_PURCHASE_WORDS = (
+    "怎么进",
+    "如何进",
+    "怎么加入",
+    "如何加入",
+    "怎么开通",
+    "如何开通",
+    "加入",
+    "开通",
+    "办理",
+    "购买",
+    "下单",
+    "付款",
+    "支付",
+    "链接",
+    "入口",
+    "多少钱",
+    "价格",
+    "费用",
+    "收费",
+)
 MEMBERSHIP_ACTION_WORDS = (
     "加入",
     "开通",
@@ -347,8 +372,16 @@ def match_deferred_followup(text: str) -> bool:
 
 
 def match_membership_product_request(text: str) -> bool:
-    if "会员" not in text or hit_any(text, MEMBERSHIP_EXCLUSION_WORDS):
+    if hit_any(text, MEMBERSHIP_EXCLUSION_WORDS):
         return False
+    has_explicit_target = "会员" in text or hit_any(
+        text, MEMBERSHIP_SERVICE_TARGET_WORDS
+    )
+    has_service_reference = bool(MEMBERSHIP_SERVICE_REFERENCE_PATTERN.search(text))
+    if not has_explicit_target and not has_service_reference:
+        return False
+    if has_service_reference and not has_explicit_target:
+        return hit_any(text, MEMBERSHIP_SERVICE_PURCHASE_WORDS)
     return hit_any(text, MEMBERSHIP_ACTION_WORDS) or bool(
         re.search(r"\d+(?:\.\d+)?元?.{0,6}会员|会员.{0,6}\d+(?:\.\d+)?元?", text)
     )
@@ -367,6 +400,8 @@ def membership_question_kind(text: str) -> str:
         (
             "怎么加入",
             "如何加入",
+            "怎么进",
+            "如何进",
             "怎么开通",
             "如何开通",
             "购买",

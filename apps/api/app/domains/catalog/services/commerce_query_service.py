@@ -118,6 +118,8 @@ MEMBERSHIP_PRICE_MARKERS = ("多少钱", "价格", "费用", "收费", "几元",
 MEMBERSHIP_PURCHASE_MARKERS = (
     "怎么加入",
     "如何加入",
+    "怎么进",
+    "如何进",
     "怎么开通",
     "如何开通",
     "购买",
@@ -862,7 +864,21 @@ def _explicitly_requests_purchase_card(text: str) -> bool:
     value = str(text or "")
     return any(
         marker in value
-        for marker in ("链接", "入口", "发我", "购买", "下单", "付款", "支付")
+        for marker in (
+            "链接",
+            "入口",
+            "发我",
+            "购买",
+            "下单",
+            "付款",
+            "支付",
+            "怎么进",
+            "如何进",
+            "怎么加入",
+            "如何加入",
+            "怎么开通",
+            "如何开通",
+        )
     )
 
 

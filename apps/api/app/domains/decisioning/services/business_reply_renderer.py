@@ -250,9 +250,10 @@ def _membership_answer(product: dict, state: dict) -> str:
     price_text = f"{price / 100:g}元" if isinstance(price, int) else ""
     kind = str(state.get("membership_question_kind") or "capability")
     capability_text = (
-        "我们萧岚苑有陪伴养兰会员，里面有系统视频课程，"
-        "也有老师结合您这盆兰花的实际情况做一对一指导，"
-        "会跟着根系、植料和养护环境一步步帮您调整。"
+        "养兰不是只处理眼前一次发黄，浇水、植料和通风这些基础逻辑"
+        "没理顺，后面还容易反复。我们萧岚苑有陪伴养兰会员，里面有系统视频课程，"
+        "也有老师结合兰花的实际情况做一对一指导，遇到具体问题可以"
+        "及时帮您判断和调整。"
     )
     if kind == "capability":
         return f"可以，{capability_text}"
