@@ -69,7 +69,7 @@ async def test_unverified_llm_handoff_is_blocked():
 
 
 @pytest.mark.asyncio
-async def test_low_confidence_knowledge_intent_uses_rag_fallback():
+async def test_low_confidence_is_telemetry_and_does_not_change_route():
     intent = IntentResult(
         route="rag_answer",
         primary_intent="knowledge_question",
@@ -81,8 +81,7 @@ async def test_low_confidence_knowledge_intent_uses_rag_fallback():
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
     assert decision.route == "rag_answer"
-    assert decision.reason == "low_confidence_knowledge_lookup"
-    assert decision.original_route == "rag_answer"
+    assert decision.reason == "knowledge_intent"
 
 
 @pytest.mark.asyncio

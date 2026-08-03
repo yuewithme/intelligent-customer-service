@@ -314,6 +314,24 @@ def test_chitchat_discovery_reply_without_question_is_preserved():
     assert "emitted_question_slot" not in result.metadata
 
 
+def test_llm_fallback_must_execute_the_current_pain_discovery_action():
+    decision = decide_sales_action(
+        user_state=UserState(user_id="user_1", sales_stage="need_discovery"),
+        intent=_intent(),
+    )
+    reply = FinalReply(
+        answer="好的，我接着帮您看看。",
+        reply_type="llm_fallback",
+        route="template_reply",
+    )
+
+    result = apply_sales_action(reply, decision)
+
+    assert result.answer.startswith("好的，我接着帮您看看。")
+    assert any(marker in result.answer for marker in ("黄叶", "黑斑", "烂根", "腐苗"))
+    assert result.metadata["emitted_question_slot"] == "pain_point"
+
+
 def test_unrelated_discovery_question_is_replaced_with_pain_probe():
     decision = decide_sales_action(
         user_state=UserState(user_id="user_1", sales_stage="need_discovery"),

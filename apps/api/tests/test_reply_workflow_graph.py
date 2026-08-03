@@ -96,14 +96,24 @@ async def test_rag_answer_with_answer_returns_rag_reply(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rag_answer_without_answer_silently_hands_off(monkeypatch):
+async def test_rag_answer_without_answer_continues_with_llm(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def answer_knowledge(message, user_state, policy_decision=None):
         del message, user_state, policy_decision
         return {"answer": "", "sources": []}
 
+    async def generate_messages(messages, **kwargs):
+        del messages, kwargs
+        return {"answer": "我先按您说的情况继续帮您看。", "usage": {}}
+
+    async def fail_handoff(**kwargs):
+        del kwargs
+        raise AssertionError("ordinary knowledge miss must not create a handoff")
+
     monkeypatch.setattr("app.domains.knowledge.services.rag_service.answer_knowledge", answer_knowledge)
+    monkeypatch.setattr(reply_workflow_graph, "generate_messages", generate_messages)
+    monkeypatch.setattr(reply_workflow_graph, "request_human_handoff", fail_handoff)
 
     reply = await reply_workflow_graph.execute_reply_plan(
         plan=_plan("rag_answer"),
@@ -114,11 +124,11 @@ async def test_rag_answer_without_answer_silently_hands_off(monkeypatch):
     )
 
     _assert_reply(reply)
-    assert reply.route == "human"
-    assert reply.reply_type == "human"
-    assert reply.need_human is True
-    assert reply.answer == ""
-    assert reply.metadata["handoff"]["reason"] == "rag_no_answer_to_handoff"
+    assert reply.route == "rag_answer"
+    assert reply.reply_type == "llm_fallback"
+    assert reply.need_human is False
+    assert reply.answer == "我先按您说的情况继续帮您看。"
+    assert reply.metadata["llm_fallback"]["reason"] == "rag_no_answer_to_handoff"
 
 
 @pytest.mark.asyncio
@@ -282,14 +292,24 @@ async def test_plan_with_business_facts_uses_grounded_renderer(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_template_reply_missing_default_template_silently_hands_off(monkeypatch):
+async def test_template_reply_missing_default_template_continues_with_llm(monkeypatch):
     from app.services import reply_workflow_graph
 
     async def answer_knowledge(*args, **kwargs):
         del args, kwargs
         raise AssertionError("transaction template miss must not call generic RAG")
 
+    async def generate_messages(messages, **kwargs):
+        del messages, kwargs
+        return {"answer": "好的，我接着帮您处理。", "usage": {}}
+
+    async def fail_handoff(**kwargs):
+        del kwargs
+        raise AssertionError("ordinary template miss must not create a handoff")
+
     monkeypatch.setattr("app.domains.knowledge.services.rag_service.answer_knowledge", answer_knowledge)
+    monkeypatch.setattr(reply_workflow_graph, "generate_messages", generate_messages)
+    monkeypatch.setattr(reply_workflow_graph, "request_human_handoff", fail_handoff)
 
     reply = await reply_workflow_graph.execute_reply_plan(
         plan=_plan("template_reply"),
@@ -300,11 +320,11 @@ async def test_template_reply_missing_default_template_silently_hands_off(monkey
     )
 
     _assert_reply(reply)
-    assert reply.route == "human"
-    assert reply.reply_type == "human"
-    assert reply.need_human is True
-    assert reply.answer == ""
-    assert reply.metadata["handoff"]["reason"] == "template_not_found_to_handoff"
+    assert reply.route == "template_reply"
+    assert reply.reply_type == "llm_fallback"
+    assert reply.need_human is False
+    assert reply.answer == "好的，我接着帮您处理。"
+    assert reply.metadata["llm_fallback"]["reason"] == "template_not_found_to_handoff"
 
 
 @pytest.mark.asyncio
@@ -391,8 +411,19 @@ async def test_human_route_handoffs(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("route", ["unsupported", "clarify"])
-async def test_unanswerable_routes_silently_hand_off(route):
+async def test_unanswerable_routes_continue_without_handoff(monkeypatch, route):
     from app.services import reply_workflow_graph
+
+    async def generate_messages(messages, **kwargs):
+        del messages, kwargs
+        return {"answer": "您接着说，我继续帮您。", "usage": {}}
+
+    async def fail_handoff(**kwargs):
+        del kwargs
+        raise AssertionError("ordinary unanswerable route must not create a handoff")
+
+    monkeypatch.setattr(reply_workflow_graph, "generate_messages", generate_messages)
+    monkeypatch.setattr(reply_workflow_graph, "request_human_handoff", fail_handoff)
 
     reply = await reply_workflow_graph.execute_reply_plan(
         plan=_plan(route),
@@ -403,10 +434,10 @@ async def test_unanswerable_routes_silently_hand_off(route):
     )
 
     _assert_reply(reply)
-    assert reply.route == "human"
-    assert reply.reply_type == "human"
-    assert reply.need_human is True
-    assert reply.answer == ""
+    assert reply.route == route
+    assert reply.reply_type == "llm_fallback"
+    assert reply.need_human is False
+    assert reply.answer == "您接着说，我继续帮您。"
 
 
 @pytest.mark.asyncio

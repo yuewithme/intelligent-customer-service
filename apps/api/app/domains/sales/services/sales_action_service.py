@@ -304,7 +304,11 @@ def _enforce_pain_discovery(reply: FinalReply) -> FinalReply:
     should_replace = _contains_question(answer) or any(
         marker in answer for marker in _DISCOVERY_PRODUCT_PUSH_MARKERS
     )
-    if not should_replace and not has_commerce_card:
+    if (
+        not should_replace
+        and not has_commerce_card
+        and reply.reply_type != "llm_fallback"
+    ):
         return reply
     fallback = _PAIN_DISCOVERY_FALLBACKS[
         sum(ord(character) for character in answer) % len(_PAIN_DISCOVERY_FALLBACKS)
