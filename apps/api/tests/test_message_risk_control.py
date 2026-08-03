@@ -691,8 +691,12 @@ async def test_new_friend_opening_uses_dependencies_and_followup_slots(monkeypat
         return None
 
     async def reserve_slots(**kwargs):
-        assert kwargs == {"w_id": "wid", "message_count": 2}
-        return [now, now + timedelta(seconds=8)]
+        assert kwargs == {"w_id": "wid", "message_count": 3}
+        return [
+            now,
+            now + timedelta(seconds=8),
+            now + timedelta(seconds=16),
+        ]
 
     async def ensure_message(**kwargs):
         return {"id": 100 + len(queued)}
@@ -720,8 +724,10 @@ async def test_new_friend_opening_uses_dependencies_and_followup_slots(monkeypat
     assert [item["due_at"] for item in queued] == [
         now,
         now + timedelta(seconds=8),
+        now + timedelta(seconds=16),
     ]
-    assert [item["depends_on_outbound_id"] for item in queued] == [None, 201]
+    assert [item["depends_on_outbound_id"] for item in queued] == [None, 201, 202]
+    assert "具体养了哪些品种" in queued[2]["content"]
 
 
 @pytest.mark.asyncio

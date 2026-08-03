@@ -608,6 +608,9 @@ def _prepend_opening(reply: FinalReply) -> FinalReply:
     from app.domains.decisioning.services.reply_builder import build_opening_reply
 
     opening = build_opening_reply()
+    opening_segments = list(opening.answer_segments)
+    if not opening_segments and opening.answer.strip():
+        opening_segments = [opening.answer.strip()]
     reply_segments = list(reply.answer_segments)
     if not reply_segments and reply.answer.strip():
         reply_segments = [reply.answer.strip()]
@@ -617,7 +620,7 @@ def _prepend_opening(reply: FinalReply) -> FinalReply:
             OutboundMessage(type="text", content=segment)
             for segment in reply_segments
         ]
-    answer_segments = [opening.answer, *reply_segments]
+    answer_segments = [*opening_segments, *reply_segments]
     return reply.model_copy(
         update={
             "answer": "\n\n".join(

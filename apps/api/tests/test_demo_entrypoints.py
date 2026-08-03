@@ -94,13 +94,15 @@ def test_demo_opening_uses_wechat_opening_and_records_conversation(
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["reply"] == "正式微信新联系人开场白"
+    assert data["reply"].startswith("正式微信新联系人开场白\n\n")
+    assert "家里目前养了多少盆兰花" in data["reply"]
     assert data["opening_image_url"] == "https://example.com/opening.jpg"
     assert data["route"] == "opening"
     assert data["conversation_id"] == "default"
     assert [item["type"] for item in data["outbound_messages"]] == [
         "text",
         "image",
+        "text",
     ]
 
     conversations = client.get("/api/v1/demo-admin/conversations").json()["data"]
@@ -114,6 +116,12 @@ def test_demo_opening_uses_wechat_opening_and_records_conversation(
     assert [(item["sender_type"], item["content"]) for item in detail["messages"]] == [
         ("ai", "正式微信新联系人开场白"),
         ("ai", "[图片]"),
+        (
+            "ai",
+            "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n"
+            "1. 家里目前养了多少盆兰花？（还没养扣“0”😝）\n"
+            "2. 具体养了哪些品种？",
+        ),
     ]
 
 
@@ -163,13 +171,14 @@ def test_demo_session_restores_opening_image_as_media(monkeypatch, tmp_path):
     )
     messages = client.get("/api/v1/demo/session").json()["data"]["messages"]
 
-    assert [item["type"] for item in messages] == ["text", "image"]
+    assert [item["type"] for item in messages] == ["text", "image", "text"]
     assert messages[1]["content"] == "https://cdn.example.com/opening.jpg"
     assert messages[1]["media"] == {
         "type": "image",
         "url": "https://cdn.example.com/opening.jpg",
         "fallback": False,
     }
+    assert "具体养了哪些品种" in messages[2]["content"]
 
 
 def test_demo_history_normalizes_cards_and_customer_media():
