@@ -226,3 +226,22 @@ def test_membership_price_and_purchase_followups_keep_catalog_action():
         ),
         user_state=state,
     ) == CATALOG_SEARCH
+
+
+def test_low_confidence_membership_semantics_start_catalog_without_previous_card():
+    intent = _intent(
+        "order_intent",
+        primary_domain="commerce",
+        primary_goal="transact",
+        issues=["order_process", "price_value"],
+        slots={
+            "product_request_kind": "membership",
+            "membership_question_kind": "combined",
+        },
+    ).model_copy(update={"confidence": 0.32})
+
+    assert resolve_business_action(
+        message=_message("那你们的服务怎么进？多少钱？"),
+        intent=intent,
+        user_state=UserState(user_id="customer-1"),
+    ) == CATALOG_SEARCH

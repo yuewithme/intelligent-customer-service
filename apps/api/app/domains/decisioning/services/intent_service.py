@@ -163,31 +163,6 @@ DEFER_FOLLOWUP_PATTERNS = (
 )
 MEMBERSHIP_PRODUCT_QUERY = "首单参与陪伴养兰客户"
 MEMBERSHIP_EXCLUSION_WORDS = ("会员专属", "会员商品", "会员价商品")
-MEMBERSHIP_SERVICE_TARGET_WORDS = ("陪伴养兰", "养兰服务", "陪伴服务")
-MEMBERSHIP_SERVICE_REFERENCE_PATTERN = re.compile(
-    r"(?:你们|你家|咱们|这个|这种|刚才说的|上面说的)的?服务"
-)
-MEMBERSHIP_SERVICE_PURCHASE_WORDS = (
-    "怎么进",
-    "如何进",
-    "怎么加入",
-    "如何加入",
-    "怎么开通",
-    "如何开通",
-    "加入",
-    "开通",
-    "办理",
-    "购买",
-    "下单",
-    "付款",
-    "支付",
-    "链接",
-    "入口",
-    "多少钱",
-    "价格",
-    "费用",
-    "收费",
-)
 MEMBERSHIP_ACTION_WORDS = (
     "加入",
     "开通",
@@ -372,16 +347,8 @@ def match_deferred_followup(text: str) -> bool:
 
 
 def match_membership_product_request(text: str) -> bool:
-    if hit_any(text, MEMBERSHIP_EXCLUSION_WORDS):
+    if "会员" not in text or hit_any(text, MEMBERSHIP_EXCLUSION_WORDS):
         return False
-    has_explicit_target = "会员" in text or hit_any(
-        text, MEMBERSHIP_SERVICE_TARGET_WORDS
-    )
-    has_service_reference = bool(MEMBERSHIP_SERVICE_REFERENCE_PATTERN.search(text))
-    if not has_explicit_target and not has_service_reference:
-        return False
-    if has_service_reference and not has_explicit_target:
-        return hit_any(text, MEMBERSHIP_SERVICE_PURCHASE_WORDS)
     return hit_any(text, MEMBERSHIP_ACTION_WORDS) or bool(
         re.search(r"\d+(?:\.\d+)?元?.{0,6}会员|会员.{0,6}\d+(?:\.\d+)?元?", text)
     )
@@ -556,24 +523,6 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                 "confidence": 0.99,
                 "slots": {"chitchat_kind": "defer"},
                 "reason": "rule_deferred_followup",
-            }
-        )
-
-    if match_membership_product_request(text):
-        return _validated_intent(
-            {
-                "primary_domain": "product",
-                "primary_goal": "seek_help",
-                "issues": ["product_selection"],
-                "sales_stage": "closing",
-                "confidence": 0.99,
-                "slots": {
-                    "conversation_topic": "product_recommendation",
-                    "product_keywords": [MEMBERSHIP_PRODUCT_QUERY],
-                    "product_request_kind": "membership",
-                    "membership_question_kind": membership_question_kind(text),
-                },
-                "reason": "rule_membership_product_request",
             }
         )
 
@@ -879,7 +828,6 @@ def classify_by_fast_rule(text: str) -> IntentResult | None:
         "rule_product_image_request",
         "rule_product_purchase_query",
         "rule_product_recommendation_request",
-        "rule_membership_product_request",
         "rule_orchid_supply_shortage",
         "rule_explicit_order_intent",
         "rule_order_service_action",
@@ -1010,7 +958,6 @@ async def classify_intent(
 
     settings = get_settings()
     llm_enabled = bool(getattr(settings, "intent_llm_enabled", False))
-    confidence_threshold = getattr(settings, "intent_confidence_threshold", 0.6)
     rule_intent = classify_by_soft_rules(message.message)
     if (
         settings.intent_fast_rules_enabled
@@ -1020,18 +967,31 @@ async def classify_intent(
     if llm_enabled:
         try:
             llm_intent = await classify_by_llm(message, user_state, candidates)
-            if llm_intent.confidence >= confidence_threshold:
+            if (
+                llm_intent.primary_goal != "unclear"
+                or llm_intent.slots.get("product_request_kind") == "membership"
+            ):
                 return _with_decision_blocker(llm_intent, message.message)
-            rule_intent = rule_intent.model_copy(
-                update={
-                    "classifier_source": "llm_fallback_rule",
-                    "classifier_provider": llm_intent.classifier_provider,
-                    "classifier_model": llm_intent.classifier_model,
-                    "raw_prediction": llm_intent.raw_prediction,
-                }
-            )
         except AppError:
             pass
+
+    if match_membership_product_request(normalized):
+        return _validated_intent(
+            {
+                "primary_domain": "product",
+                "primary_goal": "seek_help",
+                "issues": ["product_selection"],
+                "sales_stage": "closing",
+                "confidence": 0.8,
+                "slots": {
+                    "conversation_topic": "product_recommendation",
+                    "product_keywords": [MEMBERSHIP_PRODUCT_QUERY],
+                    "product_request_kind": "membership",
+                    "membership_question_kind": membership_question_kind(normalized),
+                },
+                "reason": "fallback_membership_product_request",
+            }
+        )
 
     if candidates and rule_intent.route == candidates[0].get("route"):
         rule_intent = rule_intent.model_copy(
@@ -1862,7 +1822,7 @@ def _build_prompt(
     candidates: list[dict] | None = None,
 ) -> str:
     recent_lines = []
-    for turn in (recent_turns or [])[-2:]:
+    for turn in (recent_turns or [])[-6:]:
         if not isinstance(turn, dict):
             continue
         role = str(turn.get("role") or "").strip()
@@ -1901,9 +1861,17 @@ Rules:
   materials; use ask_information when the customer only asks about information.
 - Labeled examples are trusted references, but copy their labels only when the current
   message has the same meaning after considering recent context.
-- Prefer explicit customer actions over inferred motives.
-- Use scope=ambiguous and primary_goal=unclear when context is insufficient.
-- slots only contains explicit structured facts from the message.
+- Prefer explicit customer actions over inferred motives, and resolve pronouns such as
+  "这个服务", "你们说的那个", "怎么进" from recent context.
+- If recent context is about 陪伴养兰服务 and the customer asks about its
+  content, price, enrollment, purchase, payment, or link, set
+  slots.product_request_kind="membership". Also set
+  slots.membership_question_kind to capability, price, purchase, or combined.
+- For membership service intent, use product/seek_help/product_selection for service
+  information, and commerce/transact/order_process for joining or purchasing.
+- Do not use unclear merely because confidence is low when recent context provides a
+  reasonable product or service referent. Make the best in-scope interpretation.
+- slots may include explicit facts and product/service references resolved from recent context.
 - Output JSON only. No evidence, explanation, route, sales stage, sentiment, or legacy intent fields.
 """
 

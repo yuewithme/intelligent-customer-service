@@ -15,6 +15,7 @@ VALID_ROUTES = {
     "unsupported",
 }
 HUMAN_INTENTS = {"complaint", "refund_request", "human_request"}
+HUMAN_GOALS = {"request_refund_return", "complain", "request_human"}
 KNOWLEDGE_INTENTS = {"knowledge_question", "care_question", "process_question", "usage_question"}
 TEMPLATE_INTENTS = {
     "ask_price",
@@ -46,15 +47,38 @@ async def decide_route(
 ) -> PolicyDecision:
     del user_state
     if intent.route not in VALID_ROUTES:
-        return _handoff_decision("invalid_route_to_handoff", intent.route or "clarify")
-    if intent.need_human or intent.primary_intent in HUMAN_INTENTS:
+        return PolicyDecision(
+            route="chitchat",
+            reason="invalid_route_continue_automatically",
+            fallback_route=intent.route or "clarify",
+            original_route=intent.route or "clarify",
+        )
+    if (
+        intent.primary_intent in HUMAN_INTENTS
+        or intent.primary_goal in HUMAN_GOALS
+    ):
         return _handoff_decision("human_required", intent.route)
-    if intent.route == "human":
-        return _handoff_decision("human_required", "human")
     if intent.route == "clarify":
-        return _handoff_decision("clarify_to_handoff", "clarify")
+        return PolicyDecision(
+            route="chitchat",
+            reason="ambiguous_continue_automatically",
+            fallback_route="clarify",
+            original_route="clarify",
+        )
     if intent.route == "unsupported":
-        return _handoff_decision("unsupported_to_handoff", "unsupported")
+        return PolicyDecision(
+            route="chitchat",
+            reason="unsupported_continue_automatically",
+            fallback_route="unsupported",
+            original_route="unsupported",
+        )
+    if intent.route == "human" or intent.need_human:
+        return PolicyDecision(
+            route="template_reply",
+            reason="unverified_handoff_blocked",
+            fallback_route=intent.route,
+            original_route=intent.route,
+        )
     if intent.confidence < get_settings().intent_confidence_threshold:
         if intent.primary_intent in KNOWLEDGE_INTENTS or intent.route in {
             "rag_answer",

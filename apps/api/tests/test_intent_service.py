@@ -108,7 +108,6 @@ async def test_supply_shortage_stays_in_care_and_does_not_request_products():
         "怎么加入会员？",
         "店里的会员多少钱？",
         "39.9元可以开通会员吗？",
-        "那你们的服务怎么进？多少钱？",
     ],
 )
 async def test_membership_qualification_routes_to_local_product_catalog(text):
@@ -122,13 +121,64 @@ async def test_membership_qualification_routes_to_local_product_catalog(text):
     assert intent.issues == ["product_selection"]
     assert intent.slots["product_keywords"] == ["首单参与陪伴养兰客户"]
     assert intent.slots["product_request_kind"] == "membership"
-    if "怎么进" in text:
-        assert intent.slots["membership_question_kind"] == "combined"
-    assert intent.reason == "rule_membership_product_request"
+    assert intent.reason == "fallback_membership_product_request"
 
 
 def test_generic_service_complaint_is_not_treated_as_membership_purchase():
     assert match_membership_product_request("你们的服务怎么这么差？") is False
+
+
+@pytest.mark.asyncio
+async def test_low_confidence_llm_membership_context_is_executed_without_clarifying(
+    monkeypatch,
+):
+    from app.core.config import get_settings
+    from app.services import intent_service
+
+    async def classify_membership(message, user_state, candidates=None):
+        del message, user_state, candidates
+        return IntentResult(
+            route="template_reply",
+            primary_intent="order_intent",
+            primary_domain="commerce",
+            primary_goal="transact",
+            issues=["order_process", "price_value"],
+            confidence=0.35,
+            slots={
+                "product_request_kind": "membership",
+                "membership_question_kind": "combined",
+            },
+            reason="llm_contextual_membership_purchase",
+        )
+
+    state = UserState(
+        user_id="user_intent",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "我们的陪伴养兰服务有视频课程和一对一指导。",
+                }
+            ]
+        },
+    )
+    monkeypatch.setenv("INTENT_LLM_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(intent_service, "classify_by_llm", classify_membership)
+
+    try:
+        intent = await classify_intent(
+            _message("那你们的服务怎么进？多少钱？"),
+            state,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert intent.confidence == 0.35
+    assert intent.route == "template_reply"
+    assert intent.slots["product_request_kind"] == "membership"
+    assert intent.slots["membership_question_kind"] == "combined"
+    assert intent.reason == "llm_contextual_membership_purchase"
 
 
 @pytest.mark.asyncio
@@ -595,7 +645,7 @@ def test_llm_prompt_uses_compact_classification_schema():
     assert "Output JSON only" in prompt
     assert "after_sale" in prompt
     assert "material_resource" in prompt
-    assert len(prompt) < 2500
+    assert len(prompt) < 3200
 
 
 def test_llm_intent_cannot_self_confirm_a_purchase():

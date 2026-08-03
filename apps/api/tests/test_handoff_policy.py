@@ -18,7 +18,7 @@ def _message() -> NormalizedMessage:
 
 
 @pytest.mark.asyncio
-async def test_clarify_intent_silently_hands_off():
+async def test_clarify_intent_continues_automatically():
     intent = IntentResult(
         route="clarify",
         primary_intent="unknown",
@@ -28,14 +28,14 @@ async def test_clarify_intent_silently_hands_off():
 
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
-    assert decision.route == "human"
-    assert decision.reason == "clarify_to_handoff"
+    assert decision.route == "chitchat"
+    assert decision.reason == "ambiguous_continue_automatically"
     assert decision.original_route == "clarify"
-    assert decision.next_action == "human_handoff"
+    assert decision.next_action is None
 
 
 @pytest.mark.asyncio
-async def test_unsupported_intent_silently_hands_off():
+async def test_unsupported_intent_continues_automatically():
     intent = IntentResult(
         route="unsupported",
         primary_intent="unsupported",
@@ -45,10 +45,27 @@ async def test_unsupported_intent_silently_hands_off():
 
     decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
 
-    assert decision.route == "human"
-    assert decision.reason == "unsupported_to_handoff"
+    assert decision.route == "chitchat"
+    assert decision.reason == "unsupported_continue_automatically"
     assert decision.original_route == "unsupported"
-    assert decision.next_action == "human_handoff"
+    assert decision.next_action is None
+
+
+@pytest.mark.asyncio
+async def test_unverified_llm_handoff_is_blocked():
+    intent = IntentResult(
+        route="human",
+        primary_intent="unknown",
+        confidence=0.31,
+        need_human=True,
+        reason="llm_uncertain",
+    )
+
+    decision = await decide_route(intent, UserState(user_id="user_policy"), _message())
+
+    assert decision.route == "template_reply"
+    assert decision.reason == "unverified_handoff_blocked"
+    assert decision.next_action is None
 
 
 @pytest.mark.asyncio

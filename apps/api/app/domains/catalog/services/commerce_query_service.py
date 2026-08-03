@@ -351,17 +351,12 @@ async def build_commerce_context(
                 tool_state={"commerce_type": "product", "status": "unavailable"}
             )
         membership_question_kind = (
-            _membership_question_kind(message.message)
+            str(intent.slots.get("membership_question_kind") or "").strip()
+            or _membership_question_kind(message.message)
             if membership_request
             else None
         )
-        send_purchase_card = bool(product_data) and (
-            (
-                membership_request
-                and membership_question_kind in {"purchase", "combined"}
-            )
-            or not membership_request
-        )
+        send_purchase_card = bool(product_data)
         if send_purchase_card and not any(
             str(product.get("page_path") or product.get("h5_url") or "").strip()
             for product in product_data

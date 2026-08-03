@@ -45,6 +45,22 @@ async def test_high_risk_policy_goes_to_human():
 
 
 @pytest.mark.asyncio
+async def test_unverified_human_route_does_not_handoff_without_risk_or_explicit_intent():
+    tag = TagResult(
+        intent="unknown",
+        route="human",
+        segment="unknown",
+        risk_level="normal",
+        confidence=0.3,
+    )
+
+    decision = await decide_policy(tag)
+
+    assert decision.route != "human"
+    assert decision.next_action is None
+
+
+@pytest.mark.asyncio
 async def test_advanced_customer_level_uses_rag_not_default_handoff():
     tag = TagResult(
         intent="orchid_care",
