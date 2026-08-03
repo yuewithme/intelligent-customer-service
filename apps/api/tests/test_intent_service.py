@@ -314,7 +314,7 @@ async def test_price_only_followup_reuses_selected_membership_product():
 
 
 @pytest.mark.asyncio
-async def test_price_template_survives_non_progressing_sales_stage():
+async def test_price_objection_has_no_empty_default_template():
     from app.domains.decisioning.services.template_service import select_template
 
     message = _message("河南郑州，我不想买太贵的。")
@@ -332,8 +332,7 @@ async def test_price_template_survives_non_progressing_sales_stage():
         UserState(user_id="user_intent"),
     )
 
-    assert template is not None
-    assert template.template_id == "tpl_price_objection_default"
+    assert template is None
 
 
 @pytest.mark.parametrize(

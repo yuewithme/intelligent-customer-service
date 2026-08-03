@@ -1466,6 +1466,65 @@ async def test_membership_purchase_intent_resends_an_existing_card():
 
 
 @pytest.mark.asyncio
+async def test_membership_price_objection_uses_facts_without_repeating_card():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert "陪伴养兰" in keyword
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id="membership-39",
+                    title="首单参与陪伴养兰客户 专享特惠链接",
+                    price_cent=3990,
+                    h5_url="https://h5.youzan.com/goods/member-39",
+                )
+            ]
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={
+            "commerce_last_product_id": "membership-39",
+            "commerce_last_product_keyword": "首单参与陪伴养兰客户 专享特惠链接",
+            "commerce_last_product_kind": "membership",
+            "commerce_sent_card_ids": ["membership-39"],
+        },
+    )
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="price_objection",
+        primary_domain="commerce",
+        primary_goal="express_objection",
+        confidence=0.95,
+    )
+    message = _message("有点贵，能不能便宜点")
+
+    facts = await build_commerce_context(
+        message,
+        state,
+        intent,
+        product_service=FakeProductService(),
+        business_action=CATALOG_SEARCH,
+        allowed_source_groups={"product_catalog"},
+    )
+    reply = await render_business_reply(message, facts)
+
+    assert facts.tool_state["product_request_kind"] == "membership"
+    assert facts.tool_state["membership_question_kind"] == "objection"
+    assert facts.tool_state["send_purchase_card"] is False
+    assert reply is not None
+    assert "39.9元" in reply.answer
+    assert "一对一指导" in reply.answer
+    assert "我理解您会关注价格" not in reply.answer
+    assert [message.type for message in reply.outbound_messages] == ["text"]
+
+
+@pytest.mark.asyncio
 async def test_accessory_result_is_removed_before_ai_context():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
     from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH

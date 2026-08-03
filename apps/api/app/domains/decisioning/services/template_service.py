@@ -7,16 +7,6 @@ from app.domains.sales.services.shipping_contact_service import extract_shipping
 
 
 _templates: dict[str, TemplateItem] = {
-    "tpl_price_objection_default": TemplateItem(
-        template_id="tpl_price_objection_default",
-        name="价格异议默认话术",
-        intent="price_objection",
-        stage="closing",
-        trigger_examples=["有点贵", "太贵了", "再考虑一下"],
-        content="我理解您会关注价格。",
-        next_action="offer_value_explanation",
-        priority=80,
-    ),
     "tpl_logistics_default": TemplateItem(
         template_id="tpl_logistics_default",
         name="物流默认话术",

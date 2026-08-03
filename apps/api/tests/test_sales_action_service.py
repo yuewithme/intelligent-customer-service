@@ -140,6 +140,55 @@ def test_membership_sales_action_follows_current_question(question_kind, expecte
     assert decision.question_slot is None
 
 
+def test_membership_price_objection_uses_facts_without_budget_question():
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="price_objection",
+        primary_domain="commerce",
+        primary_goal="express_objection",
+        sales_stage="closing",
+        confidence=0.95,
+        slots={
+            "product_request_kind": "membership",
+            "membership_question_kind": "objection",
+        },
+    )
+
+    decision = decide_sales_action(
+        user_state=UserState(user_id="member-user"),
+        intent=intent,
+    )
+
+    assert decision.sales_action == "resolve_blocker"
+    assert decision.question_slot is None
+    assert decision.required_slots == []
+    assert "不追问预算" in decision.reply_goal
+
+
+def test_selected_membership_context_avoids_budget_question_without_intent_slot():
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="price_objection",
+        primary_domain="commerce",
+        primary_goal="express_objection",
+        sales_stage="closing",
+        confidence=0.95,
+    )
+    state = UserState(
+        user_id="member-user",
+        metadata={
+            "commerce_last_product_kind": "membership",
+            "commerce_last_product_id": "membership-39",
+        },
+    )
+
+    decision = decide_sales_action(user_state=state, intent=intent)
+
+    assert decision.sales_action == "resolve_blocker"
+    assert decision.question_slot is None
+    assert decision.required_slots == []
+
+
 def test_pain_brand_value_is_not_injected_again_after_it_was_presented():
     from app.domains.conversations.services.chat_orchestrator import (
         _pain_brand_value_already_present,

@@ -257,6 +257,16 @@ def _membership_answer(product: dict, state: dict) -> str:
             if price_text
             else "我们萧岚苑有陪伴养兰会员，具体价格以当前商品页为准。"
         )
+    if kind == "objection":
+        price_sentence = (
+            f"目前商品页显示是{price_text}。"
+            if price_text
+            else "具体价格以当前商品页为准。"
+        )
+        return (
+            f"{price_sentence}这笔费用对应系统视频课程和结合具体养护问题的"
+            "一对一指导，不是只给一次建议，后续遇到问题也能继续有人帮您判断。"
+        )
     if kind == "combined":
         price_sentence = (
             f"现在是{price_text}。" if price_text else "价格以当前商品页为准。"

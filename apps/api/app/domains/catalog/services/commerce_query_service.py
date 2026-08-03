@@ -245,6 +245,8 @@ async def build_commerce_context(
             and last_product_kind in {"membership", "matched_orchid"}
             and (
                 intent.primary_intent in {"payment_intent", "order_intent"}
+                or intent.primary_intent
+                in {"price_objection", "discount_request", "hesitation"}
                 or _explicitly_requests_purchase_card(message.message)
                 or (
                     product_keywords
@@ -350,12 +352,22 @@ async def build_commerce_context(
             return BusinessFacts(
                 tool_state={"commerce_type": "product", "status": "unavailable"}
             )
-        membership_question_kind = (
-            str(intent.slots.get("membership_question_kind") or "").strip()
-            or _membership_question_kind(message.message)
-            if membership_request
-            else None
-        )
+        if membership_request:
+            if intent.primary_intent in {
+                "price_objection",
+                "discount_request",
+                "hesitation",
+            }:
+                membership_question_kind = "objection"
+            else:
+                membership_question_kind = (
+                    str(
+                        intent.slots.get("membership_question_kind") or ""
+                    ).strip()
+                    or _membership_question_kind(message.message)
+                )
+        else:
+            membership_question_kind = None
         send_purchase_card = bool(product_data)
         if send_purchase_card and not any(
             str(product.get("page_path") or product.get("h5_url") or "").strip()
