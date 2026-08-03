@@ -90,6 +90,8 @@ def normalize_sales_signals(
 
     opportunity = _active_opportunity(user_state)
     existing_slots = _normalize_slots(opportunity.get("slots"))
+    if _has_inferred_profile_product_track(user_state, opportunity, existing_slots):
+        existing_slots["need_track"] = "service"
     profile_slots = _normalize_slots(user_state.metadata.get("known_slots"))
     tag_slots = _normalize_slots(tag_result.entities)
     intent_slots = _normalize_slots(intent.slots)
@@ -136,10 +138,10 @@ def normalize_sales_signals(
     issues = set(intent.issues)
     if intents & SERVICE_INTENTS or "care" in domains or "material_resource" in issues:
         _add_signal(signals, evidence, CustomerSignal.SERVICE_NEED, "message")
-    if intents & PRODUCT_INTENTS or domains & {
-        "product",
-        "commerce",
-    }:
+    if intents & PRODUCT_INTENTS or (
+        intent.primary_intent != "profile_answer"
+        and domains & {"product", "commerce"}
+    ):
         _add_signal(signals, evidence, CustomerSignal.PRODUCT_NEED, "message")
     if intents & PRICE_INTENTS or "price_value" in issues:
         _add_signal(signals, evidence, CustomerSignal.PRICE_INTEREST, "message")
@@ -251,6 +253,31 @@ def _active_opportunity(user_state: UserState) -> dict:
     if isinstance(profile, dict) and isinstance(profile.get("active_opportunity"), dict):
         return profile["active_opportunity"]
     return {}
+
+
+def _has_inferred_profile_product_track(
+    user_state: UserState,
+    opportunity: dict,
+    existing_slots: dict[str, Any],
+) -> bool:
+    if existing_slots.get("need_track") != "product":
+        return False
+    profile = user_state.metadata.get("profile")
+    if not isinstance(profile, dict) or profile.get("last_intent") != "profile_answer":
+        return False
+    if opportunity.get("last_sales_action") != "discover_need_track":
+        return False
+    return not any(
+        existing_slots.get(key)
+        for key in (
+            "selected_product_id",
+            "selected_sku_id",
+            "color_preference",
+            "fragrance_preference",
+            "difficulty_preference",
+            "collection_preference",
+        )
+    )
 
 
 def _normalize_slots(value: Any) -> dict[str, Any]:
