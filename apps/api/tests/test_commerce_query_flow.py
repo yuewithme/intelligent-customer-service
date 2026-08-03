@@ -1420,6 +1420,52 @@ async def test_membership_purchase_followup_cannot_fall_back_to_orchid_card():
 
 
 @pytest.mark.asyncio
+async def test_membership_purchase_intent_resends_an_existing_card():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert "陪伴养兰" in keyword
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id="membership-39",
+                    title="首单参与陪伴养兰客户 专享特惠链接",
+                    price_cent=3990,
+                    h5_url="https://h5.youzan.com/goods/member-39",
+                )
+            ]
+
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="order_intent",
+        primary_domain="product",
+        primary_goal="transact",
+        slots={
+            "product_request_kind": "membership",
+            "membership_question_kind": "combined",
+        },
+        confidence=0.55,
+    )
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={"commerce_sent_card_ids": ["membership-39"]},
+    )
+
+    facts = await build_commerce_context(
+        _message("你们有什么福利吗？买这个"),
+        state,
+        intent,
+        product_service=FakeProductService(),
+        business_action=CATALOG_SEARCH,
+        allowed_source_groups={"product_catalog"},
+    )
+
+    assert facts.tool_state["send_purchase_card"] is True
+
+
+@pytest.mark.asyncio
 async def test_accessory_result_is_removed_before_ai_context():
     from app.domains.catalog.services.commerce_query_service import build_commerce_context
     from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH
