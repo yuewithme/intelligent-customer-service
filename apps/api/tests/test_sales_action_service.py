@@ -29,7 +29,8 @@ def test_discovery_uses_a_concrete_pain_probe_instead_of_service_product_choice(
     assert decision.sales_action == "discover_pain"
     assert decision.question_slot == "pain_point"
     assert decision.required_slots == ["pain_point"]
-    assert "黑斑、黄叶、腐苗" in decision.reply_goal
+    assert "灵活选择一到三个方向" in decision.reply_goal
+    assert "不照抄固定句式" in decision.reply_goal
     assert "服务还是产品" not in decision.reply_goal
     assert decision.next_stage == "pain_discovery"
 
@@ -50,7 +51,8 @@ def test_care_reply_without_specific_pain_asks_one_guided_pain_question():
     assert decision.sales_action == "discover_pain"
     assert decision.question_slot == "pain_point"
     assert decision.allow_diagnostic_question is False
-    assert "黑斑、黄叶、腐苗" in decision.reply_goal
+    assert "灵活选择一到三个方向" in decision.reply_goal
+    assert "不照抄固定句式" in decision.reply_goal
 
 
 def test_care_reply_with_specific_pain_stops_questioning_and_builds_service_value():

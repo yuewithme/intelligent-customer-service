@@ -159,8 +159,11 @@ def _render_context(context) -> str:
             if sales_action.get("question_slot"):
                 if sales_action.get("question_slot") == "pain_point":
                     question_instruction = (
-                        "Ask exactly one concrete, conversational pain-discovery question. Use examples "
-                        "such as '有没有遇到黑斑、黄叶、腐苗等问题？' to help the customer answer. "
+                        "Ask exactly one concrete, conversational pain-discovery question. Based on the "
+                        "customer's context, naturally choose one to three relevant directions from common "
+                        "symptoms such as black spots, yellow leaves, seedling rot, root rot, scorched tips, "
+                        "or failure to flower. Vary both the selected symptoms and wording; never copy a "
+                        "sample sentence or reuse a fixed script verbatim. "
                         "Do not ask whether they want service or products, do not ask an abstract goal, "
                         "and do not combine this with questions about medium, watering, region, or other details. "
                     )

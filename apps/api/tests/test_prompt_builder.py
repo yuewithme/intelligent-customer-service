@@ -91,6 +91,8 @@ async def test_pain_discovery_prompt_uses_concrete_examples_and_blocks_abstract_
         )
     )
 
-    assert "有没有遇到黑斑、黄叶、腐苗等问题？" in prompt
+    assert "naturally choose one to three relevant directions" in prompt
+    assert "never copy a sample sentence or reuse a fixed script verbatim" in prompt
+    assert "有没有遇到黑斑、黄叶、腐苗等问题？" not in prompt
     assert "Do not ask whether they want service or products" in prompt
     assert "do not recommend an orchid unless the customer explicitly asks" in prompt
