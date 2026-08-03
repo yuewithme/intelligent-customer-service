@@ -15,8 +15,10 @@ EYUN_OFFLINE_NOTIFICATION = "30000"
 _status_by_wc_id: dict[str, bool] = {}
 _alerted_status_by_wc_id: dict[str, bool] = {}
 _wid_by_wc_id: dict[str, str] = {}
+_offline_observations_by_wc_id: dict[str, int] = {}
 _notification_tasks: set[asyncio.Task[None]] = set()
 _state_lock = asyncio.Lock()
+_OFFLINE_CONFIRMATIONS_REQUIRED = 2
 
 
 def schedule_eyun_offline_notification(payload: dict[str, Any]) -> None:
@@ -26,36 +28,14 @@ def schedule_eyun_offline_notification(payload: dict[str, Any]) -> None:
 
 
 async def handle_eyun_offline_notification(payload: dict[str, Any]) -> None:
-    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-    settings = get_settings()
-    wc_id = str(
-        payload.get("wcId")
-        or data.get("wcId")
-        or data.get("toUser")
-        or settings.eyun_wc_id
-        or ""
-    ).strip()
-    if not wc_id:
-        logger.warning("Eyun offline callback did not contain wcId")
-        return
-
-    w_id = str(data.get("wId") or payload.get("wId") or "").strip()
-    reason = str(
-        data.get("reason")
-        or payload.get("reason")
-        or data.get("message")
-        or data.get("content")
-        or ""
-    ).strip()
-    await _apply_status(
-        wc_id=wc_id,
-        w_id=w_id,
-        online=False,
-        reason=reason or None,
-    )
+    del payload
+    # Offline callbacks may be duplicated or refer to an expired/stale instance.
+    # Re-check the account, but leave offline confirmation to the periodic monitor
+    # so repeated callbacks cannot manufacture consecutive offline observations.
+    await poll_eyun_login_status(confirm_offline=False)
 
 
-async def poll_eyun_login_status() -> bool | None:
+async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None:
     settings = get_settings()
     base_url = settings.eyun_base_url.rstrip("/")
     authorization = settings.eyun_authorization.strip()
@@ -101,16 +81,28 @@ async def poll_eyun_login_status() -> bool | None:
             settings.eyun_wid = w_id
         return True
 
-    reason = await _query_offline_reason(
+    reason_known, reason = await _query_offline_reason(
         base_url=base_url,
         authorization=authorization,
         wc_id=wc_id,
     )
+    if not reason_known:
+        return None
+    if reason is None:
+        await _apply_status(
+            wc_id=wc_id,
+            w_id=_wid_by_wc_id.get(wc_id, settings.eyun_wid),
+            online=True,
+        )
+        return True
+    if not confirm_offline:
+        return False
     await _apply_status(
         wc_id=wc_id,
         w_id=_wid_by_wc_id.get(wc_id, settings.eyun_wid),
         online=False,
         reason=reason,
+        require_offline_confirmation=True,
     )
     return False
 
@@ -137,8 +129,17 @@ async def _apply_status(
     w_id: str,
     online: bool,
     reason: str | None = None,
+    require_offline_confirmation: bool = False,
 ) -> None:
     async with _state_lock:
+        if online:
+            _offline_observations_by_wc_id.pop(wc_id, None)
+        elif require_offline_confirmation:
+            observations = _offline_observations_by_wc_id.get(wc_id, 0) + 1
+            _offline_observations_by_wc_id[wc_id] = observations
+            if observations < _OFFLINE_CONFIRMATIONS_REQUIRED:
+                return
+
         previous = _status_by_wc_id.get(wc_id)
         _status_by_wc_id[wc_id] = online
         if w_id:
@@ -166,7 +167,7 @@ async def _query_offline_reason(
     base_url: str,
     authorization: str,
     wc_id: str,
-) -> str | None:
+) -> tuple[bool, str | None]:
     try:
         result = await _post_eyun(
             f"{base_url}/offlineReason",
@@ -175,11 +176,18 @@ async def _query_offline_reason(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun offline-reason query failed: %s", exc)
-        return None
+        return False, None
+    if str(result.get("code")) != "1000":
+        logger.warning("Eyun offline-reason query returned failure: %s", result)
+        return False, None
     rows = result.get("data") if isinstance(result.get("data"), list) else []
     if not rows or not isinstance(rows[0], dict):
-        return None
-    return str(rows[0].get("reason") or "").strip() or None
+        return False, None
+    if "reason" not in rows[0]:
+        return False, None
+    reason = rows[0].get("reason")
+    reason_text = str(reason).strip() if reason is not None else ""
+    return True, reason_text or None
 
 
 async def _post_eyun(
@@ -258,3 +266,4 @@ def _reset_monitor_state() -> None:
     _status_by_wc_id.clear()
     _alerted_status_by_wc_id.clear()
     _wid_by_wc_id.clear()
+    _offline_observations_by_wc_id.clear()
