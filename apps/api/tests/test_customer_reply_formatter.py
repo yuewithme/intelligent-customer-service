@@ -7,18 +7,34 @@ def test_all_customer_text_removes_special_punctuation():
     assert plain_customer_text(text) == "推荐您看看芽黄素田黄玉花色清雅，适合阳台。"
 
 
-def test_long_reply_groups_every_two_sentences():
-    sentences = [f"这是第{index}句，用于验证长回复会按两句合并发送。" for index in range(1, 6)]
+def test_long_reply_groups_complete_semantic_sentences():
+    sentences = [f"这是第{index}句，用于验证长回复按完整语义发送。" for index in range(1, 9)]
 
     assert split_customer_messages("".join(sentences)) == [
-        "".join(sentences[:2]),
-        "".join(sentences[2:4]),
-        sentences[4],
+        "".join(sentences[:3]),
+        "".join(sentences[3:6]),
+        "".join(sentences[6:]),
     ]
     assert all(
-        len(message) <= 60
+        len(message) <= 110
         for message in split_customer_messages("".join(sentences))
     )
+
+
+def test_service_explanation_stays_in_semantic_paragraphs():
+    text = (
+        "我们萧岚苑会先把上盆、浇水、施肥和防病害这些基础内容讲清楚，"
+        "让您知道每一步为什么这样做。\n\n"
+        "真正操作时，老师再结合您家里的环境和兰花状态一对一带着调整。"
+    )
+
+    assert split_customer_messages(text) == [
+        (
+            "我们萧岚苑会先把上盆、浇水、施肥和防病害这些基础内容讲清楚，"
+            "让您知道每一步为什么这样做。"
+        ),
+        "真正操作时，老师再结合您家里的环境和兰花状态一对一带着调整。",
+    ]
 
 
 def test_blank_lines_preserve_semantic_message_boundaries():
@@ -59,4 +75,4 @@ def test_exceptionally_long_sentence_splits_at_clause_boundary():
 
     assert len(messages) > 2
     assert "".join(messages) == sentence
-    assert all(len(message) <= 60 for message in messages)
+    assert all(len(message) <= 110 for message in messages)

@@ -145,11 +145,33 @@ async def test_service_offer_attaches_membership_card_in_the_same_turn(monkeypat
         message=_message(),
         user_state=UserState(user_id="user_001"),
         intent=_intent(),
-        sales_action=SimpleNamespace(reason="service_solution_first_offer"),
+        sales_action=SimpleNamespace(reason="service_solution_question_followup"),
     )
 
     assert [item.type for item in reply.outbound_messages] == ["link_card"]
     assert reply.metadata["commerce_action"]["card_sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_first_service_brand_bridge_does_not_attach_card(monkeypatch):
+    from app.services import chat_orchestrator
+
+    async def unexpected(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("the first brand bridge must not query a product card")
+
+    monkeypatch.setattr(chat_orchestrator, "build_commerce_context", unexpected)
+    original = _reply("先回答痛点，再简单介绍我们萧岚苑")
+    reply = await chat_orchestrator._attach_membership_card_for_service_offer(
+        reply=original,
+        message=_message(),
+        user_state=UserState(user_id="user_001"),
+        intent=_intent(),
+        sales_action=SimpleNamespace(reason="service_solution_first_offer"),
+    )
+
+    assert reply is original
+    assert reply.outbound_messages == []
 
 
 @pytest.mark.asyncio

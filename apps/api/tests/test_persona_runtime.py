@@ -736,6 +736,48 @@ def test_discovery_rag_does_not_append_service_script_before_need_is_resolved():
     assert result == original
 
 
+def test_first_brand_bridge_uses_pain_and_customer_profile():
+    from app.services import persona_renderer
+
+    spec = ReplySpec(
+        route="rag_answer",
+        reply_type="rag",
+        reply_goal="回答烂根后简单介绍品牌",
+        suggested_copy="先把腐烂根系剪除，消毒晾干后再重新上盆。",
+        verified_facts={
+            "sales_action_context": {
+                "reason": "service_solution_first_offer",
+                "service_need_kind": "pain_point",
+                "service_need": "总是烂根",
+                "region": "杭州",
+                "owned_varieties": ["蝴蝶兰"],
+            },
+            "brand_value_facts": [
+                {
+                    "approved_sales_scripts": {
+                        "care_pain": "通用承接",
+                        "care_pain_root_rot": (
+                            "{profile_lead}{service_need}不是单次处理完就结束。\n\n"
+                            "我们萧岚苑会结合家里的环境陪着调整。"
+                        ),
+                    }
+                }
+            ],
+        },
+    )
+
+    answer = persona_renderer._apply_approved_care_brand_script(
+        spec=spec,
+        answer=spec.suggested_copy,
+        current_message="就养了几盆，总是烂根",
+    )
+
+    assert "像您在杭州养的蝴蝶兰" in answer
+    assert "烂根这类问题" in answer
+    assert "通用承接" not in answer
+    assert "单品养护资料" not in answer
+
+
 def test_guard_does_not_treat_declarative_brand_bridge_as_question():
     answer = (
         "这也是为什么我们萧岚苑做陪伴养兰，"
