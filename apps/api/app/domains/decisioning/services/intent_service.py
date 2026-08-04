@@ -364,18 +364,23 @@ PRODUCT_RECOMMENDATION_CONTEXT_WORDS = (
     "花香",
     "香味",
 )
-PRODUCT_PREFERENCE_WORDS = (
-    "想找",
-    "想要",
-    "更看重",
-    "好养",
-    "养活",
-    "易活",
-    "新手",
+PRODUCT_SELECTION_QUALIFIERS = (
+    "一款",
+    "几款",
+    "哪款",
+    "哪种",
+    "品种",
+    "好养的",
+    "好养活的",
+    "易活的",
+    "容易养活的",
     "性价比",
     "花香",
     "香味",
+    "浓香",
+    "素花",
     "便宜",
+    "预算",
 )
 PRODUCT_RECOMMENDATION_TARGET_WORDS = (
     "一款",
@@ -384,7 +389,7 @@ PRODUCT_RECOMMENDATION_TARGET_WORDS = (
     "哪种",
     "兰花",
     *ORCHID_VARIETY_WORDS,
-    *PRODUCT_PREFERENCE_WORDS,
+    *PRODUCT_SELECTION_QUALIFIERS,
 )
 SUPPLY_SHORTAGE_WORDS = ("不够", "缺", "没有", "没准备", "需要补", "想补")
 
@@ -604,9 +609,11 @@ def match_product_purchase_query(text: str) -> bool:
 def match_product_recommendation_request(text: str) -> bool:
     if hit_any(text, PURCHASE_REJECTION_WORDS) or hit_any(text, UNSUPPORTED_WORDS):
         return False
-    return hit_any(text, ("推荐", "想找", "想要", "哪款", "哪种")) and hit_any(
-        text,
-        PRODUCT_RECOMMENDATION_TARGET_WORDS,
+    normalized = normalize_intent_text(text)
+    if hit_any(normalized, ("推荐", "想找", "哪款", "哪种")):
+        return hit_any(normalized, PRODUCT_RECOMMENDATION_TARGET_WORDS)
+    return hit_any(normalized, ("想要", "更看重")) and hit_any(
+        normalized, PRODUCT_SELECTION_QUALIFIERS
     )
 
 
@@ -1587,7 +1594,11 @@ def classify_product_recommendation_followup(
 ) -> IntentResult | None:
     recent_turns = recent_turns if isinstance(recent_turns, list) else []
     normalized = normalize_intent_text(text)
-    if not hit_any(normalized, PRODUCT_PREFERENCE_WORDS):
+    has_selection_preference = match_product_recommendation_request(normalized) or (
+        hit_any(normalized, ("想要", "更看重"))
+        and hit_any(normalized, PRODUCT_SELECTION_QUALIFIERS)
+    )
+    if not has_selection_preference:
         return None
     has_recommendation_context = any(
         isinstance(turn, dict)

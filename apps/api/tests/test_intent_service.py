@@ -7,8 +7,31 @@ from app.domains.decisioning.services.intent_service import (
     classify_by_fast_rule,
     classify_by_hard_rules,
     classify_intent,
+    classify_product_recommendation_followup,
     match_membership_product_request,
+    match_product_recommendation_request,
 )
+
+
+def test_generic_care_wish_is_not_a_product_recommendation():
+    assert match_product_recommendation_request("我是新手，就是想把兰花养好") is False
+    assert (
+        classify_product_recommendation_followup(
+            "我是新手，就是想把兰花养好",
+            [{"role": "assistant", "content": "您想了解什么兰花品种？"}],
+        )
+        is None
+    )
+
+
+def test_concrete_selection_preference_remains_a_product_followup():
+    intent = classify_product_recommendation_followup(
+        "我想要浓香、好养的",
+        [{"role": "assistant", "content": "可以按您喜欢的品种来推荐。"}],
+    )
+
+    assert intent is not None
+    assert intent.slots["conversation_topic"] == "product_recommendation"
 
 
 def _message(text: str) -> NormalizedMessage:

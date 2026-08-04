@@ -684,14 +684,10 @@ def _enrich_material_video_access_context(message) -> None:
 
 
 def _should_attach_membership_brand_value(sales_action) -> bool:
-    if sales_action.sales_action not in {
-        "discover_pain",
-        "recommend_solution",
-        "build_value",
-    }:
+    # Discovery must stay focused on resolving a concrete customer need. Injecting
+    # membership facts here lets the generator pitch before that need is clear.
+    if sales_action.sales_action not in {"recommend_solution", "build_value"}:
         return False
-    if sales_action.sales_action == "discover_pain":
-        return sales_action.question_slot is None
     known_slots = getattr(sales_action, "known_slots", {})
     return not isinstance(known_slots, dict) or known_slots.get("need_track") != "product"
 
