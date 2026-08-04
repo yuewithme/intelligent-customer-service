@@ -236,6 +236,63 @@ async def test_chat_core_runs_fixed_material_video_access_workflow(
 
 
 @pytest.mark.asyncio
+async def test_chat_core_infers_material_video_workflow_from_conversation_history():
+    from app.domains.conversations.schemas.chat import ChatRequest
+    from app.domains.conversations.services.chat_orchestrator import handle_chat
+    from app.domains.conversations.services.conversation_service import make_conversation_id
+    from app.domains.conversations.services import state_service
+    from app.integrations.eyun.services.message_risk_control_service import _get_session
+
+    user_id = "material-video-core-history"
+    session_id = "material-video-history-session"
+    state_service._state_store.pop(user_id, None)
+    with _get_session() as session:
+        session.add(
+            ConversationMessageModel(
+                conversation_id=make_conversation_id("wechat", user_id, session_id),
+                delivery_status="sent",
+                sender_type="ai",
+                sender_id="ai",
+                content="[链接卡片] 萧岚苑陪伴养兰资料",
+                route="orchid_material_delivery",
+                metadata_json="{}",
+                created_at=datetime(2026, 7, 20, 6, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+    first = await handle_chat(
+        ChatRequest(
+            channel="wechat",
+            user_id=user_id,
+            session_id=session_id,
+            message="视频看不了",
+            kb_id="kb_default",
+        )
+    )
+    second = await handle_chat(
+        ChatRequest(
+            channel="wechat",
+            user_id=user_id,
+            session_id=session_id,
+            message="是的，我在抖音买的",
+            kb_id="kb_default",
+        )
+    )
+
+    assert first["route"] == "orchid_material_purchase_check"
+    assert first["need_human"] is False
+    assert first["next_action"] != "human_handoff"
+    assert "是在抖音购买的吗" in first["answer"]
+    assert "订单截图" not in first["answer"]
+
+    assert second["route"] == "orchid_material_order_screenshot_request"
+    assert second["need_human"] is False
+    assert second["next_action"] != "human_handoff"
+    assert "订单截图" in second["answer"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "content",
     [

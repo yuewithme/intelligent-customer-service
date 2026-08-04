@@ -147,6 +147,8 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
     render_mode = "persona"
     if reply.need_human or not reply.answer:
         render_mode = "silent"
+    elif reply.reply_type in {"fixed_resource", "fixed_workflow"}:
+        render_mode = "locked"
     elif has_business_facts and not allow_persona_extension:
         render_mode = "locked"
     elif (

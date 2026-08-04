@@ -158,6 +158,66 @@ def test_demo_session_restores_shared_history_across_clients(monkeypatch, tmp_pa
     assert any(item["role"] == "agent" for item in data["messages"])
 
 
+def test_demo_material_video_issue_uses_verification_flow_instead_of_handoff(
+    monkeypatch, tmp_path
+):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+    customer_id = "material-video-demo"
+    opened = client.post(
+        "/api/v1/demo/opening",
+        json={"customer_id": customer_id, "customer_name": "视频验证客户"},
+    ).json()["data"]
+    conversation_id = opened["conversation_id"]
+
+    first_request = client.post(
+        "/api/v1/demo/chat",
+        json={
+            "customer_id": customer_id,
+            "conversation_id": conversation_id,
+            "message": "要资料",
+        },
+    ).json()["data"]
+    second_request = client.post(
+        "/api/v1/demo/chat",
+        json={
+            "customer_id": customer_id,
+            "conversation_id": conversation_id,
+            "message": "把养兰资料发我",
+        },
+    ).json()["data"]
+    video_issue = client.post(
+        "/api/v1/demo/chat",
+        json={
+            "customer_id": customer_id,
+            "conversation_id": conversation_id,
+            "message": "视频看不了",
+        },
+    ).json()["data"]
+    purchase_confirmation = client.post(
+        "/api/v1/demo/chat",
+        json={
+            "customer_id": customer_id,
+            "conversation_id": conversation_id,
+            "message": "是的，我在抖音买的",
+        },
+    ).json()["data"]
+
+    assert first_request["route"] == "orchid_material_discovery"
+    assert second_request["route"] == "orchid_material_delivery"
+    assert video_issue["route"] == "orchid_material_purchase_check"
+    assert video_issue["need_human"] is False
+    assert video_issue["next_action"] != "human_handoff"
+    assert "是在抖音购买的吗" in video_issue["reply"]
+    assert "订单截图" not in video_issue["reply"]
+    assert (
+        purchase_confirmation["route"]
+        == "orchid_material_order_screenshot_request"
+    )
+    assert purchase_confirmation["need_human"] is False
+    assert "订单截图" in purchase_confirmation["reply"]
+
+
 def test_demo_session_restores_opening_image_as_media(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     monkeypatch.setenv("EYUN_OPENING_TEXT", "开场白")
