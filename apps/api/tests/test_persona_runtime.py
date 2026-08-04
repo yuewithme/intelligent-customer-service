@@ -494,6 +494,93 @@ async def test_rag_persona_retries_instead_of_falling_back_after_unexpected_ques
     assert "persona_guard" not in final.metadata
 
 
+@pytest.mark.asyncio
+async def test_care_persona_uses_approved_brand_sales_script(monkeypatch):
+    from app.services import persona_renderer
+
+    async def generate_messages(messages, *, purpose, temperature):
+        del messages, purpose, temperature
+        return {
+            "answer": (
+                "烂根多是因为植料闷，浇水后根透不过气，问题就容易反复。\n\n"
+                "这也是为什么我们萧岚苑提供结合具体养护问题的一对一指导。"
+            ),
+            "usage": {},
+        }
+
+    monkeypatch.setattr(persona_renderer, "generate_messages", generate_messages)
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_model_config",
+        lambda purpose: SimpleNamespace(provider="deepseek", model="deepseek-chat"),
+    )
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_settings",
+        lambda: SimpleNamespace(
+            persona_reply_enabled=True,
+            persona_reply_temperature=0.3,
+        ),
+    )
+    script = (
+        "我们萧岚苑不只是卖兰花，更重要的是陪您把兰花养好。"
+        "{pain_point}，老师会结合您家里的情况帮您调整，少走弯路、把兰花养稳。"
+    )
+    original = "烂根常和盆内长期闷湿有关。"
+    spec = ReplySpec(
+        route="rag_answer",
+        reply_type="rag",
+        reply_goal="分析烂根并自然说明陪伴价值",
+        suggested_copy=original,
+        verified_facts={
+            "grounded_knowledge_answer": original,
+            "brand_value_facts": [
+                {
+                    "brand": "萧岚苑",
+                    "service_capabilities": ["结合具体养护问题的一对一指导"],
+                    "approved_sales_scripts": {"care_pain": script},
+                }
+            ],
+        },
+        metadata={"persona_original_copy": original},
+    )
+
+    rendered = await persona_renderer.render_persona_reply(
+        spec=spec,
+        context=_context(mode="care_companion"),
+        current_message="烂根",
+    )
+    final = finalize_reply_spec(guard_reply_spec(spec=rendered, context=_context()))
+
+    assert final.answer_segments == [
+        "烂根多是因为植料闷，浇水后根透不过气，问题就容易反复。",
+        (
+            "我们萧岚苑不只是卖兰花，更重要的是陪您把兰花养好。"
+            "烂根这类问题，老师会结合您家里的情况帮您调整，少走弯路、把兰花养稳。"
+        ),
+    ]
+    assert "提供结合具体养护问题" not in final.answer
+
+
+def test_guard_does_not_treat_declarative_brand_bridge_as_question():
+    answer = (
+        "这也是为什么我们萧岚苑做陪伴养兰，"
+        "老师会结合实际情况一步步帮您调整。"
+    )
+    spec = ReplySpec(
+        route="rag_answer",
+        reply_type="rag",
+        reply_goal="自然承接品牌价值",
+        suggested_copy=answer,
+        metadata={"persona_original_copy": "原始回复。"},
+    )
+
+    guarded = guard_reply_spec(spec=spec, context=_context())
+
+    assert guarded.suggested_copy == answer
+    assert "persona_guard" not in guarded.metadata
+
+
 def test_product_persona_retry_contract_requires_the_planned_question_slot():
     from app.services import persona_renderer
 
