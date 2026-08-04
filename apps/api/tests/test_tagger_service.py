@@ -129,6 +129,35 @@ async def test_build_tag_result_does_not_carry_high_risk_into_normal_care_questi
 
 
 @pytest.mark.asyncio
+async def test_build_tag_result_extracts_specific_care_pain_from_current_message():
+    message = NormalizedMessage(
+        trace_id="trace_pain",
+        channel="api",
+        user_id="user_pain",
+        session_id="sess_pain",
+        message="叶片有黑斑还有烂根怎么办",
+        kb_id="kb_default",
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_domain="care",
+        primary_goal="diagnose",
+        primary_intent="care_question",
+        confidence=0.9,
+        need_rag=True,
+    )
+
+    result = await build_tag_result(
+        message=message,
+        user_state=UserState(user_id="user_pain"),
+        intent=intent,
+    )
+
+    assert result.entities["pain_point"] == "黑斑、烂根"
+    assert "product_interest:兰花养护" in result.labels
+
+
+@pytest.mark.asyncio
 async def test_build_tag_result_does_not_generate_region_or_plant_count_tags():
     message = NormalizedMessage(
         trace_id="trace_3",

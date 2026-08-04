@@ -365,6 +365,14 @@ def test_polite_purchase_deferral_is_hesitation_not_hard_rejection():
     assert intent.slots["rejection_kind"] == "polite_decline"
 
 
+def test_fast_rule_keeps_polite_deferral_separate_from_hard_rejection():
+    intent = classify_by_fast_rule("谢谢，先不考虑了")
+
+    assert intent is not None
+    assert intent.primary_goal == "defer_decision"
+    assert intent.slots["rejection_kind"] == "polite_decline"
+
+
 def test_explicit_stop_recommendation_remains_hard_rejection():
     intent = classify_by_hard_rules("不要再给我推荐了")
 

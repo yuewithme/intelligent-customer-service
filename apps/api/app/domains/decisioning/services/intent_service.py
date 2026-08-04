@@ -886,7 +886,7 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
                 "reason": "soft_rule_product_query",
             }
         )
-    if hit_any(text, PURCHASE_REJECTION_WORDS) and not has_price:
+    if hit_any(text, HARD_PURCHASE_REJECTION_WORDS) and not has_price:
         return _validated_intent(
             {
                 "route": "template_reply",
@@ -895,6 +895,20 @@ def classify_by_soft_rules(text: str) -> IntentResult | None:
                 "confidence": 0.92,
                 "need_template": True,
                 "reason": "soft_rule_purchase_rejection",
+            }
+        )
+    if hit_any(text, SOFT_PURCHASE_DEFERRAL_WORDS) and not has_price:
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_domain": "commerce",
+                "primary_goal": "defer_decision",
+                "primary_intent": "hesitation",
+                "sales_stage": "unknown",
+                "confidence": 0.92,
+                "need_template": True,
+                "slots": {"rejection_kind": "polite_decline"},
+                "reason": "soft_rule_polite_purchase_deferral",
             }
         )
     if hit_any(text, SHIPPING_DAMAGE_WORDS):

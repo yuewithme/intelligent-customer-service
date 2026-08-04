@@ -43,6 +43,9 @@ async def build_tag_result(
         if not _is_customer_level_tag(tag)
     ]
     entities = dict(intent.slots)
+    pain_point = _pain_point_from_text(message.message)
+    if pain_point and not entities.get("pain_point"):
+        entities["pain_point"] = pain_point
     if customer_level.level != "unknown" and customer_level.label:
         labels.append(f"customer_tag:{customer_level.label}")
         entities["customer_level"] = customer_level.model_dump()
@@ -87,12 +90,29 @@ def _segment_from(message: NormalizedMessage, user_state: UserState) -> str:
 
 def _memory_labels(text: str, intent: IntentResult) -> list[str]:
     labels: list[str] = []
-    if _has_any(text, ("烂根", "爛根", "黑根", "空根", "root rot")):
-        labels.append("pain_point:兰花烂根")
+    pain_point = _pain_point_from_text(text)
+    if pain_point:
+        labels.append(f"pain_point:兰花{pain_point}")
         labels.append("product_interest:兰花养护")
     elif _has_any(text, ("兰花", "蘭花", "orchid")):
         labels.append("product_interest:兰花养护")
     return filter_runtime_labels(_dedupe(labels))
+
+
+def _pain_point_from_text(text: str) -> str:
+    issues: list[str] = []
+    markers = (
+        ("黑斑", ("黑斑", "叶斑")),
+        ("黄叶", ("黄叶", "黃葉", "叶子发黄", "葉子發黃")),
+        ("烂根", ("烂根", "爛根", "黑根", "空根")),
+        ("腐苗", ("腐苗", "烂苗", "软腐")),
+        ("焦尖", ("焦尖", "干尖", "枯尖")),
+        ("不开花", ("不开花", "不開花", "不来花")),
+    )
+    for label, words in markers:
+        if _has_any(text, words):
+            issues.append(label)
+    return "、".join(issues)
 
 
 def _has_any(text: str, words: tuple[str, ...]) -> bool:
