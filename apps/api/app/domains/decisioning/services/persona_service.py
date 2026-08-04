@@ -140,6 +140,16 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
     brand_value_facts = sales_action.get("brand_value_facts")
     if isinstance(brand_value_facts, list) and brand_value_facts:
         verified_facts = {**verified_facts, "brand_value_facts": brand_value_facts}
+    verified_facts = {
+        **verified_facts,
+        "response_permissions": {
+            "allow_no_further_discount_claim": (
+                sales_action.get("reason")
+                == "membership_objection_close_priority"
+                or sales_action.get("customer_signal") == "objection"
+            ),
+        },
+    }
     allow_persona_extension = bool(reply.metadata.get("allow_persona_extension"))
     rewrite_business_copy = bool(
         reply.metadata.get("persona_rewrite_business_copy")

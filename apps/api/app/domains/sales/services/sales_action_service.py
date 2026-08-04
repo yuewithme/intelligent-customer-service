@@ -86,11 +86,46 @@ def decide_sales_action(
     if stage == "unknown":
         stage = normalize_sales_stage(user_state.sales_stage)
 
+    if intent.primary_goal == "request_material":
+        if known_slots.get("material_request_phase") == "delivery":
+            return _decision(
+                "直接发送客户已经确认领取的养兰资料，不再重复挖需；"
+                "不要被上一轮商品或会员上下文带偏，不得主动谈价格或优惠",
+                "provide_service",
+                known_slots,
+                customer_signal="interested",
+                reason="material_request_priority",
+            )
+        return SalesActionDecision(
+            reply_goal=(
+                "先回应客户领取养兰资料的请求，再只用一个自然、具体的问题了解客户"
+                "目前最想解决的养兰痛点；不要被上一轮商品或会员上下文带偏，"
+                "不得主动谈价格、优惠或不能再优惠"
+            ),
+            sales_action="discover_pain",
+            required_slots=["pain_point"],
+            question_slot="pain_point",
+            known_slots=known_slots,
+            customer_signal="interested",
+            reason="material_request_priority",
+        )
+
+    explicit_non_membership_turn = (
+        intent.primary_domain in {"care", "conversation"}
+        or intent.primary_goal in {"request_material", "socialize"}
+    )
     membership_context = (
-        intent.slots.get("product_request_kind") == "membership"
-        or (
-            user_state.metadata.get("commerce_last_product_kind") == "membership"
-            and bool(user_state.metadata.get("commerce_last_product_id"))
+        not explicit_non_membership_turn
+        and (
+            intent.slots.get("product_request_kind") == "membership"
+            or (
+                user_state.metadata.get("commerce_last_product_kind") == "membership"
+                and bool(user_state.metadata.get("commerce_last_product_id"))
+                and (
+                    intent.primary_domain in {"product", "commerce"}
+                    or intent.primary_intent in OBJECTION_INTENTS | ORDER_INTENTS
+                )
+            )
         )
     )
     if membership_context:
@@ -111,10 +146,7 @@ def decide_sales_action(
         repeated_membership_objection = is_membership_objection and (
             _has_prior_price_objection(user_state.metadata.get("recent_turns"))
         )
-        if (
-            membership_kind in {"capability", "price", "objection"}
-            or is_membership_objection
-        ):
+        if is_membership_objection:
             return _decision(
                 (
                     "客户已经连续询价，先自然接住，再根据已核实事实直接说明首单体验价不能再优惠；"
@@ -123,22 +155,29 @@ def decide_sales_action(
                     else "先自然接住价格顾虑，再结合已核实的首单体验价和会员权益说明价值；"
                     "明确回答不能再优惠，不说空话、不追问预算，最后推进客户点击卡片开通"
                 ),
-                (
-                    "close_order"
-                    if is_membership_objection
-                    else "answer_current_question"
-                ),
+                "close_order",
                 known_slots,
-                customer_signal=(
-                    "objection"
-                    if is_membership_objection
-                    else "interested"
-                ),
-                reason=(
-                    "membership_objection_close_priority"
-                    if is_membership_objection
-                    else "membership_question_priority"
-                ),
+                customer_signal="objection",
+                reason="membership_objection_close_priority",
+            )
+        if membership_kind == "capability":
+            return _decision(
+                "直接回答陪伴养兰服务是什么，结合已核实权益说明它如何帮助客户少走弯路；"
+                "可以发送真实商品卡片推进开通，但客户本轮没有议价，不得主动提优惠、"
+                "不能再优惠或价格异议",
+                "answer_current_question",
+                known_slots,
+                customer_signal="interested",
+                reason="membership_capability_priority",
+            )
+        if membership_kind == "price":
+            return _decision(
+                "直接说明陪伴养兰服务的当前价格和对应价值，并引导客户点击卡片开通；"
+                "客户本轮只是询价，没有议价，不得主动说不能再优惠或不能再少",
+                "answer_current_question",
+                known_slots,
+                customer_signal="interested",
+                reason="membership_price_priority",
             )
         return _decision(
             "回答客户当前问题后提供真实会员购买入口",

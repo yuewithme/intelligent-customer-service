@@ -140,6 +140,65 @@ def test_membership_sales_action_follows_current_question(question_kind, expecte
     assert decision.question_slot is None
 
 
+def test_material_request_overrides_persisted_membership_product_context():
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="knowledge_question",
+        primary_domain="care",
+        primary_goal="request_material",
+        sales_stage="closing",
+        confidence=0.99,
+        slots={
+            "material_type": "orchid_care",
+            "resource_type": "orchid_material",
+            "product_request_kind": "membership",
+            "membership_question_kind": "capability",
+        },
+    )
+    state = UserState(
+        user_id="material-after-card",
+        metadata={
+            "commerce_last_product_kind": "membership",
+            "commerce_last_product_id": "membership-39",
+        },
+    )
+
+    decision = decide_sales_action(user_state=state, intent=intent)
+
+    assert decision.sales_action == "discover_pain"
+    assert decision.reason == "material_request_priority"
+    assert "领取养兰资料" in decision.reply_goal
+    assert "不得主动谈价格" in decision.reply_goal
+    assert decision.question_slot == "pain_point"
+
+
+def test_care_question_overrides_persisted_membership_product_context():
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="care_question",
+        primary_domain="care",
+        primary_goal="seek_help",
+        sales_stage="pain_discovery",
+        confidence=0.99,
+        slots={
+            "pain_point": "烂根",
+            "product_request_kind": "membership",
+        },
+    )
+    state = UserState(
+        user_id="care-after-card",
+        metadata={
+            "commerce_last_product_kind": "membership",
+            "commerce_last_product_id": "membership-39",
+        },
+    )
+
+    decision = decide_sales_action(user_state=state, intent=intent)
+
+    assert decision.reason == "care_expertise_first"
+    assert decision.sales_action == "discover_pain"
+
+
 def test_membership_price_objection_uses_facts_without_budget_question():
     intent = IntentResult(
         route="template_reply",
