@@ -243,9 +243,7 @@ def _apply_approved_care_brand_script(
         "service_offer_soft_decline_value_card": "soft_decline_value",
     }.get(reason)
     if script_name is None:
-        if spec.reply_type != "rag":
-            return answer
-        script_name = "care_pain"
+        return answer
     facts = spec.verified_facts.get("brand_value_facts")
     if not isinstance(facts, list):
         facts = []

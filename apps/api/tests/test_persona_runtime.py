@@ -602,6 +602,11 @@ async def test_rag_persona_retries_instead_of_falling_back_after_unexpected_ques
         suggested_copy=original,
         verified_facts={
             "grounded_knowledge_answer": original,
+            "sales_action_context": {
+                "reason": "service_solution_first_offer",
+                "service_need_kind": "pain_point",
+                "service_need": "烂根",
+            },
             "brand_value_facts": [
                 {
                     "brand": "萧岚苑",
@@ -669,6 +674,11 @@ async def test_care_persona_uses_approved_brand_sales_script(monkeypatch):
         suggested_copy=original,
         verified_facts={
             "grounded_knowledge_answer": original,
+            "sales_action_context": {
+                "reason": "service_solution_first_offer",
+                "service_need_kind": "pain_point",
+                "service_need": "烂根",
+            },
             "brand_value_facts": [
                 {
                     "brand": "萧岚苑",
@@ -695,6 +705,35 @@ async def test_care_persona_uses_approved_brand_sales_script(monkeypatch):
         ),
     ]
     assert "提供结合具体养护问题" not in final.answer
+
+
+def test_discovery_rag_does_not_append_service_script_before_need_is_resolved():
+    from app.services import persona_renderer
+
+    original = "新手可以先从浇水和通风这些基础开始。"
+    spec = ReplySpec(
+        route="rag_answer",
+        reply_type="rag",
+        reply_goal="继续挖掘具体养兰需求",
+        suggested_copy=original,
+        verified_facts={
+            "brand_value_facts": [
+                {
+                    "approved_sales_scripts": {
+                        "care_pain": "这里不应该提前介绍陪伴服务。"
+                    }
+                }
+            ]
+        },
+    )
+
+    result = persona_renderer._apply_approved_care_brand_script(
+        spec=spec,
+        answer=original,
+        current_message="我是新手，想把兰花养好",
+    )
+
+    assert result == original
 
 
 def test_guard_does_not_treat_declarative_brand_bridge_as_question():
