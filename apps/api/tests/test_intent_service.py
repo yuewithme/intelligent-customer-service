@@ -357,6 +357,21 @@ def test_greeting_with_business_question_is_not_pure_chitchat():
     assert classify_by_hard_rules("你好，这个多少钱？") is None
 
 
+def test_polite_purchase_deferral_is_hesitation_not_hard_rejection():
+    intent = classify_by_hard_rules("先不买了，谢谢")
+
+    assert intent is not None
+    assert intent.primary_goal == "defer_decision"
+    assert intent.slots["rejection_kind"] == "polite_decline"
+
+
+def test_explicit_stop_recommendation_remains_hard_rejection():
+    intent = classify_by_hard_rules("不要再给我推荐了")
+
+    assert intent is not None
+    assert intent.primary_intent == "purchase_rejection"
+
+
 @pytest.mark.asyncio
 async def test_human_priority_beats_knowledge_question():
     intent = await classify_intent(

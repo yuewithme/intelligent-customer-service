@@ -9,6 +9,9 @@ from app.domains.decisioning.services.business_action_service import (
     SELECTED_PRODUCT_DETAIL,
     resolve_business_action,
 )
+from app.domains.conversations.services.chat_orchestrator import (
+    _service_offer_followup_business_intent,
+)
 
 
 def _message(text: str) -> NormalizedMessage:
@@ -149,13 +152,46 @@ def test_persisted_order_task_routes_status_followup_back_to_order_query():
             }
         },
     )
-
     assert resolve_business_action(
         message=_message("查到了吗？"),
         intent=_intent("ask_after_sale"),
         user_state=state,
     ) == ORDER_VERIFY
 
+
+def test_soft_decline_after_service_offer_requests_membership_value_card():
+    state = UserState(
+        user_id="customer-1",
+        sales_stage="solution_recommended",
+        metadata={
+            "active_opportunity": {
+                "service_offer_phase": "introduced",
+                "last_sales_action": "recommend_solution",
+                "slots": {"need_track": "service", "pain_point": "黑斑"},
+            }
+        },
+    )
+    intent = _intent(
+        "knowledge_question",
+        primary_domain="commerce",
+        primary_goal="defer_decision",
+        slots={"rejection_kind": "polite_decline"},
+    )
+
+    business_intent = _service_offer_followup_business_intent(
+        intent=intent,
+        user_state=state,
+    )
+
+    assert business_intent.slots["product_request_kind"] == "membership"
+    assert business_intent.slots["membership_question_kind"] == "purchase"
+    assert business_intent.slots["service_offer_followup"] == "value_card"
+    assert resolve_business_action(
+        message=_message("先不买了，谢谢"),
+        intent=business_intent,
+        user_state=state,
+        sales_stage="solution_recommended",
+    ) == CATALOG_SEARCH
 
 def test_explicit_purchase_entry_switches_from_rag_to_catalog():
     state = UserState(user_id="customer-1")

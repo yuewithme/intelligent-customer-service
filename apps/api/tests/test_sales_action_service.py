@@ -55,23 +55,112 @@ def test_care_reply_without_specific_pain_asks_one_guided_pain_question():
     assert "不照抄固定句式" in decision.reply_goal
 
 
-def test_care_reply_with_specific_pain_stops_questioning_and_builds_service_value():
+def test_care_reply_with_specific_pain_stops_discovery_and_recommends_service():
     intent = _intent(pain_point="烂根").model_copy(
-        update={"primary_domain": "care", "primary_goal": "seek_help"}
+        update={
+            "primary_domain": "care",
+            "primary_goal": "seek_help",
+            "sales_stage": "solution_recommended",
+        }
     )
 
     decision = decide_sales_action(
-        user_state=UserState(user_id="care_user", sales_stage="pain_discovery"),
+        user_state=UserState(user_id="care_user", sales_stage="solution_recommended"),
         intent=intent,
     )
 
-    assert decision.sales_action == "discover_pain"
+    assert decision.sales_action == "recommend_solution"
     assert decision.question_slot is None
     assert decision.required_slots == []
     assert decision.allow_diagnostic_question is False
-    assert "问题反复" in decision.reply_goal
-    assert "长期陪伴" in decision.reply_goal
-    assert "不要继续追问" in decision.reply_goal
+    assert "找痛点到此结束" in decision.reply_goal
+    assert "单品养护资料" in decision.reply_goal
+    assert decision.reason == "service_solution_first_offer"
+
+
+def test_soft_decline_after_service_offer_builds_value_and_keeps_selling():
+    decision = decide_sales_action(
+        user_state=UserState(
+            user_id="care_user",
+            sales_stage="solution_recommended",
+            metadata={
+                "active_opportunity": {
+                    "service_offer_phase": "introduced",
+                    "last_sales_action": "recommend_solution",
+                    "slots": {"need_track": "service", "pain_point": "黑斑"},
+                }
+            },
+        ),
+        intent=IntentResult(
+            route="chitchat",
+            primary_intent="greeting",
+            primary_domain="conversation",
+            primary_goal="social",
+            confidence=0.99,
+            slots={"chitchat_kind": "thanks"},
+        ),
+    )
+
+    assert decision.sales_action == "build_value"
+    assert decision.reason == "service_offer_soft_decline_value_card"
+    assert "同行差异" in decision.reply_goal
+    assert "商品卡" in decision.reply_goal
+
+
+def test_care_question_after_service_offer_is_answered_before_service_deepening():
+    state = UserState(
+        user_id="care_user",
+        sales_stage="value_built",
+        metadata={
+            "active_opportunity": {
+                "service_offer_phase": "introduced",
+                "last_sales_action": "recommend_solution",
+                "slots": {"need_track": "service", "pain_point": "黑斑"},
+            }
+        },
+    )
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="care_question",
+        primary_domain="care",
+        primary_goal="seek_help",
+        sales_stage="value_built",
+        confidence=0.95,
+        need_rag=True,
+        slots={"pain_point": "黑斑"},
+    )
+
+    decision = decide_sales_action(user_state=state, intent=intent)
+
+    assert decision.sales_action == "build_value"
+    assert decision.reason == "service_solution_question_followup"
+    assert "先用一条消息回答" in decision.reply_goal
+    assert "商品卡" not in decision.reply_goal
+    assert "不得只做免费问答" in decision.reply_goal
+
+
+def test_service_offer_phase_is_persisted_across_sales_turns():
+    introduced = evolve_opportunity(
+        {},
+        sales_stage="solution_recommended",
+        sales_action={
+            "sales_action": "recommend_solution",
+            "reason": "service_solution_first_offer",
+            "known_slots": {"need_track": "service", "pain_point": "黑斑"},
+        },
+    )
+    deepened = evolve_opportunity(
+        introduced,
+        sales_stage="value_built",
+        sales_action={
+            "sales_action": "build_value",
+            "reason": "service_offer_soft_decline_value_card",
+            "known_slots": introduced["slots"],
+        },
+    )
+
+    assert introduced["service_offer_phase"] == "introduced"
+    assert deepened["service_offer_phase"] == "card_sent"
 
 
 def test_profile_answer_uses_objective_acknowledgement_and_tailored_pain_probe():

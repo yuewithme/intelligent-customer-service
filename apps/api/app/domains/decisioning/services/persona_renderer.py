@@ -232,20 +232,38 @@ def _apply_approved_care_brand_script(
     answer: str,
     current_message: str,
 ) -> str:
-    if spec.reply_type != "rag" or not answer.strip():
+    if not answer.strip():
         return answer
+    action_context = spec.verified_facts.get("sales_action_context")
+    action_context = action_context if isinstance(action_context, dict) else {}
+    reason = str(action_context.get("reason") or "")
+    script_name = {
+        "service_solution_first_offer": "care_pain",
+        "service_solution_question_followup": "care_question_followup",
+        "service_offer_soft_decline_value_card": "soft_decline_value",
+    }.get(reason)
+    if script_name is None:
+        if spec.reply_type != "rag":
+            return answer
+        script_name = "care_pain"
     facts = spec.verified_facts.get("brand_value_facts")
     if not isinstance(facts, list):
-        return answer
+        facts = []
     script = ""
     for fact in facts:
         if not isinstance(fact, dict):
             continue
         scripts = fact.get("approved_sales_scripts")
         if isinstance(scripts, dict):
-            script = str(scripts.get("care_pain") or "").strip()
+            script = str(scripts.get(script_name) or "").strip()
         if script:
             break
+    if not script:
+        tool_state = spec.verified_facts.get("tool_state")
+        tool_state = tool_state if isinstance(tool_state, dict) else {}
+        scripts = tool_state.get("approved_sales_scripts")
+        if isinstance(scripts, dict):
+            script = str(scripts.get(script_name) or "").strip()
     if not script:
         return answer
     pain_point = next(
@@ -261,9 +279,20 @@ def _apply_approved_care_brand_script(
             )
             if marker in current_message
         ),
-        "这类养护问题",
+        "",
     )
+    if not pain_point:
+        known_pain = str(action_context.get("pain_point") or "").strip()
+        pain_point = (
+            known_pain
+            if known_pain.endswith("这类问题")
+            else f"{known_pain}这类问题"
+            if known_pain
+            else "这类养护问题"
+        )
     bridge = script.replace("{pain_point}", pain_point)
+    if reason == "service_offer_soft_decline_value_card":
+        return bridge
     body_parts = [
         part
         for part in re.split(r"(?<=[。！？!?])", answer)

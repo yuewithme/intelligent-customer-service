@@ -24,7 +24,10 @@ def test_membership_brand_scripts_do_not_depend_on_catalog_availability(monkeypa
 
     assert facts[0]["product_id"] == ""
     assert facts[0]["brand"] == "萧岚苑"
-    assert "不只是卖兰花" in facts[0]["approved_sales_scripts"]["care_pain"]
+    assert "单品养护资料" in facts[0]["approved_sales_scripts"]["care_pain"]
+    assert "同行差异" not in facts[0]["approved_sales_scripts"]["soft_decline_value"]
+    assert "市面上不少商家" in facts[0]["approved_sales_scripts"]["soft_decline_value"]
+    assert "收苗处理上盆" in facts[0]["approved_sales_scripts"]["soft_decline_value"]
 
 
 def _message(text: str) -> NormalizedMessage:
@@ -273,7 +276,7 @@ async def test_membership_request_uses_local_product_and_exact_price_card():
         "把基础养护系统理顺，少走弯路"
     )
     assert "我们萧岚苑" in facts.tool_state["brand_positioning"]
-    assert "不只是卖兰花" in facts.tool_state["approved_sales_scripts"]["care_pain"]
+    assert "单品养护资料" in facts.tool_state["approved_sales_scripts"]["care_pain"]
     assert state.metadata["commerce_last_product_id"] == "membership-39"
     assert reply is not None
     assert "萧岚苑有陪伴养兰会员" in reply.answer
@@ -1739,3 +1742,50 @@ async def test_phone_followup_keeps_pending_order_query_intent(text):
 
     assert intent.primary_intent == "order_query"
     assert intent.route == "template_reply"
+
+
+@pytest.mark.asyncio
+async def test_service_offer_soft_decline_sends_membership_card_without_objection_copy():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_reply_renderer import render_business_reply
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert keyword == "首单参与陪伴养兰客户"
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id="membership-39",
+                    title="首单参与陪伴养兰客户 专享特惠链接",
+                    price_cent=3990,
+                    h5_url="https://h5.youzan.com/goods/member-39",
+                )
+            ]
+
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="knowledge_question",
+        primary_domain="commerce",
+        primary_goal="defer_decision",
+        confidence=0.99,
+        slots={
+            "rejection_kind": "polite_decline",
+            "product_request_kind": "membership",
+            "membership_question_kind": "purchase",
+            "service_offer_followup": "value_card",
+        },
+    )
+    facts = await build_commerce_context(
+        _message("先不买了，谢谢"),
+        UserState(user_id="soft-decline-user"),
+        intent,
+        product_service=FakeProductService(),
+        business_action="catalog_search",
+        allowed_source_groups={"product_catalog"},
+    )
+    reply = await render_business_reply(_message("先不买了，谢谢"), facts)
+
+    assert facts.tool_state["membership_question_kind"] == "purchase"
+    assert facts.tool_state["send_purchase_card"] is True
+    assert reply.outbound_messages[-1].type == "link_card"
+    assert "不能再少" not in reply.answer

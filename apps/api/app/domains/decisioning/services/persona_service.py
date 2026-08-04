@@ -146,6 +146,22 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state, intent=None) -> Rep
             **verified_facts,
             "customer_profile_facts": current_profile_facts,
         }
+    sales_action_context = {
+        key: value
+        for key, value in {
+            "sales_action": sales_action.get("sales_action"),
+            "reason": sales_action.get("reason"),
+            "pain_point": _dict_value(sales_action.get("known_slots")).get(
+                "pain_point"
+            ),
+        }.items()
+        if value not in (None, "", [])
+    }
+    if sales_action_context:
+        verified_facts = {
+            **verified_facts,
+            "sales_action_context": sales_action_context,
+        }
     verified_facts = {
         **verified_facts,
         "response_permissions": {

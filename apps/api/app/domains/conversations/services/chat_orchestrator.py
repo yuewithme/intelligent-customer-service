@@ -287,21 +287,25 @@ async def handle_chat(request: ChatRequest) -> dict:
             tag_result=tag_result,
             signal_result=preliminary_signals,
         )
+        business_intent = _service_offer_followup_business_intent(
+            intent=intent,
+            user_state=user_state,
+        )
         business_action = resolve_business_action(
             message=message,
-            intent=intent,
+            intent=business_intent,
             user_state=user_state,
             sales_stage=preliminary_decision.stage.value,
         )
         source_allowlist = allowed_knowledge_sources(
             preliminary_decision.stage,
-            intent,
+            business_intent,
             business_action=business_action,
         )
         facts = await build_commerce_context(
             message,
             user_state,
-            intent,
+            business_intent,
             business_action=business_action,
             allowed_source_groups=source_allowlist,
         )
@@ -407,11 +411,19 @@ async def handle_chat(request: ChatRequest) -> dict:
             intent=routed_intent,
         )
         if _should_attach_membership_brand_value(sales_action):
+            force_stage_script = sales_action.reason in {
+                "service_solution_first_offer",
+                "service_solution_question_followup",
+                "service_offer_soft_decline_value_card",
+            }
             sales_action = sales_action.model_copy(
                 update={
                     "brand_value_facts": (
                         []
-                        if _pain_brand_value_already_present(user_state)
+                        if (
+                            not force_stage_script
+                            and _pain_brand_value_already_present(user_state)
+                        )
                         else verified_membership_brand_facts()
                     ),
                 }
@@ -682,6 +694,41 @@ def _should_attach_membership_brand_value(sales_action) -> bool:
         return sales_action.question_slot is None
     known_slots = getattr(sales_action, "known_slots", {})
     return not isinstance(known_slots, dict) or known_slots.get("need_track") != "product"
+
+
+def _service_offer_followup_business_intent(*, intent, user_state):
+    metadata = getattr(user_state, "metadata", {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    opportunity = metadata.get("active_opportunity")
+    opportunity = opportunity if isinstance(opportunity, dict) else {}
+    offer_started = str(opportunity.get("service_offer_phase") or "") in {
+        "introduced",
+        "deepened",
+    } or str(opportunity.get("last_sales_action") or "") in {
+        "recommend_solution",
+        "build_value",
+    }
+    if not offer_started:
+        return intent
+    slots = intent.slots if isinstance(intent.slots, dict) else {}
+    soft_response = bool(
+        slots.get("chitchat_kind") == "thanks"
+        or slots.get("rejection_kind") == "polite_decline"
+        or intent.primary_intent == "hesitation"
+        or intent.primary_goal == "defer_decision"
+    )
+    if not soft_response:
+        return intent
+    return intent.model_copy(
+        update={
+            "slots": {
+                **slots,
+                "product_request_kind": "membership",
+                "membership_question_kind": "purchase",
+                "service_offer_followup": "value_card",
+            }
+        }
+    )
 
 
 def _prepend_opening(reply: FinalReply) -> FinalReply:

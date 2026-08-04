@@ -45,12 +45,16 @@ CUSTOMER_SERVICE_REQUEST_WORDS = ("转客服", "找客服", "接客服", "人工
 LOGISTICS_WORDS = ("物流", "发货", "快递", "多久到", "什么时候到", "运费")
 ORDER_WORDS = ("怎么买", "下单", "付款", "支付", "购买", "拍下")
 AFTER_SALE_WORDS = ("售后", "坏了", "破损", "质量问题")
-PURCHASE_REJECTION_WORDS = (
+HARD_PURCHASE_REJECTION_WORDS = (
     "不要再推荐",
     "不要再给我推荐",
     "别再推荐",
     "别再给我推荐",
     "不用推荐",
+    "别发链接",
+    "不用发链接",
+)
+SOFT_PURCHASE_DEFERRAL_WORDS = (
     "不想买",
     "先不买",
     "暂时不买",
@@ -59,8 +63,11 @@ PURCHASE_REJECTION_WORDS = (
     "不考虑了",
     "不买了",
     "算了不买",
-    "别发链接",
-    "不用发链接",
+    "不用了",
+)
+PURCHASE_REJECTION_WORDS = (
+    *HARD_PURCHASE_REJECTION_WORDS,
+    *SOFT_PURCHASE_DEFERRAL_WORDS,
 )
 SHIPPING_DAMAGE_WORDS = ("花盆碎", "盆碎", "苗歪", "运输破损", "收到后破损")
 ORDER_INFO_WORDS = ("身份证号", "详细地址", "收货地址", "电话号码", "电话")
@@ -690,7 +697,7 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
             }
         )
 
-    if hit_any(text, PURCHASE_REJECTION_WORDS):
+    if hit_any(text, HARD_PURCHASE_REJECTION_WORDS):
         return _validated_intent(
             {
                 "route": "template_reply",
@@ -699,6 +706,21 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                 "confidence": 0.99,
                 "need_template": True,
                 "reason": "rule_purchase_rejection",
+            }
+        )
+
+    if hit_any(text, SOFT_PURCHASE_DEFERRAL_WORDS):
+        return _validated_intent(
+            {
+                "route": "template_reply",
+                "primary_domain": "commerce",
+                "primary_goal": "defer_decision",
+                "primary_intent": "hesitation",
+                "sales_stage": "unknown",
+                "confidence": 0.99,
+                "need_template": True,
+                "slots": {"rejection_kind": "polite_decline"},
+                "reason": "rule_polite_purchase_deferral",
             }
         )
 

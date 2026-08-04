@@ -139,11 +139,41 @@ def test_catalog_match_sets_existing_selected_product_slots():
             }
         ),
     )
-
     assert result.slots["selected_product_id"] == "membership-39"
     assert result.slots["selected_product_name"] == "首单参与陪伴养兰客户 专享特惠链接"
     assert CustomerSignal.RECOMMENDATION_ENGAGED in result.signals
 
+
+def test_reply_after_service_recommendation_is_recommendation_engagement():
+    intent = IntentResult(
+        route="chitchat",
+        primary_intent="greeting",
+        primary_domain="conversation",
+        primary_goal="social",
+        confidence=0.99,
+        slots={"chitchat_kind": "thanks"},
+    )
+    state = UserState(
+        user_id="user_1",
+        sales_stage="solution_recommended",
+        metadata={
+            "active_opportunity": {
+                "last_sales_action": "recommend_solution",
+                "service_offer_phase": "introduced",
+                "slots": {"need_track": "service", "pain_point": "黑斑"},
+            }
+        },
+    )
+
+    result = normalize_sales_signals(
+        user_state=state,
+        intent=intent,
+        tag_result=_tag(intent),
+        message=_message("谢谢"),
+    )
+
+    assert CustomerSignal.RESPONDED in result.signals
+    assert CustomerSignal.RECOMMENDATION_ENGAGED in result.signals
 
 def test_supply_accessory_does_not_replace_selected_primary_product():
     intent = _intent("product_query")

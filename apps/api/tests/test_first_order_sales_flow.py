@@ -119,6 +119,20 @@ def test_complete_customer_context_can_jump_directly_to_recommendation():
     assert result.transition_type == "jump"
 
 
+def test_specific_service_pain_enters_recommendation_without_extra_profile_slots():
+    result = _decide(
+        UserState(user_id="service-user", sales_stage="need_discovery"),
+        _signals(
+            CustomerSignal.SERVICE_NEED,
+            CustomerSignal.PAIN_REVEALED,
+            slots={"need_track": "service", "pain_point": "黑斑"},
+        ),
+    )
+
+    assert result.stage == SalesStage.SOLUTION_RECOMMENDED
+    assert result.reason == "recommendation_evidence_ready"
+
+
 def test_early_objection_does_not_fake_progress_to_closing():
     result = _decide(
         UserState(user_id="user_1", sales_stage="need_discovery"),
@@ -127,6 +141,20 @@ def test_early_objection_does_not_fake_progress_to_closing():
 
     assert result.stage == SalesStage.NEED_DISCOVERY
     assert result.reason == "objection_without_progression"
+
+
+def test_soft_objection_after_service_recommendation_enters_value_building():
+    result = _decide(
+        UserState(user_id="service-user", sales_stage="solution_recommended"),
+        _signals(
+            CustomerSignal.OBJECTION,
+            CustomerSignal.RECOMMENDATION_ENGAGED,
+            slots={"need_track": "service", "pain_point": "黑斑"},
+        ),
+    )
+
+    assert result.stage == SalesStage.VALUE_BUILT
+    assert result.reason == "recommendation_followup_objection"
 
 
 def test_price_without_recommendation_basis_stays_in_need_discovery():
