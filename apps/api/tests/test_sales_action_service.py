@@ -73,8 +73,9 @@ def test_care_reply_with_resolved_need_stops_discovery_and_recommends_service():
     assert decision.question_slot is None
     assert decision.required_slots == []
     assert decision.allow_diagnostic_question is False
-    assert "需求已经明确" in decision.reply_goal
-    assert "单品养护资料" in decision.reply_goal
+    assert "需求刚明确" in decision.reply_goal
+    assert "简单介绍我们萧岚苑" in decision.reply_goal
+    assert "不发商品卡" in decision.reply_goal
     assert decision.reason == "service_solution_first_offer"
 
 

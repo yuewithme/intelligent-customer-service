@@ -244,6 +244,18 @@ def _apply_approved_care_brand_script(
     }.get(reason)
     if script_name is None:
         return answer
+    script_names = [script_name]
+    if script_name == "care_pain":
+        category = _care_pain_script_category(
+            " ".join(
+                (
+                    current_message,
+                    str(action_context.get("service_need") or ""),
+                )
+            )
+        )
+        if category:
+            script_names.insert(0, f"care_pain_{category}")
     facts = spec.verified_facts.get("brand_value_facts")
     if not isinstance(facts, list):
         facts = []
@@ -253,7 +265,14 @@ def _apply_approved_care_brand_script(
             continue
         scripts = fact.get("approved_sales_scripts")
         if isinstance(scripts, dict):
-            script = str(scripts.get(script_name) or "").strip()
+            script = next(
+                (
+                    str(scripts.get(name) or "").strip()
+                    for name in script_names
+                    if str(scripts.get(name) or "").strip()
+                ),
+                "",
+            )
         if script:
             break
     if not script:
@@ -261,7 +280,14 @@ def _apply_approved_care_brand_script(
         tool_state = tool_state if isinstance(tool_state, dict) else {}
         scripts = tool_state.get("approved_sales_scripts")
         if isinstance(scripts, dict):
-            script = str(scripts.get(script_name) or "").strip()
+            script = next(
+                (
+                    str(scripts.get(name) or "").strip()
+                    for name in script_names
+                    if str(scripts.get(name) or "").strip()
+                ),
+                "",
+            )
     if not script:
         return answer
     service_need = next(
@@ -298,8 +324,10 @@ def _apply_approved_care_brand_script(
             )
         else:
             service_need = "这类养护需求"
-    bridge = script.replace("{service_need}", service_need).replace(
-        "{pain_point}", service_need
+    bridge = (
+        script.replace("{service_need}", service_need)
+        .replace("{pain_point}", service_need)
+        .replace("{profile_lead}", _customer_profile_lead(action_context))
     )
     if reason == "service_offer_soft_decline_value_card":
         return bridge
@@ -319,6 +347,38 @@ def _apply_approved_care_brand_script(
     ]
     body = _plain_persona_answer("".join(body_parts))
     return "\n\n".join(part for part in (body, bridge) if part)
+
+
+def _care_pain_script_category(text: str) -> str:
+    value = str(text or "")
+    for category, markers in (
+        ("root_rot", ("烂根", "腐苗", "腐烂", "黑根")),
+        ("black_spot", ("黑斑", "病害", "僵苗")),
+        ("yellow_tip", ("焦尖", "黄叶", "叶黄")),
+        ("no_bloom", ("不开花", "消苞", "不复花")),
+        ("loss_fear", ("养死", "不敢买", "怕养不好", "养不好")),
+    ):
+        if any(marker in value for marker in markers):
+            return category
+    return ""
+
+
+def _customer_profile_lead(action_context: dict) -> str:
+    region = str(action_context.get("region") or "").strip()
+    varieties = action_context.get("owned_varieties")
+    if isinstance(varieties, list):
+        variety = "、".join(
+            str(item).strip() for item in varieties[:2] if str(item).strip()
+        )
+    else:
+        variety = str(varieties or "").strip()
+    if region and variety:
+        return f"像您在{region}养的{variety}，"
+    if variety:
+        return f"像您养的{variety}，"
+    if region:
+        return f"您在{region}养兰，"
+    return ""
 
 
 def _candidate_violation(spec: ReplySpec, answer: str) -> str | None:

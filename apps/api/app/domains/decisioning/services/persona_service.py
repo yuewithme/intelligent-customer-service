@@ -156,6 +156,9 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state, intent=None) -> Rep
             "reason": sales_action.get("reason"),
             "service_need_kind": service_need[0] if service_need else None,
             "service_need": service_need[1] if service_need else None,
+            "region": known_slots.get("region"),
+            "owned_varieties": known_slots.get("owned_varieties"),
+            "plant_count": known_slots.get("plant_count"),
         }.items()
         if value not in (None, "", [])
     }

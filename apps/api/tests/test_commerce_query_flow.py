@@ -24,7 +24,10 @@ def test_membership_brand_scripts_do_not_depend_on_catalog_availability(monkeypa
 
     assert facts[0]["product_id"] == ""
     assert facts[0]["brand"] == "萧岚苑"
-    assert "单品养护资料" in facts[0]["approved_sales_scripts"]["care_pain"]
+    assert "简单介绍" not in facts[0]["approved_sales_scripts"]["care_pain"]
+    assert "我们萧岚苑" in facts[0]["approved_sales_scripts"]["care_pain"]
+    assert "单品养护资料" in facts[0]["approved_sales_scripts"]["care_question_followup"]
+    assert "浇水节奏和植料透气" in facts[0]["approved_sales_scripts"]["care_pain_root_rot"]
     assert "同行差异" not in facts[0]["approved_sales_scripts"]["soft_decline_value"]
     assert "市面上不少商家" in facts[0]["approved_sales_scripts"]["soft_decline_value"]
     assert "收苗处理上盆" in facts[0]["approved_sales_scripts"]["soft_decline_value"]
@@ -276,7 +279,8 @@ async def test_membership_request_uses_local_product_and_exact_price_card():
         "把基础养护系统理顺，少走弯路"
     )
     assert "我们萧岚苑" in facts.tool_state["brand_positioning"]
-    assert "单品养护资料" in facts.tool_state["approved_sales_scripts"]["care_pain"]
+    assert "我们萧岚苑" in facts.tool_state["approved_sales_scripts"]["care_pain"]
+    assert "单品养护资料" in facts.tool_state["approved_sales_scripts"]["care_question_followup"]
     assert state.metadata["commerce_last_product_id"] == "membership-39"
     assert reply is not None
     assert "萧岚苑有陪伴养兰会员" in reply.answer

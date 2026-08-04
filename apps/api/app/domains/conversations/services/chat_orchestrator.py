@@ -704,7 +704,6 @@ def _should_attach_membership_brand_value(sales_action) -> bool:
 
 
 _SERVICE_OFFER_CARD_REASONS = {
-    "service_solution_first_offer",
     "service_solution_question_followup",
     "service_offer_soft_decline_value_card",
 }

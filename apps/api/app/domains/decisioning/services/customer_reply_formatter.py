@@ -1,9 +1,9 @@
 import re
 
 
-SHORT_REPLY_CHARS = 60
-SENTENCES_PER_MESSAGE = 2
-EMERGENCY_SENTENCE_CHARS = 60
+SHORT_REPLY_CHARS = 110
+SENTENCES_PER_MESSAGE = 3
+EMERGENCY_SENTENCE_CHARS = 110
 _WEAK_MESSAGE_ENDINGS = "，,、；;：:"
 _MARKDOWN_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _MARKDOWN_PREFIX_RE = re.compile(
@@ -41,7 +41,7 @@ def plain_customer_text(text: str) -> str:
 
 
 def split_customer_messages(text: str) -> list[str]:
-    """Keep replies near 60 chars and at most two sentences per message."""
+    """Preserve semantic paragraphs; split only genuinely long customer messages."""
     semantic_messages = _semantic_messages(text)
     if len(semantic_messages) > 1:
         split_messages: list[str] = []

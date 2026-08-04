@@ -91,14 +91,41 @@ MEMBERSHIP_BRAND_POSITIONING = (
     "我们萧岚苑不只是卖兰花，更希望陪兰友把养兰基础理顺、把兰花养好"
 )
 MEMBERSHIP_CARE_PAIN_SALES_SCRIPT = (
-    "我们服务过很多兰友，也有人有过{service_need}，只靠自己试很容易顾了一头又忽略另一头。\n\n"
-    "我们萧岚苑的陪伴养兰服务，会先给您单品养护资料和视频，里面会讲收苗后的处理和上盆方法，"
-    "以及浇水、施肥、防病害、花期管理和分株。看完后遇到不明白的地方，都可以随时问老师；"
-    "针对您现在的{service_need}，我们也会结合您家里的环境和实际操作，一步步带着您调整。"
+    "{profile_lead}{service_need}确实挺让人头疼的。很多兰友不是不用心，而是不同环境、品种的养护节奏不一样，"
+    "只靠自己反复试，很容易刚解决一个环节又在另一个环节出问题。\n\n"
+    "我们萧岚苑服务过很多有类似情况的兰友，会先帮您把问题和养护思路理清楚，"
+    "后面再结合家里的实际环境陪着调整，尽量避免同样的问题反复出现。"
+)
+MEMBERSHIP_CARE_PAIN_ROOT_ROT_SCRIPT = (
+    "{profile_lead}{service_need}确实挺让人心疼的。很多时候不是兰花难养，而是浇水节奏和植料透气没有配合好，"
+    "处理完以后如果养护习惯没跟着调整，后面还容易反复。\n\n"
+    "我们萧岚苑服务过很多有类似情况的兰友，除了把当下的处理方法讲清楚，"
+    "也会结合家里的环境陪着调整，把日常养护慢慢理顺。"
+)
+MEMBERSHIP_CARE_PAIN_BLACK_SPOT_SCRIPT = (
+    "{profile_lead}{service_need}不少兰友都遇到过。黑斑处理只是第一步，后面的通风、湿度和换季预防没有调好，"
+    "病斑仍然可能反复。\n\n"
+    "我们萧岚苑更重视陪兰友把预防和日常养护一起理顺，遇到变化时也能结合实际情况及时调整。"
+)
+MEMBERSHIP_CARE_PAIN_YELLOW_TIP_SCRIPT = (
+    "{profile_lead}{service_need}看着像是一个表现，背后可能和水肥、光照、空气湿度或根系状态有关，"
+    "需要结合养护环境逐项判断。\n\n"
+    "我们萧岚苑服务过很多有类似情况的兰友，会陪着把这些基础环节逐步理清，避免只处理表面后又反复。"
+)
+MEMBERSHIP_CARE_PAIN_NO_BLOOM_SCRIPT = (
+    "{profile_lead}{service_need}不一定只是光照问题，还要结合品种是否需要春化、苗情和肥力一起看。\n\n"
+    "我们萧岚苑会根据品种和家里的实际环境陪兰友逐项调整，不让您只能靠猜着试。"
+)
+MEMBERSHIP_CARE_PAIN_LOSS_FEAR_SCRIPT = (
+    "{profile_lead}{service_need}这种经历确实很打击信心。很多兰友并不是学不会，"
+    "而是刚开始没有人结合自己的环境把关键步骤说明白。\n\n"
+    "我们萧岚苑服务过很多新手兰友，更希望有人陪您把基础养护一步步理顺，而不是让您继续自己反复试。"
 )
 MEMBERSHIP_CARE_QUESTION_FOLLOWUP_SCRIPT = (
-    "像您刚问的这个问题，陪伴养兰不是只发一份资料就结束。"
-    "基础内容可以跟着单品养护资料和视频学，真正操作时，老师再结合您家里的环境和兰花状态一对一带着调整。"
+    "像您刚问的{service_need}，我们服务过的很多兰友也遇到过，单靠一次建议往往很难把后面的变化都顾到。\n\n"
+    "我们萧岚苑的陪伴养兰服务会提供单品养护资料和视频，里面会讲收苗处理上盆、浇水、施肥、防病害、"
+    "花期管理和分株。真正操作时遇到不明白的地方，可以随时问老师，老师再结合您家里的环境和兰花状态一对一带着调整。\n\n"
+    "我把陪伴养兰服务的卡片放在下面，您可以直接点开看具体内容。"
 )
 MEMBERSHIP_SOFT_DECLINE_VALUE_SCRIPT = (
     "市面上不少商家只负责把兰花卖出去，卖完后养护基本靠兰友自己摸索。"
@@ -109,6 +136,16 @@ MEMBERSHIP_SOFT_DECLINE_VALUE_SCRIPT = (
     "看完有不懂的可以随时问，老师会围绕您现在的{service_need}和实际操作手把手带着调整。"
     "我把陪伴养兰服务的卡片也发给您，您直接点开就能看详情和开通。"
 )
+MEMBERSHIP_APPROVED_SALES_SCRIPTS = {
+    "care_pain": MEMBERSHIP_CARE_PAIN_SALES_SCRIPT,
+    "care_pain_root_rot": MEMBERSHIP_CARE_PAIN_ROOT_ROT_SCRIPT,
+    "care_pain_black_spot": MEMBERSHIP_CARE_PAIN_BLACK_SPOT_SCRIPT,
+    "care_pain_yellow_tip": MEMBERSHIP_CARE_PAIN_YELLOW_TIP_SCRIPT,
+    "care_pain_no_bloom": MEMBERSHIP_CARE_PAIN_NO_BLOOM_SCRIPT,
+    "care_pain_loss_fear": MEMBERSHIP_CARE_PAIN_LOSS_FEAR_SCRIPT,
+    "care_question_followup": MEMBERSHIP_CARE_QUESTION_FOLLOWUP_SCRIPT,
+    "soft_decline_value": MEMBERSHIP_SOFT_DECLINE_VALUE_SCRIPT,
+}
 MEMBERSHIP_PRODUCT_QUERY = "首单参与陪伴养兰客户"
 MEMBERSHIP_PRICE_LABEL = "首单体验价"
 MEMBERSHIP_ADDITIONAL_DISCOUNT_STATUS = "unavailable"
@@ -218,11 +255,7 @@ def verified_membership_brand_facts() -> list[dict]:
                 dict(item) for item in MEMBERSHIP_SERVICE_VALUE_POINTS
             ],
             "brand_positioning": MEMBERSHIP_BRAND_POSITIONING,
-            "approved_sales_scripts": {
-                "care_pain": MEMBERSHIP_CARE_PAIN_SALES_SCRIPT,
-                "care_question_followup": MEMBERSHIP_CARE_QUESTION_FOLLOWUP_SCRIPT,
-                "soft_decline_value": MEMBERSHIP_SOFT_DECLINE_VALUE_SCRIPT,
-            },
+            "approved_sales_scripts": dict(MEMBERSHIP_APPROVED_SALES_SCRIPTS),
         }
     ]
 
@@ -500,11 +533,9 @@ async def build_commerce_context(
                 dict(item) for item in MEMBERSHIP_SERVICE_VALUE_POINTS
             ]
             tool_state["brand_positioning"] = MEMBERSHIP_BRAND_POSITIONING
-            tool_state["approved_sales_scripts"] = {
-                "care_pain": MEMBERSHIP_CARE_PAIN_SALES_SCRIPT,
-                "care_question_followup": MEMBERSHIP_CARE_QUESTION_FOLLOWUP_SCRIPT,
-                "soft_decline_value": MEMBERSHIP_SOFT_DECLINE_VALUE_SCRIPT,
-            }
+            tool_state["approved_sales_scripts"] = dict(
+                MEMBERSHIP_APPROVED_SALES_SCRIPTS
+            )
             tool_state["price_label"] = MEMBERSHIP_PRICE_LABEL
             tool_state["additional_discount_status"] = (
                 MEMBERSHIP_ADDITIONAL_DISCOUNT_STATUS
