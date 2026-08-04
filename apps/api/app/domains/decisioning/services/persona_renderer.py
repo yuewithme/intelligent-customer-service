@@ -298,7 +298,13 @@ def _apply_approved_care_brand_script(
         for part in re.split(r"(?<=[。！？!?])", answer)
         if not any(
             marker in part
-            for marker in ("萧岚苑", "陪伴养兰", "一对一指导", "一对一服务")
+            for marker in (
+                "萧岚苑",
+                "陪伴养兰",
+                "一对一指导",
+                "一对一服务",
+                "服务过很多兰友",
+            )
         )
     ]
     body = _plain_persona_answer("".join(body_parts))

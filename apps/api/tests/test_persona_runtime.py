@@ -123,6 +123,52 @@ def test_product_card_keeps_fact_anchor_and_allows_guarded_persona_extension():
     assert spec.verified_facts["tool_state"]["products"][0]["price_cent"] == 3990
 
 
+def test_soft_decline_card_forces_approved_sales_script_rewrite():
+    reply = FinalReply(
+        answer="陪伴养兰就是帮您把基础理顺。",
+        outbound_messages=[
+            OutboundMessage(type="text", content="陪伴养兰就是帮您把基础理顺。"),
+            OutboundMessage(type="link_card", content='{"url":"https://example.com"}'),
+        ],
+        reply_type="template",
+        route="template_reply",
+    )
+    plan = ReplyPlan(
+        action="template_reply",
+        reason="business_facts_available",
+        business_facts=BusinessFacts(
+            tool_state={
+                "commerce_type": "product",
+                "status": "found",
+                "products": [{"item_id": "membership-39", "price_cent": 3990}],
+            }
+        ),
+    )
+    state = UserState(
+        user_id="u-soft",
+        metadata={
+            "sales_action": {
+                "reply_goal": "基于同行、人群和产品塑品并发卡",
+                "reason": "service_offer_soft_decline_value_card",
+                "known_slots": {"pain_point": "黑斑"},
+                "brand_value_facts": [
+                    {
+                        "approved_sales_scripts": {
+                            "soft_decline_value": "同行差异\n\n同类兰友\n\n产品交付"
+                        }
+                    }
+                ],
+            }
+        },
+    )
+
+    spec = build_reply_spec(reply=reply, plan=plan, user_state=state)
+
+    assert spec.render_mode == "persona"
+    assert spec.composition_mode == "replace"
+    assert spec.outbound_messages[-1].type == "link_card"
+
+
 def test_plain_template_uses_anchor_plus_persona_composition():
     reply = FinalReply(
         answer="我理解您会关注价格。",
