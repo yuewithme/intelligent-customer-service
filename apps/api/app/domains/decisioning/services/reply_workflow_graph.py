@@ -466,6 +466,7 @@ def _reply_spec(state: ReplyWorkflowState, reply: FinalReply) -> ReplySpec:
         reply=reply,
         plan=state["plan"],
         user_state=state["user_state"],
+        intent=state["intent"],
     )
     return spec.model_copy(
         update={

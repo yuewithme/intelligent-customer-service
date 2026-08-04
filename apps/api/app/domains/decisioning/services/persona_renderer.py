@@ -70,6 +70,13 @@ async def render_persona_reply(
         if spec.question_slot == "pain_point"
         else ""
     )
+    profile_ack_instruction = (
+        "customer_profile_facts 是客户本轮刚提供并已识别的信息。第一句只用这些事实做"
+        "简短客观确认，例如确认所在地区、数量和品种；不得评价有氛围、有感觉、"
+        "有品位、很惬意或随意补充养护判断。然后再完成 question_slot 对应的问题。"
+        if spec.verified_facts.get("customer_profile_facts")
+        else ""
+    )
     rag_instruction = (
         "grounded_knowledge_answer 是已经知识库校验的原始答案。"
         "必须保留其核心结论、必要条件和风险边界，只做人格化改写、"
@@ -133,7 +140,7 @@ async def render_persona_reply(
             "role": "user",
             "content": (
                 f"请依据下列数据生成这一轮的微信客户回复。{composition_instruction}"
-                f"{question_instruction}{rag_instruction}{brand_instruction}"
+                f"{question_instruction}{profile_ack_instruction}{rag_instruction}{brand_instruction}"
                 f"{objection_instruction}"
                 "先完成 reply_goal。question_slot 有值时，只能自然追问该项，"
                 "不要顺带询问相邻信息；question_slot 为空时，不得出现问句，"
@@ -315,6 +322,9 @@ def _full_reply_retry_contract(spec: ReplySpec, violation: str) -> str:
         "passive_sales_close": "不要让客户慢慢考虑，必须按 reply_goal 继续推进成交。",
         "missing_purchase_cta": "结尾必须明确引导客户点击已经发送的商品卡片开通。",
         "repeated_membership_value": "不要重复罗列课程、一对一指导或整段服务价值。",
+        "hollow_profile_ack": (
+            "第一句只客观确认 customer_profile_facts，不要评价氛围、感觉、品位或生活方式。"
+        ),
     }
     correction = contracts.get(violation, "严格遵守 reply_goal 和输出合同。")
     return (

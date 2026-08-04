@@ -227,6 +227,72 @@ async def test_opening_followup_extracts_region_and_variety_from_classic_case():
     assert intent.slots["owned_varieties"] == ["建兰"]
 
 
+@pytest.mark.asyncio
+async def test_opening_followup_extracts_natural_city_count_and_butterfly_orchid():
+    from app.domains.decisioning.services.intent_service import classify_intent
+
+    message = NormalizedMessage(
+        trace_id="req_followup_natural_profile",
+        channel="wechat",
+        user_id="customer",
+        session_id="default",
+        message="杭州这边，养了3盆，蝴蝶兰",
+        kb_id="kb_default",
+    )
+    state = UserState(
+        user_id="customer",
+        session_id="default",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "家里目前养了多少盆兰花？具体养了哪些品种？",
+                }
+            ]
+        },
+    )
+
+    intent = await classify_intent(message, state)
+
+    assert intent.primary_intent == "profile_answer"
+    assert intent.slots == {
+        "owned_varieties": ["蝴蝶兰"],
+        "plant_count": 3,
+        "region": "杭州",
+    }
+
+
+@pytest.mark.asyncio
+async def test_opening_followup_extracts_unlisted_city_and_variety_phrasing():
+    from app.domains.decisioning.services.intent_service import classify_intent
+
+    message = NormalizedMessage(
+        trace_id="req_followup_open_profile",
+        channel="wechat",
+        user_id="customer",
+        session_id="default",
+        message="武汉这边，养了2盆，独蒜兰",
+        kb_id="kb_default",
+    )
+    state = UserState(
+        user_id="customer",
+        metadata={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "家里目前养了多少盆兰花？具体养了哪些品种？",
+                }
+            ]
+        },
+    )
+
+    intent = await classify_intent(message, state)
+
+    assert intent.slots["region"] == "武汉"
+    assert intent.slots["plant_count"] == 2
+    assert intent.slots["owned_varieties"] == ["独蒜兰"]
+
+
 def test_profile_answer_chitchat_acknowledges_collected_information():
     from app.domains.decisioning.services.reply_builder import build_chitchat_reply
 
@@ -240,6 +306,26 @@ def test_profile_answer_chitchat_acknowledges_collected_information():
     )
 
     assert reply.answer == "好的，已经记下了。"
+
+
+def test_profile_answer_chitchat_objectively_acknowledges_known_facts():
+    from app.domains.decisioning.services.reply_builder import build_chitchat_reply
+
+    reply = build_chitchat_reply(
+        IntentResult(
+            route="chitchat",
+            primary_intent="profile_answer",
+            sales_stage="need_discovery",
+            confidence=0.98,
+            slots={
+                "region": "杭州",
+                "plant_count": 3,
+                "owned_varieties": ["蝴蝶兰"],
+            },
+        )
+    )
+
+    assert reply.answer == "了解了，您在杭州养了3盆蝴蝶兰。"
 
 
 def test_intent_prompt_includes_recent_conversation():

@@ -131,7 +131,7 @@ def persona_system_prompt(context: PersonaContext) -> str:
     ).strip()
 
 
-def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
+def build_reply_spec(*, reply: FinalReply, plan, user_state, intent=None) -> ReplySpec:
     sales_action = _dict_value(getattr(user_state, "metadata", {}).get("sales_action"))
     business_facts = getattr(plan, "business_facts", None)
     facts = business_facts.model_dump() if business_facts is not None else {}
@@ -140,6 +140,12 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
     brand_value_facts = sales_action.get("brand_value_facts")
     if isinstance(brand_value_facts, list) and brand_value_facts:
         verified_facts = {**verified_facts, "brand_value_facts": brand_value_facts}
+    current_profile_facts = _current_profile_facts(intent)
+    if current_profile_facts:
+        verified_facts = {
+            **verified_facts,
+            "customer_profile_facts": current_profile_facts,
+        }
     verified_facts = {
         **verified_facts,
         "response_permissions": {
@@ -199,6 +205,20 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state) -> ReplySpec:
         next_action=reply.next_action,
         metadata=dict(reply.metadata),
     )
+
+
+def _current_profile_facts(intent) -> dict:
+    if getattr(intent, "primary_intent", "") != "profile_answer":
+        return {}
+    slots = getattr(intent, "slots", {})
+    if not isinstance(slots, dict):
+        return {}
+    facts = {}
+    for key in ("region", "plant_count", "owned_varieties"):
+        value = slots.get(key)
+        if value not in (None, "", []):
+            facts[key] = value
+    return facts
 
 
 def _persona_mode(*, user_state, intent, profile: dict) -> str:

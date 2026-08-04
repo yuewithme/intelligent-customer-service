@@ -74,6 +74,45 @@ def test_care_reply_with_specific_pain_stops_questioning_and_builds_service_valu
     assert "不要继续追问" in decision.reply_goal
 
 
+def test_profile_answer_uses_objective_acknowledgement_and_tailored_pain_probe():
+    intent = IntentResult(
+        route="chitchat",
+        primary_intent="profile_answer",
+        primary_domain="product",
+        primary_goal="provide_information",
+        sales_stage="need_discovery",
+        confidence=0.98,
+        slots={
+            "region": "杭州",
+            "plant_count": 3,
+            "owned_varieties": ["蝴蝶兰"],
+        },
+    )
+    decision = decide_sales_action(
+        user_state=UserState(user_id="profile-user", sales_stage="rapport"),
+        intent=intent,
+    )
+
+    assert decision.question_slot == "pain_point"
+    assert "客观确认" in decision.reply_goal
+    assert "不评价氛围" in decision.reply_goal
+
+    corrected = apply_sales_action(
+        FinalReply(
+            answer="了解了，您在杭州养了3盆蝴蝶兰。",
+            reply_type="chitchat",
+            route="chitchat",
+        ),
+        decision,
+    )
+
+    assert corrected.answer == (
+        "了解了，您在杭州养了3盆蝴蝶兰。"
+        "您现在养护上最困扰的是黄叶、烂根，还是一直不开花？"
+    )
+    assert "氛围" not in corrected.answer
+
+
 def test_product_interest_still_discovers_need_before_recommendation():
     decision = decide_sales_action(
         user_state=UserState(user_id="product_user", sales_stage="need_discovery"),
