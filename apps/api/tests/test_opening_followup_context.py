@@ -188,13 +188,12 @@ async def test_opening_material_followup_preempts_ambiguous_short_intents(
         )
     )
 
-    assert result["route"] == "orchid_material_delivery"
+    assert result["route"] == "orchid_material_discovery"
     assert result["intent"]["primary_goal"] == "request_material"
-    assert [item["type"] for item in result["outbound_messages"]] == [
-        "link_card",
-        "text",
-        "image",
-    ]
+    assert result["intent"]["slots"]["material_request_phase"] == "discovery"
+    assert [item["type"] for item in result["outbound_messages"]] == ["text"]
+    assert "黑斑黄叶" in result["answer"]
+    assert "烂根、腐苗" in result["answer"]
 
 
 @pytest.mark.asyncio

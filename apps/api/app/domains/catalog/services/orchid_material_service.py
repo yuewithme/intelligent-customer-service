@@ -23,6 +23,11 @@ ORCHID_MATERIAL_VIDEO_ISSUE_SNAPSHOT = (
     "处理时先确认客户是否通过抖音购买；需要客户提供订单截图后，"
     "才能进一步核实购买记录和资料观看权益。"
 )
+ORCHID_MATERIAL_DISCOVERY_TEXT = (
+    "可以的。为了给您发更适合的资料，我先了解一下：您现在养兰最想解决哪方面的问题？"
+    "比如新手入门、浇水植料、黄叶黑斑、烂根腐苗，还是促花复花？"
+    "您也可以直接说说目前遇到的具体情况。"
+)
 ORCHID_MATERIAL_CARD = {
     "note_id": "24482256",
     "note_alias": "0Ja8r3cajo",
@@ -249,6 +254,22 @@ def orchid_material_video_issue_context(content: str) -> dict[str, Any] | None:
             "purchase_channel": "unverified",
             "purchase_record": "unverified",
             "viewing_entitlement": "unverified",
+        },
+    }
+
+
+def orchid_material_discovery_chat_result() -> dict[str, Any]:
+    return {
+        "answer": ORCHID_MATERIAL_DISCOVERY_TEXT,
+        "answer_segments": [ORCHID_MATERIAL_DISCOVERY_TEXT],
+        "outbound_messages": [
+            {"type": "text", "content": ORCHID_MATERIAL_DISCOVERY_TEXT},
+        ],
+        "reply_type": "fixed_text",
+        "route": "orchid_material_discovery",
+        "metadata": {
+            "resource_type": "orchid_material",
+            "material_request_phase": "discovery",
         },
     }
 
