@@ -10,7 +10,11 @@ from app.domains.conversations.services.channel_service import normalize_chat_re
 from app.domains.conversations.services.chat_log_service import record_chat_log
 from app.domains.decisioning.services.business_context_service import build_business_context
 from app.domains.decisioning.services.business_action_service import (
+    CATALOG_SEARCH,
     resolve_business_action,
+)
+from app.domains.decisioning.services.business_reply_renderer import (
+    render_business_reply,
 )
 from app.domains.catalog.services.commerce_query_service import (
     build_commerce_context,
@@ -442,6 +446,13 @@ async def handle_chat(request: ChatRequest) -> dict:
             stage_latencies=stage_latencies,
         )
         reply = apply_sales_action(reply, sales_action)
+        reply = await _attach_membership_card_for_service_offer(
+            reply=reply,
+            message=message,
+            user_state=user_state,
+            intent=routed_intent,
+            sales_action=sales_action,
+        )
         stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
         sales_action_payload = sales_action.model_dump()
         emitted_question_slot = reply.metadata.get("emitted_question_slot")
@@ -690,6 +701,63 @@ def _should_attach_membership_brand_value(sales_action) -> bool:
         return False
     known_slots = getattr(sales_action, "known_slots", {})
     return not isinstance(known_slots, dict) or known_slots.get("need_track") != "product"
+
+
+_SERVICE_OFFER_CARD_REASONS = {
+    "service_solution_first_offer",
+    "service_solution_question_followup",
+    "service_offer_soft_decline_value_card",
+}
+
+
+async def _attach_membership_card_for_service_offer(
+    *, reply, message, user_state, intent, sales_action
+):
+    """Attach the real membership card whenever this turn actively sells the service."""
+
+    if sales_action.reason not in _SERVICE_OFFER_CARD_REASONS or reply.need_human:
+        return reply
+    if any(
+        item.type in {"link_card", "mini_program"}
+        for item in reply.outbound_messages
+    ):
+        return reply
+    membership_intent = intent.model_copy(
+        update={
+            "slots": {
+                **(intent.slots if isinstance(intent.slots, dict) else {}),
+                "product_request_kind": "membership",
+                "membership_question_kind": "purchase",
+                "service_offer_followup": "value_card",
+            }
+        }
+    )
+    facts = await build_commerce_context(
+        message,
+        user_state,
+        membership_intent,
+        business_action=CATALOG_SEARCH,
+        allowed_source_groups={"product_catalog", "product_value", "sku_facts"},
+    )
+    card_reply = await render_business_reply(message, facts)
+    if card_reply is None:
+        return reply
+    cards = [
+        item
+        for item in card_reply.outbound_messages
+        if item.type in {"link_card", "mini_program"}
+    ]
+    if not cards:
+        return reply
+    return reply.model_copy(
+        update={
+            "outbound_messages": [*reply.outbound_messages, *cards],
+            "metadata": {
+                **reply.metadata,
+                "commerce_action": card_reply.metadata.get("commerce_action", {}),
+            },
+        }
+    )
 
 
 def _service_offer_followup_business_intent(*, intent, user_state):
