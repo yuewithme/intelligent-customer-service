@@ -112,6 +112,19 @@ ORCHID_PRODUCT_MARKERS = (
     "石斛兰",
     "兜兰",
 )
+EXPLICIT_ORCHID_PRODUCT_MARKERS = tuple(
+    marker for marker in ORCHID_PRODUCT_MARKERS if marker not in {"兰花", "国兰"}
+)
+LIVE_ORCHID_PRODUCT_MARKERS = (
+    "兰苗",
+    "种苗",
+    "苗子",
+    "兰株",
+    "盆栽",
+    "裸根",
+    "带花",
+    "花苞",
+)
 NON_ORCHID_PRODUCT_MARKERS = (
     "花盆",
     "紫砂盆",
@@ -123,6 +136,18 @@ NON_ORCHID_PRODUCT_MARKERS = (
     "会员",
     "服务",
     "课程",
+    "挂画",
+    "字画",
+    "国画",
+    "装饰画",
+    "画框",
+    "摆件",
+    "仿真",
+    "假花",
+    "香薰",
+    "精油",
+    "茶叶",
+    "食品",
 )
 MEMBERSHIP_CAPABILITY_MARKERS = (
     "服务",
@@ -883,14 +908,16 @@ def _is_allowed_ai_product(
     *,
     product_request_kind: str,
 ) -> bool:
-    title = str(product.get("title") or "")
+    title = str(product.get("title") or "").strip()
     knowledge = product.get("knowledge")
     knowledge = knowledge if isinstance(knowledge, dict) else {}
+    product_name = str(knowledge.get("product_name") or "").strip()
+    category = str(knowledge.get("category") or "").strip()
     searchable = " ".join(
         (
             title,
-            str(knowledge.get("product_name") or ""),
-            str(knowledge.get("category") or ""),
+            product_name,
+            category,
             str(knowledge.get("aliases") or ""),
         )
     )
@@ -900,10 +927,15 @@ def _is_allowed_ai_product(
         return False
     if any(marker in searchable for marker in NON_ORCHID_PRODUCT_MARKERS):
         return False
-    # Orchid cultivar names do not always contain "兰" (for example 小国魂).
-    # The matched-orchid request kind is the positive gate; these exclusions
-    # prevent accessories and service goods from entering the model context.
-    return bool(searchable.strip())
+    if category and any(marker in category for marker in ORCHID_PRODUCT_MARKERS):
+        return True
+    named_product_text = " ".join((title, product_name))
+    if any(marker in named_product_text for marker in EXPLICIT_ORCHID_PRODUCT_MARKERS):
+        return True
+    return bool(
+        any(marker in named_product_text for marker in ("兰花", "国兰"))
+        and any(marker in named_product_text for marker in LIVE_ORCHID_PRODUCT_MARKERS)
+    )
 
 
 def _membership_question_kind(text: str) -> str:
