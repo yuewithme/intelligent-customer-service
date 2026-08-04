@@ -11,6 +11,22 @@ from app.integrations.youzan.services.youzan_order_service import YouzanCustomer
 from app.integrations.youzan.services.youzan_product_service import YouzanProduct
 
 
+def test_membership_brand_scripts_do_not_depend_on_catalog_availability(monkeypatch):
+    from app.domains.catalog.services import commerce_query_service
+
+    monkeypatch.setattr(
+        commerce_query_service,
+        "search_catalog_products",
+        lambda keyword, limit: [],
+    )
+
+    facts = commerce_query_service.verified_membership_brand_facts()
+
+    assert facts[0]["product_id"] == ""
+    assert facts[0]["brand"] == "萧岚苑"
+    assert "不只是卖兰花" in facts[0]["approved_sales_scripts"]["care_pain"]
+
+
 def _message(text: str) -> NormalizedMessage:
     return NormalizedMessage(
         trace_id="commerce-trace",
