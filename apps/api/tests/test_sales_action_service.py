@@ -107,6 +107,39 @@ def test_soft_decline_after_service_offer_builds_value_and_keeps_selling():
     assert "商品卡" in decision.reply_goal
 
 
+def test_soft_decline_beats_inherited_membership_product_context():
+    decision = decide_sales_action(
+        user_state=UserState(
+            user_id="care_user",
+            sales_stage="value_built",
+            metadata={
+                "commerce_last_product_kind": "membership",
+                "commerce_last_product_id": "membership-39",
+                "active_opportunity": {
+                    "service_offer_phase": "introduced",
+                    "last_sales_action": "recommend_solution",
+                    "slots": {"need_track": "service", "pain_point": "黑斑"},
+                },
+            },
+        ),
+        intent=IntentResult(
+            route="template_reply",
+            primary_intent="knowledge_question",
+            primary_domain="commerce",
+            primary_goal="defer_decision",
+            sales_stage="value_built",
+            confidence=0.92,
+            slots={
+                "rejection_kind": "polite_decline",
+                "selected_product_id": "membership-39",
+            },
+        ),
+    )
+
+    assert decision.sales_action == "build_value"
+    assert decision.reason == "service_offer_soft_decline_value_card"
+
+
 def test_care_question_after_service_offer_is_answered_before_service_deepening():
     state = UserState(
         user_id="care_user",
