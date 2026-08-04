@@ -27,7 +27,7 @@ def test_membership_brand_scripts_do_not_depend_on_catalog_availability(monkeypa
     assert "简单介绍" not in facts[0]["approved_sales_scripts"]["care_pain"]
     assert "我们萧岚苑" in facts[0]["approved_sales_scripts"]["care_pain"]
     assert "单品养护资料" in facts[0]["approved_sales_scripts"]["care_question_followup"]
-    assert "浇水节奏和植料透气" in facts[0]["approved_sales_scripts"]["care_pain_root_rot"]
+    assert "发黑、发软或空掉的根" in facts[0]["approved_sales_scripts"]["care_pain_root_rot"]
     assert "同行差异" not in facts[0]["approved_sales_scripts"]["soft_decline_value"]
     assert "市面上不少商家" in facts[0]["approved_sales_scripts"]["soft_decline_value"]
     assert "收苗处理上盆" in facts[0]["approved_sales_scripts"]["soft_decline_value"]
