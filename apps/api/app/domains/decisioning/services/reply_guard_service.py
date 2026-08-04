@@ -171,12 +171,20 @@ def _membership_objection_violation(
     spec: ReplySpec,
     answer: str,
 ) -> str | None:
+    permissions = spec.verified_facts.get("response_permissions")
+    if (
+        isinstance(permissions, dict)
+        and permissions.get("allow_no_further_discount_claim") is False
+        and any(marker in answer for marker in NO_FURTHER_DISCOUNT_MARKERS)
+    ):
+        return "unexpected_discount_answer"
     tool_state = spec.verified_facts.get("tool_state")
     if not isinstance(tool_state, dict):
         return None
-    if (
-        tool_state.get("membership_question_kind") != "objection"
-    ):
+    question_kind = tool_state.get("membership_question_kind")
+    if question_kind != "objection":
+        if any(marker in answer for marker in NO_FURTHER_DISCOUNT_MARKERS):
+            return "unexpected_discount_answer"
         return None
     if tool_state.get("additional_discount_status") == "unavailable" and not any(
         marker in answer for marker in NO_FURTHER_DISCOUNT_MARKERS

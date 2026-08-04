@@ -141,6 +141,32 @@ def test_plain_template_uses_anchor_plus_persona_composition():
     assert spec.composition_mode == "anchor_plus_persona"
 
 
+def test_fixed_text_material_reply_disallows_unsolicited_discount_claim():
+    reply = FinalReply(
+        answer="可以的，我先了解一下您最想解决哪方面的养兰问题？",
+        reply_type="fixed_text",
+        route="orchid_material_discovery",
+    )
+    plan = ReplyPlan(action="template_reply", reason="material_request")
+    state = UserState(
+        user_id="material-after-card",
+        metadata={
+            "sales_action": {
+                "reply_goal": "先回应客户领取养兰资料的请求",
+                "reason": "material_request_priority",
+            }
+        },
+    )
+
+    spec = build_reply_spec(reply=reply, plan=plan, user_state=state)
+
+    assert spec.render_mode == "persona"
+    assert spec.suggested_copy == reply.answer
+    assert spec.verified_facts["response_permissions"] == {
+        "allow_no_further_discount_claim": False
+    }
+
+
 def test_reply_spec_exposes_verified_membership_value_without_product_facts():
     reply = FinalReply(
         answer="先把眼前的黄叶问题理清。",
@@ -780,6 +806,26 @@ def test_guard_rejects_card_language_when_current_reply_must_not_send_card():
         guarded.metadata["persona_guard"]["reason"]
         == "unexpected_product_card_action"
     )
+
+
+def test_guard_rejects_unsolicited_discount_reply_without_product_tool_state():
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="回应客户领取资料的请求",
+        suggested_copy="首单体验价已经是底价了，确实不能再优惠。",
+        verified_facts={
+            "response_permissions": {
+                "allow_no_further_discount_claim": False,
+            }
+        },
+        metadata={"persona_original_copy": "资料可以发您，我先了解一下您想解决哪类问题。"},
+    )
+
+    guarded = guard_reply_spec(spec=spec, context=_context())
+
+    assert guarded.suggested_copy == "资料可以发您，我先了解一下您想解决哪类问题。"
+    assert guarded.metadata["persona_guard"]["reason"] == "unexpected_discount_answer"
 
 
 def test_guard_rejects_price_only_reply_for_repeated_membership_bargain():

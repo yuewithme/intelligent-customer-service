@@ -105,6 +105,52 @@ async def test_chat_core_discovers_need_on_first_request_and_delivers_on_second(
     assert second_message_types[-1] == "image"
 
 
+@pytest.mark.asyncio
+async def test_material_request_after_membership_card_does_not_trigger_discount_reply(
+    monkeypatch,
+):
+    from app.domains.conversations.schemas.chat import ChatRequest
+    from app.domains.conversations.services.chat_orchestrator import handle_chat
+    from app.domains.conversations.services import state_service
+    from app.domains.customers.schemas.state import UserState
+    from app.integrations.ai.services import llm_service
+
+    async def fail_generate(*args, **kwargs):
+        del args, kwargs
+        pytest.fail("固定资料链路不应调用 LLM")
+
+    monkeypatch.setattr(llm_service, "generate_answer", fail_generate)
+    user_id = "material-after-membership-card"
+    state_service._state_store[user_id] = UserState(
+        user_id=user_id,
+        session_id="material-after-card-session",
+        sales_stage="closing",
+        metadata={
+            "commerce_last_product_kind": "membership",
+            "commerce_last_product_id": "membership-39",
+            "commerce_last_product_keyword": "陪伴养兰会员",
+        },
+    )
+
+    result = await handle_chat(
+        ChatRequest(
+            channel="api",
+            user_id=user_id,
+            session_id="material-after-card-session",
+            message="要资料",
+            kb_id="kb_default",
+        )
+    )
+
+    assert result["route"] == "orchid_material_discovery"
+    assert result["intent"]["primary_goal"] == "request_material"
+    assert result["metadata"]["sales_action"]["reason"] == "material_request_priority"
+    assert all(
+        marker not in result["answer"]
+        for marker in ("不能再优惠", "底价", "首单体验价")
+    )
+
+
 @pytest.mark.parametrize(
     "content",
     [
