@@ -189,6 +189,36 @@ def test_selected_membership_context_avoids_budget_question_without_intent_slot(
     assert decision.required_slots == []
 
 
+def test_repeated_membership_bargain_advances_instead_of_repeating_value():
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="discount_request",
+        primary_domain="commerce",
+        primary_goal="express_objection",
+        sales_stage="value_built",
+        confidence=0.95,
+    )
+    state = UserState(
+        user_id="member-user",
+        metadata={
+            "commerce_last_product_kind": "membership",
+            "commerce_last_product_id": "membership-39",
+            "recent_turns": [
+                {"role": "user", "content": "有点贵，能不能便宜点"},
+                {"role": "assistant", "content": "39.9元包含课程和一对一指导。"},
+            ],
+        },
+    )
+
+    decision = decide_sales_action(user_state=state, intent=intent)
+
+    assert decision.sales_action == "resolve_blocker"
+    assert "连续询价" in decision.reply_goal
+    assert "不能再优惠" in decision.reply_goal
+    assert "不要重复课程" in decision.reply_goal
+    assert decision.question_slot is None
+
+
 def test_pain_brand_value_is_not_injected_again_after_it_was_presented():
     from app.domains.conversations.services.chat_orchestrator import (
         _pain_brand_value_already_present,

@@ -258,13 +258,23 @@ def _membership_answer(product: dict, state: dict) -> str:
             else "我们萧岚苑有陪伴养兰会员，具体价格以当前商品页为准。"
         )
     if kind == "objection":
-        price_sentence = (
-            f"目前商品页显示是{price_text}。"
-            if price_text
-            else "具体价格以当前商品页为准。"
+        price_label = str(state.get("price_label") or "当前价格")
+        discount_unavailable = (
+            state.get("additional_discount_status") == "unavailable"
+            and state.get("negotiation_allowed") is False
         )
+        if state.get("membership_objection_round") == "followup":
+            if discount_unavailable and price_text:
+                return (
+                    f"我懂，能省一点肯定更好。{price_text}已经是{price_label}了，"
+                    "目前确实不能再少。您觉得合适再参加就行，不着急。"
+                )
+            return "我明白您的意思，是否还能优惠以当前商品信息为准，我不先乱答应您。"
+        price_sentence = f"{price_text}已经是{price_label}了。" if price_text else ""
+        discount_sentence = "目前确实不能再少。" if discount_unavailable else ""
         return (
-            f"{price_sentence}这笔费用对应系统视频课程和结合具体养护问题的"
+            f"理解，能省一点肯定更好。{price_sentence}{discount_sentence}"
+            "这笔费用对应系统视频课程和结合具体养护问题的"
             "一对一指导，不是只给一次建议，后续遇到问题也能继续有人帮您判断。"
         )
     if kind == "combined":

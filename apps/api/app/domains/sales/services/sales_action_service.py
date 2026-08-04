@@ -108,12 +108,21 @@ def decide_sales_action(
             or intent.primary_intent
             in {"price_objection", "discount_request", "hesitation"}
         )
+        repeated_membership_objection = is_membership_objection and (
+            _has_prior_price_objection(user_state.metadata.get("recent_turns"))
+        )
         if (
             membership_kind in {"capability", "price", "objection"}
             or is_membership_objection
         ):
             return _decision(
-                "结合已核实的会员价格和权益自然回应当前顾虑，不说空话，不承诺未核实优惠，也不追问预算",
+                (
+                    "客户已经连续询价，先自然接住，再根据已核实事实直接说明首单体验价不能再优惠；"
+                    "不要重复课程和一对一指导，不追问预算，最后低压力收口"
+                    if repeated_membership_objection
+                    else "先自然接住价格顾虑，再结合已核实的首单体验价和会员权益说明价值；"
+                    "明确回答不能再优惠，不说空话，也不追问预算"
+                ),
                 (
                     "resolve_blocker"
                     if is_membership_objection
@@ -407,6 +416,35 @@ def _enforce_pain_discovery(reply: FinalReply) -> FinalReply:
 
 def _contains_question(text: str) -> bool:
     return "？" in text or "?" in text or bool(QUESTION_LANGUAGE_PATTERN.search(text))
+
+
+_PRICE_OBJECTION_MARKERS = (
+    "贵",
+    "便宜",
+    "优惠",
+    "打折",
+    "少一点",
+    "少点",
+    "降一点",
+    "降点",
+    "再少",
+    "再低",
+)
+
+
+def _has_prior_price_objection(value) -> bool:
+    if not isinstance(value, list):
+        return False
+    return any(
+        isinstance(turn, dict)
+        and str(turn.get("role") or "") in {"user", "customer"}
+        and any(
+            marker
+            in str(turn.get("content") or turn.get("text") or "")
+            for marker in _PRICE_OBJECTION_MARKERS
+        )
+        for turn in value[-6:]
+    )
 
 
 _SLOT_QUESTION_MARKERS = {

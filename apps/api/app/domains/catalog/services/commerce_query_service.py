@@ -76,6 +76,8 @@ MEMBERSHIP_SERVICE_CAPABILITIES = (
     "结合具体养护问题的一对一指导",
 )
 MEMBERSHIP_PRODUCT_QUERY = "首单参与陪伴养兰客户"
+MEMBERSHIP_PRICE_LABEL = "首单体验价"
+MEMBERSHIP_ADDITIONAL_DISCOUNT_STATUS = "unavailable"
 ORCHID_PRODUCT_MARKERS = (
     "兰花",
     "国兰",
@@ -419,6 +421,19 @@ async def build_commerce_context(
             tool_state["service_capabilities"] = list(
                 MEMBERSHIP_SERVICE_CAPABILITIES
             )
+            tool_state["price_label"] = MEMBERSHIP_PRICE_LABEL
+            tool_state["additional_discount_status"] = (
+                MEMBERSHIP_ADDITIONAL_DISCOUNT_STATUS
+            )
+            tool_state["negotiation_allowed"] = False
+            if membership_question_kind == "objection":
+                tool_state["membership_objection_round"] = (
+                    "followup"
+                    if _has_prior_membership_price_objection(
+                        user_state.metadata.get("recent_turns")
+                    )
+                    else "initial"
+                )
         if product_data and product_data[0].get("page_path"):
             tool_state["mini_program"] = {
                 **base_card,
@@ -898,6 +913,34 @@ def _card_already_sent(metadata: dict, item_id: str) -> bool:
     return isinstance(sent_ids, list) and item_id in {
         str(value) for value in sent_ids
     }
+
+
+_MEMBERSHIP_PRICE_OBJECTION_MARKERS = (
+    "贵",
+    "便宜",
+    "优惠",
+    "打折",
+    "少一点",
+    "少点",
+    "降一点",
+    "降点",
+    "再少",
+    "再低",
+)
+
+
+def _has_prior_membership_price_objection(value) -> bool:
+    if not isinstance(value, list):
+        return False
+    for turn in value[-6:]:
+        if not isinstance(turn, dict):
+            continue
+        if str(turn.get("role") or "") not in {"user", "customer"}:
+            continue
+        content = str(turn.get("content") or turn.get("text") or "")
+        if any(marker in content for marker in _MEMBERSHIP_PRICE_OBJECTION_MARKERS):
+            return True
+    return False
 
 
 def _looks_like_budget(text: str) -> bool:

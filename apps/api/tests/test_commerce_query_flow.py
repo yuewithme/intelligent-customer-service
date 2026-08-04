@@ -1516,12 +1516,79 @@ async def test_membership_price_objection_uses_facts_without_repeating_card():
 
     assert facts.tool_state["product_request_kind"] == "membership"
     assert facts.tool_state["membership_question_kind"] == "objection"
+    assert facts.tool_state["price_label"] == "首单体验价"
+    assert facts.tool_state["additional_discount_status"] == "unavailable"
+    assert facts.tool_state["negotiation_allowed"] is False
+    assert facts.tool_state["membership_objection_round"] == "initial"
     assert facts.tool_state["send_purchase_card"] is False
     assert reply is not None
     assert "39.9元" in reply.answer
     assert "一对一指导" in reply.answer
     assert "我理解您会关注价格" not in reply.answer
     assert [message.type for message in reply.outbound_messages] == ["text"]
+
+
+@pytest.mark.asyncio
+async def test_repeated_membership_bargain_answers_directly_without_value_repetition():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            del keyword, limit
+            return [
+                YouzanProduct(
+                    item_id="membership-39",
+                    title="首单参与陪伴养兰客户 专享特惠链接",
+                    price_cent=3990,
+                    h5_url="https://h5.youzan.com/goods/member-39",
+                )
+            ]
+
+    state = UserState(
+        user_id="wxid-customer",
+        metadata={
+            "commerce_last_product_id": "membership-39",
+            "commerce_last_product_keyword": "首单参与陪伴养兰客户 专享特惠链接",
+            "commerce_last_product_kind": "membership",
+            "commerce_sent_card_ids": ["membership-39"],
+            "recent_turns": [
+                {"role": "user", "content": "有点贵，能不能便宜点"},
+                {
+                    "role": "assistant",
+                    "content": "39.9元是首单体验价，后面遇到问题也有人指导。",
+                },
+            ],
+        },
+    )
+    intent = IntentResult(
+        route="template_reply",
+        primary_intent="discount_request",
+        primary_domain="commerce",
+        primary_goal="express_objection",
+        confidence=0.95,
+    )
+    message = _message("少一点可以不")
+
+    facts = await build_commerce_context(
+        message,
+        state,
+        intent,
+        product_service=FakeProductService(),
+        business_action=CATALOG_SEARCH,
+        allowed_source_groups={"product_catalog"},
+    )
+    reply = await render_business_reply(message, facts)
+
+    assert facts.tool_state["membership_objection_round"] == "followup"
+    assert "不能再少" in reply.answer
+    assert "不着急" in reply.answer
+    assert "课程" not in reply.answer
+    assert "一对一" not in reply.answer
+    assert facts.tool_state["send_purchase_card"] is False
 
 
 @pytest.mark.asyncio

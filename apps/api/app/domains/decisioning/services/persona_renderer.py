@@ -85,6 +85,21 @@ async def render_persona_reply(
         if spec.verified_facts.get("brand_value_facts")
         else ""
     )
+    objection_instruction = ""
+    if (
+        isinstance(tool_state, dict)
+        and tool_state.get("membership_question_kind") == "objection"
+    ):
+        if tool_state.get("membership_objection_round") == "followup":
+            objection_instruction = (
+                "这是客户连续第二次询价。必须先自然接住，再根据 verified_facts 直接说明首单体验价"
+                "目前不能再优惠，随后低压力收口。不要重复课程、一对一指导或整段价值介绍。"
+            )
+        else:
+            objection_instruction = (
+                "这是本轮首次处理价格顾虑。先自然接住，再根据 verified_facts 明确说明首单体验价"
+                "目前不能再优惠，最后只用一句客户能感受到的价值解释，不追问预算。"
+            )
     payload = {
         "customer_message": current_message,
         "reply_spec": {
@@ -114,6 +129,7 @@ async def render_persona_reply(
             "content": (
                 f"请依据下列数据生成这一轮的微信客户回复。{composition_instruction}"
                 f"{question_instruction}{rag_instruction}{brand_instruction}"
+                f"{objection_instruction}"
                 "先完成 reply_goal。question_slot 有值时，只能自然追问该项，"
                 "不要顺带询问相邻信息；question_slot 为空时，不得出现问句，"
                 "也不得用命令句索要手机号、订单号、图片或其他资料。"
