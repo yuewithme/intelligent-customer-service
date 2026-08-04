@@ -172,9 +172,16 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state, intent=None) -> Rep
             ),
         },
     }
-    allow_persona_extension = bool(reply.metadata.get("allow_persona_extension"))
+    approved_sales_script_required = (
+        sales_action.get("reason") == "service_offer_soft_decline_value_card"
+    )
+    allow_persona_extension = bool(
+        reply.metadata.get("allow_persona_extension")
+        or approved_sales_script_required
+    )
     rewrite_business_copy = bool(
         reply.metadata.get("persona_rewrite_business_copy")
+        or approved_sales_script_required
     )
     render_mode = "persona"
     if reply.need_human or not reply.answer:
