@@ -618,6 +618,64 @@ def test_guard_rejects_card_language_when_current_reply_must_not_send_card():
     )
 
 
+def test_guard_rejects_price_only_reply_for_repeated_membership_bargain():
+    original = (
+        "我懂，能省一点肯定更好。39.9元已经是首单体验价了，"
+        "目前确实不能再少。您觉得合适再参加就行，不着急。"
+    )
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="直接回答连续议价并低压力收口",
+        suggested_copy="我们萧岚苑的陪伴养兰会员现在是39.9元。",
+        verified_facts={
+            "tool_state": {
+                "commerce_type": "product",
+                "product_request_kind": "membership",
+                "membership_question_kind": "objection",
+                "membership_objection_round": "followup",
+                "additional_discount_status": "unavailable",
+                "negotiation_allowed": False,
+            }
+        },
+        metadata={"persona_original_copy": original},
+    )
+
+    guarded = guard_reply_spec(spec=spec, context=_context(mode="objection"))
+
+    assert guarded.suggested_copy == original
+    assert guarded.metadata["persona_guard"]["reason"] == "missing_discount_answer"
+
+
+def test_guard_rejects_repeated_value_list_after_direct_discount_answer():
+    original = "39.9元已经是首单体验价了，目前确实不能再少，您觉得合适再参加就行。"
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="直接回答连续议价并低压力收口",
+        suggested_copy=(
+            "39.9元已经是首单体验价了，目前确实不能再少。"
+            "里面还有视频课程和一对一指导。"
+        ),
+        verified_facts={
+            "tool_state": {
+                "commerce_type": "product",
+                "product_request_kind": "membership",
+                "membership_question_kind": "objection",
+                "membership_objection_round": "followup",
+                "additional_discount_status": "unavailable",
+                "negotiation_allowed": False,
+            }
+        },
+        metadata={"persona_original_copy": original},
+    )
+
+    guarded = guard_reply_spec(spec=spec, context=_context(mode="objection"))
+
+    assert guarded.suggested_copy == original
+    assert guarded.metadata["persona_guard"]["reason"] == "repeated_membership_value"
+
+
 def test_identity_question_has_role_first_fallback_copy():
     reply = build_chitchat_reply(
         IntentResult(

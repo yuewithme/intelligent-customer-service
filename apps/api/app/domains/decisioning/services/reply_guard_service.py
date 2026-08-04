@@ -57,6 +57,20 @@ PRODUCT_EXTENSION_ACTION_MARKERS = (
     "下单",
 )
 PRODUCT_CARD_ACTION_MARKERS = ("卡片", "链接", "点开", "点击", "下单", "购买入口")
+NO_FURTHER_DISCOUNT_MARKERS = (
+    "不能再少",
+    "没法再少",
+    "没办法再少",
+    "没有再少",
+    "不能再优惠",
+    "没法再优惠",
+    "没有再优惠",
+    "不能再便宜",
+    "没有再便宜",
+    "不能往下调",
+    "没有再往下调",
+)
+MEMBERSHIP_VALUE_LIST_MARKERS = ("课程", "视频", "一对一", "指导")
 
 
 def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
@@ -129,6 +143,29 @@ def persona_extension_violation(spec: ReplySpec, answer: str) -> str | None:
         return "invalid_product_extension"
     if _disallowed_product_card_action(spec, answer):
         return "unexpected_product_card_action"
+    if violation := _membership_followup_objection_violation(spec, answer):
+        return violation
+    return None
+
+
+def _membership_followup_objection_violation(
+    spec: ReplySpec,
+    answer: str,
+) -> str | None:
+    tool_state = spec.verified_facts.get("tool_state")
+    if not isinstance(tool_state, dict):
+        return None
+    if (
+        tool_state.get("membership_question_kind") != "objection"
+        or tool_state.get("membership_objection_round") != "followup"
+    ):
+        return None
+    if tool_state.get("additional_discount_status") == "unavailable" and not any(
+        marker in answer for marker in NO_FURTHER_DISCOUNT_MARKERS
+    ):
+        return "missing_discount_answer"
+    if any(marker in answer for marker in MEMBERSHIP_VALUE_LIST_MARKERS):
+        return "repeated_membership_value"
     return None
 
 
