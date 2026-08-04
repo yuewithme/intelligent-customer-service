@@ -18,6 +18,7 @@ from app.domains.catalog.services.commerce_query_service import (
 )
 from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
+    conversation_has_reply_route,
     conversation_blocks_ai,
     recover_automatic_handoff,
     record_ai_turn,
@@ -320,6 +321,23 @@ async def handle_chat(request: ChatRequest) -> dict:
                 "slots": sales_signals.slots,
             }
         )
+        if normalized_intent.primary_goal == "request_material":
+            has_prior_discovery = conversation_has_reply_route(
+                channel=message.channel,
+                user_id=message.user_id,
+                session_id=message.session_id,
+                route="orchid_material_discovery",
+            )
+            normalized_intent = normalized_intent.model_copy(
+                update={
+                    "slots": {
+                        **normalized_intent.slots,
+                        "material_request_phase": (
+                            "delivery" if has_prior_discovery else "discovery"
+                        ),
+                    }
+                }
+            )
         sales_stage_decision = decide_sales_stage(
             user_state=user_state,
             intent=normalized_intent,

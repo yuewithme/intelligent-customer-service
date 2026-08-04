@@ -68,13 +68,17 @@ async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     plan = state["plan"]
     if state["intent"].primary_goal == "request_material":
         from app.domains.catalog.services.orchid_material_service import (
+            orchid_material_discovery_chat_result,
             orchid_material_chat_result,
         )
 
-        material_result = orchid_material_chat_result(
-            state["message"].message,
-            confirmed_request=True,
-        )
+        if state["intent"].slots.get("material_request_phase") == "discovery":
+            material_result = orchid_material_discovery_chat_result()
+        else:
+            material_result = orchid_material_chat_result(
+                state["message"].message,
+                confirmed_request=True,
+            )
         reply = (
             FinalReply.model_validate(material_result)
             if material_result is not None

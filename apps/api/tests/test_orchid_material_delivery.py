@@ -53,7 +53,7 @@ def test_outbound_messages_keep_fixed_link_card_payload():
 
 
 @pytest.mark.asyncio
-async def test_chat_core_prepends_opening_and_delivers_material_without_llm(
+async def test_chat_core_discovers_need_on_first_request_and_delivers_on_second(
     monkeypatch,
 ):
     from app.domains.conversations.schemas.chat import ChatRequest
@@ -66,32 +66,43 @@ async def test_chat_core_prepends_opening_and_delivers_material_without_llm(
         pytest.fail("固定资料链路不应调用 LLM")
 
     monkeypatch.setattr(llm_service, "generate_answer", fail_generate)
-    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "")
-    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "0")
-    get_settings.cache_clear()
-    user_id = "eval_material_core"
+    user_id = "material_core_two_step"
     state_service._state_store.pop(user_id, None)
 
-    result = await handle_chat(
+    first = await handle_chat(
         ChatRequest(
             channel="api",
             user_id=user_id,
             session_id="material-core-session",
             message="老师，怎样领取养兰资料？",
             kb_id="kb_default",
-            metadata={"evaluation_id": "material-core"},
+        )
+    )
+    second = await handle_chat(
+        ChatRequest(
+            channel="api",
+            user_id=user_id,
+            session_id="material-core-session",
+            message="那把养兰资料发我吧",
+            kb_id="kb_default",
         )
     )
 
-    assert result["intent"]["primary_goal"] == "request_material"
-    message_types = [item["type"] for item in result["outbound_messages"]]
-    assert message_types[:2] == ["text", "text"]
-    assert "link_card" in message_types[2:]
-    assert message_types[-1] == "image"
-    assert result["outbound_messages"][0]["content"].startswith(
-        "兰友您好！欢迎来到萧岚苑"
-    )
-    assert "家里目前养了多少盆兰花" in result["outbound_messages"][1]["content"]
+    assert first["intent"]["primary_goal"] == "request_material"
+    assert first["intent"]["slots"]["material_request_phase"] == "discovery"
+    assert first["route"] == "orchid_material_discovery"
+    assert first["outbound_messages"]
+    assert {item["type"] for item in first["outbound_messages"]} == {"text"}
+    assert "黄叶" in first["answer"]
+    assert "烂根" in first["answer"]
+
+    assert second["intent"]["primary_goal"] == "request_material"
+    assert second["intent"]["slots"]["material_request_phase"] == "delivery"
+    assert second["route"] == "orchid_material_delivery"
+    second_message_types = [item["type"] for item in second["outbound_messages"]]
+    assert second_message_types[0] == "link_card"
+    assert "text" in second_message_types
+    assert second_message_types[-1] == "image"
 
 
 @pytest.mark.parametrize(

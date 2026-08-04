@@ -3,11 +3,13 @@ from pathlib import Path
 
 from app.domains.catalog.services.orchid_material_service import (
     ORCHID_MATERIAL_CARD,
+    ORCHID_MATERIAL_DISCOVERY_TEXT,
     ORCHID_MATERIAL_IMAGE_URL,
     ORCHID_MATERIAL_TEXT,
     is_orchid_material_followup,
     is_orchid_material_request,
     orchid_material_chat_result,
+    orchid_material_discovery_chat_result,
 )
 
 
@@ -73,6 +75,18 @@ def test_orchid_material_reply_uses_fixed_youzan_card():
         "type": "image",
         "content": ORCHID_MATERIAL_IMAGE_URL,
     }
+
+
+def test_orchid_material_discovery_reply_asks_for_the_customer_need():
+    result = orchid_material_discovery_chat_result()
+
+    assert result["answer"] == ORCHID_MATERIAL_DISCOVERY_TEXT
+    assert result["route"] == "orchid_material_discovery"
+    assert result["metadata"]["material_request_phase"] == "discovery"
+    assert result["outbound_messages"] == [
+        {"type": "text", "content": ORCHID_MATERIAL_DISCOVERY_TEXT}
+    ]
+    assert "最想解决哪方面的问题" in result["answer"]
 
 
 def test_opening_context_turns_short_replies_into_material_requests():

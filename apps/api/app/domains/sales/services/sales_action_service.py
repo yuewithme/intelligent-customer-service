@@ -296,6 +296,8 @@ def apply_sales_action(
     reply: FinalReply,
     decision: SalesActionDecision,
 ) -> FinalReply:
+    if reply.reply_type == "fixed_resource":
+        return reply
     if reply.need_human or not reply.answer.strip() or not decision.question_slot:
         return reply
     pain_discovery_required = (
