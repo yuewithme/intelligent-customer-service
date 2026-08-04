@@ -222,6 +222,23 @@ def test_care_question_is_service_need_not_automatic_after_sale():
     assert CustomerSignal.PURCHASED not in result.signals
 
 
+def test_concrete_desired_outcome_is_normalized_as_revealed_service_need():
+    intent = _intent(
+        "care_question",
+        desired_outcome="学会判断什么时候该浇水",
+    )
+
+    result = normalize_sales_signals(
+        message=_message("我想学会按植料干湿判断浇水时机"),
+        user_state=UserState(user_id="goal-user"),
+        intent=intent,
+        tag_result=_tag(intent),
+    )
+
+    assert CustomerSignal.SERVICE_NEED in result.signals
+    assert CustomerSignal.PAIN_REVEALED in result.signals
+
+
 def test_opening_profile_answer_does_not_imply_product_need():
     intent = IntentResult(
         route="chitchat",

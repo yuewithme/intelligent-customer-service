@@ -6,6 +6,7 @@ from typing import Any
 
 from app.domains.decisioning.schemas.persona import PersonaContext, ReplySpec
 from app.domains.decisioning.schemas.reply import FinalReply
+from app.domains.sales.services.service_need_service import resolved_service_need
 
 
 DEFAULT_PERSONA_ID = "orchid_sales"
@@ -146,14 +147,15 @@ def build_reply_spec(*, reply: FinalReply, plan, user_state, intent=None) -> Rep
             **verified_facts,
             "customer_profile_facts": current_profile_facts,
         }
+    known_slots = _dict_value(sales_action.get("known_slots"))
+    service_need = resolved_service_need(known_slots)
     sales_action_context = {
         key: value
         for key, value in {
             "sales_action": sales_action.get("sales_action"),
             "reason": sales_action.get("reason"),
-            "pain_point": _dict_value(sales_action.get("known_slots")).get(
-                "pain_point"
-            ),
+            "service_need_kind": service_need[0] if service_need else None,
+            "service_need": service_need[1] if service_need else None,
         }.items()
         if value not in (None, "", [])
     }

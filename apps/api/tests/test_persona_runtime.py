@@ -187,6 +187,36 @@ def test_plain_template_uses_anchor_plus_persona_composition():
     assert spec.composition_mode == "anchor_plus_persona"
 
 
+def test_reply_spec_exposes_resolved_service_goal_to_approved_scripts():
+    reply = FinalReply(
+        answer="先说清如何判断浇水时机。",
+        reply_type="rag",
+        route="rag_answer",
+    )
+    plan = ReplyPlan(action="rag_answer", reason="care_need")
+    state = UserState(
+        user_id="goal-user",
+        metadata={
+            "sales_action": {
+                "reply_goal": "先回答需求再推进陪伴服务",
+                "reason": "service_solution_first_offer",
+                "known_slots": {
+                    "need_track": "service",
+                    "desired_outcome": "学会按植料干湿判断浇水时机",
+                },
+            }
+        },
+    )
+
+    spec = build_reply_spec(reply=reply, plan=plan, user_state=state)
+
+    assert spec.verified_facts["sales_action_context"] == {
+        "reason": "service_solution_first_offer",
+        "service_need_kind": "desired_outcome",
+        "service_need": "学会按植料干湿判断浇水时机",
+    }
+
+
 def test_fixed_text_material_reply_disallows_unsolicited_discount_claim():
     reply = FinalReply(
         answer="可以的，我先了解一下您最想解决哪方面的养兰问题？",

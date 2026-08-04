@@ -43,7 +43,7 @@ async def build_tag_result(
         if not _is_customer_level_tag(tag)
     ]
     entities = dict(intent.slots)
-    pain_point = _pain_point_from_text(message.message)
+    pain_point = _common_care_issue_from_text(message.message)
     if pain_point and not entities.get("pain_point"):
         entities["pain_point"] = pain_point
     if customer_level.level != "unknown" and customer_level.label:
@@ -90,7 +90,7 @@ def _segment_from(message: NormalizedMessage, user_state: UserState) -> str:
 
 def _memory_labels(text: str, intent: IntentResult) -> list[str]:
     labels: list[str] = []
-    pain_point = _pain_point_from_text(text)
+    pain_point = _common_care_issue_from_text(text)
     if pain_point:
         labels.append(f"pain_point:兰花{pain_point}")
         labels.append("product_interest:兰花养护")
@@ -99,7 +99,8 @@ def _memory_labels(text: str, intent: IntentResult) -> list[str]:
     return filter_runtime_labels(_dedupe(labels))
 
 
-def _pain_point_from_text(text: str) -> str:
+def _common_care_issue_from_text(text: str) -> str:
+    """Enrich common symptoms only when semantic intent omitted an explicit need."""
     issues: list[str] = []
     markers = (
         ("黑斑", ("黑斑", "叶斑")),

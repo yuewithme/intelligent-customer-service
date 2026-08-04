@@ -18,6 +18,9 @@ from app.domains.customers.schemas.state import UserState
 from app.domains.sales.schemas.tag import TagResult
 from app.domains.sales.services.sales_signal_service import normalize_sales_signals
 from app.domains.sales.services.sales_stage_catalog import normalize_sales_stage_reference
+from app.domains.sales.services.service_need_service import (
+    has_resolved_service_need,
+)
 
 
 STAGE_ORDER = {stage.value: position for position, stage in enumerate(SalesStage, start=1)}
@@ -37,19 +40,6 @@ ENVIRONMENT_AND_FIT_SLOTS = {
     "selected_product_id",
     "selected_sku_id",
 }
-GENERIC_SERVICE_PAIN_POINTS = {
-    "",
-    "养不好",
-    "不会养",
-    "不懂养护",
-    "想学习",
-    "怕养不好",
-    "新手",
-    "不清楚",
-    "unknown",
-}
-
-
 def decide_sales_stage(
     *,
     user_state: UserState,
@@ -290,8 +280,8 @@ def _controlled_loop(
         for key in incoming
         if key not in old_slots or old_slots.get(key) != normalized.slots.get(key)
     }
-    if "pain_point" in changed:
-        return SalesStage.PAIN_DISCOVERY, "new_core_pain"
+    if changed & {"pain_point", "desired_outcome", "failed_history"}:
+        return SalesStage.PAIN_DISCOVERY, "new_core_service_need"
     if changed & ENVIRONMENT_AND_FIT_SLOTS:
         return SalesStage.SOLUTION_RECOMMENDED, "recommendation_context_changed"
     if current_stage is SalesStage.TRIAL_CLOSE and CustomerSignal.OBJECTION in set(
@@ -324,19 +314,9 @@ def _recommendation_ready(slots: dict[str, Any]) -> bool:
     )
     service_basis = (
         slots.get("need_track") in {"service", "combined"}
-        and _has_specific_service_pain(slots.get("pain_point"))
+        and has_resolved_service_need(slots)
     )
     return product_basis or service_basis or bool(slots.get("selected_product_id"))
-
-
-def _has_specific_service_pain(value: Any) -> bool:
-    normalized = str(value or "").strip().lower()
-    if normalized in GENERIC_SERVICE_PAIN_POINTS:
-        return False
-    return not any(
-        marker in normalized
-        for marker in ("养不好", "不会养", "不懂", "想学", "怕养不好", "新手")
-    )
 
 
 def _recommendation_has_basis(current_stage: SalesStage, slots: dict[str, Any]) -> bool:

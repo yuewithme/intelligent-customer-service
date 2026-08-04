@@ -1689,6 +1689,12 @@ def _build_legacy_prompt(message: str, recent_turns: list[dict] | None = None) -
 只记录客户明确表达的成交阻碍；没有明确阻碍时不要输出该槽位。
 detail 使用中性中文概括，不复述辱骂或攻击性原话；售后问题本身不算成交阻碍。
 
+养兰服务需求槽位：
+- 客户明确说出当前养护问题或具体不明白的操作时，用 `slots.pain_point` 概括。
+- 客户明确说出想达到的具体养护结果时，用 `slots.desired_outcome` 概括。
+- 客户明确说出过往养护失败或反复出问题的经历时，用 `slots.failed_history` 概括。
+- 只有“想了解”“新手”“想养好”这类空泛表达时不要猜测上述槽位。
+
 # route 判定规则
 
 ## 1. template_reply
@@ -2107,6 +2113,7 @@ def _build_prompt_legacy(
 7. evidence 必须引用当前消息或最近对话中的短原文；不能编造。confidence 低于 0.60 或指代无法消解时 scope=ambiguous、Goal=unclear。
 8. sales_signals 仅允许 `{signal_values}`；客户自述付款只能为 payment_claimed，禁止输出 purchased。
 9. slots.decision_blocker 仅记录明确成交阻碍，type 只能是 price | trust | care_risk | product_fit | choice | timing | other。
+10. 服务需求已具体表达时，在 slots 中记录：当前问题或具体操作疑问用 pain_point，具体目标用 desired_outcome，过往失败经历用 failed_history。空泛的“想了解”“新手”“想养好”不算需求已明确。
 
 候选标签卡（含定义、正例和反例）：
 {candidate_text}
@@ -2174,6 +2181,9 @@ Rules:
 - For membership service intent, use product/seek_help/product_selection for service
   information, and commerce/transact/order_process for joining or purchasing.
 - slots may include explicit facts and product/service references resolved from recent context.
+- For explicit care needs use slots.pain_point (current issue/specific operation),
+  desired_outcome (specific goal), or failed_history (prior failure). Never derive
+  them from generic "想了解", "新手", or "想养好".
 - Output JSON only. No evidence, explanation, route, sales stage, sentiment, or legacy intent fields.
 """
 
