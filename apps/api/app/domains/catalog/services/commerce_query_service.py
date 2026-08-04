@@ -156,23 +156,23 @@ MEMBERSHIP_PURCHASE_MARKERS = (
 
 
 def verified_membership_brand_facts() -> list[dict]:
-    """Expose verified service value only when a live membership product exists."""
+    """Expose stable brand/service facts without depending on catalog availability."""
 
+    product_id = ""
     try:
         products = search_catalog_products("会员", limit=3)
         if not products:
             products = search_catalog_products("陪伴养兰", limit=3)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Membership value lookup failed: %s", type(exc).__name__)
-        return []
-    if not products:
-        return []
-    product = products[0]
+        products = []
+    if products:
+        product_id = str(products[0].get("item_id") or "")
     return [
         {
             "brand": "萧岚苑",
             "product_type": "陪伴养兰会员",
-            "product_id": str(product.get("item_id") or ""),
+            "product_id": product_id,
             "service_capabilities": list(MEMBERSHIP_SERVICE_CAPABILITIES),
             "service_value_points": [
                 dict(item) for item in MEMBERSHIP_SERVICE_VALUE_POINTS
