@@ -110,12 +110,16 @@ def decide_sales_action(
             reason="material_request_priority",
         )
 
+    soft_service_decline = _service_offer_started(
+        opportunity, known_slots
+    ) and _is_soft_service_decline(intent)
     explicit_non_membership_turn = (
         intent.primary_domain in {"care", "conversation"}
         or intent.primary_goal in {"request_material", "socialize"}
     )
     membership_context = (
-        not explicit_non_membership_turn
+        not soft_service_decline
+        and not explicit_non_membership_turn
         and (
             intent.slots.get("product_request_kind") == "membership"
             or (
@@ -205,9 +209,7 @@ def decide_sales_action(
             reason="controlled_loop",
         )
 
-    if _service_offer_started(opportunity, known_slots) and _is_soft_service_decline(
-        intent
-    ):
+    if soft_service_decline:
         return _decision(
             (
                 "客户是礼貌回应、犹豫或软拒绝，不能用‘不客气’结束对话。"
