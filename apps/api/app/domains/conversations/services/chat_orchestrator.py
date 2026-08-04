@@ -678,6 +678,8 @@ def _should_attach_membership_brand_value(sales_action) -> bool:
         "build_value",
     }:
         return False
+    if sales_action.sales_action == "discover_pain":
+        return True
     known_slots = getattr(sales_action, "known_slots", {})
     return not isinstance(known_slots, dict) or known_slots.get("need_track") != "product"
 

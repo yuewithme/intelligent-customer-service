@@ -1,7 +1,20 @@
-from fastapi.testclient import TestClient
+from types import SimpleNamespace
 from uuid import uuid4
 
+from fastapi.testclient import TestClient
+
 from app.main import app
+
+
+def test_pain_discovery_keeps_service_brand_value_after_product_context():
+    from app.services import chat_orchestrator
+
+    action = SimpleNamespace(
+        sales_action="discover_pain",
+        known_slots={"need_track": "product"},
+    )
+
+    assert chat_orchestrator._should_attach_membership_brand_value(action) is True
 
 
 def _chat(
