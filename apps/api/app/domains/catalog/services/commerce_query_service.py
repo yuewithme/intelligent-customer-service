@@ -75,6 +75,21 @@ MEMBERSHIP_SERVICE_CAPABILITIES = (
     "系统的视频课程",
     "结合具体养护问题的一对一指导",
 )
+MEMBERSHIP_SERVICE_VALUE_POINTS = (
+    {
+        "capability": "系统的视频课程",
+        "customer_problem": "养兰基础零散，上盆、浇水、施肥等环节容易反复出错",
+        "customer_benefit": "把基础养护系统理顺，少走弯路",
+    },
+    {
+        "capability": "结合具体养护问题的一对一指导",
+        "customer_problem": "地区、品种和养护习惯不同，通用资料难以覆盖具体问题",
+        "customer_benefit": "结合实际情况针对性调整，避开反复试错",
+    },
+)
+MEMBERSHIP_BRAND_POSITIONING = (
+    "我们萧岚苑不只是卖兰花，更希望陪兰友把养兰基础理顺、把兰花养好"
+)
 MEMBERSHIP_PRODUCT_QUERY = "首单参与陪伴养兰客户"
 MEMBERSHIP_PRICE_LABEL = "首单体验价"
 MEMBERSHIP_ADDITIONAL_DISCOUNT_STATUS = "unavailable"
@@ -155,6 +170,10 @@ def verified_membership_brand_facts() -> list[dict]:
             "product_type": "陪伴养兰会员",
             "product_id": str(product.get("item_id") or ""),
             "service_capabilities": list(MEMBERSHIP_SERVICE_CAPABILITIES),
+            "service_value_points": [
+                dict(item) for item in MEMBERSHIP_SERVICE_VALUE_POINTS
+            ],
+            "brand_positioning": MEMBERSHIP_BRAND_POSITIONING,
         }
     ]
 
@@ -426,6 +445,10 @@ async def build_commerce_context(
             tool_state["service_capabilities"] = list(
                 MEMBERSHIP_SERVICE_CAPABILITIES
             )
+            tool_state["service_value_points"] = [
+                dict(item) for item in MEMBERSHIP_SERVICE_VALUE_POINTS
+            ]
+            tool_state["brand_positioning"] = MEMBERSHIP_BRAND_POSITIONING
             tool_state["price_label"] = MEMBERSHIP_PRICE_LABEL
             tool_state["additional_discount_status"] = (
                 MEMBERSHIP_ADDITIONAL_DISCOUNT_STATUS

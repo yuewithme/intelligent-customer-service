@@ -253,6 +253,10 @@ async def test_membership_request_uses_local_product_and_exact_price_card():
         "系统的视频课程",
         "结合具体养护问题的一对一指导",
     ]
+    assert facts.tool_state["service_value_points"][0]["customer_benefit"] == (
+        "把基础养护系统理顺，少走弯路"
+    )
+    assert "我们萧岚苑" in facts.tool_state["brand_positioning"]
     assert state.metadata["commerce_last_product_id"] == "membership-39"
     assert reply is not None
     assert "萧岚苑有陪伴养兰会员" in reply.answer

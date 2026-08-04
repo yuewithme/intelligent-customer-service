@@ -284,7 +284,17 @@ def _matches_verified_capability_claim(
         or ("视频课程" in capability and any(term in text for term in ("视频", "课程")))
         or (
             "一对一指导" in capability
-            and any(term in text for term in ("一对一", "老师带着", "老师指导"))
+            and any(
+                term in text
+                for term in (
+                    "一对一",
+                    "老师带着",
+                    "老师指导",
+                    "老师结合",
+                    "师傅结合",
+                    "专人结合",
+                )
+            )
         )
         for capability in verified_capabilities
     )
@@ -504,9 +514,11 @@ def _care_repair_prompt(prompt: str, violations: list[str]) -> str:
     if "missing_verified_brand_bridge" in violations:
         instructions.append(
             "不要在专业分析结束后另起一段广告。用‘所以’或‘这也是为什么’"
-            "承接前面的具体判断，再自然带出萧岚苑；只能从 Session state 的"
+            "承接前面的具体判断，再用‘我们萧岚苑’自然带出品牌，不要用第三方口吻说"
+            "‘萧岚苑提供’；只能从 Session state 的"
             "brand_value_facts 中选择与当前痛点最相关的一项能力，说明它如何"
-            "帮助客户减少问题反复，不要同时罗列课程和一对一指导，也不要立即逼单。"
+            "帮助客户减少问题反复。先表达客户收益，可以用‘能帮您’‘让您少走弯路’"
+            "这类口语，不要同时罗列课程和一对一指导，也不要立即逼单。"
         )
     if "repeated_follow_up_question" in violations:
         instructions.append(
@@ -598,18 +610,19 @@ def _remove_regional_environment_claims(
 
 def _verified_brand_bridge(context: ContextPackage) -> str:
     capabilities = _verified_service_capabilities(context)
-    labels = []
-    if any("视频课程" in capability for capability in capabilities):
-        labels.append("系统视频课")
     if any("一对一指导" in capability for capability in capabilities):
-        labels.append("针对具体问题的一对一指导")
-    if not labels:
-        return ""
-    return (
-        "这类问题只处理眼前还不够，浇水、植料和通风这些基础没理顺，"
-        f"后面还容易反复。萧岚苑有{'和'.join(labels)}，"
-        "有人结合实际情况陪着调整，会比自己反复试错更稳。"
-    )
+        return (
+            "这类问题只处理眼前还不够，基础没理顺，后面还是容易反复。"
+            "所以我们萧岚苑才做陪伴养兰，会有老师结合您的实际情况帮您调整，"
+            "能够帮您避开反复踩坑。"
+        )
+    if any("视频课程" in capability for capability in capabilities):
+        return (
+            "这类问题只处理眼前还不够，基础没理顺，后面还是容易反复。"
+            "所以我们萧岚苑把常见的养护问题做成了系统视频课，"
+            "能帮您把基础理顺，少走一些弯路。"
+        )
+    return ""
 
 
 def _remove_trailing_care_question(answer: str) -> str:

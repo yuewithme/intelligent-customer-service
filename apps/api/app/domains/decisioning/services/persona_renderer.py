@@ -80,8 +80,11 @@ async def render_persona_reply(
     brand_instruction = (
         "verified_facts 中存在 brand_value_facts 时，不要另起广告话题。"
         "先用第一条消息回答客户当前问题并给一个关键建议；如果确实需要体现品牌价值，"
-        "第二条必须用因果关系承接前面的具体判断，说明萧岚苑为什么能帮助减少这个问题反复。"
-        "只选择与当前痛点最相关的一项已核实能力，不要同时罗列视频课程、一对一指导或其他权益。"
+        "第二条必须用因果关系承接前面的具体判断。代表品牌说话时用‘我们萧岚苑’或‘我们这边’，"
+        "不要用第三方介绍口吻说‘萧岚苑提供’。优先从 service_value_points 中只选择与当前痛点"
+        "最相关的一项，用‘能帮您’‘让您’这类客户收益表达，说明我们为什么能帮助减少问题反复；"
+        "可以自然表达‘能够帮您有效避开反复踩坑’，但不要照抄成固定话术，也不要同时罗列"
+        "视频课程、一对一指导或其他权益。"
         if spec.verified_facts.get("brand_value_facts")
         else ""
     )
@@ -152,7 +155,8 @@ async def render_persona_reply(
     )
     answer = _plain_persona_answer(str(result.get("answer") or ""))
     violation = _candidate_violation(spec, answer)
-    if violation and _is_product_extension(spec):
+    if violation:
+        product_extension = _is_product_extension(spec)
         retry = await generate_messages(
             [
                 *messages,
@@ -161,8 +165,13 @@ async def render_persona_reply(
                     "role": "user",
                     "content": (
                         f"上一条违反输出合同（{violation}）。请重新生成一次。"
-                        "不要解释错误；只输出客户可见的第二条消息。"
-                        + _retry_contract(spec)
+                        + (
+                            "不要解释错误；只输出客户可见的第二条消息。"
+                            + _retry_contract(spec)
+                            if product_extension
+                            else "不要解释错误；请完整重写本轮客户可见回复。"
+                            + _full_reply_retry_contract(spec, violation)
+                        )
                     ),
                 },
             ],
@@ -229,6 +238,30 @@ def _retry_contract(spec: ReplySpec) -> str:
     return (
         "只能用一句不超过40字的话引导客户点击或查看商品卡片，"
         "不得提优惠、权益、服务、价值或提出问题。"
+    )
+
+
+def _full_reply_retry_contract(spec: ReplySpec, violation: str) -> str:
+    contracts = {
+        "unexpected_question": (
+            "question_slot 为空，本轮不要提出任何问题，也不要用‘吗、呢、怎么、什么’收尾；"
+            "直接把判断、建议和必要的品牌承接自然说完。"
+        ),
+        "multiple_questions": "最多只能保留一个与 question_slot 完全对应的问题。",
+        "missing_required_question": (
+            f"结尾必须自然询问 question_slot 对应的‘{spec.question_slot}’，只问这一项。"
+        ),
+        "missing_discount_answer": "必须直接说明当前首单体验价不能再优惠。",
+        "passive_sales_close": "不要让客户慢慢考虑，必须按 reply_goal 继续推进成交。",
+        "missing_purchase_cta": "结尾必须明确引导客户点击已经发送的商品卡片开通。",
+        "repeated_membership_value": "不要重复罗列课程、一对一指导或整段服务价值。",
+    }
+    correction = contracts.get(violation, "严格遵守 reply_goal 和输出合同。")
+    return (
+        f"{correction}保留 grounded_knowledge_answer 的核心结论和必要边界，"
+        "只能使用 verified_facts 中已核实的品牌与服务事实。表达要像微信里真人在沟通，"
+        "少用‘多因、导致、提供服务’这类报告口吻，优先说‘常见原因就是、容易、"
+        "我们萧岚苑、能帮您’。总共不超过两条消息。"
     )
 
 
