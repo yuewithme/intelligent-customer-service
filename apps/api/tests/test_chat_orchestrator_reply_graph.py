@@ -6,7 +6,7 @@ from app.domains.conversations.schemas.chat import ChatRequest
 from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.policy import PolicyDecision
-from app.domains.decisioning.schemas.reply import FinalReply
+from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 from app.domains.decisioning.schemas.reply_plan import BusinessFacts
 from app.domains.customers.schemas.state import UserState
 
@@ -114,6 +114,88 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
         "schedule_reply_shadow_evaluation",
         no_shadow,
     )
+
+
+@pytest.mark.asyncio
+async def test_service_offer_attaches_membership_card_in_the_same_turn(monkeypatch):
+    from app.services import chat_orchestrator
+
+    async def build_card_context(*args, **kwargs):
+        del args
+        assert kwargs["business_action"] == "catalog_search"
+        return BusinessFacts(tool_state={"commerce_type": "product", "status": "found"})
+
+    async def render_card(message, facts):
+        del message, facts
+        return FinalReply(
+            answer="卡片文案",
+            reply_type="template",
+            route="template_reply",
+            outbound_messages=[
+                OutboundMessage(type="text", content="卡片文案"),
+                OutboundMessage(type="link_card", content='{"item_id":"membership-39"}'),
+            ],
+            metadata={"commerce_action": {"card_sent": True}},
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "build_commerce_context", build_card_context)
+    monkeypatch.setattr(chat_orchestrator, "render_business_reply", render_card)
+    reply = await chat_orchestrator._attach_membership_card_for_service_offer(
+        reply=_reply("先回答需求，再介绍服务"),
+        message=_message(),
+        user_state=UserState(user_id="user_001"),
+        intent=_intent(),
+        sales_action=SimpleNamespace(reason="service_solution_first_offer"),
+    )
+
+    assert [item.type for item in reply.outbound_messages] == ["link_card"]
+    assert reply.metadata["commerce_action"]["card_sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_discovery_action_does_not_attach_membership_card(monkeypatch):
+    from app.services import chat_orchestrator
+
+    async def unexpected(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("discovery must not query the membership product")
+
+    monkeypatch.setattr(chat_orchestrator, "build_commerce_context", unexpected)
+    original = _reply("继续挖掘具体需求")
+    reply = await chat_orchestrator._attach_membership_card_for_service_offer(
+        reply=original,
+        message=_message(),
+        user_state=UserState(user_id="user_001"),
+        intent=_intent(),
+        sales_action=SimpleNamespace(reason="stage_default"),
+    )
+
+    assert reply is original
+
+
+@pytest.mark.asyncio
+async def test_service_offer_does_not_duplicate_an_existing_card(monkeypatch):
+    from app.services import chat_orchestrator
+
+    async def unexpected(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("an existing card must not be queried again")
+
+    monkeypatch.setattr(chat_orchestrator, "build_commerce_context", unexpected)
+    original = _reply("塑造服务价值")
+    original.outbound_messages.append(
+        OutboundMessage(type="link_card", content='{"item_id":"membership-39"}')
+    )
+    reply = await chat_orchestrator._attach_membership_card_for_service_offer(
+        reply=original,
+        message=_message(),
+        user_state=UserState(user_id="user_001"),
+        intent=_intent(),
+        sales_action=SimpleNamespace(reason="service_offer_soft_decline_value_card"),
+    )
+
+    assert reply is original
+    assert [item.type for item in reply.outbound_messages] == ["link_card"]
 
 
 @pytest.mark.asyncio
