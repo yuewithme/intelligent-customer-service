@@ -20,6 +20,7 @@ from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
     conversation_has_reply_route,
     conversation_blocks_ai,
+    latest_conversation_reply_route,
     recover_automatic_handoff,
     record_ai_turn,
     record_customer_message,
@@ -91,6 +92,7 @@ async def handle_chat(request: ChatRequest) -> dict:
         message = await normalize_chat_request(request)
         trace_token = set_trace_id(message.trace_id)
         is_evaluation = _is_evaluation_request(message)
+        _enrich_material_video_access_context(message)
         stage_latencies["normalize_ms"] = _elapsed_ms(stage_started)
 
         if not is_evaluation:
@@ -634,6 +636,39 @@ def _pain_brand_value_already_present(user_state) -> bool:
         )
         for turn in turns
     )
+
+
+def _enrich_material_video_access_context(message) -> None:
+    metadata = message.metadata if isinstance(message.metadata, dict) else {}
+    existing_tool_state = metadata.get("tool_state")
+    if (
+        isinstance(existing_tool_state, dict)
+        and existing_tool_state.get("material_video_access_action")
+    ):
+        return
+
+    from app.domains.catalog.services.orchid_material_service import (
+        orchid_material_order_screenshot_context,
+        orchid_material_video_issue_context,
+    )
+
+    latest_route = latest_conversation_reply_route(
+        channel=message.channel,
+        user_id=message.user_id,
+        session_id=message.session_id,
+    )
+    context = None
+    if latest_route == "orchid_material_purchase_check":
+        context = orchid_material_order_screenshot_context(message.message)
+    elif conversation_has_reply_route(
+        channel=message.channel,
+        user_id=message.user_id,
+        session_id=message.session_id,
+        route="orchid_material_delivery",
+    ):
+        context = orchid_material_video_issue_context(message.message)
+    if context is not None:
+        message.metadata.update(context)
 
 
 def _should_attach_membership_brand_value(sales_action) -> bool:

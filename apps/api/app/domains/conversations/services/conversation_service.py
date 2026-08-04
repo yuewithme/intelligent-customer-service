@@ -71,6 +71,32 @@ def conversation_has_reply_route(
         ) is not None
 
 
+def latest_conversation_reply_route(
+    *,
+    channel: str,
+    user_id: str,
+    session_id: str | None,
+    before: datetime | None = None,
+) -> str | None:
+    conversation_id = make_conversation_id(channel, user_id, session_id)
+    with _get_session() as session:
+        filters = [
+            ConversationMessageModel.conversation_id == conversation_id,
+            ConversationMessageModel.sender_type.in_(("ai", "human")),
+        ]
+        if before is not None:
+            filters.append(ConversationMessageModel.created_at < before)
+        return session.scalar(
+            select(ConversationMessageModel.route)
+            .where(*filters)
+            .order_by(
+                ConversationMessageModel.created_at.desc(),
+                ConversationMessageModel.id.desc(),
+            )
+            .limit(1)
+        )
+
+
 def get_demo_platform_state(state_key: str) -> dict[str, str | None] | None:
     with _get_session() as session:
         state = session.get(DemoPlatformStateModel, state_key)

@@ -32,6 +32,7 @@ from app.domains.conversations.services.conversation_service import (
     RESOLVED,
     ensure_outbound_conversation_message,
     force_handoff,
+    latest_conversation_reply_route,
     make_conversation_id,
     record_customer_message,
     update_outbound_message_delivery,
@@ -937,8 +938,8 @@ async def _process_inbound_batch(batch_id: int) -> None:
             session_id=batch_data["from_group"],
             before=batch_data["created_at"],
         )
-        latest_reply_route = _latest_reply_route(
-            session,
+        latest_reply_route = latest_conversation_reply_route(
+            channel="wechat",
             user_id=batch_data["from_user"] or batch_data["target_wc_id"],
             session_id=batch_data["from_group"],
             before=batch_data["created_at"],
@@ -1350,29 +1351,6 @@ def _has_sent_orchid_material(
         )
         .limit(1)
     ) is not None
-
-
-def _latest_reply_route(
-    session: Session,
-    *,
-    user_id: str,
-    session_id: str | None,
-    before: datetime,
-) -> str | None:
-    conversation_id = make_conversation_id("wechat", user_id, session_id)
-    return session.scalar(
-        select(ConversationMessageModel.route)
-        .where(
-            ConversationMessageModel.conversation_id == conversation_id,
-            ConversationMessageModel.sender_type.in_(("ai", "human")),
-            ConversationMessageModel.created_at < before,
-        )
-        .order_by(
-            ConversationMessageModel.created_at.desc(),
-            ConversationMessageModel.id.desc(),
-        )
-        .limit(1)
-    )
 
 
 async def _prepare_inbound_content(
