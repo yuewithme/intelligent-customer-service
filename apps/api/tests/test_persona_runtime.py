@@ -285,7 +285,7 @@ async def test_persona_brand_bridge_preserves_semantic_message_boundaries(monkey
         return {
             "answer": (
                 "单纯多晒太阳不一定能改善花小，先把植料透气和养分节奏调顺。\n\n"
-                "所以萧岚苑会结合这盆兰花的实际状态持续指导，避免反复试错。"
+                "所以我们萧岚苑会结合这盆兰花的实际状态持续指导，能帮您避开反复试错。"
             ),
             "usage": {},
         }
@@ -327,9 +327,11 @@ async def test_persona_brand_bridge_preserves_semantic_message_boundaries(monkey
 
     assert "不要另起广告话题" in captured["prompt"]
     assert "只选择与当前痛点最相关的一项" in captured["prompt"]
+    assert "我们萧岚苑" in captured["prompt"]
+    assert "能帮您" in captured["prompt"]
     assert final.answer_segments == [
         "单纯多晒太阳不一定能改善花小，先把植料透气和养分节奏调顺。",
-        "所以萧岚苑会结合这盆兰花的实际状态持续指导，避免反复试错。",
+        "所以我们萧岚苑会结合这盆兰花的实际状态持续指导，能帮您避开反复试错。",
     ]
     assert [message.content for message in final.outbound_messages] == final.answer_segments
 
@@ -415,6 +417,81 @@ async def test_product_persona_extension_retries_after_contract_violation(monkey
     assert rendered.metadata["persona"]["retry_reason"] == "unexpected_question"
     assert rendered.usage["completion_tokens"] == 16
     assert "点击或查看商品卡片" in calls[1][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_rag_persona_retries_instead_of_falling_back_after_unexpected_question(
+    monkeypatch,
+):
+    from app.services import persona_renderer
+
+    answers = iter(
+        [
+            "烂根常见的原因就是盆里长期闷湿。您平时多久浇一次水？",
+            (
+                "烂根常见的原因就是植料不够透气，或者浇水后一直闷湿，"
+                "根透不过气就容易烂。\n\n"
+                "所以我们萧岚苑会结合您的实际情况帮您调整，能帮您避开反复踩坑。"
+            ),
+        ]
+    )
+    calls = []
+
+    async def generate_messages(messages, *, purpose, temperature):
+        del purpose, temperature
+        calls.append(messages)
+        return {"answer": next(answers), "usage": {"completion_tokens": 8}}
+
+    monkeypatch.setattr(persona_renderer, "generate_messages", generate_messages)
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_model_config",
+        lambda purpose: SimpleNamespace(provider="deepseek", model="deepseek-chat"),
+    )
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_settings",
+        lambda: SimpleNamespace(
+            persona_reply_enabled=True,
+            persona_reply_temperature=0.3,
+        ),
+    )
+    original = (
+        "烂根多因植料透气差或浇水后闷湿，导致根系缺氧腐烂。"
+        "这也是为什么萧岚苑提供陪伴养兰服务。"
+    )
+    spec = ReplySpec(
+        route="rag_answer",
+        reply_type="rag",
+        reply_goal="口语化分析烂根并自然承接陪伴价值",
+        suggested_copy=original,
+        verified_facts={
+            "grounded_knowledge_answer": original,
+            "brand_value_facts": [
+                {
+                    "brand": "萧岚苑",
+                    "service_capabilities": ["结合具体养护问题的一对一指导"],
+                }
+            ],
+        },
+        metadata={"persona_original_copy": original},
+    )
+
+    rendered = await persona_renderer.render_persona_reply(
+        spec=spec,
+        context=_context(mode="care_companion"),
+        current_message="烂根倒是有，这是什么问题，总是养死",
+    )
+    final = finalize_reply_spec(guard_reply_spec(spec=rendered, context=_context()))
+
+    assert len(calls) == 2
+    assert "question_slot 为空" in calls[1][-1]["content"]
+    assert "少用‘多因、导致、提供服务’" in calls[1][-1]["content"]
+    assert "多因" not in final.answer
+    assert "我们萧岚苑" in final.answer
+    assert "能帮您" in final.answer
+    assert final.metadata["persona"]["retried"] is True
+    assert "persona_guard" not in final.metadata
 
 
 def test_product_persona_retry_contract_requires_the_planned_question_slot():

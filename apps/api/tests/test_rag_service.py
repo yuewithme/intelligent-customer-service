@@ -186,9 +186,10 @@ def test_care_reply_finalizer_removes_live_region_claim_and_closes_brand_gap():
 
     assert "西安气温低" not in answer
     assert "先看植料实际干湿再浇水" in answer
-    assert "萧岚苑" in answer
-    assert "系统视频课" in answer
-    assert "一对一指导" in answer
+    assert "我们萧岚苑" in answer
+    assert "老师结合您的实际情况" in answer
+    assert "能够帮您" in answer
+    assert "系统视频课" not in answer
 
 
 def test_care_reply_rewrites_or_removes_a_repeated_follow_up_question():
