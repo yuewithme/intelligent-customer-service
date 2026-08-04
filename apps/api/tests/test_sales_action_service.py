@@ -159,7 +159,7 @@ def test_membership_price_objection_uses_facts_without_budget_question():
         intent=intent,
     )
 
-    assert decision.sales_action == "resolve_blocker"
+    assert decision.sales_action == "close_order"
     assert decision.question_slot is None
     assert decision.required_slots == []
     assert "不追问预算" in decision.reply_goal
@@ -184,7 +184,7 @@ def test_selected_membership_context_avoids_budget_question_without_intent_slot(
 
     decision = decide_sales_action(user_state=state, intent=intent)
 
-    assert decision.sales_action == "resolve_blocker"
+    assert decision.sales_action == "close_order"
     assert decision.question_slot is None
     assert decision.required_slots == []
 
@@ -212,10 +212,11 @@ def test_repeated_membership_bargain_advances_instead_of_repeating_value():
 
     decision = decide_sales_action(user_state=state, intent=intent)
 
-    assert decision.sales_action == "resolve_blocker"
+    assert decision.sales_action == "close_order"
     assert "连续询价" in decision.reply_goal
     assert "不能再优惠" in decision.reply_goal
     assert "不要重复课程" in decision.reply_goal
+    assert "点击已发送卡片开通" in decision.reply_goal
     assert decision.question_slot is None
 
 

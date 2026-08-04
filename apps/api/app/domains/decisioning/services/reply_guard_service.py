@@ -71,6 +71,20 @@ NO_FURTHER_DISCOUNT_MARKERS = (
     "没有再往下调",
 )
 MEMBERSHIP_VALUE_LIST_MARKERS = ("课程", "视频", "一对一", "指导")
+PASSIVE_CLOSE_MARKERS = (
+    "不着急",
+    "慢慢考虑",
+    "考虑好再",
+    "合适再参加",
+    "想好了再",
+)
+PURCHASE_CTA_MARKERS = (
+    "点上面的卡片",
+    "点击上面的卡片",
+    "点开卡片",
+    "点击卡片",
+    "直接开通",
+)
 
 
 def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
@@ -143,12 +157,12 @@ def persona_extension_violation(spec: ReplySpec, answer: str) -> str | None:
         return "invalid_product_extension"
     if _disallowed_product_card_action(spec, answer):
         return "unexpected_product_card_action"
-    if violation := _membership_followup_objection_violation(spec, answer):
+    if violation := _membership_objection_violation(spec, answer):
         return violation
     return None
 
 
-def _membership_followup_objection_violation(
+def _membership_objection_violation(
     spec: ReplySpec,
     answer: str,
 ) -> str | None:
@@ -157,14 +171,20 @@ def _membership_followup_objection_violation(
         return None
     if (
         tool_state.get("membership_question_kind") != "objection"
-        or tool_state.get("membership_objection_round") != "followup"
     ):
         return None
     if tool_state.get("additional_discount_status") == "unavailable" and not any(
         marker in answer for marker in NO_FURTHER_DISCOUNT_MARKERS
     ):
         return "missing_discount_answer"
-    if any(marker in answer for marker in MEMBERSHIP_VALUE_LIST_MARKERS):
+    if any(marker in answer for marker in PASSIVE_CLOSE_MARKERS):
+        return "passive_sales_close"
+    if not any(marker in answer for marker in PURCHASE_CTA_MARKERS):
+        return "missing_purchase_cta"
+    if (
+        tool_state.get("membership_objection_round") == "followup"
+        and any(marker in answer for marker in MEMBERSHIP_VALUE_LIST_MARKERS)
+    ):
         return "repeated_membership_value"
     return None
 
@@ -190,6 +210,7 @@ def _disallowed_product_card_action(spec: ReplySpec, answer: str) -> bool:
         isinstance(tool_state, dict)
         and tool_state.get("commerce_type") == "product"
         and tool_state.get("send_purchase_card") is False
+        and tool_state.get("previous_purchase_card_available") is not True
         and any(marker in answer for marker in PRODUCT_CARD_ACTION_MARKERS)
     )
 

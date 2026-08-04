@@ -1521,10 +1521,12 @@ async def test_membership_price_objection_uses_facts_without_repeating_card():
     assert facts.tool_state["negotiation_allowed"] is False
     assert facts.tool_state["membership_objection_round"] == "initial"
     assert facts.tool_state["send_purchase_card"] is False
+    assert facts.tool_state["previous_purchase_card_available"] is True
     assert reply is not None
     assert "39.9元" in reply.answer
     assert "一对一指导" in reply.answer
     assert "我理解您会关注价格" not in reply.answer
+    assert "点上面的卡片开通" in reply.answer
     assert [message.type for message in reply.outbound_messages] == ["text"]
 
 
@@ -1585,10 +1587,13 @@ async def test_repeated_membership_bargain_answers_directly_without_value_repeti
 
     assert facts.tool_state["membership_objection_round"] == "followup"
     assert "不能再少" in reply.answer
-    assert "不着急" in reply.answer
+    assert "点上面的卡片开通" in reply.answer
+    assert "不着急" not in reply.answer
+    assert "合适再参加" not in reply.answer
     assert "课程" not in reply.answer
     assert "一对一" not in reply.answer
     assert facts.tool_state["send_purchase_card"] is False
+    assert facts.tool_state["previous_purchase_card_available"] is True
 
 
 @pytest.mark.asyncio
