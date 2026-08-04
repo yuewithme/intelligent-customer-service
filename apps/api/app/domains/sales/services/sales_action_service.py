@@ -118,13 +118,13 @@ def decide_sales_action(
             return _decision(
                 (
                     "客户已经连续询价，先自然接住，再根据已核实事实直接说明首单体验价不能再优惠；"
-                    "不要重复课程和一对一指导，不追问预算，最后低压力收口"
+                    "不要重复课程和一对一指导，不追问预算，最后明确引导客户点击已发送卡片开通"
                     if repeated_membership_objection
                     else "先自然接住价格顾虑，再结合已核实的首单体验价和会员权益说明价值；"
-                    "明确回答不能再优惠，不说空话，也不追问预算"
+                    "明确回答不能再优惠，不说空话、不追问预算，最后推进客户点击卡片开通"
                 ),
                 (
-                    "resolve_blocker"
+                    "close_order"
                     if is_membership_objection
                     else "answer_current_question"
                 ),
@@ -135,7 +135,7 @@ def decide_sales_action(
                     else "interested"
                 ),
                 reason=(
-                    "membership_objection_priority"
+                    "membership_objection_close_priority"
                     if is_membership_objection
                     else "membership_question_priority"
                 ),

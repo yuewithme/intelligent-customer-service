@@ -382,6 +382,10 @@ async def build_commerce_context(
             if product_data
             else ""
         )
+        previous_purchase_card_available = bool(
+            first_product_id
+            and _card_already_sent(user_state.metadata, first_product_id)
+        )
         explicitly_requested_card = (
             _explicitly_requests_purchase_card(message.message)
             or (
@@ -392,7 +396,7 @@ async def build_commerce_context(
         if (
             send_purchase_card
             and first_product_id
-            and _card_already_sent(user_state.metadata, first_product_id)
+            and previous_purchase_card_available
             and not explicitly_requested_card
         ):
             send_purchase_card = False
@@ -414,6 +418,7 @@ async def build_commerce_context(
             "requested_capabilities": _requested_capabilities(message.message),
             "membership_question_kind": membership_question_kind,
             "send_purchase_card": send_purchase_card,
+            "previous_purchase_card_available": previous_purchase_card_available,
             "business_action": business_action,
         }
         if membership_request and product_data:

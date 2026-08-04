@@ -263,11 +263,16 @@ def _membership_answer(product: dict, state: dict) -> str:
             state.get("additional_discount_status") == "unavailable"
             and state.get("negotiation_allowed") is False
         )
+        purchase_step = (
+            "您直接点上面的卡片开通就行，后面养护遇到问题就有人陪您一起处理。"
+            if state.get("previous_purchase_card_available")
+            else "我把开通卡片发您，直接点开就行，后面养护遇到问题也有人陪您一起处理。"
+        )
         if state.get("membership_objection_round") == "followup":
             if discount_unavailable and price_text:
                 return (
                     f"我懂，能省一点肯定更好。{price_text}已经是{price_label}了，"
-                    "目前确实不能再少。您觉得合适再参加就行，不着急。"
+                    f"目前确实不能再少。{purchase_step}"
                 )
             return "我明白您的意思，是否还能优惠以当前商品信息为准，我不先乱答应您。"
         price_sentence = f"{price_text}已经是{price_label}了。" if price_text else ""
@@ -275,7 +280,7 @@ def _membership_answer(product: dict, state: dict) -> str:
         return (
             f"理解，能省一点肯定更好。{price_sentence}{discount_sentence}"
             "这笔费用对应系统视频课程和结合具体养护问题的"
-            "一对一指导，不是只给一次建议，后续遇到问题也能继续有人帮您判断。"
+            f"一对一指导，不是只给一次建议，后续遇到问题也能继续有人帮您判断。{purchase_step}"
         )
     if kind == "combined":
         price_sentence = (

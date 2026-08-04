@@ -621,12 +621,12 @@ def test_guard_rejects_card_language_when_current_reply_must_not_send_card():
 def test_guard_rejects_price_only_reply_for_repeated_membership_bargain():
     original = (
         "我懂，能省一点肯定更好。39.9元已经是首单体验价了，"
-        "目前确实不能再少。您觉得合适再参加就行，不着急。"
+        "目前确实不能再少。您直接点上面的卡片开通就行。"
     )
     spec = ReplySpec(
         route="template_reply",
         reply_type="template",
-        reply_goal="直接回答连续议价并低压力收口",
+        reply_goal="直接回答连续议价并推进成交",
         suggested_copy="我们萧岚苑的陪伴养兰会员现在是39.9元。",
         verified_facts={
             "tool_state": {
@@ -636,6 +636,7 @@ def test_guard_rejects_price_only_reply_for_repeated_membership_bargain():
                 "membership_objection_round": "followup",
                 "additional_discount_status": "unavailable",
                 "negotiation_allowed": False,
+                "previous_purchase_card_available": True,
             }
         },
         metadata={"persona_original_copy": original},
@@ -648,14 +649,14 @@ def test_guard_rejects_price_only_reply_for_repeated_membership_bargain():
 
 
 def test_guard_rejects_repeated_value_list_after_direct_discount_answer():
-    original = "39.9元已经是首单体验价了，目前确实不能再少，您觉得合适再参加就行。"
+    original = "39.9元已经是首单体验价了，目前确实不能再少，您直接点上面的卡片开通就行。"
     spec = ReplySpec(
         route="template_reply",
         reply_type="template",
-        reply_goal="直接回答连续议价并低压力收口",
+        reply_goal="直接回答连续议价并推进成交",
         suggested_copy=(
             "39.9元已经是首单体验价了，目前确实不能再少。"
-            "里面还有视频课程和一对一指导。"
+            "里面还有视频课程和一对一指导，您直接点上面的卡片开通就行。"
         ),
         verified_facts={
             "tool_state": {
@@ -665,6 +666,7 @@ def test_guard_rejects_repeated_value_list_after_direct_discount_answer():
                 "membership_objection_round": "followup",
                 "additional_discount_status": "unavailable",
                 "negotiation_allowed": False,
+                "previous_purchase_card_available": True,
             }
         },
         metadata={"persona_original_copy": original},
@@ -674,6 +676,36 @@ def test_guard_rejects_repeated_value_list_after_direct_discount_answer():
 
     assert guarded.suggested_copy == original
     assert guarded.metadata["persona_guard"]["reason"] == "repeated_membership_value"
+
+
+def test_guard_rejects_passive_close_for_membership_objection():
+    original = "39.9元已经是首单体验价了，目前确实不能再少，您直接点上面的卡片开通就行。"
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="处理议价并推进成交",
+        suggested_copy=(
+            "39.9元已经是首单体验价了，目前确实不能再少。"
+            "您觉得合适再参加就行，不着急。"
+        ),
+        verified_facts={
+            "tool_state": {
+                "commerce_type": "product",
+                "membership_question_kind": "objection",
+                "membership_objection_round": "followup",
+                "additional_discount_status": "unavailable",
+                "negotiation_allowed": False,
+                "send_purchase_card": False,
+                "previous_purchase_card_available": True,
+            }
+        },
+        metadata={"persona_original_copy": original},
+    )
+
+    guarded = guard_reply_spec(spec=spec, context=_context(mode="objection"))
+
+    assert guarded.suggested_copy == original
+    assert guarded.metadata["persona_guard"]["reason"] == "passive_sales_close"
 
 
 def test_identity_question_has_role_first_fallback_copy():

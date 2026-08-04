@@ -93,12 +93,14 @@ async def render_persona_reply(
         if tool_state.get("membership_objection_round") == "followup":
             objection_instruction = (
                 "这是客户连续第二次询价。必须先自然接住，再根据 verified_facts 直接说明首单体验价"
-                "目前不能再优惠，随后低压力收口。不要重复课程、一对一指导或整段价值介绍。"
+                "目前不能再优惠。不要重复课程、一对一指导或整段价值介绍；"
+                "最后必须明确引导客户点击已经发送的商品卡片开通，推进成交。"
             )
         else:
             objection_instruction = (
                 "这是本轮首次处理价格顾虑。先自然接住，再根据 verified_facts 明确说明首单体验价"
-                "目前不能再优惠，最后只用一句客户能感受到的价值解释，不追问预算。"
+                "目前不能再优惠，只用一句客户能感受到的价值解释；"
+                "最后明确引导客户点击商品卡片开通，不追问预算。"
             )
     payload = {
         "customer_message": current_message,
