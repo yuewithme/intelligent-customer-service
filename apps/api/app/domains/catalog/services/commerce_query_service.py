@@ -90,6 +90,10 @@ MEMBERSHIP_SERVICE_VALUE_POINTS = (
 MEMBERSHIP_BRAND_POSITIONING = (
     "我们萧岚苑不只是卖兰花，更希望陪兰友把养兰基础理顺、把兰花养好"
 )
+MEMBERSHIP_CARE_PAIN_SALES_SCRIPT = (
+    "我们萧岚苑不只是卖兰花，更重要的是陪您把兰花养好。"
+    "{pain_point}，老师会结合您家里的情况帮您调整，少走弯路、把兰花养稳。"
+)
 MEMBERSHIP_PRODUCT_QUERY = "首单参与陪伴养兰客户"
 MEMBERSHIP_PRICE_LABEL = "首单体验价"
 MEMBERSHIP_ADDITIONAL_DISCOUNT_STATUS = "unavailable"
@@ -174,6 +178,9 @@ def verified_membership_brand_facts() -> list[dict]:
                 dict(item) for item in MEMBERSHIP_SERVICE_VALUE_POINTS
             ],
             "brand_positioning": MEMBERSHIP_BRAND_POSITIONING,
+            "approved_sales_scripts": {
+                "care_pain": MEMBERSHIP_CARE_PAIN_SALES_SCRIPT,
+            },
         }
     ]
 
@@ -449,6 +456,9 @@ async def build_commerce_context(
                 dict(item) for item in MEMBERSHIP_SERVICE_VALUE_POINTS
             ]
             tool_state["brand_positioning"] = MEMBERSHIP_BRAND_POSITIONING
+            tool_state["approved_sales_scripts"] = {
+                "care_pain": MEMBERSHIP_CARE_PAIN_SALES_SCRIPT,
+            }
             tool_state["price_label"] = MEMBERSHIP_PRICE_LABEL
             tool_state["additional_discount_status"] = (
                 MEMBERSHIP_ADDITIONAL_DISCOUNT_STATUS

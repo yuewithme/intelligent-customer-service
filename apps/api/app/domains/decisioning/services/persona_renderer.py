@@ -154,6 +154,11 @@ async def render_persona_reply(
         temperature=get_settings().persona_reply_temperature,
     )
     answer = _plain_persona_answer(str(result.get("answer") or ""))
+    answer = _apply_approved_care_brand_script(
+        spec=spec,
+        answer=answer,
+        current_message=current_message,
+    )
     violation = _candidate_violation(spec, answer)
     if violation:
         product_extension = _is_product_extension(spec)
@@ -179,6 +184,11 @@ async def render_persona_reply(
             temperature=0.1,
         )
         answer = _plain_persona_answer(str(retry.get("answer") or ""))
+        answer = _apply_approved_care_brand_script(
+            spec=spec,
+            answer=answer,
+            current_message=current_message,
+        )
         result = {
             **retry,
             "usage": _merge_usage(result.get("usage") or {}, retry.get("usage")),
@@ -207,6 +217,56 @@ def _plain_persona_answer(text: str) -> str:
     paragraphs = re.split(r"\r?\n\s*\r?\n+", str(text or ""))
     cleaned = [plain_customer_text(paragraph).strip() for paragraph in paragraphs]
     return "\n\n".join(paragraph for paragraph in cleaned if paragraph)
+
+
+def _apply_approved_care_brand_script(
+    *,
+    spec: ReplySpec,
+    answer: str,
+    current_message: str,
+) -> str:
+    if spec.reply_type != "rag" or not answer.strip():
+        return answer
+    facts = spec.verified_facts.get("brand_value_facts")
+    if not isinstance(facts, list):
+        return answer
+    script = ""
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        scripts = fact.get("approved_sales_scripts")
+        if isinstance(scripts, dict):
+            script = str(scripts.get("care_pain") or "").strip()
+        if script:
+            break
+    if not script:
+        return answer
+    pain_point = next(
+        (
+            f"{marker}这类问题"
+            for marker in (
+                "烂根",
+                "腐苗",
+                "黑斑",
+                "黄叶",
+                "焦尖",
+                "不开花",
+            )
+            if marker in current_message
+        ),
+        "这类养护问题",
+    )
+    bridge = script.replace("{pain_point}", pain_point)
+    body_parts = [
+        part
+        for part in re.split(r"(?<=[。！？!?])", answer)
+        if not any(
+            marker in part
+            for marker in ("萧岚苑", "陪伴养兰", "一对一指导", "一对一服务")
+        )
+    ]
+    body = _plain_persona_answer("".join(body_parts))
+    return "\n\n".join(part for part in (body, bridge) if part)
 
 
 def _candidate_violation(spec: ReplySpec, answer: str) -> str | None:

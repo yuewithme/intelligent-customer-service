@@ -137,7 +137,12 @@ def _question_count(answer: str) -> int:
     punctuation_count = sum(answer.count(mark) for mark in ("?", "？"))
     if punctuation_count:
         return punctuation_count
-    return 1 if QUESTION_LANGUAGE_PATTERN.search(answer.strip()) else 0
+    declarative_text = (
+        answer.replace("这也是为什么", "")
+        .replace("这就是为什么", "")
+        .replace("这也正是为什么", "")
+    )
+    return 1 if QUESTION_LANGUAGE_PATTERN.search(declarative_text.strip()) else 0
 
 
 def persona_extension_violation(spec: ReplySpec, answer: str) -> str | None:
