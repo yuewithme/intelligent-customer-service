@@ -115,6 +115,32 @@ def test_generic_wish_does_not_end_need_discovery():
     assert decision.question_slot == "pain_point"
 
 
+def test_generic_reply_gets_a_new_natural_probe_after_prior_probe():
+    intent = _intent(desired_outcome="想把兰花养好").model_copy(
+        update={
+            "primary_domain": "care",
+            "primary_goal": "seek_help",
+            "sales_stage": "need_discovery",
+        }
+    )
+    state = UserState(
+        user_id="generic-followup",
+        sales_stage="need_discovery",
+        metadata={
+            "active_opportunity": {
+                "asked_slots": ["pain_point"],
+                "slots": {"need_track": "service"},
+            }
+        },
+    )
+
+    decision = decide_sales_action(user_state=state, intent=intent)
+
+    assert decision.sales_action == "discover_pain"
+    assert decision.question_slot == "pain_point"
+    assert decision.reason == "care_expertise_first"
+
+
 def test_soft_decline_after_service_offer_builds_value_and_keeps_selling():
     decision = decide_sales_action(
         user_state=UserState(

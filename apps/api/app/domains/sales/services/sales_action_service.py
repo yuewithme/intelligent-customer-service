@@ -251,7 +251,7 @@ def decide_sales_action(
 
     if intent.primary_domain == "care" and intent.primary_goal != "request_material":
         service_need_is_clear = has_resolved_service_need(known_slots)
-        should_probe_pain = not service_need_is_clear and "pain_point" not in asked_slots
+        should_probe_pain = not service_need_is_clear
         service_offer_started = _service_offer_started(opportunity, known_slots)
         if service_need_is_clear and stage in {
             SalesStage.SOLUTION_RECOMMENDED.value,
