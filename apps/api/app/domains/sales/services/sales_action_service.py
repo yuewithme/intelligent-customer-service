@@ -296,7 +296,7 @@ def apply_sales_action(
     reply: FinalReply,
     decision: SalesActionDecision,
 ) -> FinalReply:
-    if reply.reply_type == "fixed_resource":
+    if reply.reply_type in {"fixed_resource", "fixed_workflow"}:
         return reply
     if reply.need_human or not reply.answer.strip() or not decision.question_slot:
         return reply

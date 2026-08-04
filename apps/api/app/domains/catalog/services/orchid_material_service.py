@@ -23,6 +23,16 @@ ORCHID_MATERIAL_VIDEO_ISSUE_SNAPSHOT = (
     "处理时先确认客户是否通过抖音购买；需要客户提供订单截图后，"
     "才能进一步核实购买记录和资料观看权益。"
 )
+ORCHID_MATERIAL_PURCHASE_QUESTION = (
+    "资料里的视频打不开确实影响使用。请问您是在抖音购买的吗？"
+)
+ORCHID_MATERIAL_ORDER_SCREENSHOT_REQUEST = (
+    "好的，请把抖音购买的订单截图发给我，我先帮您核实购买记录和资料观看权限。"
+)
+ORCHID_MATERIAL_ORDER_SCREENSHOT_SNAPSHOT = (
+    "客户已确认通过抖音购买。当前只需要客户提供抖音购买订单截图，"
+    "用于核实购买记录和资料观看权限；在截图核实前不能承诺已经恢复。"
+)
 ORCHID_MATERIAL_DISCOVERY_TEXT = (
     "可以的。为了给您发更适合的资料，我先了解一下：您现在养兰最想解决哪方面的问题？"
     "比如新手入门、浇水植料、黄叶黑斑、烂根腐苗，还是促花复花？"
@@ -254,6 +264,84 @@ def orchid_material_video_issue_context(content: str) -> dict[str, Any] | None:
             "purchase_channel": "unverified",
             "purchase_record": "unverified",
             "viewing_entitlement": "unverified",
+            "material_video_access_action": "confirm_douyin_purchase",
+        },
+    }
+
+
+def is_douyin_purchase_confirmation(content: str) -> bool:
+    normalized = _normalize(content)
+    if not normalized or any(
+        marker in normalized
+        for marker in ("不是", "没有", "没买", "未买", "非抖音")
+    ):
+        return False
+    if "抖音" in normalized and any(
+        marker in normalized for marker in ("买", "购买", "下单", "订单", "有")
+    ):
+        return True
+    return normalized in {
+        "是",
+        "是的",
+        "是啊",
+        "对",
+        "对的",
+        "嗯",
+        "嗯嗯",
+        "有",
+        "有的",
+        "有买",
+        "有买的",
+        "有购买",
+        "有购买的",
+        "有订单",
+        "有订单的",
+        "买了",
+        "买过",
+        "购买了",
+        "我买了",
+    }
+
+
+def orchid_material_order_screenshot_context(content: str) -> dict[str, Any] | None:
+    if not is_douyin_purchase_confirmation(content):
+        return None
+    return {
+        "business_snapshot": ORCHID_MATERIAL_ORDER_SCREENSHOT_SNAPSHOT,
+        "tool_state": {
+            "resource_access_issue": "video_unavailable",
+            "purchase_channel": "douyin_confirmed",
+            "purchase_record": "unverified",
+            "viewing_entitlement": "unverified",
+            "material_video_access_action": "request_order_screenshot",
+        },
+    }
+
+
+def orchid_material_video_access_chat_result(action: str) -> dict[str, Any] | None:
+    replies = {
+        "confirm_douyin_purchase": (
+            ORCHID_MATERIAL_PURCHASE_QUESTION,
+            "orchid_material_purchase_check",
+        ),
+        "request_order_screenshot": (
+            ORCHID_MATERIAL_ORDER_SCREENSHOT_REQUEST,
+            "orchid_material_order_screenshot_request",
+        ),
+    }
+    selected = replies.get(str(action or ""))
+    if selected is None:
+        return None
+    answer, route = selected
+    return {
+        "answer": answer,
+        "answer_segments": [answer],
+        "outbound_messages": [{"type": "text", "content": answer}],
+        "reply_type": "fixed_workflow",
+        "route": route,
+        "metadata": {
+            "resource_type": "orchid_material",
+            "material_video_access_action": action,
         },
     }
 

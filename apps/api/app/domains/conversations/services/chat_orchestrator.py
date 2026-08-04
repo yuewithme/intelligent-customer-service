@@ -321,6 +321,26 @@ async def handle_chat(request: ChatRequest) -> dict:
                 "slots": sales_signals.slots,
             }
         )
+        tool_state = (
+            message.metadata.get("tool_state")
+            if isinstance(message.metadata.get("tool_state"), dict)
+            else {}
+        )
+        material_video_access_action = str(
+            tool_state.get("material_video_access_action") or ""
+        )
+        if material_video_access_action in {
+            "confirm_douyin_purchase",
+            "request_order_screenshot",
+        }:
+            normalized_intent = normalized_intent.model_copy(
+                update={
+                    "slots": {
+                        **normalized_intent.slots,
+                        "material_video_access_action": material_video_access_action,
+                    }
+                }
+            )
         if normalized_intent.primary_goal == "request_material":
             has_prior_discovery = conversation_has_reply_route(
                 channel=message.channel,

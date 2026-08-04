@@ -43,6 +43,7 @@ from app.domains.decisioning.services.intent_observation_service import (
     record_bypassed_intent_observation,
 )
 from app.domains.catalog.services.orchid_material_service import (
+    orchid_material_order_screenshot_context,
     orchid_material_video_issue_context,
 )
 from app.integrations.feishu.services.webhook_alert_service import (
@@ -936,6 +937,12 @@ async def _process_inbound_batch(batch_id: int) -> None:
             session_id=batch_data["from_group"],
             before=batch_data["created_at"],
         )
+        latest_reply_route = _latest_reply_route(
+            session,
+            user_id=batch_data["from_user"] or batch_data["target_wc_id"],
+            session_id=batch_data["from_group"],
+            before=batch_data["created_at"],
+        )
 
     opening_message_count = 0
     try:
@@ -1014,6 +1021,12 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         if has_sent_orchid_material and video_issue_context is not None:
             customer_snapshot.update(video_issue_context)
+        elif latest_reply_route == "orchid_material_purchase_check":
+            screenshot_context = orchid_material_order_screenshot_context(
+                batch_data["content"]
+            )
+            if screenshot_context is not None:
+                customer_snapshot.update(screenshot_context)
         if all_images_failed:
             if wrong_store_order_count == image_count:
                 chat_result = {
@@ -1337,6 +1350,29 @@ def _has_sent_orchid_material(
         )
         .limit(1)
     ) is not None
+
+
+def _latest_reply_route(
+    session: Session,
+    *,
+    user_id: str,
+    session_id: str | None,
+    before: datetime,
+) -> str | None:
+    conversation_id = make_conversation_id("wechat", user_id, session_id)
+    return session.scalar(
+        select(ConversationMessageModel.route)
+        .where(
+            ConversationMessageModel.conversation_id == conversation_id,
+            ConversationMessageModel.sender_type.in_(("ai", "human")),
+            ConversationMessageModel.created_at < before,
+        )
+        .order_by(
+            ConversationMessageModel.created_at.desc(),
+            ConversationMessageModel.id.desc(),
+        )
+        .limit(1)
+    )
 
 
 async def _prepare_inbound_content(
