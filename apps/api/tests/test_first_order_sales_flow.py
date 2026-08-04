@@ -119,7 +119,7 @@ def test_complete_customer_context_can_jump_directly_to_recommendation():
     assert result.transition_type == "jump"
 
 
-def test_specific_service_pain_enters_recommendation_without_extra_profile_slots():
+def test_resolved_service_need_enters_recommendation_without_extra_profile_slots():
     result = _decide(
         UserState(user_id="service-user", sales_stage="need_discovery"),
         _signals(
@@ -131,6 +131,39 @@ def test_specific_service_pain_enters_recommendation_without_extra_profile_slots
 
     assert result.stage == SalesStage.SOLUTION_RECOMMENDED
     assert result.reason == "recommendation_evidence_ready"
+
+
+def test_specific_service_goal_enters_recommendation_without_a_symptom_keyword():
+    result = _decide(
+        UserState(user_id="service-goal", sales_stage="need_discovery"),
+        _signals(
+            CustomerSignal.SERVICE_NEED,
+            CustomerSignal.PAIN_REVEALED,
+            slots={
+                "need_track": "service",
+                "desired_outcome": "学会按植料干湿判断浇水时机",
+            },
+        ),
+    )
+
+    assert result.stage == SalesStage.SOLUTION_RECOMMENDED
+    assert result.reason == "recommendation_evidence_ready"
+
+
+def test_generic_service_wish_stays_in_discovery():
+    result = _decide(
+        UserState(user_id="generic-goal", sales_stage="need_discovery"),
+        _signals(
+            CustomerSignal.SERVICE_NEED,
+            CustomerSignal.PAIN_REVEALED,
+            slots={
+                "need_track": "service",
+                "desired_outcome": "想把兰花养好",
+            },
+        ),
+    )
+
+    assert result.stage == SalesStage.PAIN_DISCOVERY
 
 
 def test_early_objection_does_not_fake_progress_to_closing():

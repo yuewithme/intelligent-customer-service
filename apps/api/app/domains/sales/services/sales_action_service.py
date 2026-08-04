@@ -8,6 +8,9 @@ from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 from app.domains.sales.schemas.sales_flow import SalesStage
 from app.domains.sales.services.sales_stage_catalog import get_sales_stage_definition
+from app.domains.sales.services.service_need_service import (
+    has_resolved_service_need,
+)
 from app.domains.customers.schemas.state import UserState
 from app.domains.sales.services.sales_stage_service import normalize_sales_stage
 
@@ -27,17 +30,6 @@ LONG_TERM_OPPORTUNITY_SLOTS = {
     "fragrance_preference",
     "difficulty_preference",
     "collection_preference",
-}
-GENERIC_PAIN_POINTS = {
-    "",
-    "养不好",
-    "不会养",
-    "不懂养护",
-    "想学习",
-    "怕养不好",
-    "新手",
-    "不清楚",
-    "unknown",
 }
 QUESTION_LANGUAGE_PATTERN = re.compile(
     r"(?:请问|想问|是否|能否|方便(?:说|发|提供|告诉)|"
@@ -258,10 +250,10 @@ def decide_sales_action(
         )
 
     if intent.primary_domain == "care" and intent.primary_goal != "request_material":
-        pain_is_specific = _has_specific_pain(known_slots)
-        should_probe_pain = not pain_is_specific and "pain_point" not in asked_slots
+        service_need_is_clear = has_resolved_service_need(known_slots)
+        should_probe_pain = not service_need_is_clear and "pain_point" not in asked_slots
         service_offer_started = _service_offer_started(opportunity, known_slots)
-        if pain_is_specific and stage in {
+        if service_need_is_clear and stage in {
             SalesStage.SOLUTION_RECOMMENDED.value,
             SalesStage.VALUE_BUILT.value,
             SalesStage.TRIAL_CLOSE.value,
@@ -271,12 +263,12 @@ def decide_sales_action(
                 reply_goal=(
                     (
                         "先用一条消息回答客户当前的养护问题，说清可能原因和可执行处理；"
-                        "再用独立消息结合这个痛点继续介绍陪伴养兰服务，说清资料和视频负责理顺基础，"
+                        "再用独立消息结合这个需求继续介绍陪伴养兰服务，说清资料和视频负责理顺基础，"
                         "老师再结合家里的环境和实际操作一对一带着调整；不得只做免费问答后结束"
                         if service_offer_started
                         else
-                        "先用一条消息专业回答客户已经说清的痛点，给出可能原因和可执行处理；"
-                        "找痛点到此结束，立即进入陪伴养兰服务的推品阶段。后续按语义分开发送："
+                        "先用一条消息专业回答客户已经说清的养兰需求，给出有针对性的答复或可执行处理；"
+                        "需求已经明确，回答完该需求后立即进入陪伴养兰服务的推品阶段。后续按语义分开发送："
                         "先说服务过的很多兰友也有类似情况，再说单品养护资料里会讲收苗处理上盆、"
                         "浇水、施肥、防病害、花期管理和分株，看完有不懂的再由老师结合客户实际操作实时指导；"
                         "不再追问其他痛点，不得只用一句空泛品牌介绍收尾"
@@ -292,7 +284,7 @@ def decide_sales_action(
                 ),
                 allow_diagnostic_question=False,
                 prohibited_behaviors=[
-                    "明确痛点后仍停留在挖需阶段",
+                    "需求明确且已回答后仍停留在挖需阶段",
                     "只回答养护问题而不推进陪伴养兰服务",
                     "只说陪伴服务能少走弯路却不说具体交付",
                     "客户没有明确购兰需求时推荐兰花",
@@ -359,7 +351,7 @@ def decide_sales_action(
     if stage in {SalesStage.NEED_DISCOVERY.value, SalesStage.PAIN_DISCOVERY.value}:
         actionable_missing = (
             ["pain_point"]
-            if not _has_specific_pain(known_slots)
+            if not has_resolved_service_need(known_slots)
             and "pain_point" not in asked_slots
             else []
         )
@@ -749,18 +741,8 @@ def _most_relevant_missing_slots(definition, known_slots: dict) -> list[str]:
     return min(groups, key=lambda item: (len(item[1]), item[0]))[1]
 
 
-def _has_specific_pain(known_slots: dict) -> bool:
-    value = str(known_slots.get("pain_point") or "").strip().lower()
-    if value in GENERIC_PAIN_POINTS:
-        return False
-    return not any(
-        marker in value
-        for marker in ("养不好", "不会养", "不懂", "想学习", "想学", "怕养不好", "新手")
-    )
-
-
 def _service_offer_started(opportunity: dict, known_slots: dict) -> bool:
-    if not _has_specific_pain(known_slots):
+    if not has_resolved_service_need(known_slots):
         return False
     return str(opportunity.get("service_offer_phase") or "") in {
         "introduced",

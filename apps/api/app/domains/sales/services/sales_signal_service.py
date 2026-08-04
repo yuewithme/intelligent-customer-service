@@ -189,7 +189,11 @@ def normalize_sales_signals(
         ):
             _add_signal(signals, evidence, CustomerSignal.PRODUCT_NEED, "message")
 
-    if slots.get("pain_point") or slots.get("failed_history"):
+    if (
+        slots.get("pain_point")
+        or slots.get("desired_outcome")
+        or slots.get("failed_history")
+    ):
         _add_signal(signals, evidence, CustomerSignal.PAIN_REVEALED, "message")
     if any(
         slots.get(key)

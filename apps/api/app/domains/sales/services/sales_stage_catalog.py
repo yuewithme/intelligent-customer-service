@@ -47,7 +47,11 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
         ],
         allowed_knowledge_sources=COMMON_KNOWLEDGE_SOURCES,
         conditional_knowledge_sources=[SalesKnowledgeSource.PRODUCT_CATALOG],
-        required_slot_groups=[["pain_point"]],
+        required_slot_groups=[
+            ["pain_point"],
+            ["desired_outcome"],
+            ["failed_history"],
+        ],
         prohibited_behaviors=[
             "未回答客户当前问题就开始问卷",
             "重复询问已经明确或客户未回答的问题",
@@ -57,18 +61,27 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
     ),
     SalesStageDefinition(
         stage=SalesStage.PAIN_DISCOVERY,
-        display_name="找痛点",
+        display_name="确认需求",
         sequence=3,
         objective=(
-            "用黑斑、黄叶、腐苗等具体例子试探核心养兰痛点；痛点明确后停止横向追问，"
-            "讲清基础知识与持续陪伴对避免问题反复的重要性"
+            "用具体例子引导客户说出核心养兰需求，包括当前问题、想达到的结果或过往失败经历；"
+            "需求明确后停止横向追问，先针对需求作答，再推进陪伴养兰服务"
         ),
         entry_evidence_any=["pain_revealed", "desired_outcome", "product_need", "combined_need"],
-        exit_evidence_any=["pain_point", "desired_outcome", "selected_product_id"],
+        exit_evidence_any=[
+            "pain_point",
+            "desired_outcome",
+            "failed_history",
+            "selected_product_id",
+        ],
         allowed_actions=[SalesAction.ANSWER_CURRENT_QUESTION, SalesAction.DISCOVER_PAIN],
         allowed_knowledge_sources=COMMON_KNOWLEDGE_SOURCES,
         conditional_knowledge_sources=[SalesKnowledgeSource.PRODUCT_CATALOG],
-        required_slot_groups=[["pain_point"]],
+        required_slot_groups=[
+            ["pain_point"],
+            ["desired_outcome"],
+            ["failed_history"],
+        ],
         prohibited_behaviors=[
             "夸大客户损失",
             "在证据不足时给出确定性诊断",
@@ -96,6 +109,8 @@ SALES_STAGE_DEFINITIONS: tuple[SalesStageDefinition, ...] = (
             ["need_track", "region", "budget"],
             ["need_track", "placement", "color_preference"],
             ["need_track", "pain_point"],
+            ["need_track", "desired_outcome"],
+            ["need_track", "failed_history"],
         ],
         prohibited_behaviors=[
             "缺少商品事实时推荐具体商品",

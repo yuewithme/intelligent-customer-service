@@ -266,7 +266,7 @@ def _apply_approved_care_brand_script(
             script = str(scripts.get(script_name) or "").strip()
     if not script:
         return answer
-    pain_point = next(
+    service_need = next(
         (
             f"{marker}这类问题"
             for marker in (
@@ -281,16 +281,28 @@ def _apply_approved_care_brand_script(
         ),
         "",
     )
-    if not pain_point:
-        known_pain = str(action_context.get("pain_point") or "").strip()
-        pain_point = (
-            known_pain
-            if known_pain.endswith("这类问题")
-            else f"{known_pain}这类问题"
-            if known_pain
-            else "这类养护问题"
-        )
-    bridge = script.replace("{pain_point}", pain_point)
+    if not service_need:
+        known_need = str(
+            action_context.get("service_need")
+            or action_context.get("pain_point")
+            or ""
+        ).strip()
+        need_kind = str(action_context.get("service_need_kind") or "")
+        if known_need and need_kind == "desired_outcome":
+            service_need = f"{known_need}这个目标"
+        elif known_need and need_kind == "failed_history":
+            service_need = f"{known_need}这段经历"
+        elif known_need:
+            service_need = (
+                known_need
+                if known_need.endswith("这类问题")
+                else f"{known_need}这类问题"
+            )
+        else:
+            service_need = "这类养护需求"
+    bridge = script.replace("{service_need}", service_need).replace(
+        "{pain_point}", service_need
+    )
     if reason == "service_offer_soft_decline_value_card":
         return bridge
     body_parts = [

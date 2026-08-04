@@ -55,7 +55,7 @@ def test_care_reply_without_specific_pain_asks_one_guided_pain_question():
     assert "不照抄固定句式" in decision.reply_goal
 
 
-def test_care_reply_with_specific_pain_stops_discovery_and_recommends_service():
+def test_care_reply_with_resolved_need_stops_discovery_and_recommends_service():
     intent = _intent(pain_point="烂根").model_copy(
         update={
             "primary_domain": "care",
@@ -73,9 +73,46 @@ def test_care_reply_with_specific_pain_stops_discovery_and_recommends_service():
     assert decision.question_slot is None
     assert decision.required_slots == []
     assert decision.allow_diagnostic_question is False
-    assert "找痛点到此结束" in decision.reply_goal
+    assert "需求已经明确" in decision.reply_goal
     assert "单品养护资料" in decision.reply_goal
     assert decision.reason == "service_solution_first_offer"
+
+
+def test_concrete_desired_outcome_is_a_resolved_service_need():
+    intent = _intent(desired_outcome="让蝴蝶兰每年稳定复花").model_copy(
+        update={
+            "primary_domain": "care",
+            "primary_goal": "seek_help",
+            "sales_stage": "solution_recommended",
+        }
+    )
+
+    decision = decide_sales_action(
+        user_state=UserState(user_id="goal-user", sales_stage="solution_recommended"),
+        intent=intent,
+    )
+
+    assert decision.sales_action == "recommend_solution"
+    assert decision.question_slot is None
+    assert decision.reason == "service_solution_first_offer"
+
+
+def test_generic_wish_does_not_end_need_discovery():
+    intent = _intent(desired_outcome="想把兰花养好").model_copy(
+        update={
+            "primary_domain": "care",
+            "primary_goal": "seek_help",
+            "sales_stage": "need_discovery",
+        }
+    )
+
+    decision = decide_sales_action(
+        user_state=UserState(user_id="generic-goal", sales_stage="need_discovery"),
+        intent=intent,
+    )
+
+    assert decision.sales_action == "discover_pain"
+    assert decision.question_slot == "pain_point"
 
 
 def test_soft_decline_after_service_offer_builds_value_and_keeps_selling():
