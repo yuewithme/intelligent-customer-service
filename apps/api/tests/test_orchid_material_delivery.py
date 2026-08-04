@@ -125,6 +125,10 @@ def test_material_video_issue_matcher(content):
     assert "视频或课程无法打开" in result["business_snapshot"]
     assert "抖音购买" in result["business_snapshot"]
     assert "订单截图" in result["business_snapshot"]
+    assert (
+        result["tool_state"]["material_video_access_action"]
+        == "confirm_douyin_purchase"
+    )
     assert "answer" not in result
 
 
@@ -174,6 +178,61 @@ def test_material_video_issue_context_requires_a_sent_material():
             session_id=None,
             before=now,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "message", "expected_route", "expected_text"),
+    [
+        (
+            "confirm_douyin_purchase",
+            "资料里的视频打不开",
+            "orchid_material_purchase_check",
+            "请问您是在抖音购买的吗？",
+        ),
+        (
+            "request_order_screenshot",
+            "是的，我在抖音买的",
+            "orchid_material_order_screenshot_request",
+            "请把抖音购买的订单截图发给我",
+        ),
+    ],
+)
+async def test_chat_core_runs_fixed_material_video_access_workflow(
+    action,
+    message,
+    expected_route,
+    expected_text,
+):
+    from app.domains.conversations.schemas.chat import ChatRequest
+    from app.domains.conversations.services.chat_orchestrator import handle_chat
+    from app.domains.conversations.services import state_service
+
+    user_id = f"material-video-workflow-{action}"
+    state_service._state_store.pop(user_id, None)
+
+    result = await handle_chat(
+        ChatRequest(
+            channel="api",
+            user_id=user_id,
+            session_id="material-video-session",
+            message=message,
+            kb_id="kb_default",
+            metadata={
+                "business_snapshot": "资料视频权限核实流程。",
+                "tool_state": {
+                    "resource_access_issue": "video_unavailable",
+                    "material_video_access_action": action,
+                },
+            },
+        )
+    )
+
+    assert result["route"] == expected_route
+    assert expected_text in result["answer"]
+    assert result["intent"]["slots"]["material_video_access_action"] == action
+    assert result["outbound_messages"]
+    assert {item["type"] for item in result["outbound_messages"]} == {"text"}
 
 
 @pytest.mark.asyncio
@@ -360,7 +419,7 @@ async def test_new_friend_opening_precedes_later_material_request(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_video_issue_after_material_delivery_requests_douyin_order_screenshot(
+async def test_video_issue_after_material_delivery_first_confirms_douyin_purchase(
     monkeypatch,
 ):
     from app.domains.conversations.services.conversation_service import make_conversation_id
@@ -377,11 +436,8 @@ async def test_video_issue_after_material_delivery_requests_douyin_order_screens
     async def fake_handle_chat(request):
         captured["request"] = request
         return {
-            "answer": (
-                "资料里的视频打不开确实影响使用。您是在抖音购买的吗？"
-                "如果是，发一下订单截图，我先帮您核实购买记录。"
-            ),
-            "route": "template_reply",
+            "answer": "资料里的视频打不开确实影响使用。请问您是在抖音购买的吗？",
+            "route": "orchid_material_purchase_check",
         }
 
     async def fake_enqueue_outbound(**kwargs):
@@ -450,3 +506,118 @@ async def test_video_issue_after_material_delivery_requests_douyin_order_screens
     request = captured["request"]
     assert "视频或课程无法打开" in request.metadata["business_snapshot"]
     assert request.metadata["tool_state"]["viewing_entitlement"] == "unverified"
+    assert (
+        request.metadata["tool_state"]["material_video_access_action"]
+        == "confirm_douyin_purchase"
+    )
+
+
+@pytest.mark.asyncio
+async def test_douyin_confirmation_after_purchase_check_requests_order_screenshot(
+    monkeypatch,
+):
+    from app.domains.conversations.services.conversation_service import make_conversation_id
+    from app.integrations.eyun.services.message_risk_control_service import (
+        _get_session,
+        _process_inbound_batch,
+    )
+
+    now = datetime(2026, 7, 20, 6, 0, tzinfo=timezone.utc)
+    queued = []
+    captured = {}
+
+    async def fake_handle_chat(request):
+        captured["request"] = request
+        return {
+            "answer": (
+                "好的，请把抖音购买的订单截图发给我，"
+                "我先帮您核实购买记录和资料观看权限。"
+            ),
+            "route": "orchid_material_order_screenshot_request",
+        }
+
+    async def fake_enqueue_outbound(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued), **kwargs}
+
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.utcnow",
+        lambda: now,
+    )
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.random_reply_delay_seconds",
+        lambda: 0,
+    )
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.handle_chat",
+        fake_handle_chat,
+    )
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.get_eyun_contact_snapshot",
+        lambda **kwargs: _async_value({}),
+    )
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.is_first_eyun_inbound_message",
+        lambda session, batch_key: False,
+    )
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.enqueue_eyun_outbound",
+        fake_enqueue_outbound,
+    )
+
+    conversation_id = make_conversation_id("wechat", "video-user", None)
+    with _get_session() as session:
+        session.add_all(
+            [
+                ConversationMessageModel(
+                    conversation_id=conversation_id,
+                    delivery_status="sent",
+                    sender_type="ai",
+                    sender_id="ai",
+                    content="[链接卡片] 萧岚苑陪伴养兰资料",
+                    route="orchid_material_delivery",
+                    metadata_json="{}",
+                    created_at=now - timedelta(minutes=2),
+                ),
+                ConversationMessageModel(
+                    conversation_id=conversation_id,
+                    delivery_status="sent",
+                    sender_type="ai",
+                    sender_id="ai",
+                    content="请问您是在抖音购买的吗？",
+                    route="orchid_material_purchase_check",
+                    metadata_json="{}",
+                    created_at=now - timedelta(minutes=1),
+                ),
+            ]
+        )
+        batch = EyunInboundBatchModel(
+            batch_key="wid:video-user",
+            w_id="wid",
+            wc_id="bot",
+            target_wc_id="video-user",
+            from_user="video-user",
+            from_group=None,
+            account="acct",
+            message_type="60001",
+            content="是的，我在抖音买的",
+            message_count=1,
+            status="processing",
+            due_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(batch)
+        session.commit()
+        batch_id = batch.id
+
+    await _process_inbound_batch(batch_id)
+
+    assert len(queued) == 1
+    assert "订单截图" in queued[0]["content"]
+    request = captured["request"]
+    assert request.metadata["tool_state"]["purchase_channel"] == "douyin_confirmed"
+    assert (
+        request.metadata["tool_state"]["material_video_access_action"]
+        == "request_order_screenshot"
+    )

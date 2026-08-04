@@ -5,11 +5,16 @@ from app.domains.catalog.services.orchid_material_service import (
     ORCHID_MATERIAL_CARD,
     ORCHID_MATERIAL_DISCOVERY_TEXT,
     ORCHID_MATERIAL_IMAGE_URL,
+    ORCHID_MATERIAL_ORDER_SCREENSHOT_REQUEST,
+    ORCHID_MATERIAL_PURCHASE_QUESTION,
     ORCHID_MATERIAL_TEXT,
+    is_douyin_purchase_confirmation,
     is_orchid_material_followup,
     is_orchid_material_request,
     orchid_material_chat_result,
     orchid_material_discovery_chat_result,
+    orchid_material_order_screenshot_context,
+    orchid_material_video_access_chat_result,
 )
 
 
@@ -87,6 +92,53 @@ def test_orchid_material_discovery_reply_asks_for_the_customer_need():
         {"type": "text", "content": ORCHID_MATERIAL_DISCOVERY_TEXT}
     ]
     assert "最想解决哪方面的问题" in result["answer"]
+
+
+def test_douyin_purchase_confirmation_requires_an_explicit_positive_answer():
+    for content in (
+        "是的",
+        "对的",
+        "嗯嗯",
+        "有的",
+        "有订单",
+        "买过",
+        "我在抖音买的",
+        "抖音下单了",
+    ):
+        assert is_douyin_purchase_confirmation(content) is True
+
+    for content in ("不是", "没有", "没买", "不是抖音买的", "我再看看"):
+        assert is_douyin_purchase_confirmation(content) is False
+
+
+def test_material_video_access_replies_are_sequential_and_fixed():
+    purchase_check = orchid_material_video_access_chat_result(
+        "confirm_douyin_purchase"
+    )
+    screenshot_request = orchid_material_video_access_chat_result(
+        "request_order_screenshot"
+    )
+
+    assert purchase_check["answer"] == ORCHID_MATERIAL_PURCHASE_QUESTION
+    assert "订单截图" not in purchase_check["answer"]
+    assert purchase_check["route"] == "orchid_material_purchase_check"
+    assert screenshot_request["answer"] == ORCHID_MATERIAL_ORDER_SCREENSHOT_REQUEST
+    assert "订单截图" in screenshot_request["answer"]
+    assert screenshot_request["route"] == "orchid_material_order_screenshot_request"
+    assert orchid_material_video_access_chat_result("unknown") is None
+
+
+def test_order_screenshot_context_starts_only_after_douyin_confirmation():
+    assert orchid_material_order_screenshot_context("不是抖音买的") is None
+
+    context = orchid_material_order_screenshot_context("是的，我在抖音买的")
+
+    assert context is not None
+    assert context["tool_state"]["purchase_channel"] == "douyin_confirmed"
+    assert (
+        context["tool_state"]["material_video_access_action"]
+        == "request_order_screenshot"
+    )
 
 
 def test_opening_context_turns_short_replies_into_material_requests():

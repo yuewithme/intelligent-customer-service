@@ -66,7 +66,23 @@ async def template_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
     stage_latencies = state["stage_latencies"]
     stage_started = time.perf_counter()
     plan = state["plan"]
-    if state["intent"].primary_goal == "request_material":
+    material_video_access_action = state["intent"].slots.get(
+        "material_video_access_action"
+    )
+    if material_video_access_action:
+        from app.domains.catalog.services.orchid_material_service import (
+            orchid_material_video_access_chat_result,
+        )
+
+        material_result = orchid_material_video_access_chat_result(
+            str(material_video_access_action)
+        )
+        reply = (
+            FinalReply.model_validate(material_result)
+            if material_result is not None
+            else None
+        )
+    elif state["intent"].primary_goal == "request_material":
         from app.domains.catalog.services.orchid_material_service import (
             orchid_material_discovery_chat_result,
             orchid_material_chat_result,
@@ -348,6 +364,8 @@ def reply_guard_node(state: ReplyWorkflowState) -> ReplyWorkflowState:
 
 
 def _route_reply(state: ReplyWorkflowState) -> str:
+    if state["intent"].slots.get("material_video_access_action"):
+        return "template"
     if state["intent"].primary_goal == "request_material":
         return "template"
     action = state["plan"].action
