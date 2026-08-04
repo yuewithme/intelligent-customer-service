@@ -635,7 +635,7 @@ async def test_early_product_access_strips_value_price_stock_but_keeps_purchase_
             return [
                 YouzanProduct(
                     item_id="1001",
-                    title="小国魂",
+                    title="建兰小国魂",
                     alias="逸红双娇",
                     price_cent=2990,
                     stock=8,
@@ -659,7 +659,7 @@ async def test_early_product_access_strips_value_price_stock_but_keeps_purchase_
     )
 
     product = facts.tool_state["products"][0]
-    assert product["title"] == "小国魂"
+    assert product["title"] == "建兰小国魂"
     assert "price_cent" not in product
     assert "stock" not in product
     assert product["page_path"] == "pages/goods/detail?id=1001"
@@ -1652,6 +1652,47 @@ async def test_accessory_result_is_removed_before_ai_context():
     assert [product["item_id"] for product in facts.tool_state["products"]] == [
         "orchid-1"
     ]
+
+
+@pytest.mark.asyncio
+async def test_orchid_themed_artwork_is_never_sold_as_an_orchid():
+    from app.domains.catalog.services.commerce_query_service import build_commerce_context
+    from app.domains.decisioning.services.business_action_service import CATALOG_SEARCH
+    from app.domains.decisioning.services.business_reply_renderer import (
+        render_business_reply,
+    )
+
+    class FakeProductService:
+        async def search(self, keyword, *, limit):
+            assert "兰花" in keyword
+            assert limit == 3
+            return [
+                YouzanProduct(
+                    item_id="artwork-1",
+                    title="幽兰芳春茶室禅意 兰花挂画 名家手绘花鸟国画",
+                    price_cent=8_888_800,
+                    h5_url="https://h5.youzan.com/goods/artwork",
+                )
+            ]
+
+    facts = await build_commerce_context(
+        _message("我要买兰花，你这里有什么推荐的吗？"),
+        UserState(user_id="wxid-customer"),
+        _intent("product_query"),
+        product_service=FakeProductService(),
+        business_action=CATALOG_SEARCH,
+        allowed_source_groups={"product_catalog"},
+    )
+    reply = await render_business_reply(
+        _message("我要买兰花，你这里有什么推荐的吗？"),
+        facts,
+    )
+
+    assert facts.tool_state["status"] == "not_found"
+    assert facts.tool_state["products"] == []
+    assert facts.tool_state["send_purchase_card"] is False
+    assert reply is not None
+    assert reply.metadata["commerce_action"]["card_sent"] is False
 
 
 @pytest.mark.asyncio
