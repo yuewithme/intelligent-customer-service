@@ -37,6 +37,17 @@ ENVIRONMENT_AND_FIT_SLOTS = {
     "selected_product_id",
     "selected_sku_id",
 }
+GENERIC_SERVICE_PAIN_POINTS = {
+    "",
+    "养不好",
+    "不会养",
+    "不懂养护",
+    "想学习",
+    "怕养不好",
+    "新手",
+    "不清楚",
+    "unknown",
+}
 
 
 def decide_sales_stage(
@@ -212,6 +223,11 @@ def _strongest_supported_stage(
     if CustomerSignal.READY_TO_BUY in signals:
         return SalesStage.CLOSING, "order_intent"
     if CustomerSignal.OBJECTION in signals:
+        if (
+            current_stage is SalesStage.SOLUTION_RECOMMENDED
+            and CustomerSignal.RECOMMENDATION_ENGAGED in signals
+        ):
+            return SalesStage.VALUE_BUILT, "recommendation_followup_objection"
         # An objection is a blocker, not evidence that earlier sales discovery
         # has been completed. Keep the current stage unless a controlled loop
         # above has enough evidence to move back from a later stage.
@@ -306,12 +322,21 @@ def _recommendation_ready(slots: dict[str, Any]) -> bool:
         or slots.get("fragrance_preference")
         or slots.get("difficulty_preference")
     )
-    service_basis = bool(slots.get("pain_point")) and bool(
-        slots.get("current_care_context")
-        or slots.get("plant_count")
-        or slots.get("experience_level")
+    service_basis = (
+        slots.get("need_track") in {"service", "combined"}
+        and _has_specific_service_pain(slots.get("pain_point"))
     )
     return product_basis or service_basis or bool(slots.get("selected_product_id"))
+
+
+def _has_specific_service_pain(value: Any) -> bool:
+    normalized = str(value or "").strip().lower()
+    if normalized in GENERIC_SERVICE_PAIN_POINTS:
+        return False
+    return not any(
+        marker in normalized
+        for marker in ("养不好", "不会养", "不懂", "想学", "怕养不好", "新手")
+    )
 
 
 def _recommendation_has_basis(current_stage: SalesStage, slots: dict[str, Any]) -> bool:

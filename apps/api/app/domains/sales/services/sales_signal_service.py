@@ -158,8 +158,22 @@ def normalize_sales_signals(
         _add_signal(signals, evidence, CustomerSignal.PURCHASE_REJECTED, "message")
 
     text = str(getattr(message, "message", "") or "").strip()
-    if text and intent.primary_intent not in {"greeting", *AFTER_SALE_INTENTS}:
+    if text and (
+        intent.primary_intent not in {"greeting", *AFTER_SALE_INTENTS}
+        or opportunity.get("last_sales_action") == "recommend_solution"
+    ):
         _add_signal(signals, evidence, CustomerSignal.RESPONDED, "message")
+    if (
+        opportunity.get("last_sales_action") == "recommend_solution"
+        and CustomerSignal.RESPONDED in signals
+        and CustomerSignal.PURCHASE_REJECTED not in signals
+    ):
+        _add_signal(
+            signals,
+            evidence,
+            CustomerSignal.RECOMMENDATION_ENGAGED,
+            "opportunity",
+        )
     if _contains_any(text, ("已经付款", "已经付了", "我付了", "支付成功", "已经买了")):
         _add_signal(signals, evidence, CustomerSignal.PAYMENT_CLAIMED, "message")
     if _contains_any(text, ("这个不错", "挺合适", "可以接受", "这个可以")):

@@ -640,6 +640,68 @@ def test_guard_does_not_treat_declarative_brand_bridge_as_question():
     assert "persona_guard" not in guarded.metadata
 
 
+@pytest.mark.asyncio
+async def test_soft_decline_uses_peer_audience_product_script_and_keeps_card(monkeypatch):
+    from app.services import persona_renderer
+
+    async def generate_messages(messages, *, purpose, temperature):
+        del messages, purpose, temperature
+        return {"answer": "好的，您先考虑。", "usage": {}}
+
+    monkeypatch.setattr(persona_renderer, "generate_messages", generate_messages)
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_model_config",
+        lambda purpose: SimpleNamespace(provider="deepseek", model="deepseek-chat"),
+    )
+    monkeypatch.setattr(
+        persona_renderer,
+        "get_settings",
+        lambda: SimpleNamespace(persona_reply_enabled=True, persona_reply_temperature=0.2),
+    )
+    script = (
+        "市面上不少商家只负责把兰花卖出去，后续养护靠兰友自己摸索。\n\n"
+        "我们服务过很多兰友，很多人也遇到过{pain_point}。\n\n"
+        "陪伴养兰服务会讲上盆、浇水、施肥和防病害，再由老师结合实际情况带着调整。"
+    )
+    spec = ReplySpec(
+        route="template_reply",
+        reply_type="template",
+        reply_goal="基于同行、人群和产品塑品并发卡",
+        suggested_copy="我把卡片发您。",
+        verified_facts={
+            "sales_action_context": {
+                "reason": "service_offer_soft_decline_value_card",
+                "pain_point": "黑斑",
+            },
+            "brand_value_facts": [
+                {"approved_sales_scripts": {"soft_decline_value": script}}
+            ],
+            "tool_state": {"commerce_type": "product", "send_purchase_card": True},
+        },
+        outbound_messages=[
+            OutboundMessage(type="text", content="我把卡片发您。"),
+            OutboundMessage(type="link_card", content="{}"),
+        ],
+        metadata={"persona_original_copy": "我把卡片发您。"},
+    )
+
+    rendered = await persona_renderer.render_persona_reply(
+        spec=spec,
+        context=_context(mode="objection"),
+        current_message="先不买了，谢谢",
+    )
+    final = finalize_reply_spec(
+        guard_reply_spec(spec=rendered, context=_context(mode="objection"))
+    )
+
+    assert "市面上不少商家" in final.answer
+    assert "我们服务过很多兰友" in final.answer
+    assert "上盆、浇水、施肥和防病害" in final.answer
+    assert final.outbound_messages[-1].type == "link_card"
+    assert "persona_guard" not in final.metadata
+
+
 def test_product_persona_retry_contract_requires_the_planned_question_slot():
     from app.services import persona_renderer
 

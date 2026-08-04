@@ -91,8 +91,23 @@ MEMBERSHIP_BRAND_POSITIONING = (
     "我们萧岚苑不只是卖兰花，更希望陪兰友把养兰基础理顺、把兰花养好"
 )
 MEMBERSHIP_CARE_PAIN_SALES_SCRIPT = (
-    "我们萧岚苑不只是卖兰花，更重要的是陪您把兰花养好。"
-    "{pain_point}，老师会结合您家里的情况帮您调整，少走弯路、把兰花养稳。"
+    "我们服务过很多兰友，也遇到过反复出现{pain_point}的情况，只靠自己试很容易顾了一头又忽略另一头。\n\n"
+    "我们萧岚苑的陪伴养兰服务，会先给您单品养护资料和视频，里面会讲收苗后的处理和上盆方法，"
+    "以及浇水、施肥、防病害、花期管理和分株。看完后遇到不明白的地方，都可以随时问老师；"
+    "像您遇到的{pain_point}，我们也会结合您家里的环境和实际操作，一步步带着您调整。"
+)
+MEMBERSHIP_CARE_QUESTION_FOLLOWUP_SCRIPT = (
+    "像您刚问的这个问题，陪伴养兰不是只发一份资料就结束。"
+    "基础内容可以跟着单品养护资料和视频学，真正操作时，老师再结合您家里的环境和兰花状态一对一带着调整。"
+)
+MEMBERSHIP_SOFT_DECLINE_VALUE_SCRIPT = (
+    "市面上不少商家只负责把兰花卖出去，卖完后养护基本靠兰友自己摸索。"
+    "我们萧岚苑更看重您买回去以后真正养好，因为养稳了，您才会真正信任我们。\n\n"
+    "我们服务过很多兰友，很多人一开始也是遇到{pain_point}后自己反复试。"
+    "后来用‘资料和视频理顺基础＋老师结合实际情况指导’的方式，才知道每一步的调整方法。\n\n"
+    "陪伴养兰服务里，单品养护资料会讲收苗处理上盆、浇水、施肥、防病害、花期管理和分株；"
+    "看完有不懂的可以随时问，老师会结合您遇到的{pain_point}和实际操作手把手带着调整。"
+    "我把陪伴养兰服务的卡片也发给您，您直接点开就能看详情和开通。"
 )
 MEMBERSHIP_PRODUCT_QUERY = "首单参与陪伴养兰客户"
 MEMBERSHIP_PRICE_LABEL = "首单体验价"
@@ -205,6 +220,8 @@ def verified_membership_brand_facts() -> list[dict]:
             "brand_positioning": MEMBERSHIP_BRAND_POSITIONING,
             "approved_sales_scripts": {
                 "care_pain": MEMBERSHIP_CARE_PAIN_SALES_SCRIPT,
+                "care_question_followup": MEMBERSHIP_CARE_QUESTION_FOLLOWUP_SCRIPT,
+                "soft_decline_value": MEMBERSHIP_SOFT_DECLINE_VALUE_SCRIPT,
             },
         }
     ]
@@ -406,7 +423,9 @@ async def build_commerce_context(
                 tool_state={"commerce_type": "product", "status": "unavailable"}
             )
         if membership_request:
-            if intent.primary_intent in {
+            if intent.slots.get("service_offer_followup") == "value_card":
+                membership_question_kind = "purchase"
+            elif intent.primary_intent in {
                 "price_objection",
                 "discount_request",
                 "hesitation",
@@ -483,6 +502,8 @@ async def build_commerce_context(
             tool_state["brand_positioning"] = MEMBERSHIP_BRAND_POSITIONING
             tool_state["approved_sales_scripts"] = {
                 "care_pain": MEMBERSHIP_CARE_PAIN_SALES_SCRIPT,
+                "care_question_followup": MEMBERSHIP_CARE_QUESTION_FOLLOWUP_SCRIPT,
+                "soft_decline_value": MEMBERSHIP_SOFT_DECLINE_VALUE_SCRIPT,
             }
             tool_state["price_label"] = MEMBERSHIP_PRICE_LABEL
             tool_state["additional_discount_status"] = (

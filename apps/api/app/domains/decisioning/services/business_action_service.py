@@ -35,10 +35,9 @@ _BUDGET_PATTERN = re.compile(
     r"[一二三四五六七八九十百两]{1,8}\s*(?:元|块)?"
     r"(?:以内|以下|之内|不超过|最多|左右|上下)"
 )
-_PURCHASE_REJECTION_PATTERN = re.compile(
-    r"不要再推荐|不要再给我推荐|别再推荐|别再给我推荐|不用推荐|"
-    r"不想买|先不买|暂时不买|暂时不考虑|先不考虑|不考虑了|"
-    r"不买了|算了不买|别发链接|不用发链接"
+_HARD_PURCHASE_REJECTION_PATTERN = re.compile(
+    r"不要再推荐|不要再给我推荐|别再推荐|别再给我推荐|"
+    r"不用推荐|别发链接|不用发链接"
 )
 _EXPLICIT_SALES_OBJECTION_PATTERN = re.compile(
     r"太贵|有点贵|好贵|贵了|价格贵|不便宜|"
@@ -84,9 +83,11 @@ def resolve_business_action(
     active_task = active_task if isinstance(active_task, dict) else {}
     if (
         primary_intent in {"purchase_rejection", "not_interested"}
-        or _PURCHASE_REJECTION_PATTERN.search(text)
+        or _HARD_PURCHASE_REJECTION_PATTERN.search(text)
     ):
         return CONVERSATION
+    if slots.get("service_offer_followup") == "value_card":
+        return CATALOG_SEARCH
     if (
         active_task.get("domain") == "order"
         and (

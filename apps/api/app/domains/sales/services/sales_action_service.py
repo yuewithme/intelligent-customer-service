@@ -205,6 +205,24 @@ def decide_sales_action(
             reason="controlled_loop",
         )
 
+    if _service_offer_started(opportunity, known_slots) and _is_soft_service_decline(
+        intent
+    ):
+        return _decision(
+            (
+                "客户是礼貌回应、犹豫或软拒绝，不能用‘不客气’结束对话。"
+                "直接进入陪伴养兰服务的塑品阶段，按照‘同行差异、同类兰友人群、产品具体交付’"
+                "三层语义分开说：说清不是卖完就不管，很多兰友也有类似痛点，"
+                "以及单品养护资料包含收苗处理上盆、浇水、施肥、防病害、花期管理和分株，"
+                "再由老师结合客户的实际操作一对一指导。最后发送真实的陪伴养兰商品卡推进成交；"
+                "不得把软拒绝当成明确终止，不得主动谈优惠或不能再优惠"
+            ),
+            "build_value",
+            known_slots,
+            customer_signal="objection",
+            reason="service_offer_soft_decline_value_card",
+        )
+
     if (
         intent.primary_intent in {"price_objection", "discount_request"}
         and not known_slots.get("budget")
@@ -240,6 +258,44 @@ def decide_sales_action(
     if intent.primary_domain == "care" and intent.primary_goal != "request_material":
         pain_is_specific = _has_specific_pain(known_slots)
         should_probe_pain = not pain_is_specific and "pain_point" not in asked_slots
+        service_offer_started = _service_offer_started(opportunity, known_slots)
+        if pain_is_specific and stage in {
+            SalesStage.SOLUTION_RECOMMENDED.value,
+            SalesStage.VALUE_BUILT.value,
+            SalesStage.TRIAL_CLOSE.value,
+            SalesStage.CLOSING.value,
+        }:
+            return SalesActionDecision(
+                reply_goal=(
+                    (
+                        "先用一条消息回答客户当前的养护问题，说清可能原因和可执行处理；"
+                        "再用独立消息结合这个痛点继续介绍陪伴养兰服务，说清资料和视频负责理顺基础，"
+                        "老师再结合家里的环境和实际操作一对一带着调整；不得只做免费问答后结束"
+                        if service_offer_started
+                        else
+                        "先用一条消息专业回答客户已经说清的痛点，给出可能原因和可执行处理；"
+                        "找痛点到此结束，立即进入陪伴养兰服务的推品阶段。后续按语义分开发送："
+                        "先说服务过的很多兰友也有类似情况，再说单品养护资料里会讲收苗处理上盆、"
+                        "浇水、施肥、防病害、花期管理和分株，看完有不懂的再由老师结合客户实际操作实时指导；"
+                        "不再追问其他痛点，不得只用一句空泛品牌介绍收尾"
+                    )
+                ),
+                sales_action=("build_value" if service_offer_started else "recommend_solution"),
+                known_slots=known_slots,
+                customer_signal="interested",
+                reason=(
+                    "service_solution_question_followup"
+                    if service_offer_started
+                    else "service_solution_first_offer"
+                ),
+                allow_diagnostic_question=False,
+                prohibited_behaviors=[
+                    "明确痛点后仍停留在挖需阶段",
+                    "只回答养护问题而不推进陪伴养兰服务",
+                    "只说陪伴服务能少走弯路却不说具体交付",
+                    "客户没有明确购兰需求时推荐兰花",
+                ],
+            )
         return SalesActionDecision(
             reply_goal=(
                 (
@@ -343,6 +399,9 @@ def apply_sales_action(
     decision: SalesActionDecision,
 ) -> FinalReply:
     if reply.reply_type in {"fixed_resource", "fixed_workflow"}:
+        return reply
+    persona = reply.metadata.get("persona")
+    if isinstance(persona, dict) and persona.get("sales_action_rendered") is True:
         return reply
     if reply.need_human or not reply.answer.strip() or not decision.question_slot:
         return reply
@@ -625,6 +684,13 @@ def evolve_opportunity(
     opportunity["last_sales_action"] = sales_action.get("sales_action")
     opportunity["last_reply_goal"] = sales_action.get("reply_goal")
     opportunity["last_customer_signal"] = sales_action.get("customer_signal", "none")
+    action_reason = str(sales_action.get("reason") or "")
+    if action_reason == "service_solution_first_offer":
+        opportunity["service_offer_phase"] = "introduced"
+    elif action_reason == "service_solution_question_followup":
+        opportunity["service_offer_phase"] = "deepened"
+    elif action_reason == "service_offer_soft_decline_value_card":
+        opportunity["service_offer_phase"] = "card_sent"
     opportunity["last_active_at"] = timestamp
     opportunity["recommended_product_ids"] = _string_list(
         sales_action.get("recommended_product_ids")
@@ -688,6 +754,29 @@ def _has_specific_pain(known_slots: dict) -> bool:
     return not any(
         marker in value
         for marker in ("养不好", "不会养", "不懂", "想学习", "想学", "怕养不好", "新手")
+    )
+
+
+def _service_offer_started(opportunity: dict, known_slots: dict) -> bool:
+    if not _has_specific_pain(known_slots):
+        return False
+    return str(opportunity.get("service_offer_phase") or "") in {
+        "introduced",
+        "deepened",
+        "card_sent",
+    } or str(opportunity.get("last_sales_action") or "") in {
+        "recommend_solution",
+        "build_value",
+    }
+
+
+def _is_soft_service_decline(intent: IntentResult) -> bool:
+    slots = intent.slots if isinstance(intent.slots, dict) else {}
+    return bool(
+        slots.get("chitchat_kind") == "thanks"
+        or slots.get("rejection_kind") == "polite_decline"
+        or intent.primary_intent == "hesitation"
+        or intent.primary_goal == "defer_decision"
     )
 
 
