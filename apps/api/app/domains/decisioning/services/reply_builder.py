@@ -106,7 +106,7 @@ def build_chitchat_reply(intent: IntentResult) -> FinalReply:
         )
     if intent.primary_intent == "profile_answer":
         return FinalReply(
-            answer="好的，已经记下了。",
+            answer=_profile_answer_acknowledgement(intent.slots),
             reply_type="chitchat",
             route="chitchat",
         )
@@ -121,3 +121,25 @@ def build_chitchat_reply(intent: IntentResult) -> FinalReply:
         reply_type="chitchat",
         route="chitchat",
     )
+
+
+def _profile_answer_acknowledgement(slots: dict) -> str:
+    region = str(slots.get("region") or "").strip()
+    plant_count = slots.get("plant_count")
+    varieties = slots.get("owned_varieties")
+    variety_text = "、".join(
+        str(item).strip()
+        for item in (varieties if isinstance(varieties, list) else [])
+        if str(item).strip()
+    )
+    if region and plant_count not in (None, "") and variety_text:
+        return f"了解了，您在{region}养了{plant_count}盆{variety_text}。"
+    if plant_count not in (None, "") and variety_text:
+        return f"了解了，您现在养了{plant_count}盆{variety_text}。"
+    if region and variety_text:
+        return f"了解了，您在{region}主要养{variety_text}。"
+    if plant_count not in (None, ""):
+        return f"了解了，您现在养了{plant_count}盆兰花。"
+    if variety_text:
+        return f"了解了，您现在主要养{variety_text}。"
+    return "好的，已经记下了。"

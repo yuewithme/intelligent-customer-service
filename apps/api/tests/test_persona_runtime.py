@@ -196,6 +196,39 @@ def test_reply_spec_exposes_verified_membership_value_without_product_facts():
     assert spec.verified_facts["brand_value_facts"] == brand_value_facts
 
 
+def test_profile_answer_exposes_only_current_verified_profile_facts():
+    reply = FinalReply(
+        answer="了解了，您在杭州养了3盆蝴蝶兰。",
+        reply_type="chitchat",
+        route="chitchat",
+    )
+    plan = ReplyPlan(action="chitchat", reason="intent_route")
+    intent = IntentResult(
+        route="chitchat",
+        primary_intent="profile_answer",
+        confidence=0.98,
+        slots={
+            "region": "杭州",
+            "plant_count": 3,
+            "owned_varieties": ["蝴蝶兰"],
+            "original_route": "chitchat",
+        },
+    )
+
+    spec = build_reply_spec(
+        reply=reply,
+        plan=plan,
+        user_state=UserState(user_id="profile-user"),
+        intent=intent,
+    )
+
+    assert spec.verified_facts["customer_profile_facts"] == {
+        "region": "杭州",
+        "plant_count": 3,
+        "owned_varieties": ["蝴蝶兰"],
+    }
+
+
 @pytest.mark.asyncio
 async def test_persona_renderer_uses_system_role_and_renders_question_once(monkeypatch):
     from app.services import persona_renderer
@@ -826,6 +859,30 @@ def test_guard_rejects_unsolicited_discount_reply_without_product_tool_state():
 
     assert guarded.suggested_copy == "资料可以发您，我先了解一下您想解决哪类问题。"
     assert guarded.metadata["persona_guard"]["reason"] == "unexpected_discount_answer"
+
+
+def test_guard_rejects_hollow_profile_acknowledgement():
+    original = "了解了，您在杭州养了3盆蝴蝶兰。您现在最困扰的是黄叶还是烂根？"
+    spec = ReplySpec(
+        route="chitchat",
+        reply_type="chitchat",
+        reply_goal="客观确认画像事实后询问养兰痛点",
+        suggested_copy="蝴蝶兰在杭州养三盆挺有氛围的。您现在最困扰的是黄叶还是烂根？",
+        verified_facts={
+            "customer_profile_facts": {
+                "region": "杭州",
+                "plant_count": 3,
+                "owned_varieties": ["蝴蝶兰"],
+            }
+        },
+        question_slot="pain_point",
+        metadata={"persona_original_copy": original},
+    )
+
+    guarded = guard_reply_spec(spec=spec, context=_context())
+
+    assert guarded.suggested_copy == original
+    assert guarded.metadata["persona_guard"]["reason"] == "hollow_profile_ack"
 
 
 def test_guard_rejects_price_only_reply_for_repeated_membership_bargain():

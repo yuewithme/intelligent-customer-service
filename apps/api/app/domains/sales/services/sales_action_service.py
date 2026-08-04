@@ -311,11 +311,18 @@ def decide_sales_action(
     question_slot = actionable_missing[0] if actionable_missing else None
     if question_slot:
         if question_slot == "pain_point":
-            goal = (
-                "先自然回应客户当前消息，再只问一个具体的养兰痛点问题，"
-                "结合客户已说的信息从常见症状中灵活选择一到三个方向试探，"
-                "每次自然改写，不照抄固定句式"
-            )
+            if intent.primary_intent == "profile_answer":
+                goal = (
+                    "先用一句话客观确认客户本轮提供的地区、养兰数量和品种，只复述"
+                    "已识别事实，不评价氛围、品位或感觉；再只问一个具体的养兰痛点问题，"
+                    "从黄叶、黑斑、烂根、腐苗、不开花等常见表现中自然选择一到三个方向"
+                )
+            else:
+                goal = (
+                    "先自然回应客户当前消息，再只问一个具体的养兰痛点问题，"
+                    "结合客户已说的信息从常见症状中灵活选择一到三个方向试探，"
+                    "每次自然改写，不照抄固定句式"
+                )
         else:
             goal = f"先回答客户当前问题，再确认{_slot_label(question_slot)}"
     return SalesActionDecision(
@@ -359,7 +366,7 @@ def apply_sales_action(
             }
         )
     if pain_discovery_required:
-        return _enforce_pain_discovery(reply)
+        return _enforce_pain_discovery(reply, decision=decision)
     # Other missing slots remain guidance rather than mandatory questions. Pain
     # discovery is stricter because recommending before the need is clear breaks
     # the service-first sales flow.
@@ -407,7 +414,11 @@ def _violates_pain_discovery_flow(text: str) -> bool:
     )
 
 
-def _enforce_pain_discovery(reply: FinalReply) -> FinalReply:
+def _enforce_pain_discovery(
+    reply: FinalReply,
+    *,
+    decision: SalesActionDecision,
+) -> FinalReply:
     answer = reply.answer.strip()
     has_commerce_card = any(
         message.type in {"link_card", "mini_program"}
@@ -416,16 +427,25 @@ def _enforce_pain_discovery(reply: FinalReply) -> FinalReply:
     should_replace = _contains_question(answer) or any(
         marker in answer for marker in _DISCOVERY_PRODUCT_PUSH_MARKERS
     )
+    profile_fallback = _profile_pain_discovery_fallback(decision.known_slots)
     if (
         not should_replace
         and not has_commerce_card
         and reply.reply_type != "llm_fallback"
+        and not profile_fallback
     ):
         return reply
-    fallback = _PAIN_DISCOVERY_FALLBACKS[
-        sum(ord(character) for character in answer) % len(_PAIN_DISCOVERY_FALLBACKS)
-    ]
-    corrected = fallback if should_replace else f"{answer.rstrip('。')}。{fallback}"
+    fallback = profile_fallback or (
+        _PAIN_DISCOVERY_FALLBACKS[
+            sum(ord(character) for character in answer)
+            % len(_PAIN_DISCOVERY_FALLBACKS)
+        ]
+    )
+    corrected = (
+        fallback
+        if should_replace or has_commerce_card or profile_fallback
+        else f"{answer.rstrip('。')}。{fallback}"
+    )
 
     outbound_messages: list[OutboundMessage] = []
     text_added = False
@@ -453,6 +473,32 @@ def _enforce_pain_discovery(reply: FinalReply) -> FinalReply:
             },
         }
     )
+
+
+def _profile_pain_discovery_fallback(known_slots: dict) -> str:
+    region = str(known_slots.get("region") or "").strip()
+    plant_count = known_slots.get("plant_count")
+    varieties = known_slots.get("owned_varieties")
+    variety_text = "、".join(
+        str(item).strip()
+        for item in (varieties if isinstance(varieties, list) else [])
+        if str(item).strip()
+    )
+    if not any((region, plant_count not in (None, ""), variety_text)):
+        return ""
+    if region and plant_count not in (None, "") and variety_text:
+        acknowledgement = f"了解了，您在{region}养了{plant_count}盆{variety_text}。"
+    elif plant_count not in (None, "") and variety_text:
+        acknowledgement = f"了解了，您现在养了{plant_count}盆{variety_text}。"
+    elif region and variety_text:
+        acknowledgement = f"了解了，您在{region}主要养{variety_text}。"
+    elif plant_count not in (None, ""):
+        acknowledgement = f"了解了，您现在养了{plant_count}盆兰花。"
+    elif region:
+        acknowledgement = f"了解了，您在{region}养兰。"
+    else:
+        acknowledgement = f"了解了，您现在主要养{variety_text}。"
+    return acknowledgement + "您现在养护上最困扰的是黄叶、烂根，还是一直不开花？"
 
 
 def _contains_question(text: str) -> bool:

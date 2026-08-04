@@ -85,6 +85,16 @@ PURCHASE_CTA_MARKERS = (
     "点击卡片",
     "直接开通",
 )
+HOLLOW_PROFILE_ACK_MARKERS = (
+    "挺有氛围",
+    "很有氛围",
+    "挺有感觉",
+    "很有感觉",
+    "很有品位",
+    "挺有品位",
+    "很有格调",
+    "挺惬意",
+)
 
 
 def guard_reply_spec(*, spec: ReplySpec, context: PersonaContext) -> ReplySpec:
@@ -158,6 +168,10 @@ def persona_extension_violation(spec: ReplySpec, answer: str) -> str | None:
         and any(pattern.search(answer) for pattern in UNVERIFIED_PERSONA_FACT_PATTERNS)
     ):
         return "unverified_fact_claim"
+    if spec.verified_facts.get("customer_profile_facts") and any(
+        marker in answer for marker in HOLLOW_PROFILE_ACK_MARKERS
+    ):
+        return "hollow_profile_ack"
     if _invalid_product_extension(spec, answer):
         return "invalid_product_extension"
     if _disallowed_product_card_action(spec, answer):

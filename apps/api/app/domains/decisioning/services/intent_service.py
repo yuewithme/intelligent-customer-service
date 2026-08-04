@@ -288,7 +288,64 @@ PLANT_COUNT_PATTERN = re.compile(
     r"(?:养了|養了|养|養|有)?[^\d零一二两三四五六七八九十百]{0,6}"
     r"(?:\d{1,5}|[零一二两三四五六七八九十百]{1,5})(?:来|多|左右)?\s*(?:盆|棵|株)"
 )
-ORCHID_VARIETY_WORDS = ("建兰", "春兰", "蕙兰", "墨兰", "寒兰", "春剑", "莲瓣兰")
+ORCHID_VARIETY_WORDS = (
+    "建兰",
+    "春兰",
+    "蕙兰",
+    "墨兰",
+    "寒兰",
+    "春剑",
+    "莲瓣兰",
+    "蝴蝶兰",
+    "石斛兰",
+    "兜兰",
+    "文心兰",
+    "卡特兰",
+    "大花蕙兰",
+)
+OPENING_REGION_WORDS = (
+    "北京",
+    "上海",
+    "天津",
+    "重庆",
+    "河北",
+    "山西",
+    "辽宁",
+    "吉林",
+    "黑龙江",
+    "江苏",
+    "浙江",
+    "安徽",
+    "福建",
+    "江西",
+    "山东",
+    "河南",
+    "湖北",
+    "湖南",
+    "广东",
+    "海南",
+    "四川",
+    "贵州",
+    "云南",
+    "陕西",
+    "甘肃",
+    "青海",
+    "台湾",
+    "内蒙古",
+    "广西",
+    "西藏",
+    "宁夏",
+    "新疆",
+    "香港",
+    "澳门",
+    "杭州",
+    "广州",
+    "深圳",
+    "成都",
+    "南京",
+    "苏州",
+    "宁波",
+)
 PRODUCT_RECOMMENDATION_CONTEXT_WORDS = (
     "推荐",
     "品种",
@@ -1350,7 +1407,7 @@ def classify_opening_followup(
         return None
     if not (
         PLANT_COUNT_PATTERN.search(normalized)
-        or hit_any(normalized, ORCHID_VARIETY_WORDS)
+        or _opening_varieties(normalized)
     ):
         return None
     slots = _opening_profile_slots(normalized)
@@ -1381,7 +1438,7 @@ def _decision_blocker_is_grounded(blocker_type: str, text: str) -> bool:
 
 def _opening_profile_slots(text: str) -> dict:
     slots: dict[str, object] = {}
-    varieties = [variety for variety in ORCHID_VARIETY_WORDS if variety in text]
+    varieties = _opening_varieties(text)
     if varieties:
         slots["owned_varieties"] = varieties
     count_match = re.search(
@@ -1392,6 +1449,22 @@ def _opening_profile_slots(text: str) -> dict:
         plant_count = _parse_plant_count(count_match.group(1))
         if plant_count is not None:
             slots["plant_count"] = plant_count
+    known_regions = [region for region in OPENING_REGION_WORDS if region in text]
+    known_region = max(
+        known_regions,
+        key=lambda region: (text.rfind(region), len(region)),
+        default="",
+    )
+    informal_region_match = re.search(
+        r"^(?:我在|人在|坐标)?([\u4e00-\u9fff]{2,6}?)(?:这边|这儿)"
+        r"(?:的|，|,|。|\s|$)",
+        text,
+    )
+    informal_region = (
+        informal_region_match.group(1) if informal_region_match else ""
+    )
+    if informal_region in {"阳台", "家里", "室内", "户外", "窗边", "楼顶", "院子"}:
+        informal_region = ""
     region_match = re.search(
         r"(?:我在|来自|地区(?:是|在))"
         r"([\u4e00-\u9fff]{2,10}?)(?:的|，|,|。|\s|$)",
@@ -1407,8 +1480,39 @@ def _opening_profile_slots(text: str) -> dict:
         text,
     )
     if region_match:
-        slots["region"] = region_match.group(1)
+        slots["region"] = re.sub(r"(?:这边|这儿)$", "", region_match.group(1))
+    elif informal_region:
+        slots["region"] = informal_region
+    elif known_region:
+        slots["region"] = known_region
     return slots
+
+
+def _opening_varieties(text: str) -> list[str]:
+    varieties = [variety for variety in ORCHID_VARIETY_WORDS if variety in text]
+    direct_match = re.fullmatch(
+        r"(?:我)?(?:养的)?(?:全是|主要是|是)?([\u4e00-\u9fff]{2,8}?兰)",
+        text,
+    )
+    if direct_match:
+        candidate = direct_match.group(1)
+        if (
+            candidate not in {"养兰", "兰花", "国兰"}
+            and not candidate.endswith("养兰")
+            and not any(variety in candidate for variety in varieties)
+        ):
+            varieties.append(candidate)
+    for match in re.finditer(
+        r"[，,、]\s*(?:我)?(?:养的)?(?:全是|主要是|是)?"
+        r"([\u4e00-\u9fff]{2,8}?兰)(?=$|[，,。.!！\s])",
+        text,
+    ):
+        candidate = match.group(1)
+        if any(variety in candidate for variety in varieties):
+            continue
+        if candidate not in {"养兰", "兰花", "国兰"} and candidate not in varieties:
+            varieties.append(candidate)
+    return varieties
 
 
 def _parse_plant_count(value: str) -> int | None:
