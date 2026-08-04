@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-def test_pain_discovery_keeps_service_brand_value_after_product_context():
+def test_discovery_never_attaches_service_brand_value_before_need_is_clear():
     from app.services import chat_orchestrator
 
     action = SimpleNamespace(
@@ -15,7 +15,7 @@ def test_pain_discovery_keeps_service_brand_value_after_product_context():
         question_slot=None,
     )
 
-    assert chat_orchestrator._should_attach_membership_brand_value(action) is True
+    assert chat_orchestrator._should_attach_membership_brand_value(action) is False
 
 
 def test_pain_discovery_does_not_build_brand_value_before_pain_is_clear():
