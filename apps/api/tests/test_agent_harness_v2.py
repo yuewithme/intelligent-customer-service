@@ -274,6 +274,148 @@ def test_hard_guard_requires_exact_verified_stock_and_url():
     }
 
 
+def test_style_guard_rejects_multi_question_list_and_quotes():
+    context = AgentExecutionContext(
+        message=_message("总是养死，怎么办"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+    decision = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": (
+                            "我先了解一下：\n"
+                            "1. 您养的是哪种兰花？\n"
+                            "2. 平时放室内还是室外？\n"
+                            "3. 多久浇一次水？"
+                        ),
+                    },
+                    {"type": "text", "content": "先别按“见干见湿”硬套。"},
+                ],
+                "need_human": False,
+            }
+        )["data"]
+    )
+
+    assert set(agent_runtime._guard_violations(decision, context)) == {
+        "too_many_customer_questions",
+        "non_conversational_list_style",
+        "unnecessary_customer_quotes",
+    }
+
+
+def test_style_guard_allows_one_natural_question():
+    context = AgentExecutionContext(
+        message=_message("总是养死，怎么办"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+    decision = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "先别急，这种反复养死通常要先排查浇水和通风。您平时大概多久浇一次水？",
+                    }
+                ],
+                "need_human": False,
+            }
+        )["data"]
+    )
+
+    assert agent_runtime._guard_violations(decision, context) == []
+
+
+def test_opening_guard_requires_identity_and_one_needs_question():
+    message = _message("[系统新好友建立]")
+    message.metadata = {"system_event": "first_contact"}
+    context = AgentExecutionContext(
+        message=message,
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+    valid = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
+                    {"type": "text", "content": "您现在想先看看兰花，还是聊聊养护问题？"},
+                ],
+                "need_human": False,
+            }
+        )["data"]
+    )
+    invalid = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {"type": "text", "content": "您好，我可以帮您。"},
+                    {"type": "text", "content": "您养什么品种？平时多久浇一次？"},
+                ],
+                "need_human": False,
+            }
+        )["data"]
+    )
+
+    assert agent_runtime._guard_violations(valid, context) == []
+    assert set(agent_runtime._guard_violations(invalid, context)) == {
+        "too_many_customer_questions",
+        "opening_identity_missing",
+        "opening_needs_question_invalid",
+    }
+
+
+@pytest.mark.asyncio
+async def test_opening_does_not_execute_agent_tools(monkeypatch):
+    message = _message("[系统新好友建立]")
+    message.metadata = {"system_event": "first_contact"}
+    responses = iter(
+        [
+            _decision(
+                tools=[
+                    {
+                        "call_id": "search-1",
+                        "name": "product.search",
+                        "arguments": {"query": "兰花"},
+                    }
+                ]
+            ),
+            _decision(
+                final={
+                    "messages": [
+                        {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
+                        {"type": "text", "content": "您现在想先看看兰花，还是聊聊养护问题？"},
+                    ],
+                    "need_human": False,
+                }
+            ),
+        ]
+    )
+
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return next(responses)
+
+    async def fail_if_tool_executes(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("opening must not execute tools")
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    monkeypatch.setattr(agent_runtime, "execute_agent_tool", fail_if_tool_executes)
+    reply = await agent_runtime.run_sales_agent(
+        message=message,
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
+    assert [item.type for item in reply.outbound_messages] == ["text", "image", "text"]
+    assert reply.answer.startswith("您好，我是萧岚苑的小兰")
+
+
 @pytest.mark.asyncio
 async def test_hard_guard_blocks_ungrounded_price(monkeypatch):
     unsafe = _decision(

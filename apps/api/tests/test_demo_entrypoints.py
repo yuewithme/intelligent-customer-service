@@ -80,6 +80,8 @@ def test_demo_opening_uses_agent_runtime_and_records_conversation(
     monkeypatch, tmp_path
 ):
     _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://cdn.example.com/opening.jpg")
+    get_settings.cache_clear()
     client = TestClient(app)
 
     response = client.post(
@@ -89,11 +91,16 @@ def test_demo_opening_uses_agent_runtime_and_records_conversation(
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert "最想解决的问题" in data["reply"]
-    assert data["opening_image_url"] is None
+    assert data["reply"].startswith("您好，我是萧岚苑的小兰")
+    assert "还是有养护问题" in data["reply"]
+    assert data["opening_image_url"] == "https://cdn.example.com/opening.jpg"
     assert data["route"] == "agent"
     assert data["conversation_id"] == "default"
-    assert [item["type"] for item in data["outbound_messages"]] == ["text"]
+    assert [item["type"] for item in data["outbound_messages"]] == [
+        "text",
+        "image",
+        "text",
+    ]
 
     conversations = client.get("/api/v1/demo-admin/conversations").json()["data"]
     assert conversations["total"] == 1
@@ -103,9 +110,11 @@ def test_demo_opening_uses_agent_runtime_and_records_conversation(
     ).json()["data"]
     assert detail["conversation"]["channel"] == "wechat"
     assert detail["conversation"]["user_display_name"] == "测试客户"
-    assert len(detail["messages"]) == 1
-    assert detail["messages"][0]["sender_type"] == "ai"
-    assert "最想解决的问题" in detail["messages"][0]["content"]
+    assert len(detail["messages"]) == 3
+    assert all(item["sender_type"] == "ai" for item in detail["messages"])
+    assert "萧岚苑的小兰" in detail["messages"][0]["content"]
+    assert detail["messages"][1]["content"] == "[图片]"
+    assert "还是有养护问题" in detail["messages"][2]["content"]
 
 
 def test_demo_session_restores_shared_history_across_clients(monkeypatch, tmp_path):
@@ -197,6 +206,8 @@ def test_demo_material_video_issue_uses_verification_flow_instead_of_handoff(
 
 def test_demo_session_restores_agent_opening(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://cdn.example.com/opening.jpg")
+    get_settings.cache_clear()
     client = TestClient(app)
 
     client.post(
@@ -205,8 +216,15 @@ def test_demo_session_restores_agent_opening(monkeypatch, tmp_path):
     )
     messages = client.get("/api/v1/demo/session").json()["data"]["messages"]
 
-    assert [item["type"] for item in messages] == ["text"]
-    assert "最想解决的问题" in messages[0]["content"]
+    assert [item["type"] for item in messages] == ["text", "image", "text"]
+    assert "萧岚苑的小兰" in messages[0]["content"]
+    assert messages[1]["content"] == "https://cdn.example.com/opening.jpg"
+    assert messages[1]["media"] == {
+        "type": "image",
+        "url": "https://cdn.example.com/opening.jpg",
+        "fallback": False,
+    }
+    assert "还是有养护问题" in messages[2]["content"]
 
 
 def test_demo_history_normalizes_cards_and_customer_media():

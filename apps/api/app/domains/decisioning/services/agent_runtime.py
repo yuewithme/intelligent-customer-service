@@ -55,6 +55,15 @@ _SENT_SUCCESS_PATTERNS = (
 _PRICE_PATTERN = re.compile(r"(?<!\d)(\d+(?:\.\d{1,2})?)\s*(?:元|块)(?!\d)")
 _STOCK_PATTERN = re.compile(r"(?:库存|还剩|剩余)\s*(\d+)\s*(?:件|盆|株|个)")
 _URL_PATTERN = re.compile(r"https?://[^\s<>\"，。！、；：）)\]}]+")
+_LIST_STYLE_PATTERN = re.compile(
+    r"(?m)^\s*(?:[-*•·]|(?:\d+|[一二三四五六七八九十]+)[.、．)）])\s*"
+)
+_MARKDOWN_HEADING_PATTERN = re.compile(r"(?m)^\s*#{1,6}\s+")
+_CUSTOMER_QUOTE_MARKERS = "“”‘’「」『』《》【】\"'"
+_SUBSTANTIVE_QUESTION_PATTERN = re.compile(
+    r"哪一种|哪一款|哪种|哪个|哪里|哪儿|什么|多少|多久|多大|几(?:盆|株|天|次|年)?|"
+    r"怎么|为什么|有没有|是否|是不是|能不能|可不可以|还是"
+)
 
 
 async def run_sales_agent(
@@ -117,6 +126,14 @@ async def run_sales_agent(
             }
         )
         if decision.tool_calls:
+            if str(event_context.get("system_event") or "") == "first_contact":
+                conversation.append(
+                    {
+                        "role": "system",
+                        "content": "新好友开场不调用工具，也不发送商品或资料。请直接按两条短文字的开场结构重新输出。",
+                    }
+                )
+                continue
             if total_tool_calls + len(decision.tool_calls) > MAX_TOOL_CALLS:
                 conversation.append(
                     {
@@ -164,7 +181,11 @@ async def run_sales_agent(
             conversation.append(
                 {
                     "role": "system",
-                    "content": "客户可见回复触发硬边界。基于反馈重写；不要删除已核实的有用信息，不要输出内部说明。",
+                    "content": (
+                        "客户可见回复触发硬边界。基于反馈重写；不要删除已核实的有用信息，不要输出内部说明。"
+                        "如果是表达问题，每轮只问一个信息点，不用编号、项目符号、Markdown，也不要给普通词语加引号。"
+                        f"本次问题：{', '.join(violations)}"
+                    ),
                 }
             )
             continue
@@ -227,6 +248,8 @@ async def _finalize_reply(
         answer = "您接着说就行，我先按您现在最想解决的问题帮您看。"
         outbound = [OutboundMessage(type="text", content=answer)]
         visible_texts = [answer]
+    if _is_opening_system_event(context):
+        outbound = _insert_opening_image(outbound)
     return FinalReply(
         answer=answer,
         answer_segments=visible_texts,
@@ -302,21 +325,32 @@ async def _safe_fallback(
             },
         )
     system_event = str((message.metadata or {}).get("system_event") or "")
-    if system_event == "daily_touch":
+    if system_event == "first_contact":
+        intro = "您好，我是萧岚苑的小兰，平时主要帮兰友选兰花、看养护问题。"
+        question = "您现在是想先看看兰花，还是有养护问题想让我帮您看看？"
+        texts = [intro, question]
+        text = "\n\n".join(texts)
+        purpose = "完成自然自我介绍，并用一个低压力问题了解客户来意"
+    elif system_event == "daily_touch":
         text = "最近养兰有哪里拿不准，您随时拍张照片发我，我帮您一起看看。"
+        texts = [text]
         purpose = "用低压力的专业服务完成今日关系触达"
     else:
         text = "您接着说就行，我先按您现在最想解决的问题帮您看。"
+        texts = [text]
         purpose = "安全承接客户并保持对话"
     judgment = (
         latest_decision.commercial_judgment
         if latest_decision is not None
         else "当前模型决策未形成可安全发送的完整回复"
     )
+    outbound = [OutboundMessage(type="text", content=content) for content in texts]
+    if system_event == "first_contact":
+        outbound = _insert_opening_image(outbound)
     return FinalReply(
         answer=text,
-        answer_segments=[text],
-        outbound_messages=[OutboundMessage(type="text", content=text)],
+        answer_segments=texts,
+        outbound_messages=outbound,
         reply_type="sales_agent_fallback",
         route="agent",
         usage=usage,
@@ -346,6 +380,26 @@ def _guard_violations(
         str(item.content or "") for item in final.messages if item.type == "text"
     )
     violations: list[str] = []
+    question_count = _customer_question_count(text)
+    if question_count > 1:
+        violations.append("too_many_customer_questions")
+    if _LIST_STYLE_PATTERN.search(text) or _MARKDOWN_HEADING_PATTERN.search(text):
+        violations.append("non_conversational_list_style")
+    if any(marker in text for marker in _CUSTOMER_QUOTE_MARKERS):
+        violations.append("unnecessary_customer_quotes")
+    if _is_opening_system_event(context):
+        text_messages = [item for item in final.messages if item.type == "text"]
+        if len(final.messages) != 2 or len(text_messages) != 2:
+            violations.append("invalid_opening_message_structure")
+        else:
+            intro = str(text_messages[0].content or "")
+            question = str(text_messages[1].content or "")
+            if "萧岚苑" not in intro or "小兰" not in intro:
+                violations.append("opening_identity_missing")
+            if _customer_question_count(intro) != 0:
+                violations.append("opening_intro_contains_question")
+            if _customer_question_count(question) != 1:
+                violations.append("opening_needs_question_invalid")
     lowered = text.casefold()
     if any(marker.casefold() in lowered for marker in _INTERNAL_MARKERS):
         violations.append("internal_state_leak")
@@ -403,6 +457,51 @@ def _guard_violations(
         if item.type == "prepared" and str(item.ref or "") not in context.prepared:
             violations.append("unknown_prepared_ref")
     return list(dict.fromkeys(violations))
+
+
+def _customer_question_count(text: str) -> int:
+    punctuation_count = text.count("？") + text.count("?")
+    if punctuation_count == 0:
+        return 0
+    clauses = [
+        part.strip() for part in re.split(r"[，,；;、！？?]", text) if part.strip()
+    ]
+    question_clauses = sum(
+        1
+        for clause in clauses
+        if _SUBSTANTIVE_QUESTION_PATTERN.search(clause)
+        or clause.endswith(("吗", "呢"))
+    )
+    substantive_markers = len(_SUBSTANTIVE_QUESTION_PATTERN.findall(text))
+    return max(punctuation_count, question_clauses, substantive_markers)
+
+
+def _is_opening_system_event(context: AgentExecutionContext) -> bool:
+    metadata = context.message.metadata
+    return isinstance(metadata, dict) and metadata.get("system_event") == "first_contact"
+
+
+def _insert_opening_image(
+    messages: list[OutboundMessage],
+) -> list[OutboundMessage]:
+    if len(messages) != 2 or any(message.type != "text" for message in messages):
+        return messages
+    settings = get_settings()
+    image_url = settings.eyun_opening_image_url.strip()
+    material_id = settings.eyun_opening_material_id
+    if material_id and image_url:
+        image = OutboundMessage(
+            type="image", content=image_url, material_id=material_id
+        )
+    elif material_id:
+        image = OutboundMessage(
+            type="material", content="[开场白图片]", material_id=material_id
+        )
+    elif image_url:
+        image = OutboundMessage(type="image", content=image_url)
+    else:
+        return messages
+    return [messages[0], image, messages[1]]
 
 
 def _required_handoff_reason(text: str) -> str | None:
@@ -526,8 +625,9 @@ def _event_context(message) -> dict[str, Any]:
         )
     elif allowed.get("system_event") == "first_contact":
         allowed["instruction"] = (
-            "这是新好友建立事件，不是客户原话。请由小兰自然打招呼，简短说明能帮助选品、养护和资料，"
-            "并给客户一个容易接话的入口；不要机械盘问地区、盆数和品种，不要提到系统事件。"
+            "这是新好友建立事件，不是客户原话。只生成两条短文字：第一条自然介绍自己是萧岚苑的小兰，"
+            "第二条只问一个容易回答的挖需问题。固定图片会由发送网关插在两条文字之间，你不要调用工具、"
+            "不要安排卡片或资料，也不要提到系统事件。措辞可以自然变化，但不要机械盘问地区、盆数和品种。"
         )
     return allowed
 

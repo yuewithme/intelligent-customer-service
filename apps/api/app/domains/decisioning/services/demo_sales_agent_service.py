@@ -125,7 +125,7 @@ async def open_demo_sales_conversation(
         "reply": result.get("answer", ""),
         "answer_segments": result.get("answer_segments", []),
         "outbound_messages": outbound_messages,
-        "opening_image_url": None,
+        "opening_image_url": get_settings().eyun_opening_image_url.strip() or None,
         "customer_id": customer_id,
         "conversation_id": session_id,
         "next_action": result.get("next_action"),

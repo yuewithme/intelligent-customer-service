@@ -678,20 +678,21 @@ async def test_opening_slots_persistently_serialize_customers(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_new_friend_opening_uses_agent_messages_and_normal_queue_dependencies(monkeypatch):
+async def test_new_friend_opening_uses_agent_copy_with_image_and_opening_dependencies(monkeypatch):
+    from app.core.config import get_settings
     from app.integrations.eyun.services import message_risk_control_service as service
 
     now = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
     queued = []
+    recorded = []
 
     async def compose_opening(request):
         assert request.metadata["system_event"] == "first_contact"
         return {
-            "answer": "您好，我是小兰。养护和选品都可以问我。",
+            "answer": "您好，我是萧岚苑的小兰。您现在想先聊选花还是养护？",
             "outbound_messages": [
-                {"type": "text", "content": "您好，我是小兰。"},
-                {"type": "text", "content": "养护和选品都可以问我。"},
-                {"type": "text", "content": "您现在主要养了哪些品种？"},
+                {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
+                {"type": "text", "content": "您现在想先聊选花还是养护？"},
             ],
         }
 
@@ -699,19 +700,29 @@ async def test_new_friend_opening_uses_agent_messages_and_normal_queue_dependenc
         return None
 
     async def ensure_message(**kwargs):
+        recorded.append(kwargs)
         return {"id": 100 + len(queued)}
 
     async def enqueue(**kwargs):
         queued.append(kwargs)
         return {"id": 200 + len(queued)}
 
+    async def reserve_slots(*, w_id, message_count):
+        assert w_id == "wid"
+        assert message_count == 3
+        return [
+            now,
+            now + timedelta(seconds=8),
+            now + timedelta(seconds=16),
+        ]
+
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://cdn.example.com/opening.jpg")
+    get_settings.cache_clear()
     monkeypatch.setattr(service, "handle_chat", compose_opening)
     monkeypatch.setattr(service, "_record_opening_memories", ignore_memories)
     monkeypatch.setattr(service, "ensure_outbound_conversation_message", ensure_message)
     monkeypatch.setattr(service, "enqueue_eyun_outbound", enqueue)
-    monkeypatch.setattr(service, "utcnow", lambda: now)
-    monkeypatch.setattr(service, "random_reply_delay_seconds", lambda: 0)
-    monkeypatch.setattr(service, "random_outbound_spacing_seconds", lambda: 8)
+    monkeypatch.setattr(service, "_reserve_opening_delivery_slots", reserve_slots)
 
     await service._send_opening_for_new_friend(
         {
@@ -730,7 +741,11 @@ async def test_new_friend_opening_uses_agent_messages_and_normal_queue_dependenc
         now + timedelta(seconds=16),
     ]
     assert [item["depends_on_outbound_id"] for item in queued] == [None, 201, 202]
-    assert "哪些品种" in queued[2]["content"]
+    assert [item["route"] for item in recorded] == ["opening", "opening", "opening"]
+    assert queued[1]["content"] == "https://cdn.example.com/opening.jpg"
+    assert queued[1]["message_type"] == "image"
+    assert "先聊选花还是养护" in queued[2]["content"]
+    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

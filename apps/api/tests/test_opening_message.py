@@ -71,19 +71,27 @@ async def test_first_inbound_message_skips_debounce_delay(monkeypatch, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_new_friend_opening_is_composed_by_agent_and_uses_normal_queue(monkeypatch):
+async def test_new_friend_opening_uses_fixed_package_and_dedicated_queue(monkeypatch):
+    from app.core.config import get_settings
     from app.services import message_risk_control_service as risk_control
 
     captured = {}
     queued = []
+    recorded = []
+    now = datetime(2026, 8, 5, tzinfo=timezone.utc)
+    due_slots = [
+        now,
+        now.replace(second=8),
+        now.replace(second=16),
+    ]
 
     async def fake_handle_chat(request):
         captured["request"] = request
         return {
-            "answer": "您好，我是萧岚苑的小兰。养护和选品都可以直接问我。",
+            "answer": "您好，我是萧岚苑的小兰。您现在更想先看花，还是聊养护问题？",
             "outbound_messages": [
                 {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
-                {"type": "text", "content": "养护和选品都可以直接问我。"},
+                {"type": "text", "content": "您现在更想先看花，还是聊养护问题？"},
             ],
         }
 
@@ -91,18 +99,25 @@ async def test_new_friend_opening_is_composed_by_agent_and_uses_normal_queue(mon
         del args, kwargs
 
     async def fake_ensure(**kwargs):
+        recorded.append(kwargs)
         return {"id": len(queued) + 100, **kwargs}
 
     async def fake_enqueue(**kwargs):
         queued.append(kwargs)
         return {"id": len(queued)}
 
+    async def fake_reserve(*, w_id, message_count):
+        assert w_id == "wid"
+        assert message_count == 3
+        return due_slots
+
+    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://cdn.example.com/opening.jpg")
+    get_settings.cache_clear()
     monkeypatch.setattr(risk_control, "handle_chat", fake_handle_chat)
     monkeypatch.setattr(risk_control, "_record_opening_memories", fake_record)
     monkeypatch.setattr(risk_control, "ensure_outbound_conversation_message", fake_ensure)
     monkeypatch.setattr(risk_control, "enqueue_eyun_outbound", fake_enqueue)
-    monkeypatch.setattr(risk_control, "random_reply_delay_seconds", lambda: 0)
-    monkeypatch.setattr(risk_control, "random_outbound_spacing_seconds", lambda: 3)
+    monkeypatch.setattr(risk_control, "_reserve_opening_delivery_slots", fake_reserve)
 
     await risk_control._send_opening_for_new_friend(
         {
@@ -111,7 +126,7 @@ async def test_new_friend_opening_is_composed_by_agent_and_uses_normal_queue(mon
             "target_wc_id": "customer",
             "from_user": "customer",
             "from_group": None,
-            "created_at": datetime(2026, 8, 5, tzinfo=timezone.utc),
+            "created_at": now,
         }
     )
 
@@ -120,7 +135,13 @@ async def test_new_friend_opening_is_composed_by_agent_and_uses_normal_queue(mon
     assert request.metadata["is_first_contact"] is True
     assert [item["content"] for item in queued] == [
         "您好，我是萧岚苑的小兰。",
-        "养护和选品都可以直接问我。",
+        "https://cdn.example.com/opening.jpg",
+        "您现在更想先看花，还是聊养护问题？",
     ]
+    assert [item["due_at"] for item in queued] == due_slots
+    assert [item["route"] for item in recorded] == ["opening", "opening", "opening"]
+    assert queued[1]["message_type"] == "image"
     assert queued[0]["depends_on_outbound_id"] is None
     assert queued[1]["depends_on_outbound_id"] == 1
+    assert queued[2]["depends_on_outbound_id"] == 2
+    get_settings.cache_clear()

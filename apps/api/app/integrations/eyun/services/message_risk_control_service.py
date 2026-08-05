@@ -52,6 +52,8 @@ logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
 
 _URL_PATTERN = re.compile(r"https?://[^\s<>，。！？；：、（）【】“”‘’《》]+")
 _URL_TRAILING_PUNCTUATION = "，。！？；：、,.!?;:)]}》〉”’\"'"
+_OPENING_INTRO_FALLBACK = "您好，我是萧岚苑的小兰，平时主要帮兰友选兰花、看养护问题。"
+_OPENING_QUESTION_FALLBACK = "您现在是想先看看兰花，还是有养护问题想让我帮您看看？"
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _initialized_urls: set[str] = set()
@@ -994,9 +996,8 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 batch_data["content"] = "[客户发送了一张订单截图]"
 
         if is_first_inbound or needs_opening:
-            # Harness v2 lets the Sales Agent compose the first-contact reply.
-            # It still enters the same persistent queue and ordinary rate limit;
-            # there is no separate fixed opening script in the runtime path.
+            # The first real customer message stays context-driven. A standalone
+            # new-friend event uses the dedicated opening package and queue below.
             chat_result = await handle_chat(
                 ChatRequest(
                     channel="wechat",
@@ -1566,12 +1567,20 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
             },
         )
     )
-    outbound_messages = _outbound_messages(opening_result)
+    outbound_messages = _opening_outbound_messages(opening_result)
+    opening_answer = "\n\n".join(
+        message["content"]
+        for message in outbound_messages
+        if message["type"] == "text"
+    )
     await _record_opening_memories(
         {**batch, "content": ""},
-        opening_result.get("answer", ""),
+        opening_answer,
     )
-    due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
+    due_slots = await _reserve_opening_delivery_slots(
+        w_id=batch["w_id"],
+        message_count=len(outbound_messages),
+    )
     dependency_id: int | None = None
     for index, message in enumerate(outbound_messages):
         conversation_message = await ensure_outbound_conversation_message(
@@ -1582,7 +1591,7 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
             message_type=message["type"],
             sender_type="ai",
             sender_id="ai",
-            route="agent_first_contact",
+            route="opening",
             created_after=batch["created_at"],
         )
         kwargs = {
@@ -1592,7 +1601,7 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
             "source_batch_key": batch["batch_key"],
             "conversation_message_id": conversation_message["id"],
             "depends_on_outbound_id": dependency_id,
-            "due_at": due_at,
+            "due_at": due_slots[index],
         }
         if message.get("material_id"):
             kwargs["material_id"] = int(message["material_id"])
@@ -1601,7 +1610,46 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
         queued = await enqueue_eyun_outbound(**kwargs)
         queued_id = queued.get("id") if isinstance(queued, dict) else None
         dependency_id = int(queued_id) if queued_id is not None else None
-        due_at += timedelta(seconds=random_outbound_spacing_seconds())
+
+
+def _opening_outbound_messages(opening_result: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_messages = opening_result.get("outbound_messages")
+    texts: list[str] = []
+    if isinstance(raw_messages, list):
+        for message in raw_messages:
+            if not isinstance(message, dict) or message.get("type") != "text":
+                continue
+            content = plain_customer_text(str(message.get("content") or ""))
+            content = " ".join(content.splitlines()).strip()
+            if content:
+                texts.append(content)
+    if (
+        len(texts) != 2
+        or "萧岚苑" not in texts[0]
+        or "小兰" not in texts[0]
+        or texts[0].count("？") + texts[0].count("?") != 0
+        or texts[1].count("？") + texts[1].count("?") != 1
+    ):
+        texts = [_OPENING_INTRO_FALLBACK, _OPENING_QUESTION_FALLBACK]
+
+    messages: list[dict[str, Any]] = [{"type": "text", "content": texts[0]}]
+    settings = get_settings()
+    image_url = settings.eyun_opening_image_url.strip()
+    material_id = settings.eyun_opening_material_id
+    if material_id and image_url:
+        messages.append(
+            {"type": "image", "content": image_url, "material_id": material_id}
+        )
+    elif material_id:
+        messages.append(
+            {"type": "material", "content": "[开场白图片]", "material_id": material_id}
+        )
+    elif image_url:
+        messages.append({"type": "image", "content": image_url})
+    else:
+        logger.warning("Opening image is not configured; sending text-only opening")
+    messages.append({"type": "text", "content": texts[1]})
+    return messages
 
 
 def _encode_outbound_content(message_type: str, content: str) -> str:
