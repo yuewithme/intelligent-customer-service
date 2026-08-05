@@ -49,25 +49,8 @@ class Settings(BaseSettings):
     eyun_login_monitor_interval_seconds: float = Field(
         default=30.0, ge=5.0, alias="EYUN_LOGIN_MONITOR_INTERVAL_SECONDS"
     )
-    eyun_opening_text: str = (
-        "兰友您好！欢迎来到萧岚苑，我是养兰师傅兰画🌹"
-        "我们专注国兰培育和养护，也会给兰友提供养兰资料、"
-        "视频课程和一对一养护指导。"
-    )
-    eyun_opening_followup_text: str = Field(
-        default=(
-            "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n"
-            "1. 家里目前养了多少盆兰花？（还没养扣“0”😝）\n"
-            "2. 具体养了哪些品种？"
-        ),
-        alias="EYUN_OPENING_FOLLOWUP_TEXT",
-    )
-    eyun_opening_image_url: str = ""
     eyun_link_card_default_thumb_url: str = Field(
         default="", alias="EYUN_LINK_CARD_DEFAULT_THUMB_URL"
-    )
-    eyun_opening_material_id: int | None = Field(
-        default=None, alias="EYUN_OPENING_MATERIAL_ID"
     )
     eyun_material_group_wc_id: str = Field(
         default="", alias="EYUN_MATERIAL_GROUP_WC_ID"
@@ -108,6 +91,25 @@ class Settings(BaseSettings):
     eyun_reply_jitter_min_seconds: int = Field(default=0, alias="EYUN_REPLY_JITTER_MIN_SECONDS")
     eyun_reply_jitter_max_seconds: int = Field(default=2, alias="EYUN_REPLY_JITTER_MAX_SECONDS")
     eyun_worker_poll_seconds: float = Field(default=1.0, alias="EYUN_WORKER_POLL_SECONDS")
+    daily_touch_enabled: bool = Field(default=True, alias="DAILY_TOUCH_ENABLED")
+    daily_touch_poll_seconds: float = Field(
+        default=60.0, ge=5.0, alias="DAILY_TOUCH_POLL_SECONDS"
+    )
+    daily_touch_timezone: str = Field(
+        default="Asia/Shanghai", alias="DAILY_TOUCH_TIMEZONE"
+    )
+    daily_touch_window_start: str = Field(
+        default="08:00", alias="DAILY_TOUCH_WINDOW_START"
+    )
+    daily_touch_window_end: str = Field(
+        default="23:00", alias="DAILY_TOUCH_WINDOW_END"
+    )
+    daily_touch_batch_size: int = Field(
+        default=20, ge=1, le=200, alias="DAILY_TOUCH_BATCH_SIZE"
+    )
+    eyun_contact_missing_threshold: int = Field(
+        default=3, ge=1, alias="EYUN_CONTACT_MISSING_THRESHOLD"
+    )
     eyun_contact_refresh_delay_seconds: float = Field(
         default=15.0, ge=0, alias="EYUN_CONTACT_REFRESH_DELAY_SECONDS"
     )
@@ -253,8 +255,6 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = "knowledge_chunks"
     qdrant_knowledge_collection: str = "knowledge_chunks"
-    qdrant_template_collection: str = "reply_templates"
-    qdrant_intent_collection: str = "intent_examples"
     qdrant_vector_size: int = 1024
     qdrant_distance: str = "COSINE"
     qdrant_trust_env: bool = True
@@ -273,66 +273,6 @@ class Settings(BaseSettings):
     )
     business_llm_provider: str = ""
     business_llm_model: str = ""
-    intent_llm_provider: str = ""
-    intent_llm_model: str = "qwen3.6-flash"
-    intent_llm_timeout_seconds: float = Field(
-        default=5, ge=1, alias="INTENT_LLM_TIMEOUT_SECONDS"
-    )
-    intent_provider: str = "rule"
-    intent_llm_enabled: bool = False
-    intent_llm_fallback_threshold: float = Field(default=0.5, ge=0, le=1)
-    intent_fast_rules_enabled: bool = Field(
-        default=True, alias="INTENT_FAST_RULES_ENABLED"
-    )
-    intent_fast_rule_threshold: float = Field(
-        default=0.85, ge=0, le=1, alias="INTENT_FAST_RULE_THRESHOLD"
-    )
-    intent_shadow_enabled: bool = Field(
-        default=False, alias="INTENT_SHADOW_ENABLED"
-    )
-    intent_shadow_sample_percent: int = Field(
-        default=100, ge=0, le=100, alias="INTENT_SHADOW_SAMPLE_PERCENT"
-    )
-    intent_shadow_llm_provider: str = "dashscope"
-    intent_shadow_llm_model: str = "qwen3.7-plus"
-    reply_shadow_enabled: bool = Field(
-        default=False, alias="REPLY_SHADOW_ENABLED"
-    )
-    reply_shadow_sample_percent: int = Field(
-        default=10, ge=0, le=100, alias="REPLY_SHADOW_SAMPLE_PERCENT"
-    )
-    reply_shadow_high_risk_always: bool = Field(
-        default=True, alias="REPLY_SHADOW_HIGH_RISK_ALWAYS"
-    )
-    reply_shadow_llm_provider: str = Field(
-        default="", alias="REPLY_SHADOW_LLM_PROVIDER"
-    )
-    reply_shadow_llm_model: str = Field(
-        default="", alias="REPLY_SHADOW_LLM_MODEL"
-    )
-    reply_shadow_llm_reasoning_effort: Literal[
-        "low", "medium", "high", "xhigh", "max"
-    ] = Field(default="max", alias="REPLY_SHADOW_LLM_REASONING_EFFORT")
-    reply_shadow_experiment_id: str = Field(
-        default="followup_decision_v1",
-        alias="REPLY_SHADOW_EXPERIMENT_ID",
-    )
-    reply_shadow_candidate_version: str = Field(
-        default="followup_v1",
-        alias="REPLY_SHADOW_CANDIDATE_VERSION",
-    )
-    reply_shadow_prompt_version: str = Field(
-        default="v1", alias="REPLY_SHADOW_PROMPT_VERSION"
-    )
-    reply_shadow_export_max_rows: int = Field(
-        default=10000,
-        ge=1,
-        le=100000,
-        alias="REPLY_SHADOW_EXPORT_MAX_ROWS",
-    )
-    intent_prompt_version: str = Field(default="v2", alias="INTENT_PROMPT_VERSION")
-    talk_script_llm_provider: str = ""
-    talk_script_llm_model: str = ""
     persona_llm_provider: str = ""
     persona_llm_model: str = "qwen3.6-flash"
     persona_llm_timeout_seconds: float = Field(
@@ -348,24 +288,6 @@ class Settings(BaseSettings):
     review_llm_reasoning_effort: Literal[
         "low", "medium", "high", "xhigh", "max"
     ] = Field(default="max", alias="REVIEW_LLM_REASONING_EFFORT")
-    intent_confidence_threshold: float = Field(default=0.6, ge=0, le=1)
-    intent_example_top_k: int = Field(default=3, ge=1)
-    intent_labeled_example_enabled: bool = Field(
-        default=True, alias="INTENT_LABELED_EXAMPLE_ENABLED"
-    )
-    intent_labeled_example_top_k: int = Field(
-        default=5, ge=0, le=12, alias="INTENT_LABELED_EXAMPLE_TOP_K"
-    )
-    intent_labeled_example_cache_seconds: int = Field(
-        default=300, ge=10, alias="INTENT_LABELED_EXAMPLE_CACHE_SECONDS"
-    )
-    intent_example_prewarm_enabled: bool = Field(
-        default=True, alias="INTENT_EXAMPLE_PREWARM_ENABLED"
-    )
-    intent_embedding_cache_path: str = Field(
-        default="data/intent_taxonomy_embeddings.json",
-        alias="INTENT_EMBEDDING_CACHE_PATH",
-    )
     deepseek_api_key: str = ""
     openai_api_key: str = ""
     dashscope_api_key: str = ""
@@ -419,9 +341,6 @@ class Settings(BaseSettings):
     chat_log_retention_days: int = Field(default=30, ge=1)
     chat_log_max_message_length: int = Field(default=2000, ge=1)
     chat_log_max_answer_length: int = Field(default=4000, ge=1)
-    intent_observation_enabled: bool = True
-    intent_auto_confirm_threshold: float = Field(default=0.75, ge=0, le=1)
-    intent_training_export_max_rows: int = Field(default=10000, ge=1, le=100000)
 
 
 @lru_cache

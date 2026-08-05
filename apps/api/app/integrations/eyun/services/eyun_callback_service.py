@@ -19,7 +19,7 @@ from app.integrations.eyun.services.eyun_contact_service import (
     get_eyun_contact_snapshot,
     schedule_eyun_contact_refresh,
 )
-from app.domains.decisioning.services.intent_observation_service import is_intent_capture_noise
+from app.domains.conversations.services.input_filter_service import is_platform_noise_text
 from app.integrations.eyun.services.message_risk_control_service import (
     enqueue_eyun_inbound,
 )
@@ -157,7 +157,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
 
     if (
         is_eyun_private_text_message(payload)
-        and is_intent_capture_noise(str(data.get("content") or ""))
+        and is_platform_noise_text(str(data.get("content") or ""))
     ):
         return eyun_success()
 

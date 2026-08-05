@@ -91,7 +91,7 @@
       </div>
 
       <aside v-if="latestResult" class="agent-state">
-        <span>销售阶段：{{ latestResult.sales_stage ? salesStageText(latestResult.sales_stage) : '识别中' }}</span>
+        <span>运行方式：小兰自主 Agent</span>
         <span>下一步：{{ latestResult.next_action || '继续了解客户需求' }}</span>
         <span v-if="latestResult.need_human" class="warning">建议转人工</span>
       </aside>
@@ -117,7 +117,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { salesStageText } from '@/utils/tagDisplay'
 import {
   chatWithDemoSalesAgent,
   getActiveDemoConversation,

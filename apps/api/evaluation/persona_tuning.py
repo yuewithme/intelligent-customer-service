@@ -6,11 +6,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from app.domains.decisioning.schemas.persona import ReplySpec
+from app.domains.conversations.schemas.event import NormalizedMessage
+from app.domains.customers.schemas.state import UserState
 from app.integrations.ai.services.llm_service import generate_messages
-from app.domains.decisioning.services.persona_renderer import render_persona_reply
-from app.domains.decisioning.services.persona_service import build_persona_context_for_mode
-from app.domains.decisioning.services.reply_guard_service import finalize_reply_spec, guard_reply_spec
+from app.domains.decisioning.services.agent_runtime import run_sales_agent
 
 
 IDENTITY_LABELS = ("AI", "人工智能", "智能客服", "机器人")
@@ -230,41 +229,44 @@ def summarize_judgments(judgments: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 async def run_case(case: dict[str, Any], semaphore: asyncio.Semaphore) -> dict:
-    context = build_persona_context_for_mode(
-        mode=str(case.get("mode") or "care_companion"),
-        message=str(case["customer_message"]),
-        relationship_state=case.get("relationship_state") or {},
-        relevant_memories=case.get("relevant_memories") or [],
+    customer_message = str(case["customer_message"])
+    message = NormalizedMessage(
+        trace_id=f"persona-eval-{case['id']}",
+        channel="evaluation",
+        user_id=f"persona-eval-{case['id']}",
+        session_id="default",
+        message=customer_message,
+        kb_id="kb_default",
+        metadata={"evaluation_id": str(case["id"])},
     )
-    original = str(case.get("suggested_copy") or "")
-    spec = ReplySpec(
-        route="persona_tuning",
-        reply_type="template",
-        reply_goal=str(case.get("reply_goal") or "自然回应客户当前问题"),
-        suggested_copy=original,
-        must_include=list(case.get("must_include") or []),
-        question_slot=case.get("question_slot"),
-        prohibited_claims=list(case.get("prohibited_claims") or []),
-        metadata={"persona_original_copy": original},
-    )
+    workspace = {
+        "profile": case.get("profile") or {},
+        "recent_turns": case.get("recent_turns") or [],
+        "relationship_state": case.get("relationship_state") or {},
+        "memory": {
+            "relevant_episodes": case.get("relevant_memories") or [],
+        },
+        "evaluation_expectations": {
+            "reply_goal": case.get("reply_goal"),
+            "must_include": case.get("must_include") or [],
+            "prohibited_claims": case.get("prohibited_claims") or [],
+        },
+    }
     async with semaphore:
-        rendered = await render_persona_reply(
-            spec=spec,
-            context=context,
-            current_message=str(case["customer_message"]),
+        reply = await run_sales_agent(
+            message=message,
+            user_state=UserState(user_id=message.user_id),
+            workspace=workspace,
         )
-    guarded = guard_reply_spec(spec=rendered, context=context)
-    reply = finalize_reply_spec(guarded)
     violations = evaluate_answer(case, reply.answer, reply.metadata)
     return {
         "id": case["id"],
-        "mode": context.mode,
+        "mode": "sales_agent",
         "identity_case": bool(case.get("identity_case")),
-        "customer_message": case["customer_message"],
+        "customer_message": customer_message,
         "answer": reply.answer,
         "violations": violations,
-        "persona": reply.metadata.get("persona", {}),
-        "guard": reply.metadata.get("persona_guard"),
+        "agent_runtime": reply.metadata.get("agent_runtime", {}),
     }
 
 

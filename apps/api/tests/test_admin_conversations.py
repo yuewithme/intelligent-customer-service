@@ -157,12 +157,7 @@ def test_evaluation_turn_is_recorded_as_a_labeled_workbench_conversation(
         and item["metadata"]["is_evaluation"] is True
         for item in detail["messages"]
     )
-    assert [item["metadata"]["sales_stage"] for item in detail["messages"]] == [
-        "need_discovery",
-        "need_discovery",
-        "pain_discovery",
-        "pain_discovery",
-    ]
+    assert all("sales_stage" not in item["metadata"] for item in detail["messages"])
 
 
 def test_evaluation_card_is_recorded_as_real_workbench_message(
@@ -223,49 +218,6 @@ def test_evaluation_card_is_recorded_as_real_workbench_message(
     ]
     assert ai_messages[1]["metadata"]["link_card"] == card
     assert ai_messages[1]["metadata"]["simulated_delivery"] is True
-
-
-def test_conversation_detail_recovers_historical_sales_stage_from_chat_log(
-    monkeypatch, tmp_path
-):
-    import asyncio
-
-    from app.domains.conversations.services.chat_log_service import record_chat_log
-    from app.domains.conversations.services.conversation_service import (
-        ensure_outbound_conversation_message,
-    )
-
-    _reset_settings(monkeypatch, tmp_path)
-    asyncio.run(
-        ensure_outbound_conversation_message(
-            channel="wechat",
-            user_id="historical_customer",
-            session_id="default",
-            content="历史 AI 回复",
-            trace_id="trace_historical_stage",
-            metadata={"sales_stage": "SalesStage.NEED_DISCOVERY"},
-        )
-    )
-    asyncio.run(
-        record_chat_log(
-            {
-                "trace_id": "trace_historical_stage",
-                "channel": "wechat",
-                "user_id": "historical_customer",
-                "session_id": "default",
-                "user_message": "历史客户消息",
-                "answer": "历史 AI 回复",
-                "sales_stage": "need_discovery",
-                "status": "success",
-            }
-        )
-    )
-
-    detail = TestClient(app).get(
-        "/api/v1/admin/conversations/wechat:historical_customer:default"
-    ).json()["data"]
-
-    assert detail["messages"][0]["metadata"]["sales_stage"] == "need_discovery"
 
 
 def test_hidden_conversation_reappears_after_new_customer_message(monkeypatch, tmp_path):
@@ -519,7 +471,7 @@ def test_human_active_suppresses_ai_until_admin_releases_it(monkeypatch, tmp_pat
         },
     ).json()["data"]
     assert resumed["answer"]
-    assert resumed["route"] == "chitchat"
+    assert resumed["route"] == "agent"
 
 
 def test_admin_only_displays_configured_wechat_material_group(monkeypatch, tmp_path):

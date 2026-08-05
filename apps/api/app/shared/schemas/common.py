@@ -20,6 +20,7 @@ class ErrorCode(IntEnum):
     INTENT_FAILED = 41000
     INTENT_LOW_CONFIDENCE = 41001
     INTENT_SCHEMA_INVALID = 41002
+    MODEL_SCHEMA_INVALID = 41002
     TEMPLATE_NOT_FOUND = 42000
     TEMPLATE_RENDER_FAILED = 42001
     TEMPLATE_INDEX_FAILED = 42002
@@ -50,7 +51,7 @@ ERROR_MESSAGES = {
     ErrorCode.DOCUMENT_PARSE_FAILED: "文档解析失败",
     ErrorCode.INTENT_FAILED: "意图识别失败",
     ErrorCode.INTENT_LOW_CONFIDENCE: "意图置信度过低",
-    ErrorCode.INTENT_SCHEMA_INVALID: "意图识别返回结构错误",
+    ErrorCode.MODEL_SCHEMA_INVALID: "大模型返回结构错误",
     ErrorCode.TEMPLATE_NOT_FOUND: "未找到合适模板",
     ErrorCode.TEMPLATE_RENDER_FAILED: "模板渲染失败",
     ErrorCode.TEMPLATE_INDEX_FAILED: "模板入库失败",

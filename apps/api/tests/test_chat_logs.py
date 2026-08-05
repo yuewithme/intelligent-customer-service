@@ -179,119 +179,6 @@ def test_admin_chat_logs_support_filters_and_keyword(monkeypatch, tmp_path):
     ).json()["data"]["items"][0]["trace_id"] == "req_002"
 
 
-def test_admin_talk_script_match_logs_return_match_details(monkeypatch, tmp_path):
-    _reset_settings(monkeypatch, tmp_path)
-    from app.domains.sales.talk_script.repository import record_match_log
-
-    record_match_log(
-        {
-            "trace_id": "trace_talk_001",
-            "customer_id": "user_001",
-            "session_id": "sess_001",
-            "user_message": "这个有点贵",
-            "normalized_message": "这个有点贵",
-            "status": "matched",
-            "scene_id": "S07",
-            "candidate_question_ids": ["Q07_02_001"],
-            "matched_question_id": "Q07_02_001",
-            "template_id": "T07_02_001",
-            "confidence": 0.91,
-            "need_slot_filling": False,
-            "need_human": False,
-            "final_answer": "价格说明话术",
-            "match_reason": "命中价格异议",
-        }
-    )
-
-    client = TestClient(app)
-    response = client.get("/api/v1/admin/talk-script-match-logs")
-
-    assert response.status_code == 200
-    data = response.json()["data"]
-    assert data["total"] == 1
-    item = data["items"][0]
-    assert item["trace_id"] == "trace_talk_001"
-    assert item["status"] == "matched"
-    assert item["scene_id"] == "S07"
-    assert item["candidate_question_ids"] == ["Q07_02_001"]
-    assert item["matched_question_id"] == "Q07_02_001"
-    assert item["template_id"] == "T07_02_001"
-    assert item["match_reason"] == "命中价格异议"
-
-
-def test_admin_talk_script_match_stats_returns_reason_and_scene_breakdown(monkeypatch, tmp_path):
-    _reset_settings(monkeypatch, tmp_path)
-    from app.domains.sales.talk_script.repository import record_match_log
-
-    record_match_log(
-        {
-            "trace_id": "trace_talk_001",
-            "customer_id": "user_001",
-            "session_id": "sess_001",
-            "user_message": "price question",
-            "normalized_message": "price question",
-            "status": "matched",
-            "scene_id": "S07",
-            "candidate_question_ids": ["Q07_01"],
-            "matched_question_id": "Q07_01",
-            "template_id": "T07_01",
-            "confidence": 0.92,
-            "need_human": False,
-            "match_reason": "price_objection",
-        }
-    )
-    record_match_log(
-        {
-            "trace_id": "trace_talk_002",
-            "customer_id": "user_001",
-            "session_id": "sess_001",
-            "user_message": "unknown",
-            "normalized_message": "unknown",
-            "status": "pass_through",
-            "scene_id": None,
-            "confidence": 0.0,
-            "need_human": False,
-            "match_reason": "no_scene_match",
-        }
-    )
-    record_match_log(
-        {
-            "trace_id": "trace_talk_003",
-            "customer_id": "user_002",
-            "session_id": "sess_002",
-            "user_message": "need human",
-            "normalized_message": "need human",
-            "status": "handoff",
-            "scene_id": "S08",
-            "candidate_question_ids": ["Q08_01"],
-            "confidence": 0.44,
-            "need_human": True,
-            "match_reason": "confidence_below_threshold",
-        }
-    )
-
-    client = TestClient(app)
-    response = client.get("/api/v1/admin/talk-script-match-stats")
-
-    assert response.status_code == 200
-    stats = response.json()["data"]
-    assert stats["total"] == 3
-    assert stats["matched_count"] == 1
-    assert stats["handoff_count"] == 1
-    assert stats["pass_through_count"] == 1
-    assert stats["human_count"] == 1
-    assert stats["avg_confidence"] == 0.45
-    assert stats["status_counts"] == {"matched": 1, "pass_through": 1, "handoff": 1}
-    assert stats["reason_counts"] == {
-        "price_objection": 1,
-        "no_scene_match": 1,
-        "confidence_below_threshold": 1,
-    }
-    assert stats["scene_counts"] == {"S07": 1, "S08": 1}
-    assert stats["template_counts"] == {"T07_01": 1}
-    assert stats["low_confidence_items"][0]["trace_id"] == "trace_talk_003"
-
-
 def test_admin_rag_debug_search_returns_candidates_reranked_docs_and_prompt_preview(
     monkeypatch, tmp_path
 ):
@@ -393,7 +280,7 @@ def test_admin_chat_log_apis_require_authorization(monkeypatch, tmp_path):
     assert response.json()["data"] is None
 
 
-def test_chat_api_generates_log_without_changing_legacy_fields(monkeypatch, tmp_path):
+def test_chat_api_logs_internal_agent_judgment_without_exposing_it(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
 
@@ -422,10 +309,11 @@ def test_chat_api_generates_log_without_changing_legacy_fields(monkeypatch, tmp_
 
     detail = client.get(f"/api/v1/admin/chat-logs/{data['trace_id']}")
     assert detail.status_code == 200
-    decision = detail.json()["data"]["metadata"]["decision"]
-    assert decision["action"]
-    assert decision["trace"][-1]["source"] == "planner"
-    assert "business_facts" not in decision
+    agent = detail.json()["data"]["metadata"]["agent_runtime"]
+    assert agent["version"] == "sales-agent-harness-v2"
+    assert agent["commercial_judgment"]
+    assert agent["relationship_purpose"]
+    assert "customer_workspace" not in agent
 
 
 def test_failed_chat_request_generates_failed_log(monkeypatch, tmp_path):

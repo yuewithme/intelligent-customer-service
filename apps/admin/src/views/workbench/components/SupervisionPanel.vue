@@ -21,10 +21,17 @@
           <dd>{{ conversation.channel }}</dd>
           <dt>会话</dt>
           <dd>{{ sessionText(conversation) }}</dd>
-          <dt>路由</dt>
+          <dt>运行方式</dt>
           <dd>{{ routeText(conversation.last_route) }}</dd>
-          <dt>意图</dt>
-          <dd>{{ intentText(conversation.last_intent) }}</dd>
+          <dt>客户信号</dt>
+          <dd>{{ customerSignalText(agentRelationship?.customer_signal) }}</dd>
+          <dt>今日触达</dt>
+          <dd>
+            {{ dailyTouch?.sent_message_count || 0 }}/{{ dailyTouch?.daily_maximum || 2 }} 次
+            <ElTag v-if="dailyTouch?.completed_today" size="small" type="success" effect="plain">
+              已完成
+            </ElTag>
+          </dd>
           <dt>接管人</dt>
           <dd>{{ conversation.owner_id || '-' }}</dd>
           <dt>转人工原因</dt>
@@ -39,6 +46,16 @@
             </div>
             <span v-else>-</span>
           </dd>
+        </dl>
+      </div>
+
+      <div v-if="agentRelationship?.commercial_judgment || agentRelationship?.relationship_purpose" class="agent-section">
+        <div class="title"><span>小兰本轮判断</span></div>
+        <dl class="profile-detail">
+          <dt>商业判断</dt>
+          <dd class="profile-long-text">{{ agentRelationship.commercial_judgment || '-' }}</dd>
+          <dt>关系目的</dt>
+          <dd class="profile-long-text">{{ agentRelationship.relationship_purpose || '-' }}</dd>
         </dl>
       </div>
 
@@ -98,11 +115,6 @@
           <dd>{{ updatedAtText }}</dd>
         </dl>
       </div>
-      <SalesOpportunityPanel
-        :user-id="conversation.user_id"
-        :operator-id="operatorId"
-        @changed="emit('changed')"
-      />
     </template>
   </aside>
 </template>
@@ -119,20 +131,23 @@ import {
   replyConversationEmoji,
   replyConversationImage,
   resolveConversation,
+  type AgentRelationshipState,
   type ConversationItem,
-  type ConversationStatus
+  type ConversationStatus,
+  type DailyTouchSnapshot
 } from '@/api/admin/conversations'
 import type { UserProfile } from '@/api/user-profile'
 import { useUserStore } from '@/store/modules/user'
-import { intentText, riskLevelText, tagValueText } from '@/utils/tagDisplay'
+import { riskLevelText, tagValueText } from '@/utils/tagDisplay'
 import { formatChinaTime } from '../time'
 import ReplyComposer from './ReplyComposer.vue'
-import SalesOpportunityPanel from './SalesOpportunityPanel.vue'
 import YouzanOrderPanel from './YouzanOrderPanel.vue'
 
 const props = defineProps<{
   conversationId: string
   conversation?: ConversationItem
+  agentRelationship?: AgentRelationshipState
+  dailyTouch?: DailyTouchSnapshot
   profile?: UserProfile
   profileLoading?: boolean
 }>()
@@ -241,6 +256,8 @@ const sessionText = (conversation: ConversationItem) =>
 
 const routeText = (value?: string | null) =>
   ({
+    agent: '小兰自主 Agent',
+    agent_first_contact: '小兰主动开场',
     unsupported: '未匹配',
     inbound_text: '私聊消息',
     non_text: '非文本消息',
@@ -252,6 +269,13 @@ const routeText = (value?: string | null) =>
   })[value || ''] ||
   value ||
   '-'
+
+const customerSignalText = (value?: AgentRelationshipState['customer_signal']) =>
+  ({
+    none: '正常沟通',
+    soft_refusal: '软拒绝／需要降压',
+    explicit_refusal: '明确拒绝／降低频率'
+  })[value || 'none']
 
 const handoffReasonText = (value?: string | null) =>
   ({
@@ -332,7 +356,8 @@ dd {
   gap: 8px;
 }
 
-.profile-section {
+.profile-section,
+.agent-section {
   padding-top: 4px;
 }
 

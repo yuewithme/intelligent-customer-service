@@ -9,7 +9,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.bootstrap.lifecycle import lifespan
 from app.bootstrap.routes import register_routes
 from app.core.config import get_settings
-from app.domains.sales.api.admin_unpurchased_sop import sop_media_storage_dir
 from app.integrations.eyun.services.eyun_callback_service import video_storage_dir
 from app.integrations.web.services.link_card_thumbnail_service import (
     link_card_thumbnail_storage_dir,
@@ -43,11 +42,6 @@ def _mount_static_files(application: FastAPI) -> None:
         "/static/media",
         StaticFiles(directory=video_storage_dir()),
         name="video-media",
-    )
-    application.mount(
-        "/static/sop-media",
-        StaticFiles(directory=sop_media_storage_dir()),
-        name="sop-media",
     )
     application.mount(
         "/static/workbench-media",

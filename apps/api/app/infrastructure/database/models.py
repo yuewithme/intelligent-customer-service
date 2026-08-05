@@ -282,171 +282,6 @@ class AiModelCallLogModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
-class IntentShadowRunModel(Base):
-    __tablename__ = "intent_shadow_runs"
-    __table_args__ = (
-        UniqueConstraint("trace_id", "shadow_model", name="uq_intent_shadow_trace_model"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    trace_id: Mapped[str] = mapped_column(String(128), index=True)
-    primary_source: Mapped[str] = mapped_column(String(64))
-    primary_domain: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    primary_goal: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    primary_issues_json: Mapped[str] = mapped_column(Text, default="[]")
-    primary_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    primary_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    shadow_provider: Mapped[str] = mapped_column(String(64))
-    shadow_model: Mapped[str] = mapped_column(String(256))
-    shadow_domain: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    shadow_goal: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    shadow_issues_json: Mapped[str] = mapped_column(Text, default="[]")
-    shadow_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    shadow_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    shadow_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    agreement: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
-    status: Mapped[str] = mapped_column(String(32), index=True)
-    error_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class IntentObservationModel(Base):
-    __tablename__ = "intent_observations"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    trace_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
-    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    channel: Mapped[str] = mapped_column(String(64), index=True)
-    user_id: Mapped[str] = mapped_column(String(256), index=True)
-    session_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
-    message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    tenant_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    conversation_id: Mapped[str | None] = mapped_column(
-        String(256), index=True, nullable=True
-    )
-    conversation_message_ids_json: Mapped[str] = mapped_column(Text, default="[]")
-    user_message: Mapped[str] = mapped_column(Text)
-    context_json: Mapped[str] = mapped_column(Text, default="[]")
-
-    taxonomy_version: Mapped[str] = mapped_column(String(32), index=True, default="1.0")
-    classifier_source: Mapped[str] = mapped_column(String(64), index=True, default="unknown")
-    classifier_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    classifier_model: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    raw_prediction_json: Mapped[str] = mapped_column(Text, default="{}")
-    candidate_labels_json: Mapped[str] = mapped_column(Text, default="[]")
-
-    primary_domain: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    secondary_domains_json: Mapped[str] = mapped_column(Text, default="[]")
-    primary_goal: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    secondary_goals_json: Mapped[str] = mapped_column(Text, default="[]")
-    issues_json: Mapped[str] = mapped_column(Text, default="[]")
-    scope: Mapped[str] = mapped_column(String(32), index=True, default="ambiguous")
-    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
-    confidence: Mapped[float | None] = mapped_column(Float, index=True, nullable=True)
-    intent_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    predicted_route: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    final_route: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    primary_intent: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    sales_stage: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    status: Mapped[str] = mapped_column(String(32), index=True, default="observed")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class IntentAnnotationModel(Base):
-    __tablename__ = "intent_annotations"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    observation_id: Mapped[int] = mapped_column(
-        ForeignKey("intent_observations.id"), index=True
-    )
-    trace_id: Mapped[str] = mapped_column(String(128), index=True)
-    status: Mapped[str] = mapped_column(String(32), index=True)
-    primary_domain: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    secondary_domains_json: Mapped[str] = mapped_column(Text, default="[]")
-    primary_goal: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    secondary_goals_json: Mapped[str] = mapped_column(Text, default="[]")
-    issues_json: Mapped[str] = mapped_column(Text, default="[]")
-    scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    annotator_id: Mapped[str] = mapped_column(String(128), index=True)
-    taxonomy_version: Mapped[str] = mapped_column(String(32), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class ReplyShadowRunModel(Base):
-    __tablename__ = "reply_shadow_runs"
-    __table_args__ = (
-        UniqueConstraint(
-            "trace_id",
-            "experiment_id",
-            "candidate_version",
-            "prompt_version",
-            name="uq_reply_shadow_trace_experiment_candidate_prompt",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    trace_id: Mapped[str] = mapped_column(String(128), index=True)
-    experiment_id: Mapped[str] = mapped_column(String(128), index=True)
-    candidate_version: Mapped[str] = mapped_column(String(128), index=True)
-    prompt_version: Mapped[str] = mapped_column(String(64))
-    channel: Mapped[str] = mapped_column(String(64), index=True)
-    user_message: Mapped[str] = mapped_column(Text)
-    input_snapshot_json: Mapped[str] = mapped_column(Text, default="{}")
-    primary_json: Mapped[str] = mapped_column(Text, default="{}")
-    shadow_json: Mapped[str] = mapped_column(Text, default="{}")
-    decision_agreement: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
-    auto_issues_json: Mapped[str] = mapped_column(Text, default="[]")
-    review_priority: Mapped[str] = mapped_column(String(32), index=True, default="medium")
-    status: Mapped[str] = mapped_column(String(32), index=True)
-    error_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class ReplyShadowAnnotationModel(Base):
-    __tablename__ = "reply_shadow_annotations"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    reply_shadow_run_id: Mapped[int] = mapped_column(
-        ForeignKey("reply_shadow_runs.id"),
-        index=True,
-    )
-    trace_id: Mapped[str] = mapped_column(String(128), index=True)
-    verdict: Mapped[str] = mapped_column(String(32), index=True)
-    error_tags_json: Mapped[str] = mapped_column(Text, default="[]")
-    note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    annotator_id: Mapped[str] = mapped_column(String(128), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class ConversationCaseShadowRunModel(Base):
-    __tablename__ = "conversation_case_shadow_runs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    run_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    case_id: Mapped[str] = mapped_column(String(64), index=True)
-    experiment_id: Mapped[str] = mapped_column(String(128), index=True)
-    candidate_version: Mapped[str] = mapped_column(String(128), index=True)
-    prompt_version: Mapped[str] = mapped_column(String(64))
-    status: Mapped[str] = mapped_column(String(32), index=True)
-    total_checkpoints: Mapped[int] = mapped_column(Integer, default=0)
-    completed_checkpoints: Mapped[int] = mapped_column(Integer, default=0)
-    failed_checkpoints: Mapped[int] = mapped_column(Integer, default=0)
-    result_json: Mapped[str] = mapped_column(Text, default="{}")
-    error_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        index=True,
-        nullable=True,
-    )
-
-
 class EyunInboundBatchModel(Base):
     __tablename__ = "eyun_inbound_batches"
 
@@ -1117,6 +952,43 @@ class EyunContactModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class AgentCustomerStateModel(Base):
+    __tablename__ = "agent_customer_states"
+
+    customer_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    customer_signal: Mapped[str] = mapped_column(String(32), index=True, default="none")
+    explicit_refusal: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
+    commercial_judgment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    relationship_purpose: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_trace_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class AgentWakeupModel(Base):
+    __tablename__ = "agent_wakeups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    dedup_key: Mapped[str] = mapped_column(String(512), unique=True, index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
+    customer_id: Mapped[str] = mapped_column(String(256), index=True)
+    contact_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True, default="follow_up")
+    local_date: Mapped[str | None] = mapped_column(String(10), index=True, nullable=True)
+    reason: Mapped[str] = mapped_column(Text)
+    checklist_json: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    source_trace_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    outbound_batch_key: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class YouzanIdentityBindingModel(Base):
     __tablename__ = "youzan_identity_bindings"
     __table_args__ = (
@@ -1193,84 +1065,6 @@ class HandoffNotificationSettingModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     recipient_contact_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     message_text: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class UnpurchasedSopModel(Base):
-    __tablename__ = "unpurchased_sops"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(256), default="未购SOP")
-    enabled: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
-    dry_run: Mapped[bool] = mapped_column(Boolean, default=True)
-    send_window_start: Mapped[str] = mapped_column(String(5), default="09:00")
-    send_window_end: Mapped[str] = mapped_column(String(5), default="20:00")
-    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Shanghai")
-    contact_poll_interval_minutes: Mapped[int] = mapped_column(Integer, default=120)
-    contact_missing_threshold: Mapped[int] = mapped_column(Integer, default=3)
-    baseline_initialized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_contact_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class UnpurchasedSopStepModel(Base):
-    __tablename__ = "unpurchased_sop_steps"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    sop_id: Mapped[int] = mapped_column(Integer, index=True)
-    day_offset: Mapped[int] = mapped_column(Integer, index=True)
-    send_time: Mapped[str] = mapped_column(String(5))
-    send_time_start: Mapped[str] = mapped_column(String(5), default="09:00")
-    send_time_end: Mapped[str] = mapped_column(String(5), default="09:00")
-    message_type: Mapped[str] = mapped_column(String(32), index=True)
-    content: Mapped[str] = mapped_column(Text)
-    preview_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    messages_json: Mapped[str] = mapped_column(Text, default="[]")
-    position: Mapped[int] = mapped_column(Integer, default=0)
-    enabled: Mapped[bool] = mapped_column(Boolean, index=True, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class UnpurchasedSopEnrollmentModel(Base):
-    __tablename__ = "unpurchased_sop_enrollments"
-    __table_args__ = (
-        UniqueConstraint("sop_id", "contact_id", "friend_added_on", name="uq_unpurchased_enrollment"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    sop_id: Mapped[int] = mapped_column(Integer, index=True)
-    contact_id: Mapped[int] = mapped_column(Integer, index=True)
-    friend_added_on: Mapped[date] = mapped_column(Date, index=True)
-    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
-    paused_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    exit_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class UnpurchasedSopDeliveryModel(Base):
-    __tablename__ = "unpurchased_sop_deliveries"
-    __table_args__ = (
-        UniqueConstraint("enrollment_id", "step_id", name="uq_unpurchased_delivery"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    enrollment_id: Mapped[int] = mapped_column(Integer, index=True)
-    step_id: Mapped[int] = mapped_column(Integer, index=True)
-    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    status: Mapped[str] = mapped_column(String(32), index=True, default="scheduled")
-    message_type: Mapped[str] = mapped_column(String(32))
-    content_snapshot: Mapped[str] = mapped_column(Text)
-    preview_url_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
-    messages_snapshot_json: Mapped[str] = mapped_column(Text, default="[]")
-    outbound_message_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
-    outbound_message_ids_json: Mapped[str] = mapped_column(Text, default="[]")
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
@@ -1384,85 +1178,6 @@ class ProfileEventModel(Base):
     after_json: Mapped[str] = mapped_column(Text, default="{}")
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-
-
-class SceneIndexModel(Base):
-    __tablename__ = "scene_index"
-
-    scene_id: Mapped[str] = mapped_column(String(32), primary_key=True)
-    scene_name: Mapped[str] = mapped_column(String(256))
-    scene_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
-    enter_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
-    typical_user_messages: Mapped[str | None] = mapped_column(Text, nullable=True)
-    exclude_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
-    priority: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
-
-
-class QuestionClusterModel(Base):
-    __tablename__ = "question_cluster"
-
-    question_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    scene_id: Mapped[str] = mapped_column(String(32), index=True)
-    sub_scene_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    standard_question: Mapped[str] = mapped_column(Text)
-    core_intent: Mapped[str | None] = mapped_column(Text, nullable=True)
-    user_question_aliases: Mapped[str | None] = mapped_column(Text, nullable=True)
-    positive_examples: Mapped[str | None] = mapped_column(Text, nullable=True)
-    negative_examples: Mapped[str | None] = mapped_column(Text, nullable=True)
-    keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
-    required_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
-    exclude_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
-    confusable_questions: Mapped[str | None] = mapped_column(Text, nullable=True)
-    default_template_id: Mapped[str] = mapped_column(String(64), index=True)
-    confidence_threshold: Mapped[float] = mapped_column(Float, default=0.75)
-    priority: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
-
-
-class TemplateLibraryModel(Base):
-    __tablename__ = "template_library"
-
-    template_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    question_id: Mapped[str] = mapped_column(String(64), index=True)
-    template_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    answer_default: Mapped[str] = mapped_column(Text)
-    answer_goal: Mapped[str | None] = mapped_column(Text, nullable=True)
-    need_slot_filling: Mapped[str] = mapped_column(String(32), default="no")
-    handoff_rule: Mapped[str | None] = mapped_column(Text, nullable=True)
-    sales_stage: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
-    sales_action: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
-    branch_code: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    required_conditions_json: Mapped[str] = mapped_column(Text, default="[]")
-    exclude_conditions_json: Mapped[str] = mapped_column(Text, default="[]")
-    required_fact_keys_json: Mapped[str] = mapped_column(Text, default="[]")
-    variables_json: Mapped[str] = mapped_column(Text, default="[]")
-    priority: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(32), index=True, default="active")
-    version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    change_note: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
-class TalkScriptMatchLogModel(Base):
-    __tablename__ = "talk_script_match_logs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    trace_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    customer_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
-    session_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
-    user_message: Mapped[str] = mapped_column(Text)
-    normalized_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(32), index=True)
-    scene_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
-    candidate_question_ids_json: Mapped[str] = mapped_column(Text, default="[]")
-    matched_question_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    template_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    need_slot_filling: Mapped[bool] = mapped_column(Boolean, default=False)
-    need_human: Mapped[bool] = mapped_column(Boolean, default=False)
-    final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
-    match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 

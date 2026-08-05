@@ -13,11 +13,6 @@ from app.infrastructure.database.models import (
     UserProfileModel,
 )
 from app.integrations.ai.services.llm_service import generate_json
-from app.domains.sales.services.sales_action_service import evolve_opportunity
-from app.domains.sales.services.sales_stage_catalog import (
-    get_sales_stage_definition,
-    normalize_sales_stage_reference,
-)
 from app.domains.sales.services.tag_catalog import (
     get_profile_tag_categories,
     get_tag_categories,
@@ -45,7 +40,6 @@ _basic_info_fields = {
     "shipping_city",
 }
 _allowed_patch_fields = {
-    "current_stage",
     "risk_level",
     "customer_tags",
     "product_interests",
@@ -130,110 +124,6 @@ async def patch_user_profile(user_id: str, updates: dict) -> dict:
             )
         session.commit()
         return _profile_to_dict(profile)
-
-
-async def get_sales_opportunity(user_id: str) -> dict:
-    bundle = await get_profile_bundle(user_id)
-    return _sales_opportunity_view(bundle["profile"])
-
-
-async def adjust_sales_opportunity_stage(
-    user_id: str,
-    *,
-    stage: str,
-    reason: str,
-    operator_id: str,
-) -> dict:
-    definition = get_sales_stage_definition(stage)
-    if definition is None:
-        raise ValueError("非法销售阶段")
-    if not reason.strip() or not operator_id.strip():
-        raise ValueError("操作人和调整原因不能为空")
-    with _get_session() as session:
-        profile = _get_or_create_profile(session, user_id)
-        before = _profile_to_dict(profile)
-        opportunity = _json_loads(profile.active_opportunity_json, {})
-        if not opportunity or opportunity.get("status") != "active":
-            raise ValueError("仅允许调整进行中的销售机会")
-        if isinstance(opportunity.get("interruption"), dict):
-            raise ValueError("销售机会处于中断状态，请先处理售后或人工接管")
-        previous_stage = opportunity.get("current_stage") or profile.current_stage
-        opportunity.update(
-            {
-                "previous_stage": normalize_system_value("sales_stage", previous_stage, fallback="rapport"),
-                "current_stage": definition.stage.value,
-                "sales_stage": definition.stage.value,
-                "stage_reason": f"manual:{reason.strip()}",
-                "transition_type": "manual",
-                "last_active_at": _now().isoformat(),
-                "manual_adjustment": {
-                    "operator_id": operator_id.strip(),
-                    "reason": reason.strip(),
-                    "updated_at": _now().isoformat(),
-                },
-            }
-        )
-        profile.current_stage = definition.stage.value
-        profile.active_opportunity_json = _json_dumps(opportunity)
-        profile.updated_at = _now()
-        after = _profile_to_dict(profile)
-        _add_event(
-            session,
-            profile,
-            "sales_stage_manually_adjusted",
-            before,
-            after,
-            f"operator={operator_id.strip()}; reason={reason.strip()}",
-            None,
-        )
-        session.commit()
-        return _sales_opportunity_view(_profile_to_dict(profile))
-
-
-async def close_sales_opportunity(
-    user_id: str,
-    *,
-    status: str,
-    reason: str,
-    operator_id: str,
-) -> dict:
-    if status not in {"lost", "expired"}:
-        raise ValueError("人工关闭只允许 lost 或 expired，不能伪造成交")
-    if not reason.strip() or not operator_id.strip():
-        raise ValueError("操作人和关闭原因不能为空")
-    with _get_session() as session:
-        profile = _get_or_create_profile(session, user_id)
-        before = _profile_to_dict(profile)
-        opportunity = _json_loads(profile.active_opportunity_json, {})
-        if not opportunity or opportunity.get("status") != "active":
-            raise ValueError("仅允许关闭进行中的销售机会")
-        now = _now()
-        opportunity.update(
-            {
-                "status": status,
-                "close_reason": reason.strip(),
-                "closed_at": now.isoformat(),
-                "last_active_at": now.isoformat(),
-                "asked_slots": [],
-                "recommended_product_ids": [],
-                "manual_close": {"operator_id": operator_id.strip(), "reason": reason.strip()},
-            }
-        )
-        opportunity.pop("decision_blocker", None)
-        profile.active_opportunity_json = _json_dumps(opportunity)
-        profile.updated_at = now
-        after = _profile_to_dict(profile)
-        _add_event(
-            session,
-            profile,
-            "sales_opportunity_manually_closed",
-            before,
-            after,
-            f"operator={operator_id.strip()}; status={status}; reason={reason.strip()}",
-            None,
-        )
-        session.commit()
-        return _sales_opportunity_view(_profile_to_dict(profile))
 
 
 async def add_verified_customer_tag(
@@ -448,24 +338,9 @@ async def apply_deterministic_profile_update(message, intent, reply) -> None:
             channel=message.channel,
         )
         before = _profile_to_dict(profile)
-        sales_stage = normalize_system_value(
-            "sales_stage", getattr(intent, "sales_stage", None), fallback="unknown"
-        )
-        if sales_stage != "unknown":
-            profile.current_stage = sales_stage
-        profile.last_intent = normalize_system_value(
-            "intent", getattr(intent, "primary_intent", None), fallback="unknown"
-        )
         profile.last_route = reply.route
-        profile.last_template_id = reply.template_id
         profile.last_active_at = _now()
         _apply_tag_result(profile, reply.metadata.get("tag_result"))
-        _apply_sales_action(
-            profile,
-            intent,
-            reply.metadata.get("sales_action"),
-            reply.metadata.get("sales_stage_decision"),
-        )
         profile.updated_at = _now()
         if reply.route == "human" or reply.need_human:
             handoff = reply.metadata.get("handoff", {})
@@ -543,26 +418,6 @@ def _apply_tag_result(profile: UserProfileModel, tag_result: Any) -> None:
     )
     profile.product_interests_json = _json_dumps(product_interests)
     profile.pain_points_json = _json_dumps(pain_points)
-
-
-def _apply_sales_action(
-    profile: UserProfileModel,
-    intent,
-    sales_action: Any,
-    stage_decision: Any = None,
-) -> None:
-    if not isinstance(sales_action, dict):
-        return
-    profile.active_opportunity_json = _json_dumps(
-        evolve_opportunity(
-            _json_loads(profile.active_opportunity_json, {}),
-            sales_stage=normalize_system_value(
-                "sales_stage", intent.sales_stage, fallback="unknown"
-            ),
-            sales_action=sales_action,
-            stage_decision=stage_decision if isinstance(stage_decision, dict) else None,
-        )
-    )
 
 
 async def _build_profile_analysis(user_records: list[dict]) -> dict:
@@ -712,45 +567,12 @@ def _render_profile_summary(profile: UserProfileModel) -> str:
     tags = _merge_customer_tags(_json_loads(profile.customer_tags_json, []), [])
     interests = _json_loads(profile.product_interests_json, [])
     pain_points = _json_loads(profile.pain_points_json, [])
-    opportunity = _json_loads(profile.active_opportunity_json, {})
     if not tags and not interests and not pain_points:
         return ""
-    action_advice = {
-        "build_rapport": "自然回应并了解客户来意。",
-        "discover_need_track": "判断客户是服务需求、产品需求还是复合需求。",
-        "discover_pain": "确认客户最想解决的问题或期望结果。",
-        "recommend_solution": "基于明确痛点直接给出合适方案，减少重复追问。",
-        "build_value": "说明方案价值并确认客户是否认可。",
-        "trial_close": "给出可信方案并确认客户购买意愿。",
-        "resolve_blocker": "针对客户异议给出直接说明，避免重复询问。",
-        "close_order": "确认规格、数量和收货信息，推进下单。",
-        "provide_service": "优先解决售后问题，暂停销售推进。",
-        "handoff_to_human": "优先由人工接管并解决当前问题，暂停销售推进。",
-    }
-    if profile.is_human_handoff:
-        advice = "优先由人工接管并解决当前问题，暂停销售推进。"
-    elif profile.last_intent in {"ask_after_sale", "refund_request", "complaint"}:
-        advice = "优先解决售后问题，暂停销售推进。"
-    else:
-        advice = action_advice.get(opportunity.get("last_sales_action")) or {
-            "pain_discovery": "确认客户最想解决的问题或期望结果。",
-            "solution_recommended": "基于客户信息推荐合适方案。",
-            "value_built": "说明方案价值并确认客户是否认可。",
-            "trial_close": "给出可信方案并确认客户购买意愿。",
-            "closing": "针对最后阻碍推进真实下单。",
-        }.get(profile.current_stage, "补充一个最关键的缺失信息，再推进下一步。")
-    blocker = opportunity.get("decision_blocker")
-    blocker_text = (
-        blocker.get("detail")
-        if isinstance(blocker, dict) and blocker.get("detail")
-        else "暂未发现明确阻碍"
-    )
     return (
         f"客户情况：{'、'.join(tags) or '信息待补充'}；"
         f"产品兴趣：{'、'.join(interests) or '待确认'}。\n"
-        f"当前诉求：{'；'.join(pain_points) or '待确认'}。\n"
-        f"成交阻碍：{blocker_text}。\n"
-        f"跟进建议：{advice}"
+        f"客户明确表达的问题：{'；'.join(pain_points) or '待确认'}。"
     )
 
 
@@ -1101,17 +923,9 @@ def _set_profile_field(profile: UserProfileModel, field: str, value: Any) -> Non
         profile.customer_tags_json = _json_dumps(
             _merge_customer_tags([], _string_list(value))
         )
-    elif field == "current_stage":
-        profile.current_stage = normalize_system_value(
-            "sales_stage", value, fallback="unknown"
-        )
     elif field == "risk_level":
         profile.risk_level = normalize_system_value(
             "risk_level", value, fallback="normal"
-        )
-    elif field == "last_intent":
-        profile.last_intent = normalize_system_value(
-            "intent", value, fallback="unknown"
         )
     elif field == "product_interests":
         profile.product_interests_json = _json_dumps(_string_list(value))
@@ -1126,9 +940,6 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "user_id": profile.user_id,
         "tenant_id": profile.tenant_id,
         "channel": profile.channel,
-        "current_stage": normalize_system_value(
-            "sales_stage", profile.current_stage, fallback="unknown"
-        ),
         "risk_level": normalize_system_value(
             "risk_level", profile.risk_level, fallback="normal"
         ),
@@ -1144,55 +955,12 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "ai_summary": _render_profile_summary(profile),
         "preference_summary": profile.preference_summary,
         "pain_points": _json_loads(profile.pain_points_json, []),
-        "active_opportunity": _json_loads(profile.active_opportunity_json, {}),
         "basic_info": _json_loads(profile.basic_info_json, {}),
-        "last_intent": normalize_system_value(
-            "intent", profile.last_intent, fallback="unknown"
-        ) if profile.last_intent else None,
         "last_route": profile.last_route,
-        "last_template_id": profile.last_template_id,
         "last_active_at": _datetime_to_iso(profile.last_active_at),
         "friend_added_at": _datetime_to_iso(profile.friend_added_at),
         "created_at": _datetime_to_iso(profile.created_at),
         "updated_at": _datetime_to_iso(profile.updated_at),
-    }
-
-
-def _sales_opportunity_view(profile: dict) -> dict:
-    opportunity = profile.get("active_opportunity")
-    opportunity = dict(opportunity) if isinstance(opportunity, dict) else {}
-    stage = opportunity.get("current_stage") or profile.get("current_stage")
-    normalized_stage = normalize_sales_stage_reference(stage).stage
-    stage = normalized_stage.value if normalized_stage else stage
-    definition = get_sales_stage_definition(stage)
-    slots = opportunity.get("slots") if isinstance(opportunity.get("slots"), dict) else {}
-    missing_slots: list[str] = []
-    if definition and definition.required_slot_groups:
-        groups = [
-            [slot for slot in group if slots.get(slot) in (None, "", [])]
-            for group in definition.required_slot_groups
-        ]
-        if groups and not any(not group for group in groups):
-            missing_slots = min(groups, key=len)
-    return {
-        "user_id": profile.get("user_id"),
-        "status": opportunity.get("status"),
-        "current_stage": definition.stage.value if definition else stage,
-        "previous_stage": opportunity.get("previous_stage"),
-        "stage_display_name": definition.display_name if definition else "未知阶段",
-        "stage_objective": definition.objective if definition else None,
-        "stage_reason": opportunity.get("stage_reason"),
-        "stage_evidence": opportunity.get("stage_evidence", []),
-        "known_slots": slots,
-        "missing_slots": missing_slots,
-        "asked_slots": opportunity.get("asked_slots", []),
-        "decision_blocker": opportunity.get("decision_blocker"),
-        "recommended_product_ids": opportunity.get("recommended_product_ids", []),
-        "next_action": opportunity.get("last_sales_action"),
-        "reply_goal": opportunity.get("last_reply_goal"),
-        "interruption": opportunity.get("interruption"),
-        "updated_at": profile.get("updated_at"),
-        "opportunity": opportunity,
     }
 
 

@@ -70,7 +70,7 @@ async def test_customer_reply_prompt_requires_friendly_plain_short_messages():
     assert "warm friend" in prompt
     assert "short conversational sentences" in prompt
     assert "Do not use Markdown" in prompt
-    assert "Do not limit the number of messages" in prompt
+    assert "no more than two messages" in prompt
 
 
 @pytest.mark.asyncio

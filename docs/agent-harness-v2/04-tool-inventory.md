@@ -22,6 +22,7 @@ product.search
 | --- | --- | --- | --- | --- |
 | `capability.search` | 不确定有哪些工具或经验能帮助当前任务时，搜索最相关能力。已经知道具体工具时不要调用。 | 只读 | 需要新增 | 始终可见 |
 | `customer.get_context` | 当前判断需要客户历史、偏好、购买、承诺、待办或今日触达状态时读取证据化客户工作区。不要用它猜测动态价格和订单状态。 | 只读 | Memory 2.0 已有基础 | 每轮自动注入摘要，完整 Schema 按需 |
+| `knowledge.search` | 需要核实兰花品种、养护、病害或操作知识时查询专业知识库。不能用它查询实时商品和订单。 | 只读 | 现有兰花知识库与 RAG 已有 | 专业问题相关时加载 |
 | `product.search` | 客户需求可能对应可售商品或服务时，查询真实商品、价格、库存和适配字段。纯养护咨询且无购买关系时不要调用。 | 只读 | 商品目录与有赞能力已有 | 完整 Schema 延迟加载 |
 | `product.get` | 已有明确 `product_ref`，需要核实完整规格、权益或卡片信息时读取详情。不要用模糊名称调用。 | 只读 | 有赞 `get_product` 已有 | 由 `product.search` 结果引导加载 |
 | `product.send_card` | 客户适合查看或购买已确认商品时，发送真实 `product_ref` 对应卡片。不得自行拼接链接或发送未核实商品。 | 写入 | 微信小程序卡片和队列已有 | 选择商品后才加载 |
@@ -39,6 +40,7 @@ product.search
 | 工具 | 使用前提 | 关键输入 | 关键输出 | 不使用 / 失败边界 |
 | --- | --- | --- | --- | --- |
 | `customer.get_context` | 已解析当前租户和客户身份 | `subject_ref`、当前任务摘要 | 当前事实、相关经历、工作状态、今日真实触达次数、最近触达主题、未知和证据 | 不返回无关隐私；检索失败时使用当前对话，不假装记得 |
+| `knowledge.search` | 当前问题需要超出通用低风险常识的专业事实 | 具体知识问题、当前客户已知条件 | 有来源的知识答案、来源引用和查询状态 | 没有可靠资料时返回 `not_found`；不得扩写成疗效、一定养活或一定开花承诺 |
 | `product.search` | 有商品、服务、预算或选品关系 | 查询词、客户关键条件、数量上限 | `product_ref`、名称、价格、库存、适配信息、查询时间 | 未找到与系统失败必须区分；不自动发送卡片 |
 | `product.get` | 来自搜索或近期上下文的真实引用 | `product_ref` | 完整商品事实、权益、卡片可用性 | 引用失效则重新搜索，不使用旧价格 |
 | `product.send_card` | 商品真实、当前可售且有合理销售目的 | `product_ref`、会话引用、承接文本可选 | `queued_ref` 与最终发送状态 | queued 不等于 sent；失败后不说“已经发了” |
@@ -66,7 +68,7 @@ product.search
 
 新架构不按影子或灰度分批接管，但实现仍按依赖顺序完成并在一次替换前统一验证：
 
-1. `customer.get_context`、`product.search/get`、`care_manual.search`、`material.search`、`order.search/get`。
+1. `customer.get_context`、`knowledge.search`、`product.search/get`、`care_manual.search`、`material.search`、`order.search/get`。
 2. `product.send_card`、`material.send`，统一进入现有微信队列。
 3. `memory.record`，只提交候选并经过现有证据验证。
 4. `wakeup.schedule`，替代固定未购买 SOP 的预写话术。

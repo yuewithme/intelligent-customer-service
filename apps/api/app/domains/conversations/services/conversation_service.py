@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import create_engine, func, inspect, or_, select, text, update
@@ -16,7 +16,6 @@ from app.infrastructure.database.models import (
 )
 from app.shared.schemas.common import AppError, ErrorCode
 from app.domains.conversations.services.conversation_event_service import conversation_event_broker
-from app.domains.sales.services.sales_stage_catalog import normalize_sales_stage_value
 from app.core.ids import generate_id
 
 
@@ -252,6 +251,39 @@ def conversation_blocks_ai(
     return status in AI_BLOCKED_STATUSES
 
 
+def was_outbound_content_sent(
+    *,
+    channel: str,
+    user_id: str,
+    content_marker: str,
+    within_days: int,
+) -> bool:
+    """Check real delivery history without treating queued content as sent."""
+    marker = str(content_marker or "").strip()
+    if not marker:
+        return False
+    cutoff = _now() - timedelta(days=max(1, within_days))
+    with _get_session() as session:
+        found = session.scalar(
+            select(ConversationMessageModel.id)
+            .join(
+                ConversationModel,
+                ConversationModel.conversation_id
+                == ConversationMessageModel.conversation_id,
+            )
+            .where(
+                ConversationModel.channel == channel,
+                ConversationModel.user_id == user_id,
+                ConversationMessageModel.sender_type.in_(("ai", "human")),
+                ConversationMessageModel.delivery_status == "sent",
+                ConversationMessageModel.created_at >= cutoff,
+                ConversationMessageModel.content.contains(marker),
+            )
+            .limit(1)
+        )
+    return found is not None
+
+
 async def recover_automatic_handoff(
     *, channel: str, user_id: str, session_id: str | None
 ) -> bool:
@@ -299,31 +331,16 @@ async def get_conversation_detail(conversation_id: str) -> dict:
                 ConversationMessageModel.id.asc(),
             )
         ).all()
-        trace_ids = {row.trace_id for row in messages if row.trace_id}
-        sales_stage_by_trace = {}
-        if trace_ids:
-            sales_stage_by_trace = {
-                trace_id: sales_stage
-                for trace_id, sales_stage in session.execute(
-                    select(ChatLogModel.trace_id, ChatLogModel.sales_stage).where(
-                        ChatLogModel.trace_id.in_(trace_ids)
-                    )
-                ).all()
-                if sales_stage
-            }
-    from app.domains.customers.services.user_profile_service import get_sales_opportunity
+    from app.domains.sales.services.daily_touch_service import (
+        get_agent_relationship_state,
+        get_daily_touch_snapshot,
+    )
 
-    sales_opportunity = await get_sales_opportunity(conversation.user_id)
     return {
         "conversation": _conversation_to_dict(conversation),
-        "messages": [
-            _message_to_dict(
-                row,
-                sales_stage=sales_stage_by_trace.get(row.trace_id or ""),
-            )
-            for row in messages
-        ],
-        "sales_opportunity": sales_opportunity,
+        "messages": [_message_to_dict(row) for row in messages],
+        "agent_relationship": get_agent_relationship_state(conversation.user_id),
+        "daily_touch": get_daily_touch_snapshot(conversation.user_id),
     }
 
 
@@ -334,16 +351,9 @@ async def record_ai_turn(*, message, result: dict) -> None:
     status = HANDOFF_PENDING if result.get("need_human") else AI_WAITING
     handoff = result.get("handoff") or {}
     intent = result.get("intent") or {}
-    sales_stage = normalize_sales_stage_value(
-        intent.get("sales_stage"),
-        fallback="",
-    )
     skip_customer_record = bool(message.metadata.get("skip_customer_record"))
     evaluation_metadata = _evaluation_metadata(message.metadata)
-    turn_metadata = {
-        **evaluation_metadata,
-        **({"sales_stage": sales_stage} if sales_stage else {}),
-    }
+    turn_metadata = {**evaluation_metadata}
     now = _now()
     suppress_handoff_notification = bool(
         message.metadata.get("suppress_handoff_notification")
@@ -1595,22 +1605,9 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
     }
 
 
-def _message_to_dict(
-    row: ConversationMessageModel,
-    *,
-    sales_stage: str | None = None,
-) -> dict:
+def _message_to_dict(row: ConversationMessageModel) -> dict:
     metadata = _load_metadata(row.metadata_json)
-    stored_sales_stage = normalize_sales_stage_value(
-        metadata.get("sales_stage"),
-        fallback="",
-    )
-    if sales_stage:
-        stored_sales_stage = normalize_sales_stage_value(sales_stage, fallback="")
-    if stored_sales_stage:
-        metadata["sales_stage"] = stored_sales_stage
-    else:
-        metadata.pop("sales_stage", None)
+    metadata.pop("sales_stage", None)
     if metadata.get("provider") == "eyun" and not metadata.get("media"):
         from app.integrations.eyun.services.eyun_callback_service import extract_eyun_media_metadata
 

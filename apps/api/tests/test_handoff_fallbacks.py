@@ -30,18 +30,10 @@ def test_explicit_human_request_triggers_handoff_without_reply():
     assert data["handoff"]["ticket_id"].startswith("handoff_")
 
 
-def test_clarify_route_continues_without_handoff_or_mechanical_question():
+def test_low_information_message_stays_with_agent_without_forced_handoff():
     data = _chat("这个那个")
 
-    assert data["answer"] == "没关系，您接着说就行，我继续帮您。"
-    assert "？" not in data["answer"]
-    assert data["route"] == "chitchat"
-    assert data["reply_type"] == "chitchat"
+    assert data["answer"]
+    assert data["route"] == "agent"
+    assert data["reply_type"] == "sales_agent"
     assert data["need_human"] is False
-    assert data["next_action"] is None
-
-
-def test_rag_answer_without_sources_is_not_handoff_by_itself():
-    from app.domains.decisioning.services.reply_workflow_graph import _is_rag_no_answer
-
-    assert _is_rag_no_answer({"answer": "可以先放在通风散光处观察。", "sources": []}) is False

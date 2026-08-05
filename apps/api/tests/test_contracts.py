@@ -65,7 +65,7 @@ def test_health_uses_unified_envelope():
     }
 
 
-def test_chat_response_preserves_old_fields_and_adds_router_fields():
+def test_chat_response_preserves_api_envelope_and_uses_single_agent_route():
     response = TestClient(app).post(
         "/api/v1/chat",
         json={
@@ -98,8 +98,9 @@ def test_chat_response_preserves_old_fields_and_adds_router_fields():
         "trace_id",
     ):
         assert field in data
-    assert data["route"] == "template_reply"
-    assert data["reply_type"] == "template"
+    assert data["route"] == "agent"
+    assert data["reply_type"] == "sales_agent"
+    assert data["intent"]["primary_intent"] == "autonomous_sales_turn"
     assert data["session_id"].startswith("sess_")
     assert data["trace_id"].startswith("req_")
 
@@ -123,15 +124,11 @@ def test_empty_chat_message_returns_message_empty():
     }
 
 
-def test_rule_guard_routes_human_refund_and_complaint_to_human():
+def test_authorization_boundary_routes_human_refund_and_complaint_to_human():
     client = TestClient(app)
-    messages = [
-        ("我要转人工", "human_request"),
-        ("我要退款", "refund_request"),
-        ("我要投诉，你们骗我", "complaint"),
-    ]
+    messages = ["我要转人工", "我要退款", "我要投诉，你们骗我"]
 
-    for text, primary_intent in messages:
+    for text in messages:
         response = client.post(
             "/api/v1/chat",
             json={
@@ -145,7 +142,7 @@ def test_rule_guard_routes_human_refund_and_complaint_to_human():
         assert data["route"] == "human"
         assert data["reply_type"] == "human"
         assert data["need_human"] is True
-        assert data["intent"]["primary_intent"] == primary_intent
+        assert data["intent"]["primary_intent"] == "autonomous_sales_turn"
 
 
 def test_refund_contract_keeps_empty_handoff_reply():
@@ -171,15 +168,11 @@ def test_refund_contract_keeps_empty_handoff_reply():
     assert data["next_action"] == "human_handoff"
 
 
-def test_mock_intent_routes_knowledge_price_and_mixed_messages():
+def test_mock_agent_keeps_non_authorized_messages_on_single_agent_route():
     client = TestClient(app)
-    cases = [
-        ("兰花怎么养护？", "human"),
-        ("这个有点贵", "template_reply"),
-        ("这个有点贵，而且我怕养不活", "human"),
-    ]
+    cases = ["兰花怎么养护？", "这个有点贵", "这个有点贵，而且我怕养不活"]
 
-    for index, (text, route) in enumerate(cases):
+    for index, text in enumerate(cases):
         response = client.post(
             "/api/v1/chat",
             json={
@@ -190,86 +183,6 @@ def test_mock_intent_routes_knowledge_price_and_mixed_messages():
             },
         )
         assert response.status_code == 200
-        assert response.json()["data"]["route"] == route
-
-
-def test_template_routes_create_and_search():
-    from app.domains.decisioning.services.template_service import _templates
-
-    template_id = "tpl_price_objection_test"
-    try:
-        client = TestClient(app)
-        create_response = client.post(
-            "/api/v1/templates",
-            json={
-                "template_id": template_id,
-                "intent": "price_objection",
-                "stage": "objection_handling",
-                "trigger_examples": ["有点贵"],
-                "content": "价格确实需要综合品质和售后来看。",
-                "priority": 90,
-            },
-        )
-        assert create_response.status_code == 200
-        assert create_response.json()["data"] == {
-            "template_id": template_id,
-            "status": "indexed",
-        }
-
-        search_response = client.post(
-            "/api/v1/templates/search",
-            json={
-                "message": "有点贵，我再考虑一下",
-                "intent": "price_objection",
-                "stage": "objection_handling",
-                "customer_tags": ["price_sensitive"],
-                "top_k": 5,
-            },
-        )
-        assert search_response.status_code == 200
-        assert search_response.json()["data"]["templates"]
-    finally:
-        _templates.pop(template_id, None)
-
-
-def test_intent_examples_debug_and_state_routes():
-    client = TestClient(app)
-    example_response = client.post(
-        "/api/v1/intent-examples",
-        json={
-            "example_id": "ex_price_test",
-            "text": "有点贵，我再考虑一下",
-            "route": "template_reply",
-            "primary_intent": "price_objection",
-            "secondary_intents": ["hesitation"],
-            "sales_stage": "objection_handling",
-        },
-    )
-    assert example_response.status_code == 200
-    assert example_response.json()["data"]["example_id"] == "ex_price_test"
-
-    debug_response = client.post(
-        "/api/v1/debug/intent",
-        json={
-            "user_id": "user_001",
-            "message": "这个有点贵，而且我怕养不活",
-            "session_id": "sess_xxx",
-            "kb_id": "kb_default",
-        },
-    )
-    assert debug_response.status_code == 200
-    debug_data = debug_response.json()["data"]
-    assert debug_data["intent"]["route"] == "template_then_rag"
-    assert "candidates" in debug_data
-    assert "user_state" in debug_data
-
-    patch_response = client.patch(
-        "/api/v1/users/user_001/state",
-        json={"sales_stage": "objection_handling", "customer_tags": ["price_sensitive"]},
-    )
-    assert patch_response.status_code == 200
-    assert patch_response.json()["data"]["sales_stage"] == "closing"
-
-    get_response = client.get("/api/v1/users/user_001/state")
-    assert get_response.status_code == 200
-    assert get_response.json()["data"]["customer_tags"] == []
+        data = response.json()["data"]
+        assert data["route"] == "agent"
+        assert data["intent"]["classifier_source"] == "sales_agent"

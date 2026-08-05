@@ -41,7 +41,6 @@ class ChatLogDetail(ChatLogItem):
     stage_latencies: dict = Field(default_factory=dict)
     metadata: dict = Field(default_factory=dict)
     model_calls: list[dict] = Field(default_factory=list)
-    intent_shadow_runs: list[dict] = Field(default_factory=list)
 
 
 class ChatLogListResponse(BaseModel):
@@ -64,47 +63,6 @@ class ChatLogStats(BaseModel):
     template_count: int = 0
     stage_avg_ms: dict = Field(default_factory=dict)
     model_call_stats: list[dict] = Field(default_factory=list)
-
-
-class TalkScriptMatchLogItem(BaseModel):
-    id: int
-    trace_id: str | None = None
-    customer_id: str | None = None
-    session_id: str | None = None
-    user_message: str
-    normalized_message: str | None = None
-    status: str
-    scene_id: str | None = None
-    candidate_question_ids: list[str] = Field(default_factory=list)
-    matched_question_id: str | None = None
-    template_id: str | None = None
-    confidence: float | None = None
-    need_slot_filling: bool = False
-    need_human: bool = False
-    final_answer: str | None = None
-    match_reason: str | None = None
-    created_at: str | None = None
-
-
-class TalkScriptMatchLogListResponse(BaseModel):
-    items: list[TalkScriptMatchLogItem]
-    total: int
-    page: int
-    page_size: int
-
-
-class TalkScriptMatchStats(BaseModel):
-    total: int
-    matched_count: int = 0
-    handoff_count: int = 0
-    pass_through_count: int = 0
-    human_count: int = 0
-    avg_confidence: float | None = None
-    status_counts: dict = Field(default_factory=dict)
-    reason_counts: dict = Field(default_factory=dict)
-    scene_counts: dict = Field(default_factory=dict)
-    template_counts: dict = Field(default_factory=dict)
-    low_confidence_items: list[TalkScriptMatchLogItem] = Field(default_factory=list)
 
 
 class RagDebugSearchRequest(BaseModel):

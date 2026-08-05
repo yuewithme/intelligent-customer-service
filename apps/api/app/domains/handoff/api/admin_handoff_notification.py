@@ -9,7 +9,7 @@ from app.domains.handoff.services.handoff_notification_service import (
     list_handoff_notification_contacts,
     update_handoff_notification_settings,
 )
-from app.domains.sales.services.unpurchased_sop_service import sync_eyun_contacts
+from app.domains.sales.services.contact_sync_service import sync_eyun_contacts
 from app.core.auth import require_api_key
 
 

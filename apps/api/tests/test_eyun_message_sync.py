@@ -101,7 +101,7 @@ async def test_self_callback_reconciles_queued_ai_message(monkeypatch, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
+async def test_agent_first_contact_is_recorded(monkeypatch, tmp_path):
     from app.services import message_risk_control_service as risk_control
     from app.domains.conversations.services.conversation_service import (
         AI_WAITING,
@@ -110,9 +110,6 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
     )
 
     _configure_db(monkeypatch, tmp_path, "opening-sync")
-    monkeypatch.setenv("EYUN_OPENING_TEXT", "欢迎开场")
-    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://example.com/opening.jpg")
-    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "7")
     monkeypatch.setenv("EYUN_INBOUND_DEBOUNCE_SECONDS", "0")
     get_settings.cache_clear()
     now = datetime(2026, 7, 15, 8, 0, tzinfo=timezone.utc)
@@ -125,8 +122,16 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
     async def keep_queued(**kwargs):
         return kwargs
 
+    async def fake_handle_chat(request):
+        assert request.metadata["is_first_contact"] is True
+        return {
+            "answer": "您好，我是萧岚苑的小兰，您想先聊养护还是选品都可以。",
+            "route": "agent",
+        }
+
     monkeypatch.setattr(risk_control, "get_eyun_contact_snapshot", empty_contact)
     monkeypatch.setattr(risk_control, "enqueue_eyun_outbound", keep_queued)
+    monkeypatch.setattr(risk_control, "handle_chat", fake_handle_chat)
     await record_customer_message(
         channel="wechat",
         user_id="wxid_customer",
@@ -152,22 +157,10 @@ async def test_opening_text_and_image_are_recorded(monkeypatch, tmp_path):
 
     assert await risk_control.process_due_eyun_inbound_batches(limit=1) == 1
     detail = await get_conversation_detail("wechat:wxid_customer:default")
-    opening = next(
-        message for message in detail["messages"] if message["content"] == "欢迎开场"
-    )
-    image = next(
-        message
-        for message in detail["messages"]
-        if message["metadata"].get("media", {}).get("type") == "image"
-    )
+    opening = next(message for message in detail["messages"] if message["sender_type"] == "ai")
     assert opening["sender_type"] == "ai"
-    assert image["metadata"]["media"] == {
-        "type": "image",
-        "url": "https://example.com/opening.jpg",
-        "fallback": False,
-    }
+    assert opening["content"].startswith("您好，我是萧岚苑的小兰")
     assert opening["delivery_status"] == "queued"
-    assert image["delivery_status"] == "queued"
 
 
 @pytest.mark.asyncio

@@ -122,9 +122,65 @@ async def generate_messages(
     }
 
 
+async def generate_messages_json(
+    messages: list[dict[str, str]],
+    *,
+    purpose: str,
+    temperature: float = 0,
+    prompt_version: str | None = None,
+) -> dict:
+    """Generate one JSON object from role-separated Agent messages."""
+    config = _model_config(
+        purpose,
+        model_override=None,
+        provider_override=None,
+    )
+    if config.provider == "mock":
+        return {
+            "data": {
+                "commercial_judgment": "当前缺少真实模型配置，先保持自然承接",
+                "relationship_purpose": "继续了解客户当前最重要的问题",
+                "customer_signal": "none",
+                "tool_calls": [],
+                "final_response": {
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "您接着说就行，我先按您现在最想解决的问题帮您看。",
+                        }
+                    ],
+                    "need_human": False,
+                },
+            },
+            "usage": {},
+        }
+    prompt = json.dumps(messages, ensure_ascii=False, separators=(",", ":"))
+    last_error: Exception | None = None
+    for attempt in range(1, 3):
+        try:
+            body = await _chat_completion(
+                config=config,
+                purpose=purpose,
+                prompt=prompt,
+                messages=messages,
+                temperature=temperature,
+                shadow=False,
+                prompt_version=prompt_version,
+                attempt=attempt,
+                json_mode=True,
+            )
+            return {
+                "data": json.loads(body["choices"][0]["message"]["content"]),
+                "usage": body.get("usage", {}),
+            }
+        except json.JSONDecodeError as exc:
+            last_error = exc
+    raise AppError(ErrorCode.MODEL_SCHEMA_INVALID) from last_error
+
+
 async def generate_json(
     prompt: str,
-    purpose: str = "intent",
+    purpose: str = "profile",
     *,
     model_override: str | None = None,
     provider_override: str | None = None,
@@ -137,12 +193,7 @@ async def generate_json(
         provider_override=provider_override,
     )
     if config.provider == "mock":
-        return {
-            "route": "clarify",
-            "primary_intent": "unknown",
-            "confidence": 0.5,
-            "reason": "mock_llm_json",
-        }
+        return {}
 
     last_error: Exception | None = None
     for attempt in range(1, 3):
@@ -161,25 +212,7 @@ async def generate_json(
             return json.loads(body["choices"][0]["message"]["content"])
         except json.JSONDecodeError as exc:
             last_error = exc
-    raise AppError(ErrorCode.INTENT_SCHEMA_INVALID) from last_error
-
-
-async def classify_intent(
-    prompt: str,
-    *,
-    model_override: str | None = None,
-    provider_override: str | None = None,
-    shadow: bool = False,
-    prompt_version: str | None = None,
-) -> dict:
-    return await generate_json(
-        prompt,
-        purpose="intent",
-        model_override=model_override,
-        provider_override=provider_override,
-        shadow=shadow,
-        prompt_version=prompt_version,
-    )
+    raise AppError(ErrorCode.MODEL_SCHEMA_INVALID) from last_error
 
 
 async def _chat_completion(
@@ -210,14 +243,8 @@ async def _chat_completion(
         "temperature": temperature,
     }
     deepseek_v4 = config.model.lower().startswith("deepseek-v4-")
-    if deepseek_v4 and purpose in {"review", "reply_shadow"}:
-        request_body["reasoning_effort"] = (
-            settings.reply_shadow_llm_reasoning_effort
-            if purpose == "reply_shadow"
-            else settings.review_llm_reasoning_effort
-        )
-    if purpose == "intent":
-        request_body["max_tokens"] = 240
+    if deepseek_v4 and purpose == "review":
+        request_body["reasoning_effort"] = settings.review_llm_reasoning_effort
     if purpose == "persona":
         request_body["max_tokens"] = 300
     if provider == "dashscope" and purpose in {"persona", "rag_fast", "business"}:
@@ -333,8 +360,6 @@ def _model_config(
 
 
 def _timeout_for(settings, purpose: str) -> float:
-    if purpose == "intent":
-        return settings.intent_llm_timeout_seconds
     if purpose == "persona":
         return settings.persona_llm_timeout_seconds
     if purpose in {"rag", "rag_fast", "business"}:
@@ -354,10 +379,6 @@ def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
             ("business_llm_provider", "business_llm_model"),
             ("rag_llm_provider", "rag_llm_model"),
         ),
-        "intent": (("intent_llm_provider", "intent_llm_model"),),
-        "talk_script": (
-            ("talk_script_llm_provider", "talk_script_llm_model"),
-        ),
         "persona": (
             ("persona_llm_provider", "persona_llm_model"),
             ("rag_llm_provider", "rag_llm_model"),
@@ -366,10 +387,6 @@ def _resolve_model_config(settings, purpose: str) -> tuple[str, str]:
             ("profile_llm_provider", "profile_llm_model"),
         ),
         "review": (("review_llm_provider", "review_llm_model"),),
-        "reply_shadow": (
-            ("reply_shadow_llm_provider", "reply_shadow_llm_model"),
-            ("review_llm_provider", "review_llm_model"),
-        ),
     }
     for provider_name, model_name in chains.get(purpose, ()):
         provider = str(getattr(settings, provider_name, "") or "").strip()

@@ -1,5 +1,4 @@
 import json
-from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -77,15 +76,10 @@ def test_demo_chat_forces_web_demo_channel(monkeypatch, tmp_path):
     assert response.json()["data"]["conversation_id"] == "session-1"
 
 
-def test_demo_opening_uses_wechat_opening_and_records_conversation(
+def test_demo_opening_uses_agent_runtime_and_records_conversation(
     monkeypatch, tmp_path
 ):
     _reset_settings(monkeypatch, tmp_path)
-    monkeypatch.setenv("EYUN_OPENING_TEXT", "正式微信新联系人开场白")
-    monkeypatch.setenv(
-        "EYUN_OPENING_IMAGE_URL", "https://example.com/opening.jpg"
-    )
-    get_settings.cache_clear()
     client = TestClient(app)
 
     response = client.post(
@@ -95,16 +89,11 @@ def test_demo_opening_uses_wechat_opening_and_records_conversation(
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["reply"].startswith("正式微信新联系人开场白\n\n")
-    assert "家里目前养了多少盆兰花" in data["reply"]
-    assert data["opening_image_url"] == "https://example.com/opening.jpg"
-    assert data["route"] == "opening"
+    assert "最想解决的问题" in data["reply"]
+    assert data["opening_image_url"] is None
+    assert data["route"] == "agent"
     assert data["conversation_id"] == "default"
-    assert [item["type"] for item in data["outbound_messages"]] == [
-        "text",
-        "image",
-        "text",
-    ]
+    assert [item["type"] for item in data["outbound_messages"]] == ["text"]
 
     conversations = client.get("/api/v1/demo-admin/conversations").json()["data"]
     assert conversations["total"] == 1
@@ -114,16 +103,9 @@ def test_demo_opening_uses_wechat_opening_and_records_conversation(
     ).json()["data"]
     assert detail["conversation"]["channel"] == "wechat"
     assert detail["conversation"]["user_display_name"] == "测试客户"
-    assert [(item["sender_type"], item["content"]) for item in detail["messages"]] == [
-        ("ai", "正式微信新联系人开场白"),
-        ("ai", "[图片]"),
-        (
-            "ai",
-            "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n"
-            "1. 家里目前养了多少盆兰花？（还没养扣“0”😝）\n"
-            "2. 具体养了哪些品种？",
-        ),
-    ]
+    assert len(detail["messages"]) == 1
+    assert detail["messages"][0]["sender_type"] == "ai"
+    assert "最想解决的问题" in detail["messages"][0]["content"]
 
 
 def test_demo_session_restores_shared_history_across_clients(monkeypatch, tmp_path):
@@ -204,26 +186,17 @@ def test_demo_material_video_issue_uses_verification_flow_instead_of_handoff(
         },
     ).json()["data"]
 
-    assert first_request["route"] == "orchid_material_discovery"
-    assert second_request["route"] == "orchid_material_delivery"
-    assert video_issue["route"] == "orchid_material_purchase_check"
+    assert first_request["route"] == "agent"
+    assert second_request["route"] == "agent"
+    assert video_issue["route"] == "agent"
     assert video_issue["need_human"] is False
     assert video_issue["next_action"] != "human_handoff"
-    assert "是在抖音购买的吗" in video_issue["reply"]
-    assert "订单截图" not in video_issue["reply"]
-    assert (
-        purchase_confirmation["route"]
-        == "orchid_material_order_screenshot_request"
-    )
+    assert purchase_confirmation["route"] == "agent"
     assert purchase_confirmation["need_human"] is False
-    assert "订单截图" in purchase_confirmation["reply"]
 
 
-def test_demo_session_restores_opening_image_as_media(monkeypatch, tmp_path):
+def test_demo_session_restores_agent_opening(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
-    monkeypatch.setenv("EYUN_OPENING_TEXT", "开场白")
-    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://cdn.example.com/opening.jpg")
-    get_settings.cache_clear()
     client = TestClient(app)
 
     client.post(
@@ -232,14 +205,8 @@ def test_demo_session_restores_opening_image_as_media(monkeypatch, tmp_path):
     )
     messages = client.get("/api/v1/demo/session").json()["data"]["messages"]
 
-    assert [item["type"] for item in messages] == ["text", "image", "text"]
-    assert messages[1]["content"] == "https://cdn.example.com/opening.jpg"
-    assert messages[1]["media"] == {
-        "type": "image",
-        "url": "https://cdn.example.com/opening.jpg",
-        "fallback": False,
-    }
-    assert "具体养了哪些品种" in messages[2]["content"]
+    assert [item["type"] for item in messages] == ["text"]
+    assert "最想解决的问题" in messages[0]["content"]
 
 
 def test_demo_history_normalizes_cards_and_customer_media():
@@ -281,61 +248,6 @@ def test_demo_history_normalizes_cards_and_customer_media():
     assert messages[1]["role"] == "customer"
     assert messages[1]["type"] == "image"
     assert messages[1]["content"] == "https://cdn.example.com/customer.jpg"
-
-
-@pytest.mark.asyncio
-async def test_demo_flushes_due_service_card_follow_up(monkeypatch, tmp_path):
-    from app.domains.conversations.services.conversation_service import (
-        get_conversation_detail,
-        make_conversation_id,
-    )
-    from app.domains.conversations.services import state_service
-    from app.domains.customers.schemas.state import UserState
-    from app.domains.decisioning.services.demo_sales_agent_service import (
-        _flush_due_demo_follow_up,
-    )
-
-    _reset_settings(monkeypatch, tmp_path)
-    user_id = demo_user_id("silence-follow-up-customer")
-    state_service._state_store[user_id] = UserState(
-        user_id=user_id,
-        session_id="default",
-        metadata={
-            "pending_service_follow_up": {
-                "kind": "membership_card",
-                "due_at": (
-                    datetime.now(timezone.utc) - timedelta(seconds=1)
-                ).isoformat(),
-                "source_trace_id": "trace-demo",
-                "product_id": "membership-39",
-                "messages": [
-                    {"type": "text", "content": "您有空可以看看。"},
-                    {
-                        "type": "link_card",
-                        "content": '{"item_id":"membership-39"}',
-                    },
-                ],
-            },
-            "active_opportunity": {"service_offer_phase": "introduced"},
-        },
-    )
-
-    await _flush_due_demo_follow_up(user_id=user_id, session_id="default")
-    detail = await get_conversation_detail(
-        make_conversation_id("wechat", user_id, "default")
-    )
-
-    assert [item["content"] for item in detail["messages"]] == [
-        "您有空可以看看。",
-        "[链接卡片]",
-    ]
-    assert detail["messages"][1]["metadata"]["link_card"] == {
-        "item_id": "membership-39"
-    }
-    state = state_service._state_store[user_id]
-    assert "pending_service_follow_up" not in state.metadata
-    assert state.metadata["commerce_sent_card_ids"] == ["membership-39"]
-    assert state.metadata["active_opportunity"]["service_offer_phase"] == "card_sent"
 
 
 def test_demo_session_changes_only_through_explicit_switch(monkeypatch, tmp_path):
@@ -383,7 +295,7 @@ def test_demo_openings_use_customer_scoped_memory_ids(monkeypatch, tmp_path):
     assert second.status_code == 200
 
 
-def test_demo_chat_reuses_normal_sales_flow_for_first_message(monkeypatch, tmp_path):
+def test_demo_chat_reuses_agent_runtime_for_first_message(monkeypatch, tmp_path):
     from app.services import demo_sales_agent_service
 
     _reset_settings(monkeypatch, tmp_path)
@@ -422,7 +334,7 @@ def test_demo_chat_reuses_normal_sales_flow_for_first_message(monkeypatch, tmp_p
     assert captured["request"].metadata["provider"] == "eyun"
     assert captured["request"].metadata["message_type"] == "60001"
     assert captured["request"].metadata["provider_delivery_mode"] == "simulated"
-    assert captured["request"].metadata["prepend_opening"] is True
+    assert captured["request"].metadata["is_first_contact"] is True
     assert "demo" not in captured["request"].metadata
 
 
