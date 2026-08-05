@@ -63,6 +63,15 @@ _DIRECT_TRIGGERS = (
     "养护资料",
     "陪伴养兰资料",
 )
+_MATERIAL_VERIFICATION_PATTERNS = (
+    r"(?:直播间|主播|你们|咱们).{0,12}(?:说|讲|提到|承诺|有|送).{0,8}(?:资料|教程).{0,8}(?:真的|是真|靠谱吗|属实|有吗|有没有|吗|嘛)",
+    r"(?:资料|教程).{0,8}(?:真的会发|会发吗|会给吗|是真的吗|是真的嘛|靠谱吗|有吗|有没有)",
+)
+_MATERIAL_DELIVERY_PATTERN = re.compile(
+    r"(?:给我|帮我|麻烦|请|直接|现在|那就|就是|意思是).{0,8}(?:发|发送|给).{0,8}(?:资料|教程)"
+    r"|(?:资料|教程).{0,8}(?:发我|给我|来一份)"
+    r"|(?:想要|要一份|需要).{0,8}(?:资料|教程)"
+)
 _NEGATIVE_TRIGGERS = (
     "不要资料",
     "别发资料",
@@ -144,6 +153,8 @@ def is_orchid_material_request(content: str) -> bool:
         or any(value in normalized for value in _NEGATIVE_TRIGGERS)
     ):
         return False
+    if is_orchid_material_verification(content):
+        return True
     if any(value in normalized for value in _DIRECT_TRIGGERS):
         return True
     has_resource = any(value in normalized for value in ("资料", "教程"))
@@ -166,6 +177,26 @@ def is_orchid_material_request(content: str) -> bool:
         for value in ("养兰", "兰花", "养护", "萧岚苑", "直播间", "视频")
     )
     return has_resource and has_request and has_orchid_context
+
+
+def is_orchid_material_verification(content: str) -> bool:
+    normalized = _normalize(content)
+    if not normalized or any(value in normalized for value in _NEGATIVE_TRIGGERS):
+        return False
+    return any(
+        re.search(pattern, normalized) is not None
+        for pattern in _MATERIAL_VERIFICATION_PATTERNS
+    )
+
+
+def orchid_material_request_kind(content: str) -> str:
+    """Separate direct delivery requests from early material discovery."""
+
+    if is_orchid_material_verification(content):
+        return "verification"
+    if _MATERIAL_DELIVERY_PATTERN.search(_normalize(content)):
+        return "delivery"
+    return "discovery"
 
 
 def is_orchid_material_followup(
@@ -239,6 +270,7 @@ def orchid_material_chat_result(
         ],
         "reply_type": "fixed_resource",
         "route": "orchid_material_delivery",
+        "next_action": "查看养兰资料",
         "metadata": {
             "resource_type": "orchid_material",
             "youzan_note_id": ORCHID_MATERIAL_CARD["note_id"],
@@ -355,6 +387,7 @@ def orchid_material_discovery_chat_result() -> dict[str, Any]:
         ],
         "reply_type": "fixed_text",
         "route": "orchid_material_discovery",
+        "next_action": "确认资料需求",
         "metadata": {
             "resource_type": "orchid_material",
             "material_request_phase": "discovery",

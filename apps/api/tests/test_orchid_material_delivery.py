@@ -142,13 +142,68 @@ async def test_material_request_after_membership_card_does_not_trigger_discount_
         )
     )
 
-    assert result["route"] == "orchid_material_discovery"
+    assert result["route"] == "orchid_material_delivery"
     assert result["intent"]["primary_goal"] == "request_material"
+    assert result["intent"]["slots"]["material_request_phase"] == "delivery"
+    assert result["next_action"] == "查看养兰资料"
+    assert result["outbound_messages"][0]["type"] == "link_card"
     assert result["metadata"]["sales_action"]["reason"] == "material_request_priority"
     assert all(
         marker not in result["answer"]
         for marker in ("不能再优惠", "底价", "首单体验价")
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "我的意思是，你给我发资料",
+        "你们直播间说有资料是真的吗",
+    ],
+)
+async def test_explicit_material_request_delivers_without_restarting_discovery(
+    monkeypatch, message
+):
+    from app.domains.conversations.schemas.chat import ChatRequest
+    from app.domains.conversations.services import state_service
+    from app.domains.conversations.services.chat_orchestrator import handle_chat
+    from app.domains.customers.schemas.state import UserState
+    from app.integrations.ai.services import llm_service
+
+    async def fail_generate(*args, **kwargs):
+        del args, kwargs
+        pytest.fail("固定资料链路不应调用 LLM")
+
+    monkeypatch.setattr(llm_service, "generate_answer", fail_generate)
+    user_id = f"explicit-material-{len(message)}"
+    state_service._state_store[user_id] = UserState(
+        user_id=user_id,
+        session_id="material-stage-session",
+        sales_stage="value_built",
+        metadata={
+            "active_opportunity": {
+                "slots": {"need_track": "service", "pain_point": "黄叶、烂根"}
+            }
+        },
+    )
+
+    result = await handle_chat(
+        ChatRequest(
+            channel="api",
+            user_id=user_id,
+            session_id="material-stage-session",
+            message=message,
+            kb_id="kb_default",
+        )
+    )
+
+    assert result["route"] == "orchid_material_delivery"
+    assert result["intent"]["slots"]["material_request_phase"] == "delivery"
+    assert "最想解决哪方面的问题" not in result["answer"]
+    assert result["outbound_messages"][0]["type"] == "link_card"
+    assert "陪伴养兰资料" in result["outbound_messages"][0]["content"]
+    assert "membership-39" not in result["outbound_messages"][0]["content"]
 
 
 @pytest.mark.parametrize(

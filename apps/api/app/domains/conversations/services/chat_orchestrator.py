@@ -1,3 +1,4 @@
+import re
 import time
 
 from app.core.config import get_settings
@@ -61,6 +62,8 @@ from app.domains.sales.services.sales_stage_knowledge_policy import (
 )
 from app.domains.sales.services.sales_signal_service import normalize_sales_signals
 from app.domains.sales.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
+from app.domains.sales.schemas.sales_flow import SalesStage
+from app.domains.sales.services.service_need_service import has_resolved_service_need
 from app.domains.sales.services.shipping_contact_service import extract_shipping_contact
 from app.domains.conversations.services.state_service import get_user_state, update_user_state
 from app.domains.sales.services.tagger_service import build_tag_result
@@ -97,6 +100,9 @@ async def handle_chat(request: ChatRequest) -> dict:
         trace_token = set_trace_id(message.trace_id)
         is_evaluation = _is_evaluation_request(message)
         _enrich_material_video_access_context(message)
+        if not is_evaluation:
+            user_state = await get_user_state(message.user_id, message.session_id)
+            user_state.metadata.pop("pending_service_follow_up", None)
         stage_latencies["normalize_ms"] = _elapsed_ms(stage_started)
 
         if not is_evaluation:
@@ -194,7 +200,8 @@ async def handle_chat(request: ChatRequest) -> dict:
             return result
 
         stage_started = time.perf_counter()
-        user_state = await get_user_state(message.user_id, message.session_id)
+        if user_state is None:
+            user_state = await get_user_state(message.user_id, message.session_id)
         if is_evaluation:
             _apply_evaluation_context(message, user_state)
         else:
@@ -294,6 +301,7 @@ async def handle_chat(request: ChatRequest) -> dict:
         business_intent = _service_offer_followup_business_intent(
             intent=intent,
             user_state=user_state,
+            message=message,
         )
         business_action = resolve_business_action(
             message=message,
@@ -358,12 +366,26 @@ async def handle_chat(request: ChatRequest) -> dict:
                 session_id=message.session_id,
                 route="orchid_material_discovery",
             )
+            material_kind = str(
+                normalized_intent.slots.get("material_request_kind") or ""
+            )
+            material_delivery_ready = (
+                material_kind in {"delivery", "verification"}
+                or has_prior_discovery
+                or preliminary_decision.stage in {
+                    SalesStage.SOLUTION_RECOMMENDED,
+                    SalesStage.VALUE_BUILT,
+                    SalesStage.TRIAL_CLOSE,
+                    SalesStage.CLOSING,
+                }
+                or has_resolved_service_need(sales_signals.slots)
+            )
             normalized_intent = normalized_intent.model_copy(
                 update={
                     "slots": {
                         **normalized_intent.slots,
                         "material_request_phase": (
-                            "delivery" if has_prior_discovery else "discovery"
+                            "delivery" if material_delivery_ready else "discovery"
                         ),
                     }
                 }
@@ -417,7 +439,6 @@ async def handle_chat(request: ChatRequest) -> dict:
         if _should_attach_membership_brand_value(sales_action):
             force_stage_script = sales_action.reason in {
                 "service_solution_first_offer",
-                "service_solution_question_followup",
                 "service_offer_soft_decline_value_card",
             }
             sales_action = sales_action.model_copy(
@@ -447,6 +468,13 @@ async def handle_chat(request: ChatRequest) -> dict:
         )
         reply = apply_sales_action(reply, sales_action)
         reply = await _attach_membership_card_for_service_offer(
+            reply=reply,
+            message=message,
+            user_state=user_state,
+            intent=routed_intent,
+            sales_action=sales_action,
+        )
+        reply = await _prepare_membership_card_silence_follow_up(
             reply=reply,
             message=message,
             user_state=user_state,
@@ -704,9 +732,17 @@ def _should_attach_membership_brand_value(sales_action) -> bool:
 
 
 _SERVICE_OFFER_CARD_REASONS = {
-    "service_solution_question_followup",
     "service_offer_soft_decline_value_card",
 }
+_SERVICE_CARD_SILENCE_REASONS = {
+    "service_solution_first_offer",
+    "service_question_answer_only",
+}
+_SERVICE_CARD_SILENCE_SECONDS = 300
+_SERVICE_CARD_FOLLOW_UP_TEXT = (
+    "如果您想把这些养护方法系统学一下，我把陪伴养兰的详细介绍发您，"
+    "您有空可以点开看看。"
+)
 
 
 async def _attach_membership_card_for_service_offer(
@@ -759,7 +795,80 @@ async def _attach_membership_card_for_service_offer(
     )
 
 
-def _service_offer_followup_business_intent(*, intent, user_state):
+async def _prepare_membership_card_silence_follow_up(
+    *, reply, message, user_state, intent, sales_action
+):
+    """Prepare, but do not send, a card that is due after five quiet minutes."""
+
+    if (
+        sales_action.reason not in _SERVICE_CARD_SILENCE_REASONS
+        or reply.need_human
+        or any(
+            item.type in {"link_card", "mini_program"}
+            for item in reply.outbound_messages
+        )
+    ):
+        return reply
+    membership_intent = intent.model_copy(
+        update={
+            "slots": {
+                **(intent.slots if isinstance(intent.slots, dict) else {}),
+                "product_request_kind": "membership",
+                "membership_question_kind": "capability",
+            }
+        }
+    )
+    follow_up_state = user_state.model_copy(deep=True)
+    facts = await build_commerce_context(
+        message,
+        follow_up_state,
+        membership_intent,
+        business_action=CATALOG_SEARCH,
+        allowed_source_groups={"product_catalog", "product_value", "sku_facts"},
+    )
+    card_reply = await render_business_reply(message, facts)
+    if card_reply is None:
+        return reply
+    cards = [
+        item.model_dump()
+        for item in card_reply.outbound_messages
+        if item.type in {"link_card", "mini_program"}
+    ]
+    if not cards:
+        return reply
+    products = facts.tool_state.get("products")
+    first_product = (
+        products[0]
+        if isinstance(products, list) and products and isinstance(products[0], dict)
+        else {}
+    )
+    return reply.model_copy(
+        update={
+            "metadata": {
+                **reply.metadata,
+                "scheduled_follow_up": {
+                    "kind": "membership_card",
+                    "delay_seconds": _SERVICE_CARD_SILENCE_SECONDS,
+                    "cancel_on_customer_message": True,
+                    "source_trace_id": str(getattr(message, "trace_id", "") or ""),
+                    "product_id": str(first_product.get("item_id") or ""),
+                    "messages": [
+                        {"type": "text", "content": _SERVICE_CARD_FOLLOW_UP_TEXT},
+                        *cards,
+                    ],
+                },
+            }
+        }
+    )
+
+
+_SERVICE_OFFER_INTEREST_PATTERN = re.compile(
+    r"感兴趣|想了解(?:一下)?|具体看看|发(?:我|一下).{0,6}(?:卡片|链接|介绍)|"
+    r"怎么(?:参加|加入|开通|购买|下单)|多少钱|什么价格|可以试试|这个可以|听起来不错"
+)
+
+
+def _service_offer_followup_business_intent(*, intent, user_state, message):
     metadata = getattr(user_state, "metadata", {})
     metadata = metadata if isinstance(metadata, dict) else {}
     opportunity = metadata.get("active_opportunity")
@@ -780,7 +889,10 @@ def _service_offer_followup_business_intent(*, intent, user_state):
         or intent.primary_intent == "hesitation"
         or intent.primary_goal == "defer_decision"
     )
-    if not soft_response:
+    explicit_interest = _SERVICE_OFFER_INTEREST_PATTERN.search(
+        str(getattr(message, "message", "") or "")
+    ) is not None
+    if not soft_response and not explicit_interest:
         return intent
     return intent.model_copy(
         update={
@@ -789,6 +901,9 @@ def _service_offer_followup_business_intent(*, intent, user_state):
                 "product_request_kind": "membership",
                 "membership_question_kind": "purchase",
                 "service_offer_followup": "value_card",
+                "service_offer_trigger": (
+                    "soft_decline" if soft_response else "explicit_interest"
+                ),
             }
         }
     )

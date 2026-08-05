@@ -239,7 +239,6 @@ def _apply_approved_care_brand_script(
     reason = str(action_context.get("reason") or "")
     script_name = {
         "service_solution_first_offer": "care_pain",
-        "service_solution_question_followup": "care_question_followup",
         "service_offer_soft_decline_value_card": "soft_decline_value",
     }.get(reason)
     if script_name is None:

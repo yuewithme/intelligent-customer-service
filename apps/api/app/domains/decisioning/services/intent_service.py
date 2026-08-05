@@ -17,6 +17,7 @@ from app.domains.decisioning.services.intent_taxonomy_service import (
 from app.domains.catalog.services.orchid_material_service import (
     is_orchid_material_followup,
     is_orchid_material_request,
+    orchid_material_request_kind,
 )
 from app.domains.sales.services.shipping_contact_service import extract_shipping_contact
 from app.domains.sales.services.tag_catalog import normalize_system_value, system_tag_values
@@ -795,6 +796,7 @@ def classify_by_hard_rules(text: str) -> IntentResult | None:
                 "slots": {
                     "material_type": "orchid_care",
                     "resource_type": "orchid_material",
+                    "material_request_kind": orchid_material_request_kind(text),
                 },
                 "reason": "rule_material_request",
             }
@@ -1088,6 +1090,7 @@ def classify_material_followup(
             "slots": {
                 "material_type": "orchid_care",
                 "resource_type": "orchid_material",
+                "material_request_kind": orchid_material_request_kind(text),
             },
             "reason": "contextual_material_followup",
         }

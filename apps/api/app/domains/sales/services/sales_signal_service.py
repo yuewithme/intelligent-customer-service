@@ -167,6 +167,7 @@ def normalize_sales_signals(
         opportunity.get("last_sales_action") == "recommend_solution"
         and CustomerSignal.RESPONDED in signals
         and CustomerSignal.PURCHASE_REJECTED not in signals
+        and _is_service_offer_engagement(text, intent)
     ):
         _add_signal(
             signals,
@@ -234,6 +235,41 @@ def normalize_sales_signals(
         slots=slots,
         incoming_slots=tuple(incoming_slots),
         evidence=tuple(_dedupe_evidence(evidence)),
+    )
+
+
+def _is_service_offer_engagement(text: str, intent: IntentResult) -> bool:
+    slots = intent.slots if isinstance(intent.slots, dict) else {}
+    if slots.get("chitchat_kind") == "thanks":
+        return True
+    if slots.get("rejection_kind") == "polite_decline":
+        return True
+    if intent.primary_intent in {
+        "hesitation",
+        "ask_price",
+        "price_objection",
+        "discount_request",
+        "order_intent",
+        "payment_intent",
+        "product_query",
+    }:
+        return True
+    return _contains_any(
+        text,
+        (
+            "感兴趣",
+            "想了解",
+            "具体看看",
+            "发我看看",
+            "发个链接",
+            "怎么参加",
+            "怎么加入",
+            "怎么开通",
+            "多少钱",
+            "可以试试",
+            "这个可以",
+            "听起来不错",
+        ),
     )
 
 

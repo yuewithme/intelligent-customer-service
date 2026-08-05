@@ -175,6 +175,38 @@ def test_reply_after_service_recommendation_is_recommendation_engagement():
     assert CustomerSignal.RESPONDED in result.signals
     assert CustomerSignal.RECOMMENDATION_ENGAGED in result.signals
 
+
+def test_care_question_after_service_recommendation_is_not_offer_engagement():
+    intent = IntentResult(
+        route="rag_answer",
+        primary_intent="care_question",
+        primary_domain="care",
+        primary_goal="seek_help",
+        confidence=0.99,
+        slots={"pain_point": "浇水施肥"},
+    )
+    state = UserState(
+        user_id="user_1",
+        sales_stage="solution_recommended",
+        metadata={
+            "active_opportunity": {
+                "last_sales_action": "recommend_solution",
+                "service_offer_phase": "introduced",
+                "slots": {"need_track": "service", "pain_point": "黄叶、烂根"},
+            }
+        },
+    )
+
+    result = normalize_sales_signals(
+        user_state=state,
+        intent=intent,
+        tag_result=_tag(intent),
+        message=_message("那浇水和施肥要什么节奏？什么介质啊"),
+    )
+
+    assert CustomerSignal.RESPONDED in result.signals
+    assert CustomerSignal.RECOMMENDATION_ENGAGED not in result.signals
+
 def test_supply_accessory_does_not_replace_selected_primary_product():
     intent = _intent("product_query")
     state = UserState(

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from typing import Literal
 
 from app.core.config import get_settings
@@ -17,6 +18,7 @@ from app.domains.conversations.services.conversation_service import (
 )
 from app.domains.decisioning.services.reply_builder import build_opening_reply
 from app.domains.customers.services.user_profile_service import append_conversation_memory
+from app.domains.conversations.services.state_service import get_user_state
 from app.core.ids import generate_id
 from app.shared.schemas.common import AppError, ErrorCode
 
@@ -154,8 +156,10 @@ async def get_active_demo_sales_conversation() -> dict:
 
     customer_id = str(state["customer_id"] or DEFAULT_DEMO_CUSTOMER_ID)
     session_id = str(state["session_id"] or "default")
+    user_id = demo_user_id(customer_id)
+    await _flush_due_demo_follow_up(user_id=user_id, session_id=session_id)
     detail = await get_conversation_detail(
-        make_conversation_id("wechat", demo_user_id(customer_id), session_id)
+        make_conversation_id("wechat", user_id, session_id)
     )
     return {
         "customer_id": customer_id,
@@ -167,6 +171,55 @@ async def get_active_demo_sales_conversation() -> dict:
         "conversation_id": session_id,
         "messages": _demo_history_messages(detail.get("messages") or []),
     }
+
+
+async def _flush_due_demo_follow_up(*, user_id: str, session_id: str) -> None:
+    user_state = await get_user_state(user_id, session_id)
+    pending = user_state.metadata.get("pending_service_follow_up")
+    if not isinstance(pending, dict):
+        return
+    try:
+        due_at = datetime.fromisoformat(str(pending.get("due_at") or ""))
+    except ValueError:
+        user_state.metadata.pop("pending_service_follow_up", None)
+        return
+    if due_at.tzinfo is None:
+        due_at = due_at.replace(tzinfo=timezone.utc)
+    if due_at > datetime.now(timezone.utc):
+        return
+    messages = pending.get("messages")
+    user_state.metadata.pop("pending_service_follow_up", None)
+    if not isinstance(messages, list):
+        return
+    source_trace_id = str(pending.get("source_trace_id") or "demo-follow-up")
+    for index, item in enumerate(messages):
+        if not isinstance(item, dict):
+            continue
+        message_type = str(item.get("type") or "").strip()
+        content = str(item.get("content") or "").strip()
+        if not message_type or not content:
+            continue
+        await ensure_outbound_conversation_message(
+            channel="wechat",
+            user_id=user_id,
+            session_id=session_id,
+            content=content,
+            message_type=message_type,
+            provider_message_id=f"demo-service-follow-up:{source_trace_id}:{index}",
+            delivery_status="sent",
+            route="service_silence_follow_up",
+            metadata={"message_type": message_type, "origin": "service_follow_up"},
+        )
+    product_id = str(pending.get("product_id") or "").strip()
+    if product_id:
+        sent_ids = user_state.metadata.get("commerce_sent_card_ids")
+        sent_ids = list(sent_ids) if isinstance(sent_ids, list) else []
+        if product_id not in sent_ids:
+            sent_ids.append(product_id)
+        user_state.metadata["commerce_sent_card_ids"] = sent_ids[-20:]
+    opportunity = user_state.metadata.get("active_opportunity")
+    if isinstance(opportunity, dict):
+        opportunity["service_offer_phase"] = "card_sent"
 
 
 def _demo_history_messages(messages: list[dict]) -> list[dict]:
@@ -300,7 +353,7 @@ async def chat_with_demo_sales_agent(
         "sales_stage": intent.get("sales_stage") or tag_result.get("stage"),
         "customer_tags": tag_result.get("tags", []),
         "product_interests": tag_result.get("product_interests", []),
-        "next_action": result.get("next_action") or sales_action.get("action"),
+        "next_action": result.get("next_action") or sales_action.get("sales_action"),
         "need_human": bool(result.get("need_human")),
         "route": result.get("route"),
         "trace_id": result.get("trace_id"),

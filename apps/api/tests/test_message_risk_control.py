@@ -512,6 +512,135 @@ async def test_enqueue_outbound_adds_random_due_at(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_service_card_follow_up_is_queued_after_five_minutes(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 8, 5, 9, 0, tzinfo=timezone.utc)
+    queued = []
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    monkeypatch.setattr(service, "random_outbound_spacing_seconds", lambda: 3)
+    monkeypatch.setattr(service, "enqueue_wechat_outbound", fake_enqueue)
+
+    await service._enqueue_scheduled_service_follow_up(
+        chat_result={
+            "trace_id": "trace-1",
+            "metadata": {
+                "scheduled_follow_up": {
+                    "kind": "membership_card",
+                    "delay_seconds": 300,
+                    "product_id": "membership-39",
+                    "messages": [
+                        {"type": "text", "content": "您有空可以看看。"},
+                        {"type": "link_card", "content": '{"item_id":"membership-39"}'},
+                    ],
+                }
+            },
+        },
+        batch={
+            "w_id": "wid",
+            "target_wc_id": "customer",
+            "from_user": "customer",
+            "from_group": None,
+        },
+    )
+
+    assert [item["message_type"] for item in queued] == ["text", "link_card"]
+    assert queued[0]["due_at"] == now + timedelta(minutes=5)
+    assert queued[1]["due_at"] == now + timedelta(minutes=5, seconds=3)
+    assert queued[1]["depends_on_outbound_id"] == 1
+    assert queued[0]["source_batch_key"].startswith(
+        "service_followup:membership-39:"
+    )
+
+
+@pytest.mark.asyncio
+async def test_new_customer_message_cancels_queued_service_card_follow_up(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 8, 5, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    queued = await service.enqueue_wechat_outbound(
+        w_id="wid",
+        wc_id="customer",
+        content='{"item_id":"membership-39"}',
+        source_batch_key="service_followup:membership-39:trace-1",
+        message_type="link_card",
+        due_at=now + timedelta(minutes=5),
+    )
+
+    await service.enqueue_eyun_inbound(
+        {
+            "messageType": "60001",
+            "wcId": "bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "customer",
+                "content": "我还想问一下浇水",
+                "newMsgId": 801,
+            },
+        }
+    )
+
+    with service._get_session() as session:
+        row = session.get(EyunOutboundMessageModel, queued["id"])
+        message = session.get(
+            ConversationMessageModel, queued["conversation_message_id"]
+        )
+        assert row.status == "cancelled"
+        assert message.delivery_status == "cancelled"
+
+
+def test_service_card_follow_up_is_rechecked_before_send():
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 8, 5, 9, 5, tzinfo=timezone.utc)
+    with service._get_session() as session:
+        session.add(
+            ConversationModel(
+                conversation_id="wechat:customer:default",
+                channel="wechat",
+                user_id="customer",
+                tenant_id="tenant_default",
+                status="ai_waiting",
+                unread_count=0,
+                created_at=now - timedelta(minutes=10),
+                updated_at=now,
+            )
+        )
+        session.add(
+            ConversationMessageModel(
+                conversation_id="wechat:customer:default",
+                sender_type="customer",
+                sender_id="customer",
+                content="新问题",
+                metadata_json="{}",
+                created_at=now - timedelta(minutes=1),
+            )
+        )
+        row = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="customer",
+            content='__eyun_outbound__:link_card:{"item_id":"membership-39"}',
+            source_batch_key="service_followup:membership-39:trace-1",
+            status="queued",
+            priority=30,
+            due_at=now,
+            attempts=0,
+            created_at=now - timedelta(minutes=5),
+            updated_at=now,
+        )
+        session.add(row)
+        session.commit()
+
+        assert service._validate_outbound_before_send(session, row) is False
+
+
+@pytest.mark.asyncio
 async def test_enqueue_outbound_always_creates_workbench_message(monkeypatch):
     from app.integrations.eyun.services.message_risk_control_service import (
         _get_session,

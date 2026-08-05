@@ -11,9 +11,11 @@ from app.domains.catalog.services.orchid_material_service import (
     is_douyin_purchase_confirmation,
     is_orchid_material_followup,
     is_orchid_material_request,
+    is_orchid_material_verification,
     orchid_material_chat_result,
     orchid_material_discovery_chat_result,
     orchid_material_order_screenshot_context,
+    orchid_material_request_kind,
     orchid_material_video_access_chat_result,
 )
 
@@ -80,6 +82,15 @@ def test_orchid_material_reply_uses_fixed_youzan_card():
         "type": "image",
         "content": ORCHID_MATERIAL_IMAGE_URL,
     }
+
+
+def test_material_verification_and_direct_delivery_are_distinguished():
+    verification = "你们直播间说有资料是真的吗"
+
+    assert is_orchid_material_verification(verification) is True
+    assert is_orchid_material_request(verification) is True
+    assert orchid_material_request_kind(verification) == "verification"
+    assert orchid_material_request_kind("我的意思是，你给我发资料") == "delivery"
 
 
 def test_orchid_material_discovery_reply_asks_for_the_customer_need():
