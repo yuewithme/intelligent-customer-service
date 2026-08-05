@@ -310,6 +310,9 @@ class Settings(BaseSettings):
     reply_shadow_llm_model: str = Field(
         default="", alias="REPLY_SHADOW_LLM_MODEL"
     )
+    reply_shadow_llm_reasoning_effort: Literal[
+        "low", "medium", "high", "xhigh", "max"
+    ] = Field(default="max", alias="REPLY_SHADOW_LLM_REASONING_EFFORT")
     reply_shadow_experiment_id: str = Field(
         default="followup_decision_v1",
         alias="REPLY_SHADOW_EXPERIMENT_ID",
@@ -342,6 +345,9 @@ class Settings(BaseSettings):
     profile_analysis_prompt: str = ""
     review_llm_provider: str = ""
     review_llm_model: str = ""
+    review_llm_reasoning_effort: Literal[
+        "low", "medium", "high", "xhigh", "max"
+    ] = Field(default="max", alias="REVIEW_LLM_REASONING_EFFORT")
     intent_confidence_threshold: float = Field(default=0.6, ge=0, le=1)
     intent_example_top_k: int = Field(default=3, ge=1)
     intent_labeled_example_enabled: bool = Field(
