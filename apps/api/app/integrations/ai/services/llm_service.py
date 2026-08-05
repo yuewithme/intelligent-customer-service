@@ -209,6 +209,13 @@ async def _chat_completion(
         "messages": messages,
         "temperature": temperature,
     }
+    deepseek_v4 = config.model.lower().startswith("deepseek-v4-")
+    if deepseek_v4 and purpose in {"review", "reply_shadow"}:
+        request_body["reasoning_effort"] = (
+            settings.reply_shadow_llm_reasoning_effort
+            if purpose == "reply_shadow"
+            else settings.review_llm_reasoning_effort
+        )
     if purpose == "intent":
         request_body["max_tokens"] = 240
     if purpose == "persona":
@@ -216,12 +223,8 @@ async def _chat_completion(
     if provider == "dashscope" and purpose in {"persona", "rag_fast", "business"}:
         request_body["enable_thinking"] = False
     if json_mode and provider == "dashscope":
-        request_body.update(
-            {
-                "enable_thinking": False,
-                "response_format": {"type": "json_object"},
-            }
-        )
+        request_body["enable_thinking"] = deepseek_v4
+        request_body["response_format"] = {"type": "json_object"}
 
     started = time.perf_counter()
     try:
