@@ -92,7 +92,7 @@ def test_demo_opening_uses_agent_runtime_and_records_conversation(
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["reply"].startswith("您好，我是萧岚苑的小兰")
-    assert "还是有养护问题" in data["reply"]
+    assert "您平时也养兰花吗" in data["reply"]
     assert data["opening_image_url"] == "https://cdn.example.com/opening.jpg"
     assert data["route"] == "agent"
     assert data["conversation_id"] == "default"
@@ -114,7 +114,7 @@ def test_demo_opening_uses_agent_runtime_and_records_conversation(
     assert all(item["sender_type"] == "ai" for item in detail["messages"])
     assert "萧岚苑的小兰" in detail["messages"][0]["content"]
     assert detail["messages"][1]["content"] == "[图片]"
-    assert "还是有养护问题" in detail["messages"][2]["content"]
+    assert "您平时也养兰花吗" in detail["messages"][2]["content"]
 
 
 def test_demo_session_restores_shared_history_across_clients(monkeypatch, tmp_path):
@@ -224,7 +224,7 @@ def test_demo_session_restores_agent_opening(monkeypatch, tmp_path):
         "url": "https://cdn.example.com/opening.jpg",
         "fallback": False,
     }
-    assert "还是有养护问题" in messages[2]["content"]
+    assert "您平时也养兰花吗" in messages[2]["content"]
 
 
 def test_demo_history_normalizes_cards_and_customer_media():

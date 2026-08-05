@@ -689,10 +689,13 @@ async def test_new_friend_opening_uses_agent_copy_with_image_and_opening_depende
     async def compose_opening(request):
         assert request.metadata["system_event"] == "first_contact"
         return {
-            "answer": "您好，我是萧岚苑的小兰。您现在想先聊选花还是养护？",
+            "answer": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。您平时也养兰花吗？",
             "outbound_messages": [
-                {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
-                {"type": "text", "content": "您现在想先聊选花还是养护？"},
+                {
+                    "type": "text",
+                    "content": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。",
+                },
+                {"type": "text", "content": "您平时也养兰花吗？"},
             ],
         }
 
@@ -744,7 +747,7 @@ async def test_new_friend_opening_uses_agent_copy_with_image_and_opening_depende
     assert [item["route"] for item in recorded] == ["opening", "opening", "opening"]
     assert queued[1]["content"] == "https://cdn.example.com/opening.jpg"
     assert queued[1]["message_type"] == "image"
-    assert "先聊选花还是养护" in queued[2]["content"]
+    assert queued[2]["content"] == "您平时也养兰花吗？"
     get_settings.cache_clear()
 
 

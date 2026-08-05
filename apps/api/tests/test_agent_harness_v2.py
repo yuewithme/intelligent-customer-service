@@ -6,6 +6,7 @@ from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.schemas.agent import AgentTurnDecision
 from app.domains.decisioning.services import agent_runtime, agent_tools
+from app.domains.decisioning.services.agent_prompt import build_system_prompt
 from app.domains.decisioning.services.agent_tools import AgentExecutionContext
 
 
@@ -342,8 +343,11 @@ def test_opening_guard_requires_identity_and_one_needs_question():
         _decision(
             final={
                 "messages": [
-                    {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
-                    {"type": "text", "content": "您现在想先看看兰花，还是聊聊养护问题？"},
+                    {
+                        "type": "text",
+                        "content": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花，养护上拿不准都可以找我。",
+                    },
+                    {"type": "text", "content": "您平时也养兰花吗？"},
                 ],
                 "need_human": False,
             }
@@ -368,6 +372,36 @@ def test_opening_guard_requires_identity_and_one_needs_question():
         "opening_needs_question_invalid",
     }
 
+    pushy = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
+                    {"type": "text", "content": "您现在想先看花还是选花？"},
+                ],
+                "need_human": False,
+            }
+        )["data"]
+    )
+    assert agent_runtime._guard_violations(pushy, context) == [
+        "opening_sales_push_question"
+    ]
+
+
+def test_harness_prioritizes_relationship_before_product():
+    prompt = build_system_prompt()
+    assert "新客户默认先经营关系，不默认推荐商品" in prompt
+    assert "新好友和普通养护聊天不默认调用" in prompt
+    assert "先在 commercial_judgment 中说明客户已经出现的购买信号" in prompt
+
+    experience = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.relationship_before_product"
+    )
+    assert "没有真实购买信号时不主动查商品、推品或发卡片" in experience.instructions
+    assert "不为走流程拖延" in experience.instructions
+
 
 @pytest.mark.asyncio
 async def test_opening_does_not_execute_agent_tools(monkeypatch):
@@ -387,8 +421,11 @@ async def test_opening_does_not_execute_agent_tools(monkeypatch):
             _decision(
                 final={
                     "messages": [
-                        {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
-                        {"type": "text", "content": "您现在想先看看兰花，还是聊聊养护问题？"},
+                        {
+                            "type": "text",
+                            "content": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花，养护上拿不准都可以找我。",
+                        },
+                        {"type": "text", "content": "您平时也养兰花吗？"},
                     ],
                     "need_human": False,
                 }

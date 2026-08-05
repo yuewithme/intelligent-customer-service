@@ -52,8 +52,20 @@ logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
 
 _URL_PATTERN = re.compile(r"https?://[^\s<>，。！？；：、（）【】“”‘’《》]+")
 _URL_TRAILING_PUNCTUATION = "，。！？；：、,.!?;:)]}》〉”’\"'"
-_OPENING_INTRO_FALLBACK = "您好，我是萧岚苑的小兰，平时主要帮兰友选兰花、看养护问题。"
-_OPENING_QUESTION_FALLBACK = "您现在是想先看看兰花，还是有养护问题想让我帮您看看？"
+_OPENING_INTRO_FALLBACK = "您好，我是萧岚苑的小兰，我们团队平时都在和兰花打交道，后面养护上有什么拿不准都可以找我。"
+_OPENING_QUESTION_FALLBACK = "您平时也养兰花吗？"
+_OPENING_SALES_PUSH_MARKERS = (
+    "购买",
+    "想买",
+    "下单",
+    "价格",
+    "预算",
+    "看花",
+    "选花",
+    "挑花",
+    "商品",
+    "产品",
+)
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _initialized_urls: set[str] = set()
@@ -1629,6 +1641,7 @@ def _opening_outbound_messages(opening_result: dict[str, Any]) -> list[dict[str,
         or "小兰" not in texts[0]
         or texts[0].count("？") + texts[0].count("?") != 0
         or texts[1].count("？") + texts[1].count("?") != 1
+        or any(marker in texts[1] for marker in _OPENING_SALES_PUSH_MARKERS)
     ):
         texts = [_OPENING_INTRO_FALLBACK, _OPENING_QUESTION_FALLBACK]
 

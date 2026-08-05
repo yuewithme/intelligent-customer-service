@@ -64,6 +64,18 @@ _SUBSTANTIVE_QUESTION_PATTERN = re.compile(
     r"哪一种|哪一款|哪种|哪个|哪里|哪儿|什么|多少|多久|多大|几(?:盆|株|天|次|年)?|"
     r"怎么|为什么|有没有|是否|是不是|能不能|可不可以|还是"
 )
+_OPENING_SALES_PUSH_MARKERS = (
+    "购买",
+    "想买",
+    "下单",
+    "价格",
+    "预算",
+    "看花",
+    "选花",
+    "挑花",
+    "商品",
+    "产品",
+)
 
 
 async def run_sales_agent(
@@ -326,8 +338,8 @@ async def _safe_fallback(
         )
     system_event = str((message.metadata or {}).get("system_event") or "")
     if system_event == "first_contact":
-        intro = "您好，我是萧岚苑的小兰，平时主要帮兰友选兰花、看养护问题。"
-        question = "您现在是想先看看兰花，还是有养护问题想让我帮您看看？"
+        intro = "您好，我是萧岚苑的小兰，我们团队平时都在和兰花打交道，后面养护上有什么拿不准都可以找我。"
+        question = "您平时也养兰花吗？"
         texts = [intro, question]
         text = "\n\n".join(texts)
         purpose = "完成自然自我介绍，并用一个低压力问题了解客户来意"
@@ -400,6 +412,8 @@ def _guard_violations(
                 violations.append("opening_intro_contains_question")
             if _customer_question_count(question) != 1:
                 violations.append("opening_needs_question_invalid")
+            if any(marker in question for marker in _OPENING_SALES_PUSH_MARKERS):
+                violations.append("opening_sales_push_question")
     lowered = text.casefold()
     if any(marker.casefold() in lowered for marker in _INTERNAL_MARKERS):
         violations.append("internal_state_leak")
@@ -626,8 +640,9 @@ def _event_context(message) -> dict[str, Any]:
     elif allowed.get("system_event") == "first_contact":
         allowed["instruction"] = (
             "这是新好友建立事件，不是客户原话。只生成两条短文字：第一条自然介绍自己是萧岚苑的小兰，"
-            "第二条只问一个容易回答的挖需问题。固定图片会由发送网关插在两条文字之间，你不要调用工具、"
-            "不要安排卡片或资料，也不要提到系统事件。措辞可以自然变化，但不要机械盘问地区、盆数和品种。"
+            "并自然带出团队长期做兰花、后面愿意继续帮客户看养护问题；第二条只问一个容易回答、能让客户自然开口的挖需问题。"
+            "不要问客户要不要买、看花、选花、预算或价格，不要假设他有购买意向。固定图片会由发送网关插在两条文字之间，"
+            "你不要调用工具、安排卡片或资料，也不要提到系统事件。措辞可以自然变化，但不要机械盘问地区、盆数和品种。"
         )
     return allowed
 
