@@ -106,7 +106,7 @@ async def test_chat_core_discovers_need_on_first_request_and_delivers_on_second(
 
 
 @pytest.mark.asyncio
-async def test_material_request_after_membership_card_does_not_trigger_discount_reply(
+async def test_sales_stage_and_membership_context_do_not_force_material_delivery(
     monkeypatch,
 ):
     from app.domains.conversations.schemas.chat import ChatRequest
@@ -142,11 +142,11 @@ async def test_material_request_after_membership_card_does_not_trigger_discount_
         )
     )
 
-    assert result["route"] == "orchid_material_delivery"
+    assert result["route"] == "orchid_material_discovery"
     assert result["intent"]["primary_goal"] == "request_material"
-    assert result["intent"]["slots"]["material_request_phase"] == "delivery"
-    assert result["next_action"] == "查看养兰资料"
-    assert result["outbound_messages"][0]["type"] == "link_card"
+    assert result["intent"]["slots"]["material_request_phase"] == "discovery"
+    assert result["next_action"] == "确认资料需求"
+    assert {item["type"] for item in result["outbound_messages"]} == {"text"}
     assert result["metadata"]["sales_action"]["reason"] == "material_request_priority"
     assert all(
         marker not in result["answer"]

@@ -62,8 +62,6 @@ from app.domains.sales.services.sales_stage_knowledge_policy import (
 )
 from app.domains.sales.services.sales_signal_service import normalize_sales_signals
 from app.domains.sales.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
-from app.domains.sales.schemas.sales_flow import SalesStage
-from app.domains.sales.services.service_need_service import has_resolved_service_need
 from app.domains.sales.services.shipping_contact_service import extract_shipping_contact
 from app.domains.conversations.services.state_service import get_user_state, update_user_state
 from app.domains.sales.services.tagger_service import build_tag_result
@@ -369,17 +367,10 @@ async def handle_chat(request: ChatRequest) -> dict:
             material_kind = str(
                 normalized_intent.slots.get("material_request_kind") or ""
             )
-            material_delivery_ready = (
-                material_kind in {"delivery", "verification"}
-                or has_prior_discovery
-                or preliminary_decision.stage in {
-                    SalesStage.SOLUTION_RECOMMENDED,
-                    SalesStage.VALUE_BUILT,
-                    SalesStage.TRIAL_CLOSE,
-                    SalesStage.CLOSING,
-                }
-                or has_resolved_service_need(sales_signals.slots)
-            )
+            material_delivery_ready = material_kind in {
+                "delivery",
+                "verification",
+            } or has_prior_discovery
             normalized_intent = normalized_intent.model_copy(
                 update={
                     "slots": {
