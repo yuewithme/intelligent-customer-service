@@ -88,10 +88,13 @@ async def test_new_friend_opening_uses_fixed_package_and_dedicated_queue(monkeyp
     async def fake_handle_chat(request):
         captured["request"] = request
         return {
-            "answer": "您好，我是萧岚苑的小兰。您现在更想先看花，还是聊养护问题？",
+            "answer": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。您平时也养兰花吗？",
             "outbound_messages": [
-                {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
-                {"type": "text", "content": "您现在更想先看花，还是聊养护问题？"},
+                {
+                    "type": "text",
+                    "content": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。",
+                },
+                {"type": "text", "content": "您平时也养兰花吗？"},
             ],
         }
 
@@ -134,9 +137,9 @@ async def test_new_friend_opening_uses_fixed_package_and_dedicated_queue(monkeyp
     assert request.metadata["system_event"] == "first_contact"
     assert request.metadata["is_first_contact"] is True
     assert [item["content"] for item in queued] == [
-        "您好，我是萧岚苑的小兰。",
+        "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。",
         "https://cdn.example.com/opening.jpg",
-        "您现在更想先看花，还是聊养护问题？",
+        "您平时也养兰花吗？",
     ]
     assert [item["due_at"] for item in queued] == due_slots
     assert [item["route"] for item in recorded] == ["opening", "opening", "opening"]
