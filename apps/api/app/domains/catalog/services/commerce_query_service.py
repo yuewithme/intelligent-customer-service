@@ -127,7 +127,7 @@ MEMBERSHIP_SOFT_DECLINE_VALUE_SCRIPT = (
     "后来用‘资料和视频理顺基础＋老师结合实际情况指导’的方式，才知道每一步的调整方法。\n\n"
     "陪伴养兰服务里，单品养护资料会讲收苗处理上盆、浇水、施肥、防病害、花期管理和分株；"
     "看完有不懂的可以随时问，老师会围绕您现在的{service_need}和实际操作手把手带着调整。"
-    "我把陪伴养兰服务的卡片也发给您，您直接点开就能看详情和开通。"
+    "如果您想系统了解，我把陪伴养兰服务的详细介绍发您，您有空可以点开看看。"
 )
 MEMBERSHIP_APPROVED_SALES_SCRIPTS = {
     "care_pain": MEMBERSHIP_CARE_PAIN_SALES_SCRIPT,

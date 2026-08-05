@@ -229,11 +229,11 @@ def test_care_question_after_service_offer_is_answered_before_service_deepening(
 
     decision = decide_sales_action(user_state=state, intent=intent)
 
-    assert decision.sales_action == "build_value"
-    assert decision.reason == "service_solution_question_followup"
-    assert "先用一条消息回答" in decision.reply_goal
-    assert "商品卡" not in decision.reply_goal
-    assert "不得只做免费问答" in decision.reply_goal
+    assert decision.sales_action == "answer_current_question"
+    assert decision.reason == "service_question_answer_only"
+    assert "只回答客户当前的养护问题" in decision.reply_goal
+    assert "不要提商品卡" in decision.reply_goal
+    assert "不要重复介绍陪伴养兰服务" in decision.reply_goal
 
 
 def test_service_offer_phase_is_persisted_across_sales_turns():

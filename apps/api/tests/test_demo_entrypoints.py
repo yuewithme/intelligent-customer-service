@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -280,6 +281,61 @@ def test_demo_history_normalizes_cards_and_customer_media():
     assert messages[1]["role"] == "customer"
     assert messages[1]["type"] == "image"
     assert messages[1]["content"] == "https://cdn.example.com/customer.jpg"
+
+
+@pytest.mark.asyncio
+async def test_demo_flushes_due_service_card_follow_up(monkeypatch, tmp_path):
+    from app.domains.conversations.services.conversation_service import (
+        get_conversation_detail,
+        make_conversation_id,
+    )
+    from app.domains.conversations.services import state_service
+    from app.domains.customers.schemas.state import UserState
+    from app.domains.decisioning.services.demo_sales_agent_service import (
+        _flush_due_demo_follow_up,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    user_id = demo_user_id("silence-follow-up-customer")
+    state_service._state_store[user_id] = UserState(
+        user_id=user_id,
+        session_id="default",
+        metadata={
+            "pending_service_follow_up": {
+                "kind": "membership_card",
+                "due_at": (
+                    datetime.now(timezone.utc) - timedelta(seconds=1)
+                ).isoformat(),
+                "source_trace_id": "trace-demo",
+                "product_id": "membership-39",
+                "messages": [
+                    {"type": "text", "content": "您有空可以看看。"},
+                    {
+                        "type": "link_card",
+                        "content": '{"item_id":"membership-39"}',
+                    },
+                ],
+            },
+            "active_opportunity": {"service_offer_phase": "introduced"},
+        },
+    )
+
+    await _flush_due_demo_follow_up(user_id=user_id, session_id="default")
+    detail = await get_conversation_detail(
+        make_conversation_id("wechat", user_id, "default")
+    )
+
+    assert [item["content"] for item in detail["messages"]] == [
+        "您有空可以看看。",
+        "[链接卡片]",
+    ]
+    assert detail["messages"][1]["metadata"]["link_card"] == {
+        "item_id": "membership-39"
+    }
+    state = state_service._state_store[user_id]
+    assert "pending_service_follow_up" not in state.metadata
+    assert state.metadata["commerce_sent_card_ids"] == ["membership-39"]
+    assert state.metadata["active_opportunity"]["service_offer_phase"] == "card_sent"
 
 
 def test_demo_session_changes_only_through_explicit_switch(monkeypatch, tmp_path):

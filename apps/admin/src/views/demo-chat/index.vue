@@ -115,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { salesStageText } from '@/utils/tagDisplay'
 import {
@@ -154,6 +154,7 @@ const messages = ref<ChatMessage[]>([])
 const latestResult = ref<DemoChatResponse>()
 const messageListRef = ref<HTMLElement>()
 let messageId = 0
+let historyPoll: ReturnType<typeof setInterval> | undefined
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -273,6 +274,18 @@ const restoreActiveConversation = async () => {
   await scrollToBottom()
 }
 
+const refreshActiveConversation = async () => {
+  if (loading.value) return
+  const result = await getActiveDemoConversation()
+  const refreshed = result.messages.map((item: DemoHistoryMessage) =>
+    toChatMessage(item, item.id, item.role)
+  )
+  if (refreshed.length === messages.value.length) return
+  messages.value = refreshed
+  messageId = Math.max(0, ...messages.value.map((item) => item.id))
+  await scrollToBottom()
+}
+
 const switchConversation = async (showSuccess = true) => {
   if (loading.value) return
   const nextCustomerId = customerId.value.trim()
@@ -329,6 +342,13 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  historyPoll = setInterval(() => {
+    void refreshActiveConversation()
+  }, 10_000)
+})
+
+onBeforeUnmount(() => {
+  if (historyPoll) clearInterval(historyPoll)
 })
 </script>
 

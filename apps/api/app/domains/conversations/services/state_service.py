@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -99,6 +99,20 @@ async def update_user_state(
             sales_action=action,
             stage_decision=_dict_value(reply.metadata.get("sales_stage_decision")),
         )
+    scheduled_follow_up = reply.metadata.get("scheduled_follow_up")
+    if isinstance(scheduled_follow_up, dict):
+        try:
+            delay_seconds = max(1, int(scheduled_follow_up.get("delay_seconds") or 0))
+        except (TypeError, ValueError):
+            delay_seconds = 0
+        messages = scheduled_follow_up.get("messages")
+        if delay_seconds and isinstance(messages, list) and messages:
+            state.metadata["pending_service_follow_up"] = {
+                **scheduled_follow_up,
+                "due_at": (
+                    datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+                ).isoformat(),
+            }
     _persist_order_workflow(state)
 
 

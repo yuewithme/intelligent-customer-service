@@ -117,7 +117,7 @@ def _install_common_orchestrator_fakes(monkeypatch, chat_orchestrator):
 
 
 @pytest.mark.asyncio
-async def test_service_offer_attaches_membership_card_in_the_same_turn(monkeypatch):
+async def test_soft_decline_attaches_membership_card_in_the_same_turn(monkeypatch):
     from app.services import chat_orchestrator
 
     async def build_card_context(*args, **kwargs):
@@ -145,11 +145,85 @@ async def test_service_offer_attaches_membership_card_in_the_same_turn(monkeypat
         message=_message(),
         user_state=UserState(user_id="user_001"),
         intent=_intent(),
-        sales_action=SimpleNamespace(reason="service_solution_question_followup"),
+        sales_action=SimpleNamespace(reason="service_offer_soft_decline_value_card"),
     )
 
     assert [item.type for item in reply.outbound_messages] == ["link_card"]
     assert reply.metadata["commerce_action"]["card_sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_care_question_does_not_attach_membership_card_in_the_same_turn(
+    monkeypatch,
+):
+    from app.services import chat_orchestrator
+
+    async def unexpected(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("客户问题还在当前轮时不应立即查询商品卡")
+
+    monkeypatch.setattr(chat_orchestrator, "build_commerce_context", unexpected)
+    original = _reply("浇水看植料干湿，施肥要薄肥勤施。")
+    reply = await chat_orchestrator._attach_membership_card_for_service_offer(
+        reply=original,
+        message=_message(),
+        user_state=UserState(user_id="user_001"),
+        intent=_intent(),
+        sales_action=SimpleNamespace(reason="service_question_answer_only"),
+    )
+
+    assert reply is original
+    assert reply.outbound_messages == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reason", ["service_solution_first_offer", "service_question_answer_only"]
+)
+async def test_care_question_prepares_card_for_five_minutes_of_silence(
+    monkeypatch, reason
+):
+    from app.services import chat_orchestrator
+
+    async def build_card_context(*args, **kwargs):
+        del args
+        assert kwargs["business_action"] == "catalog_search"
+        return BusinessFacts(
+            tool_state={
+                "commerce_type": "product",
+                "status": "found",
+                "products": [{"item_id": "membership-39"}],
+            }
+        )
+
+    async def render_card(message, facts):
+        del message, facts
+        return FinalReply(
+            answer="卡片文案",
+            reply_type="template",
+            route="template_reply",
+            outbound_messages=[
+                OutboundMessage(type="text", content="卡片文案"),
+                OutboundMessage(type="link_card", content='{"item_id":"membership-39"}'),
+            ],
+        )
+
+    monkeypatch.setattr(chat_orchestrator, "build_commerce_context", build_card_context)
+    monkeypatch.setattr(chat_orchestrator, "render_business_reply", render_card)
+    reply = await chat_orchestrator._prepare_membership_card_silence_follow_up(
+        reply=_reply("浇水看植料干湿，施肥要薄肥勤施。"),
+        message=_message(),
+        user_state=UserState(user_id="user_001"),
+        intent=_intent(),
+        sales_action=SimpleNamespace(reason=reason),
+    )
+
+    assert reply.outbound_messages == []
+    follow_up = reply.metadata["scheduled_follow_up"]
+    assert follow_up["delay_seconds"] == 300
+    assert follow_up["cancel_on_customer_message"] is True
+    assert follow_up["product_id"] == "membership-39"
+    assert [item["type"] for item in follow_up["messages"]] == ["text", "link_card"]
 
 
 @pytest.mark.asyncio
@@ -218,6 +292,35 @@ async def test_service_offer_does_not_duplicate_an_existing_card(monkeypatch):
 
     assert reply is original
     assert [item.type for item in reply.outbound_messages] == ["link_card"]
+
+
+def test_explicit_service_interest_selects_membership_card_immediately():
+    from app.services import chat_orchestrator
+
+    intent = _intent()
+    state = UserState(
+        user_id="user_001",
+        metadata={
+            "active_opportunity": {
+                "service_offer_phase": "introduced",
+                "last_sales_action": "recommend_solution",
+            }
+        },
+    )
+    message = _message().model_copy(
+        update={"message": "我感兴趣，把详细介绍发我看看"}
+    )
+
+    result = chat_orchestrator._service_offer_followup_business_intent(
+        intent=intent,
+        user_state=state,
+        message=message,
+    )
+
+    assert result.slots["product_request_kind"] == "membership"
+    assert result.slots["membership_question_kind"] == "purchase"
+    assert result.slots["service_offer_followup"] == "value_card"
+    assert result.slots["service_offer_trigger"] == "explicit_interest"
 
 
 @pytest.mark.asyncio

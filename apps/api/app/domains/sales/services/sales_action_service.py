@@ -262,9 +262,8 @@ def decide_sales_action(
             return SalesActionDecision(
                 reply_goal=(
                     (
-                        "先用一条消息回答客户当前的养护问题，说清可能原因和可执行处理；"
-                        "再用独立消息结合这个需求继续介绍陪伴养兰服务，说清资料和视频负责理顺基础，"
-                        "老师再结合家里的环境和实际操作一对一带着调整；不得只做免费问答后结束"
+                        "只回答客户当前的养护问题，说清可能原因、判断边界和可执行处理；"
+                        "本轮不要重复介绍陪伴养兰服务，不要提商品卡或购买入口，也不要追加销售追问"
                         if service_offer_started
                         else
                         "先用一条消息专业回答客户已经说清的养兰需求，给出有针对性的答复或可执行处理；"
@@ -273,19 +272,23 @@ def decide_sales_action(
                         "结合实际环境调整。不要展开课程和权益，不发商品卡；等客户继续互动后再进入详细推品塑品"
                     )
                 ),
-                sales_action=("build_value" if service_offer_started else "recommend_solution"),
+                sales_action=(
+                    "answer_current_question"
+                    if service_offer_started
+                    else "recommend_solution"
+                ),
                 known_slots=known_slots,
                 customer_signal="interested",
                 reason=(
-                    "service_solution_question_followup"
+                    "service_question_answer_only"
                     if service_offer_started
                     else "service_solution_first_offer"
                 ),
                 allow_diagnostic_question=False,
                 prohibited_behaviors=[
                     "需求明确且已回答后仍停留在挖需阶段",
-                    "只回答养护问题而不推进陪伴养兰服务",
                     "需求刚明确就一次性讲完全部服务权益或发送商品卡",
+                    "客户继续咨询养护问题时重复介绍服务或立即发送商品卡",
                     "客户没有明确购兰需求时推荐兰花",
                 ],
             )

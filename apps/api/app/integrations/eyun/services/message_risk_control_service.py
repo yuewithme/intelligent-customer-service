@@ -61,6 +61,7 @@ logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
 
 _URL_PATTERN = re.compile(r"https?://[^\s<>，。！？；：、（）【】“”‘’《》]+")
 _URL_TRAILING_PUNCTUATION = "，。！？；：、,.!?;:)]}》〉”’\"'"
+_SERVICE_FOLLOW_UP_PREFIX = "service_followup:"
 
 WRONG_STORE_ORDER_REPLY = "亲这不是我们萧岚苑的订单截图哦"
 
@@ -163,6 +164,13 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
                 started_at=batch.created_at,
             )
             batch.updated_at = now
+
+        _cancel_queued_service_followups(
+            session,
+            w_id=w_id,
+            wc_id=target_wc_id,
+            now=now,
+        )
 
         session.add(
             EyunInboundMessageModel(
@@ -545,6 +553,86 @@ async def enqueue_eyun_outbound(
     )
 
 
+async def _enqueue_scheduled_service_follow_up(
+    *, chat_result: dict[str, Any], batch: dict[str, Any]
+) -> None:
+    metadata = chat_result.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    follow_up = metadata.get("scheduled_follow_up")
+    if not isinstance(follow_up, dict) or follow_up.get("kind") != "membership_card":
+        return
+    messages = follow_up.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return
+    try:
+        delay_seconds = max(1, min(3600, int(follow_up.get("delay_seconds") or 0)))
+    except (TypeError, ValueError):
+        return
+    trace_id = re.sub(
+        r"[^0-9A-Za-z_.-]+",
+        "-",
+        str(follow_up.get("source_trace_id") or chat_result.get("trace_id") or "turn"),
+    )[:96]
+    product_id = re.sub(
+        r"[^0-9A-Za-z_.-]+",
+        "-",
+        str(follow_up.get("product_id") or "membership"),
+    )[:96]
+    source_batch_key = f"{_SERVICE_FOLLOW_UP_PREFIX}{product_id}:{trace_id}"
+    due_at = utcnow() + timedelta(seconds=delay_seconds)
+    dependency_id: int | None = None
+    for item in messages:
+        if not isinstance(item, dict):
+            continue
+        message_type = str(item.get("type") or "").strip()
+        content = str(item.get("content") or "").strip()
+        if message_type not in {"text", "link_card", "mini_program"} or not content:
+            continue
+        queued = await enqueue_wechat_outbound(
+            w_id=str(batch.get("w_id") or ""),
+            wc_id=str(batch.get("target_wc_id") or ""),
+            content=content,
+            source_batch_key=source_batch_key,
+            message_type=message_type,
+            depends_on_outbound_id=dependency_id,
+            priority=30,
+            due_at=due_at,
+            channel="wechat",
+            user_id=str(batch.get("from_user") or batch.get("target_wc_id") or ""),
+            session_id=str(batch.get("from_group") or "default"),
+            source_type="service_follow_up",
+            source_id=trace_id,
+        )
+        queued_id = queued.get("id") if isinstance(queued, dict) else None
+        dependency_id = int(queued_id) if queued_id is not None else None
+        due_at += timedelta(seconds=random_outbound_spacing_seconds())
+
+
+def _cancel_queued_service_followups(
+    session: Session, *, w_id: str, wc_id: str, now: datetime
+) -> None:
+    if not w_id or not wc_id:
+        return
+    rows = session.scalars(
+        select(EyunOutboundMessageModel).where(
+            EyunOutboundMessageModel.w_id == w_id,
+            EyunOutboundMessageModel.wc_id == wc_id,
+            EyunOutboundMessageModel.status == "queued",
+            EyunOutboundMessageModel.source_batch_key.like(
+                f"{_SERVICE_FOLLOW_UP_PREFIX}%"
+            ),
+        )
+    ).all()
+    for row in rows:
+        row.status = "cancelled"
+        row.last_error = "客户在静默等待期内发送了新消息"
+        row.updated_at = now
+        if row.conversation_message_id:
+            message = session.get(ConversationMessageModel, row.conversation_message_id)
+            if message is not None:
+                message.delivery_status = "cancelled"
+
+
 async def enqueue_wechat_bulk_send(
     *,
     recipients: list[dict[str, str]],
@@ -699,9 +787,9 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     row.updated_at = now
                     session.commit()
                     continue
-            if not _validate_sop_outbound(row.source_batch_key):
+            if not _validate_outbound_before_send(session, row):
                 row.status = "cancelled"
-                row.last_error = "SOP发送前条件已不满足"
+                row.last_error = "发送前条件已不满足"
                 row.updated_at = now
                 session.commit()
                 if row.conversation_message_id:
@@ -892,6 +980,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     provider_message_id=_eyun_provider_message_id_from_result(send_result),
                     sent_at=sent_at,
                 )
+            await _mark_service_follow_up_sent(row, message_type=message_type)
             await _handle_opening_send_success(row.id, sent_at)
             break
     return attempted
@@ -1221,6 +1310,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     dependency_id = (
                         int(queued_id) if queued_id is not None else None
                     )
+            await _enqueue_scheduled_service_follow_up(
+                chat_result=chat_result,
+                batch=batch_data,
+            )
         _mark_batch(batch_id, "processed")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
@@ -2146,6 +2239,50 @@ def _validate_sop_outbound(source_batch_key: str | None) -> bool:
     from app.domains.sales.services.unpurchased_sop_service import validate_sop_delivery_before_send
 
     return validate_sop_delivery_before_send(source_batch_key)
+
+
+def _validate_outbound_before_send(
+    session: Session, row: EyunOutboundMessageModel
+) -> bool:
+    if not _validate_sop_outbound(row.source_batch_key):
+        return False
+    if not (row.source_batch_key or "").startswith(_SERVICE_FOLLOW_UP_PREFIX):
+        return True
+    conversation_id = make_conversation_id("wechat", row.wc_id, "default")
+    return session.scalar(
+        select(ConversationMessageModel.id)
+        .where(
+            ConversationMessageModel.conversation_id == conversation_id,
+            ConversationMessageModel.sender_type == "customer",
+            ConversationMessageModel.created_at > row.created_at,
+        )
+        .limit(1)
+    ) is None
+
+
+async def _mark_service_follow_up_sent(
+    row: EyunOutboundMessageModel, *, message_type: str
+) -> None:
+    source_batch_key = str(row.source_batch_key or "")
+    if (
+        not source_batch_key.startswith(_SERVICE_FOLLOW_UP_PREFIX)
+        or message_type not in {"link_card", "mini_program"}
+    ):
+        return
+    from app.domains.conversations.services.state_service import get_user_state
+
+    user_state = await get_user_state(row.wc_id, "default")
+    user_state.metadata.pop("pending_service_follow_up", None)
+    product_id = source_batch_key.removeprefix(_SERVICE_FOLLOW_UP_PREFIX).partition(":")[0]
+    if product_id:
+        sent_ids = user_state.metadata.get("commerce_sent_card_ids")
+        sent_ids = list(sent_ids) if isinstance(sent_ids, list) else []
+        if product_id not in sent_ids:
+            sent_ids.append(product_id)
+        user_state.metadata["commerce_sent_card_ids"] = sent_ids[-20:]
+    opportunity = user_state.metadata.get("active_opportunity")
+    if isinstance(opportunity, dict):
+        opportunity["service_offer_phase"] = "card_sent"
 
 
 def _sync_sop_outbound(
