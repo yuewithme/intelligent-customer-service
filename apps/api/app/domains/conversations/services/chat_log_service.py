@@ -13,7 +13,6 @@ from app.infrastructure.database.models import (
     AiModelCallLogModel,
     Base,
     ChatLogModel,
-    IntentShadowRunModel,
 )
 
 
@@ -137,18 +136,10 @@ async def get_chat_log(trace_id: str) -> dict | None:
             .where(AiModelCallLogModel.trace_id == trace_id)
             .order_by(AiModelCallLogModel.created_at.asc(), AiModelCallLogModel.id.asc())
         ).all()
-        shadow_runs = session.scalars(
-            select(IntentShadowRunModel)
-            .where(IntentShadowRunModel.trace_id == trace_id)
-            .order_by(IntentShadowRunModel.created_at.asc())
-        ).all()
     if row is None:
         return None
     detail = _model_to_detail(row)
     detail["model_calls"] = [_model_call_to_dict(call) for call in model_calls]
-    detail["intent_shadow_runs"] = [
-        _intent_shadow_to_dict(run) for run in shadow_runs
-    ]
     return detail
 
 
@@ -210,7 +201,6 @@ def _get_session() -> Session:
             tables=[
                 ChatLogModel.__table__,
                 AiModelCallLogModel.__table__,
-                IntentShadowRunModel.__table__,
             ],
         )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -360,33 +350,6 @@ def _model_call_to_dict(row: AiModelCallLogModel) -> dict:
         "status": row.status,
         "error_class": row.error_class,
         "provider_request_id": row.provider_request_id,
-        "created_at": row.created_at.isoformat(),
-    }
-
-
-def _intent_shadow_to_dict(row: IntentShadowRunModel) -> dict:
-    return {
-        "primary_source": row.primary_source,
-        "primary": {
-            "domain": row.primary_domain,
-            "goal": row.primary_goal,
-            "issues": _json_loads(row.primary_issues_json, []),
-            "scope": row.primary_scope,
-            "route": row.primary_route,
-        },
-        "shadow_provider": row.shadow_provider,
-        "shadow_model": row.shadow_model,
-        "shadow": {
-            "domain": row.shadow_domain,
-            "goal": row.shadow_goal,
-            "issues": _json_loads(row.shadow_issues_json, []),
-            "scope": row.shadow_scope,
-            "route": row.shadow_route,
-            "confidence": row.shadow_confidence,
-        },
-        "agreement": row.agreement,
-        "status": row.status,
-        "error_class": row.error_class,
         "created_at": row.created_at.isoformat(),
     }
 

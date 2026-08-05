@@ -34,9 +34,6 @@ export interface DemoChatResponse {
   opening_image_url?: string | null
   customer_id: string
   conversation_id: string
-  sales_stage?: string | null
-  customer_tags: string[]
-  product_interests: string[]
   next_action?: string | null
   need_human: boolean
   route?: string | null

@@ -15,8 +15,8 @@ from app.domains.handoff.services.handoff_notification_service import (
     update_handoff_notification_settings,
 )
 from app.domains.handoff.services import handoff_notification_service
-from app.domains.sales.services.unpurchased_sop_service import (
-    _get_session as get_sop_session,
+from app.domains.sales.services.contact_sync_service import (
+    _session as get_contact_session,
     sync_eyun_contacts,
 )
 
@@ -37,7 +37,7 @@ def _settings(monkeypatch, tmp_path):
 async def _create_contact(monkeypatch, tmp_path) -> int:
     _settings(monkeypatch, tmp_path)
     await sync_eyun_contacts(friend_ids=["recipient-wxid"])
-    with get_sop_session() as session:
+    with get_contact_session() as session:
         contact = session.query(EyunContactModel).filter_by(wc_id="recipient-wxid").one()
         contact.display_name = "值班客服"
         contact.remark_name = "小李"

@@ -3,63 +3,6 @@ from datetime import datetime, timezone
 import pytest
 
 
-def test_opening_reply_contains_configured_text_and_image(monkeypatch):
-    from app.core.config import get_settings
-    from app.domains.decisioning.services.reply_builder import build_opening_reply
-
-    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://bot.example.com/static/xiaolanyuan-opening.jpg")
-    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "0")
-    get_settings.cache_clear()
-
-    reply = build_opening_reply()
-
-    opening_text = (
-        "兰友您好！欢迎来到萧岚苑，我是养兰师傅兰画🌹"
-        "我们专注国兰培育和养护，也会给兰友提供养兰资料、"
-        "视频课程和一对一养护指导。"
-    )
-    followup_text = (
-        "为了给您提供适合您的学习资料，请告诉我以下两点信息：\n"
-        "1. 家里目前养了多少盆兰花？（还没养扣“0”😝）\n"
-        "2. 具体养了哪些品种？"
-    )
-    assert reply.answer == f"{opening_text}\n\n{followup_text}"
-    assert reply.answer_segments == [opening_text, followup_text]
-    assert [message.model_dump() for message in reply.outbound_messages] == [
-        {"type": "text", "content": opening_text, "material_id": None},
-        {
-            "type": "image",
-            "content": "https://bot.example.com/static/xiaolanyuan-opening.jpg",
-            "material_id": None,
-        },
-        {"type": "text", "content": followup_text, "material_id": None},
-    ]
-    get_settings.cache_clear()
-
-
-def test_opening_material_keeps_image_semantics_for_workbench(monkeypatch):
-    from app.core.config import get_settings
-    from app.domains.decisioning.services.reply_builder import build_opening_reply
-
-    monkeypatch.setenv(
-        "EYUN_OPENING_IMAGE_URL",
-        "https://bot.example.com/static/xiaolanyuan-opening.jpg",
-    )
-    monkeypatch.setenv("EYUN_OPENING_MATERIAL_ID", "7")
-    get_settings.cache_clear()
-
-    reply = build_opening_reply()
-
-    assert reply.outbound_messages[1].model_dump() == {
-        "type": "image",
-        "content": "https://bot.example.com/static/xiaolanyuan-opening.jpg",
-        "material_id": 7,
-    }
-    assert reply.outbound_messages[2].type == "text"
-    assert "家里目前养了多少盆兰花" in reply.outbound_messages[2].content
-    get_settings.cache_clear()
-
-
 def test_first_inbound_message_is_the_only_opening_trigger(monkeypatch, tmp_path):
     from app.core.config import get_settings
     from app.infrastructure.database.models import EyunInboundMessageModel
@@ -113,10 +56,71 @@ async def test_first_inbound_message_skips_debounce_delay(monkeypatch, tmp_path)
         {
             "messageType": "60001",
             "wcId": "sales",
-            "data": {"wId": "wid", "fromUser": "customer", "content": "想学养兰", "newMsgId": 1},
+            "data": {
+                "wId": "wid",
+                "fromUser": "customer",
+                "content": "想学养兰",
+                "newMsgId": 1,
+            },
         }
     )
 
     assert batch["due_at"] == now
     get_settings.cache_clear()
     risk_control._sessionmakers.clear()
+
+
+@pytest.mark.asyncio
+async def test_new_friend_opening_is_composed_by_agent_and_uses_normal_queue(monkeypatch):
+    from app.services import message_risk_control_service as risk_control
+
+    captured = {}
+    queued = []
+
+    async def fake_handle_chat(request):
+        captured["request"] = request
+        return {
+            "answer": "您好，我是萧岚苑的小兰。养护和选品都可以直接问我。",
+            "outbound_messages": [
+                {"type": "text", "content": "您好，我是萧岚苑的小兰。"},
+                {"type": "text", "content": "养护和选品都可以直接问我。"},
+            ],
+        }
+
+    async def fake_record(*args, **kwargs):
+        del args, kwargs
+
+    async def fake_ensure(**kwargs):
+        return {"id": len(queued) + 100, **kwargs}
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+
+    monkeypatch.setattr(risk_control, "handle_chat", fake_handle_chat)
+    monkeypatch.setattr(risk_control, "_record_opening_memories", fake_record)
+    monkeypatch.setattr(risk_control, "ensure_outbound_conversation_message", fake_ensure)
+    monkeypatch.setattr(risk_control, "enqueue_eyun_outbound", fake_enqueue)
+    monkeypatch.setattr(risk_control, "random_reply_delay_seconds", lambda: 0)
+    monkeypatch.setattr(risk_control, "random_outbound_spacing_seconds", lambda: 3)
+
+    await risk_control._send_opening_for_new_friend(
+        {
+            "batch_key": "wid:customer",
+            "w_id": "wid",
+            "target_wc_id": "customer",
+            "from_user": "customer",
+            "from_group": None,
+            "created_at": datetime(2026, 8, 5, tzinfo=timezone.utc),
+        }
+    )
+
+    request = captured["request"]
+    assert request.metadata["system_event"] == "first_contact"
+    assert request.metadata["is_first_contact"] is True
+    assert [item["content"] for item in queued] == [
+        "您好，我是萧岚苑的小兰。",
+        "养护和选品都可以直接问我。",
+    ]
+    assert queued[0]["depends_on_outbound_id"] is None
+    assert queued[1]["depends_on_outbound_id"] == 1

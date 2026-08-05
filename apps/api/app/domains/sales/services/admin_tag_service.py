@@ -409,8 +409,6 @@ def _replace_profile_system_values(
     if not old_raw_values:
         return
     scalar_fields = {
-        "intent": ("last_intent", "unknown"),
-        "sales_stage": ("current_stage", "unknown"),
         "risk_level": ("risk_level", "normal"),
     }
     list_fields = {

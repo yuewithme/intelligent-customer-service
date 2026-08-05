@@ -46,29 +46,13 @@ def test_tag_admin_lists_all_categories_and_prompt_configuration():
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["total_categories"] == 12
-    assert data["total_tags"] > 80
+    assert data["total_categories"] == 10
+    assert data["total_tags"] > 60
     categories = {item["id"]: item for item in data["items"]}
     assert categories["purchase_status"]["ai_assignable"] is False
-    assert {"intent", "sales_stage", "customer_sentiment", "risk_level"} <= set(
-        categories
-    )
-    assert any(
-        tag["value"] == "stage:closing"
-        for tag in categories["sales_stage"]["tags"]
-    )
-    assert {
-        tag["value"] for tag in categories["sales_stage"]["tags"]
-    } == {
-        "stage:unknown",
-        "stage:rapport",
-        "stage:need_discovery",
-        "stage:pain_discovery",
-        "stage:solution_recommended",
-        "stage:value_built",
-        "stage:trial_close",
-        "stage:closing",
-    }
+    assert {"customer_sentiment", "risk_level", "pain_point"} <= set(categories)
+    assert "intent" not in categories
+    assert "sales_stage" not in categories
     quantity = next(
         tag for tag in categories["orchid_quantity"]["tags"] if tag["value"] == "1-10盆"
     )
@@ -159,40 +143,6 @@ def test_removing_last_business_prompt_does_not_reseed_it():
     ) == []
 
 
-def test_deleting_system_tag_immediately_removes_it_from_intent_whitelist():
-    from app.domains.decisioning.services.intent_service import classify_by_soft_rules
-
-    client = TestClient(app)
-    catalog = client.get("/api/v1/admin/tags").json()["data"]
-    intent_category = next(item for item in catalog["items"] if item["id"] == "intent")
-    care_tag = next(
-        item for item in intent_category["tags"] if item["value"] == "intent:care_question"
-    )
-
-    assert client.delete(f"/api/v1/admin/tags/items/{care_tag['id']}").status_code == 200
-    assert classify_by_soft_rules("兰花怎么养护？").primary_intent == "unknown"
-
-
-def test_sales_stage_contract_cannot_be_changed_through_generic_tag_admin():
-    client = TestClient(app)
-    catalog = client.get("/api/v1/admin/tags").json()["data"]
-    stage_category = next(
-        item for item in catalog["items"] if item["id"] == "sales_stage"
-    )
-    rapport = next(
-        item for item in stage_category["tags"] if item["value"] == "stage:rapport"
-    )
-
-    created = client.post(
-        "/api/v1/admin/tags/categories/sales_stage/items",
-        json={"value": "custom_stage", "prompts": []},
-    )
-    deleted = client.delete(f"/api/v1/admin/tags/items/{rapport['id']}")
-
-    assert created.status_code == 409
-    assert deleted.status_code == 409
-
-
 def test_catalog_upgrade_removes_obsolete_stage_bindings_and_orphan_blocks():
     client = TestClient(app)
     assert client.get("/api/v1/admin/tags").status_code == 200
@@ -240,20 +190,6 @@ def test_catalog_upgrade_removes_obsolete_stage_bindings_and_orphan_blocks():
             )
         ) is None
         assert session.get(PromptBlockModel, "legacy.sales_stage.greeting") is None
-
-
-def test_new_system_tag_is_namespaced_and_added_to_llm_whitelist():
-    from app.domains.decisioning.services.intent_service import _build_prompt
-
-    client = TestClient(app)
-    created = client.post(
-        "/api/v1/admin/tags/categories/intent/items",
-        json={"value": "vip_inquiry", "prompts": []},
-    )
-
-    assert created.status_code == 200
-    assert created.json()["data"]["value"] == "intent:vip_inquiry"
-    assert "vip_inquiry" in _build_prompt("测试")
 
 
 def test_tag_admin_requires_api_authorization(monkeypatch):

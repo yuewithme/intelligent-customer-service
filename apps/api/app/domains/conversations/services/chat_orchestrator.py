@@ -1,107 +1,81 @@
-import re
-import time
+from __future__ import annotations
 
-from app.core.config import get_settings
+import time
+from datetime import datetime, timezone
+from typing import Any
+
+from app.core.logger import log_event
+from app.core.trace_context import reset_trace_id, set_trace_id
 from app.domains.conversations.schemas.chat import ChatRequest
-from app.shared.schemas.common import AppError, ErrorCode
-from app.domains.decisioning.schemas.intent import IntentResult
-from app.domains.decisioning.schemas.policy import PolicyDecision
-from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 from app.domains.conversations.services.channel_service import normalize_chat_request
 from app.domains.conversations.services.chat_log_service import record_chat_log
-from app.domains.decisioning.services.business_context_service import build_business_context
-from app.domains.decisioning.services.business_action_service import (
-    CATALOG_SEARCH,
-    resolve_business_action,
-)
-from app.domains.decisioning.services.business_reply_renderer import (
-    render_business_reply,
-)
-from app.domains.catalog.services.commerce_query_service import (
-    build_commerce_context,
-    verified_membership_brand_facts,
-)
 from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
-    conversation_has_reply_route,
     conversation_blocks_ai,
-    latest_conversation_reply_route,
-    recover_automatic_handoff,
     record_ai_turn,
     record_customer_message,
+    recover_automatic_handoff,
 )
+from app.domains.conversations.services.state_service import (
+    get_user_state,
+    update_user_state,
+)
+from app.domains.customers.services.user_profile_service import (
+    append_conversation_memory,
+    get_profile_bundle,
+)
+from app.domains.decisioning.schemas.intent import IntentResult
+from app.domains.decisioning.schemas.reply import FinalReply
+from app.domains.decisioning.services.agent_runtime import run_sales_agent
 from app.domains.decisioning.services.customer_reply_formatter import (
     coalesce_customer_messages,
     plain_customer_text,
     split_customer_messages,
 )
-from app.domains.decisioning.services.intent_example_service import retrieve_intent_examples
-from app.domains.decisioning.services.intent_observation_service import (
-    finalize_intent_observation,
-    record_intent_observation,
+from app.domains.sales.services.daily_touch_service import (
+    get_agent_relationship_state,
+    get_daily_touch_snapshot,
+    record_agent_relationship_state,
 )
-from app.domains.decisioning.services.intent_service import (
-    classify_by_fast_rule,
-    classify_intent,
-    classify_material_followup,
-    schedule_intent_shadow_evaluation,
-)
-from app.domains.customers.services.memory_rollout_service import prepare_memory_context_for_request
-from app.domains.decisioning.services.policy_service import decide_route
-from app.domains.decisioning.services.policy_engine import decide_policy
-from app.domains.decisioning.services.reply_planner import resolve_reply_plan
-from app.domains.decisioning.services.reply_shadow_service import (
-    schedule_reply_shadow_evaluation,
-)
-from app.domains.decisioning.services.reply_workflow_graph import execute_reply_plan
-from app.domains.decisioning.services.rule_guard_service import check_rules
-from app.domains.sales.services.sales_action_service import apply_sales_action, decide_sales_action
-from app.domains.sales.services.sales_stage_knowledge_policy import (
-    allowed_knowledge_sources,
-    apply_stage_knowledge_policy,
-)
-from app.domains.sales.services.sales_signal_service import normalize_sales_signals
-from app.domains.sales.services.sales_stage_service import decide_sales_stage, normalize_sales_stage
-from app.domains.sales.services.shipping_contact_service import extract_shipping_contact
-from app.domains.conversations.services.state_service import get_user_state, update_user_state
-from app.domains.sales.services.tagger_service import build_tag_result
-from app.domains.customers.services.user_profile_service import (
-    apply_deterministic_profile_update,
-    append_conversation_memory,
-    get_profile_bundle,
-    save_shipping_contact,
-)
-from app.core.logger import log_event
-from app.core.trace_context import reset_trace_id, set_trace_id
+from app.shared.schemas.common import AppError, ErrorCode
 
 
 async def handle_chat(request: ChatRequest) -> dict:
+    """Run the single autonomous Sales Agent path.
+
+    Intent classification, sales-stage routing, ReplyPlan, templates and shadow
+    decision graphs are deliberately absent from this runtime entrypoint.
+    """
     started = time.perf_counter()
-    candidates: list[dict] = []
     stage_latencies: dict[str, int] = {}
-    log_payload: dict = {}
+    log_payload: dict[str, Any] = {}
     message = None
-    user_state = None
     intent = None
-    routed_intent = None
-    decision = None
-    tag_result = None
-    rich_decision = None
     reply = None
-    is_evaluation = False
-    intent_observation_recorded = False
     trace_token = None
+    is_evaluation = False
 
     try:
         stage_started = time.perf_counter()
         message = await normalize_chat_request(request)
         trace_token = set_trace_id(message.trace_id)
-        is_evaluation = _is_evaluation_request(message)
-        _enrich_material_video_access_context(message)
-        if not is_evaluation:
-            user_state = await get_user_state(message.user_id, message.session_id)
-            user_state.metadata.pop("pending_service_follow_up", None)
+        is_evaluation = bool(message.metadata.get("evaluation_id"))
         stage_latencies["normalize_ms"] = _elapsed_ms(stage_started)
+
+        if not str(message.message or "").strip() and not message.metadata.get(
+            "system_event"
+        ):
+            raise AppError(ErrorCode.MESSAGE_EMPTY)
+
+        if _is_technical_noise(message):
+            intent = _agent_intent(message, None, ignored=True)
+            reply = FinalReply(
+                answer="",
+                reply_type="ignored_technical_event",
+                route="agent",
+                metadata={"ignored": True},
+            )
+            return _to_chat_data(message.session_id, message.trace_id, intent, reply)
 
         if not is_evaluation:
             await recover_automatic_handoff(
@@ -127,30 +101,16 @@ async def handle_chat(request: ChatRequest) -> dict:
                     status=AI_WAITING,
                     metadata={**message.metadata, "ai_blocked": True},
                 )
-            routed_intent = IntentResult(
+            intent = IntentResult(
                 route="human",
                 primary_intent="human_handoff_active",
                 primary_domain="conversation",
-                primary_goal="unclear",
-                scope="ambiguous",
+                primary_goal="request_human",
+                scope="in_scope",
                 classifier_source="state_guard",
                 confidence=1.0,
                 need_human=True,
                 reason="human_handoff_locked",
-            )
-            intent = routed_intent
-            await record_intent_observation(
-                message=message,
-                intent=routed_intent,
-                candidates=[],
-                context=[],
-            )
-            intent_observation_recorded = True
-            decision = PolicyDecision(
-                route="human",
-                reason="human_handoff_locked",
-                original_route="human",
-                next_action="human_handoff",
             )
             reply = FinalReply(
                 answer="",
@@ -160,374 +120,71 @@ async def handle_chat(request: ChatRequest) -> dict:
                 next_action="human_handoff",
                 metadata={"handoff_locked": True},
             )
-            stage_latencies.update(
-                {
-                    "state_ms": 0,
-                    "rule_guard_ms": 0,
-                    "intent_examples_ms": 0,
-                    "intent_ms": 0,
-                    "policy_ms": 0,
-                    "tag_policy_ms": 0,
-                    "reply_build_ms": 0,
-                    "state_update_ms": 0,
-                }
-            )
             result = _to_chat_data(
-                message.session_id, message.trace_id, routed_intent, reply
+                message.session_id,
+                message.trace_id,
+                intent,
+                reply,
             )
-            log_payload = _success_log_payload(
-                message=message,
-                intent=routed_intent,
-                decision=decision,
-                reply=reply,
-            )
-            log_event(
-                {
-                    "trace_id": message.trace_id,
-                    "channel": message.channel,
-                    "user_id": message.user_id,
-                    "session_id": message.session_id,
-                    "kb_id": message.kb_id,
-                    "route": "human",
-                    "intent": routed_intent.primary_intent,
-                    "candidate_count": 0,
-                    "latency_ms": round((time.perf_counter() - started) * 1000),
-                    "status": "success",
-                }
-            )
+            log_payload = _success_log_payload(message, intent, reply)
             return result
 
         stage_started = time.perf_counter()
-        if user_state is None:
-            user_state = await get_user_state(message.user_id, message.session_id)
-        if is_evaluation:
-            _apply_evaluation_context(message, user_state)
-        else:
-            await _hydrate_user_state_from_profile(message.user_id, user_state)
-            memory_context, memory_trace = await prepare_memory_context_for_request(
-                message
-            )
-            user_state.metadata["memory_v2_trace"] = memory_trace
-            if memory_context is not None:
-                user_state.metadata["memory_v2_context"] = memory_context.model_dump(
-                    mode="json"
-                )
-            stage_latencies["memory_v2_ms"] = int(
-                memory_trace.get("latency_ms") or 0
-            )
-            shipping_contact = extract_shipping_contact(
-                message.message,
-                allow_mobile_only=(
-                    user_state.metadata.get("commerce_pending") == "order_mobile"
-                ),
-            )
-            if shipping_contact:
-                saved_contact = await save_shipping_contact(
-                    message.user_id,
-                    shipping_contact,
-                    tenant_id=message.tenant_id,
-                    channel=message.channel,
-                )
-                _merge_shipping_contact_into_state(user_state, saved_contact)
-        stage_latencies["state_ms"] = _elapsed_ms(stage_started)
+        user_state = await get_user_state(message.user_id, message.session_id)
+        _apply_evaluation_context(message, user_state)
+        profile_bundle = await get_profile_bundle(message.user_id)
+        workspace = _customer_workspace(
+            message=message,
+            user_state=user_state,
+            profile_bundle=profile_bundle,
+        )
+        user_state.metadata["profile"] = workspace.get("profile", {})
+        user_state.metadata["recent_turns"] = workspace.get("recent_turns", [])
+        stage_latencies["workspace_ms"] = _elapsed_ms(stage_started)
 
         stage_started = time.perf_counter()
-        intent = await check_rules(message, user_state)
-        stage_latencies["rule_guard_ms"] = _elapsed_ms(stage_started)
-        if intent is None:
-            intent = classify_material_followup(
-                message.message,
-                user_state.metadata.get("recent_turns", []),
-            )
-        if intent is None:
-            intent = classify_by_fast_rule(message.message)
-            if intent is not None:
-                stage_latencies["intent_examples_ms"] = 0
-                stage_latencies["intent_ms"] = 0
-            else:
-                stage_started = time.perf_counter()
-                candidates = await retrieve_intent_examples(
-                    message.message,
-                    top_k=get_settings().intent_example_top_k,
-                )
-                stage_latencies["intent_examples_ms"] = _elapsed_ms(stage_started)
-
-                stage_started = time.perf_counter()
-                intent = await classify_intent(message, user_state, candidates)
-                stage_latencies["intent_ms"] = _elapsed_ms(stage_started)
-        else:
-            stage_latencies["intent_examples_ms"] = 0
-            stage_latencies["intent_ms"] = 0
-
-        if not is_evaluation:
-            schedule_intent_shadow_evaluation(
-                message=message,
-                user_state=user_state,
-                primary=intent,
-                candidates=candidates,
-            )
-            await record_intent_observation(
-                message=message,
-                intent=intent,
-                candidates=candidates,
-                context=user_state.metadata.get("recent_turns", []),
-            )
-            intent_observation_recorded = True
-
-        stage_started = time.perf_counter()
-        decision = await decide_route(intent, user_state, message)
-        stage_latencies["policy_ms"] = _elapsed_ms(stage_started)
-
-        stage_started = time.perf_counter()
-        tag_result = await build_tag_result(
+        reply = await run_sales_agent(
             message=message,
             user_state=user_state,
-            intent=intent,
+            workspace=workspace,
         )
-        preliminary_signals = normalize_sales_signals(
-            message=message,
-            user_state=user_state,
-            intent=intent,
-            tag_result=tag_result,
-        )
-        preliminary_decision = decide_sales_stage(
-            user_state=user_state,
-            intent=intent,
-            tag_result=tag_result,
-            signal_result=preliminary_signals,
-        )
-        business_intent = _service_offer_followup_business_intent(
-            intent=intent,
-            user_state=user_state,
-            message=message,
-        )
-        business_action = resolve_business_action(
-            message=message,
-            intent=business_intent,
-            user_state=user_state,
-            sales_stage=preliminary_decision.stage.value,
-        )
-        source_allowlist = allowed_knowledge_sources(
-            preliminary_decision.stage,
-            business_intent,
-            business_action=business_action,
-        )
-        facts = await build_commerce_context(
-            message,
-            user_state,
-            business_intent,
-            business_action=business_action,
-            allowed_source_groups=source_allowlist,
-        )
-        if not facts.available:
-            facts = await build_business_context(
-                message,
-                allowed_source_groups=source_allowlist,
-            )
-        sales_signals = normalize_sales_signals(
-            message=message,
-            user_state=user_state,
-            intent=intent,
-            tag_result=tag_result,
-            business_facts=facts,
-        )
-        normalized_intent = intent.model_copy(
-            update={
-                "sales_signals": [signal.value for signal in sales_signals.signals],
-                "slots": sales_signals.slots,
-            }
-        )
-        tool_state = (
-            message.metadata.get("tool_state")
-            if isinstance(message.metadata.get("tool_state"), dict)
-            else {}
-        )
-        material_video_access_action = str(
-            tool_state.get("material_video_access_action") or ""
-        )
-        if material_video_access_action in {
-            "confirm_douyin_purchase",
-            "request_order_screenshot",
-        }:
-            normalized_intent = normalized_intent.model_copy(
-                update={
-                    "slots": {
-                        **normalized_intent.slots,
-                        "material_video_access_action": material_video_access_action,
-                    }
-                }
-            )
-        if normalized_intent.primary_goal == "request_material":
-            has_prior_discovery = conversation_has_reply_route(
-                channel=message.channel,
-                user_id=message.user_id,
-                session_id=message.session_id,
-                route="orchid_material_discovery",
-            )
-            material_kind = str(
-                normalized_intent.slots.get("material_request_kind") or ""
-            )
-            material_delivery_ready = material_kind in {
-                "delivery",
-                "verification",
-            } or has_prior_discovery
-            normalized_intent = normalized_intent.model_copy(
-                update={
-                    "slots": {
-                        **normalized_intent.slots,
-                        "material_request_phase": (
-                            "delivery" if material_delivery_ready else "discovery"
-                        ),
-                    }
-                }
-            )
-        sales_stage_decision = decide_sales_stage(
-            user_state=user_state,
-            intent=normalized_intent,
-            tag_result=tag_result,
-            signal_result=sales_signals,
-            business_facts=facts,
-        )
-        tag_result = tag_result.model_copy(
-            update={
-                "stage": sales_stage_decision.stage,
-                "entities": sales_signals.slots,
-            }
-        )
-        rich_decision = await decide_policy(tag_result)
-        plan = resolve_reply_plan(
-            base=decision,
-            tagged=rich_decision,
-            facts=facts,
-        )
-        plan = apply_stage_knowledge_policy(
-            plan,
-            stage=sales_stage_decision.stage,
-            intent=normalized_intent,
-            business_action=business_action,
-        )
-        stage_latencies["tag_policy_ms"] = _elapsed_ms(stage_started)
-
-        route = plan.action
-        routed_intent = normalized_intent.model_copy(
-            update={
-                "route": route,
-                "sales_stage": sales_stage_decision.stage,
-                "reason": plan.reason,
-                "slots": {
-                    **normalized_intent.slots,
-                    "original_route": plan.original_route or intent.route,
-                    "sales_stage_reason": sales_stage_decision.reason,
-                },
-            }
-        )
-        if not is_evaluation:
-            await finalize_intent_observation(message.trace_id, routed_intent)
-        sales_action = decide_sales_action(
-            user_state=user_state,
-            intent=routed_intent,
-        )
-        if _should_attach_membership_brand_value(sales_action):
-            force_stage_script = sales_action.reason in {
-                "service_solution_first_offer",
-                "service_offer_soft_decline_value_card",
-            }
-            sales_action = sales_action.model_copy(
-                update={
-                    "brand_value_facts": (
-                        []
-                        if (
-                            not force_stage_script
-                            and _pain_brand_value_already_present(user_state)
-                        )
-                        else verified_membership_brand_facts()
-                    ),
-                }
-            )
-        user_state.metadata["sales_action"] = sales_action.model_dump()
-        user_state.metadata["sales_stage_decision"] = sales_stage_decision.model_dump(
-            mode="json"
-        )
-
-        stage_started = time.perf_counter()
-        reply = await execute_reply_plan(
-            plan=plan,
-            intent=routed_intent,
-            message=message,
-            user_state=user_state,
-            stage_latencies=stage_latencies,
-        )
-        reply = apply_sales_action(reply, sales_action)
-        reply = await _attach_membership_card_for_service_offer(
-            reply=reply,
-            message=message,
-            user_state=user_state,
-            intent=routed_intent,
-            sales_action=sales_action,
-        )
-        reply = await _prepare_membership_card_silence_follow_up(
-            reply=reply,
-            message=message,
-            user_state=user_state,
-            intent=routed_intent,
-            sales_action=sales_action,
-        )
-        stage_latencies["reply_build_ms"] = _elapsed_ms(stage_started)
-        sales_action_payload = sales_action.model_dump()
-        emitted_question_slot = reply.metadata.get("emitted_question_slot")
-        if isinstance(emitted_question_slot, str) and emitted_question_slot:
-            sales_action_payload["emitted_question_slot"] = emitted_question_slot
-        reply.metadata["sales_action"] = sales_action_payload
-        reply.metadata["sales_stage_decision"] = sales_stage_decision.model_dump(
-            mode="json"
-        )
-        reply.metadata["business_action"] = business_action
-        reply.metadata["decision"] = {
-            "action": plan.action,
-            "reason": plan.reason,
-            "original_route": plan.original_route,
-            "trace": [step.model_dump() for step in plan.decision_trace],
-        }
-        if tag_result is not None:
-            reply.metadata["tag_result"] = tag_result.model_dump()
-        if rich_decision is not None:
-            reply.metadata["policy_decision"] = rich_decision.model_dump()
-        elif decision is not None:
-            reply.metadata["policy_decision"] = decision.model_dump()
-        if _should_prepend_opening(
-            message=message,
-            user_state=user_state,
-            is_evaluation=is_evaluation,
-        ):
-            reply = _prepend_opening(reply)
-            user_state.metadata["opening_sent"] = True
-
-        if not is_evaluation:
-            schedule_reply_shadow_evaluation(
-                message=message,
-                user_state=user_state,
-                intent=routed_intent,
-                plan=plan,
-                reply=reply,
-            )
+        stage_latencies["agent_ms"] = _elapsed_ms(stage_started)
+        agent_metadata = reply.metadata.get("agent_runtime")
+        agent_metadata = agent_metadata if isinstance(agent_metadata, dict) else {}
+        intent = _agent_intent(message, agent_metadata, need_human=reply.need_human)
 
         stage_started = time.perf_counter()
         await update_user_state(
             message.user_id,
             message.session_id,
-            routed_intent,
+            intent,
             reply,
         )
-        if not is_evaluation and not message.metadata.get("skip_conversation_memory"):
+        record_agent_relationship_state(
+            customer_id=message.user_id,
+            tenant_id=message.tenant_id,
+            customer_signal=str(agent_metadata.get("customer_signal") or "none"),
+            commercial_judgment=str(
+                agent_metadata.get("commercial_judgment") or ""
+            ),
+            relationship_purpose=str(
+                agent_metadata.get("relationship_purpose") or ""
+            ),
+            source_trace_id=message.trace_id,
+        )
+        if (
+            not is_evaluation
+            and not message.metadata.get("skip_conversation_memory")
+            and not message.metadata.get("system_event")
+        ):
             await append_conversation_memory(
                 user_id=message.user_id,
                 tenant_id=message.tenant_id,
                 session_id=message.session_id,
                 role="user",
                 content=message.message,
-                intent=routed_intent.primary_intent,
+                intent="autonomous_sales_turn",
                 route=reply.route,
-                template_id=reply.template_id,
                 trace_id=message.trace_id,
                 channel=message.channel,
                 owner_external_id=_memory_owner_external_id(message.metadata),
@@ -540,29 +197,27 @@ async def handle_chat(request: ChatRequest) -> dict:
                     session_id=message.session_id,
                     role="assistant",
                     content=reply.answer,
-                    intent=routed_intent.primary_intent,
+                    intent="autonomous_sales_turn",
                     route=reply.route,
-                    template_id=reply.template_id,
                     trace_id=message.trace_id,
                     channel=message.channel,
                     owner_external_id=_memory_owner_external_id(message.metadata),
                     source_id=message.trace_id,
                 )
-            await apply_deterministic_profile_update(message, routed_intent, reply)
-        stage_latencies["state_update_ms"] = _elapsed_ms(stage_started)
+        stage_latencies["state_ms"] = _elapsed_ms(stage_started)
 
-        result = _to_chat_data(message.session_id, message.trace_id, routed_intent, reply)
+        result = _to_chat_data(
+            message.session_id,
+            message.trace_id,
+            intent,
+            reply,
+        )
         await _record_workbench_turn(
             message=message,
             result=result,
             is_evaluation=is_evaluation,
         )
-        log_payload = _success_log_payload(
-            message=message,
-            intent=routed_intent,
-            decision=decision,
-            reply=reply,
-        )
+        log_payload = _success_log_payload(message, intent, reply)
         log_event(
             {
                 "trace_id": message.trace_id,
@@ -571,9 +226,8 @@ async def handle_chat(request: ChatRequest) -> dict:
                 "session_id": message.session_id,
                 "kb_id": message.kb_id,
                 "route": reply.route,
-                "intent": routed_intent.primary_intent,
-                "candidate_count": len(candidates),
-                "latency_ms": round((time.perf_counter() - started) * 1000),
+                "intent": "autonomous_sales_turn",
+                "latency_ms": _elapsed_ms(started),
                 "status": "success",
             }
         )
@@ -582,7 +236,7 @@ async def handle_chat(request: ChatRequest) -> dict:
         log_payload = _failed_log_payload(
             request=request,
             message=message,
-            intent=routed_intent or intent,
+            intent=intent,
             reply=reply,
             error_code=int(exc.code),
             error_message=exc.message,
@@ -592,34 +246,13 @@ async def handle_chat(request: ChatRequest) -> dict:
         log_payload = _failed_log_payload(
             request=request,
             message=message,
-            intent=routed_intent or intent,
+            intent=intent,
             reply=reply,
             error_code=int(ErrorCode.INTERNAL_ERROR),
             error_message=str(exc),
         )
         raise
     finally:
-        if message is not None and not is_evaluation and not intent_observation_recorded:
-            fallback_intent = intent or routed_intent or IntentResult(
-                route="clarify",
-                primary_intent="unknown",
-                primary_domain="conversation",
-                primary_goal="unclear",
-                scope="ambiguous",
-                classifier_source="pipeline_error",
-                confidence=0.0,
-                reason="pipeline_failed_before_intent",
-            )
-            await record_intent_observation(
-                message=message,
-                intent=fallback_intent,
-                candidates=candidates,
-                context=(
-                    user_state.metadata.get("recent_turns", [])
-                    if user_state is not None
-                    else []
-                ),
-            )
         if log_payload:
             log_payload["latency_ms"] = _elapsed_ms(started)
             log_payload["stage_latencies"] = stage_latencies
@@ -628,15 +261,105 @@ async def handle_chat(request: ChatRequest) -> dict:
             reset_trace_id(trace_token)
 
 
+def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[str, Any]:
+    profile = profile_bundle.get("profile") if isinstance(profile_bundle, dict) else {}
+    profile = profile if isinstance(profile, dict) else {}
+    # Historical sales-stage fields are intentionally excluded. The Agent sees
+    # customer facts and relationship evidence instead of a workflow position.
+    profile_view = {
+        key: profile.get(key)
+        for key in (
+            "basic_info",
+            "customer_tags",
+            "product_interests",
+            "preference_summary",
+            "pain_points",
+            "ai_summary",
+            "is_human_handoff",
+            "human_handoff_status",
+            "last_active_at",
+            "friend_added_at",
+        )
+        if profile.get(key) not in (None, "", [], {})
+    }
+    recent = profile_bundle.get("recent_memories") if isinstance(profile_bundle, dict) else []
+    recent = recent if isinstance(recent, list) else []
+    evaluation_recent = user_state.metadata.get("recent_turns")
+    if _is_evaluation_request(message) and isinstance(evaluation_recent, list):
+        recent = evaluation_recent
+        evaluation_profile = user_state.metadata.get("profile")
+        if isinstance(evaluation_profile, dict):
+            profile_view = {
+                **profile_view,
+                **{
+                    key: value
+                    for key, value in evaluation_profile.items()
+                    if value not in (None, "", [], {})
+                },
+            }
+    memory_context = user_state.metadata.get("memory_v2_context")
+    relationship = get_agent_relationship_state(message.user_id)
+    daily_touch = get_daily_touch_snapshot(message.user_id)
+    return {
+        "profile": profile_view,
+        "recent_turns": [
+            {
+                "role": item.get("role"),
+                "content": str(item.get("content") or "")[:1200],
+                "created_at": item.get("created_at"),
+            }
+            for item in recent[-10:]
+            if isinstance(item, dict) and item.get("content")
+        ],
+        "evidence_memory": (
+            memory_context if isinstance(memory_context, dict) else {}
+        ),
+        "relationship_state": relationship,
+        "daily_touch": daily_touch,
+        "known_business_context": _safe_business_context(message.metadata),
+        "unknowns": [
+            "动态商品、价格、库存、订单和权益必须在当前轮通过工具核实"
+        ],
+    }
+
+
+def _agent_intent(
+    message,
+    metadata: dict[str, Any] | None,
+    *,
+    need_human: bool = False,
+    ignored: bool = False,
+) -> IntentResult:
+    metadata = metadata or {}
+    return IntentResult(
+        route="human" if need_human else "agent",
+        primary_intent=(
+            "technical_event_ignored" if ignored else "autonomous_sales_turn"
+        ),
+        primary_domain="sales_relationship",
+        primary_goal="advance_relationship",
+        scope="in_scope",
+        classifier_source="sales_agent",
+        confidence=1.0,
+        need_human=need_human,
+        reason="single_agent_runtime",
+        slots={
+            "customer_signal": metadata.get("customer_signal", "none"),
+            **(
+                {"system_event": message.metadata.get("system_event")}
+                if message.metadata.get("system_event")
+                else {}
+            ),
+        },
+    )
+
+
 def _to_chat_data(
     session_id: str,
     trace_id: str,
     intent: IntentResult,
     reply: FinalReply,
-) -> dict:
-    template = {}
-    if reply.template_id:
-        template = {"template_id": reply.template_id}
+) -> dict[str, Any]:
     public_metadata = _public_reply_metadata(reply.metadata)
     return {
         "answer": plain_customer_text(reply.answer),
@@ -644,348 +367,29 @@ def _to_chat_data(
         "sources": reply.sources,
         "usage": reply.usage,
         "answer_segments": _answer_segments(reply.answer, reply.answer_segments),
-        "outbound_messages": [message.model_dump() for message in reply.outbound_messages],
+        "outbound_messages": [
+            message.model_dump() for message in reply.outbound_messages
+        ],
         "reply_type": reply.reply_type,
         "route": reply.route,
         "intent": intent.model_dump(),
-        "template": template,
+        "template": {},
         "need_human": reply.need_human,
         "next_action": reply.next_action,
         "trace_id": trace_id,
         "metadata": public_metadata,
-        "handoff": _legacy_handoff(reply.metadata.get("handoff")),
+        "handoff": reply.metadata.get("handoff"),
     }
 
 
-def _should_prepend_opening(*, message, user_state, is_evaluation: bool) -> bool:
-    if user_state.metadata.get("opening_sent"):
-        return False
-    return bool(message.metadata.get("prepend_opening")) or is_evaluation
-
-
-def _pain_brand_value_already_present(user_state) -> bool:
-    metadata = getattr(user_state, "metadata", {})
-    turns = metadata.get("recent_turns") if isinstance(metadata, dict) else None
-    if not isinstance(turns, list):
-        return False
-    return any(
-        isinstance(turn, dict)
-        and str(turn.get("role") or "") == "assistant"
-        and "萧岚苑" in str(turn.get("content") or "")
-        and any(
-            marker in str(turn.get("content") or "")
-            for marker in ("反复试错", "少走弯路", "理清养护", "结合具体", "针对具体")
-        )
-        for turn in turns
-    )
-
-
-def _enrich_material_video_access_context(message) -> None:
-    metadata = message.metadata if isinstance(message.metadata, dict) else {}
-    existing_tool_state = metadata.get("tool_state")
-    if (
-        isinstance(existing_tool_state, dict)
-        and existing_tool_state.get("material_video_access_action")
-    ):
-        return
-
-    from app.domains.catalog.services.orchid_material_service import (
-        orchid_material_order_screenshot_context,
-        orchid_material_video_issue_context,
-    )
-
-    latest_route = latest_conversation_reply_route(
-        channel=message.channel,
-        user_id=message.user_id,
-        session_id=message.session_id,
-    )
-    context = None
-    if latest_route == "orchid_material_purchase_check":
-        context = orchid_material_order_screenshot_context(message.message)
-    elif conversation_has_reply_route(
-        channel=message.channel,
-        user_id=message.user_id,
-        session_id=message.session_id,
-        route="orchid_material_delivery",
-    ):
-        context = orchid_material_video_issue_context(message.message)
-    if context is not None:
-        message.metadata.update(context)
-
-
-def _should_attach_membership_brand_value(sales_action) -> bool:
-    # Discovery must stay focused on resolving a concrete customer need. Injecting
-    # membership facts here lets the generator pitch before that need is clear.
-    if sales_action.sales_action not in {"recommend_solution", "build_value"}:
-        return False
-    known_slots = getattr(sales_action, "known_slots", {})
-    return not isinstance(known_slots, dict) or known_slots.get("need_track") != "product"
-
-
-_SERVICE_OFFER_CARD_REASONS = {
-    "service_offer_soft_decline_value_card",
-}
-_SERVICE_CARD_SILENCE_REASONS = {
-    "service_solution_first_offer",
-    "service_question_answer_only",
-}
-_SERVICE_CARD_SILENCE_SECONDS = 300
-_SERVICE_CARD_FOLLOW_UP_TEXT = (
-    "如果您想把这些养护方法系统学一下，我把陪伴养兰的详细介绍发您，"
-    "您有空可以点开看看。"
-)
-
-
-async def _attach_membership_card_for_service_offer(
-    *, reply, message, user_state, intent, sales_action
-):
-    """Attach the real membership card whenever this turn actively sells the service."""
-
-    if sales_action.reason not in _SERVICE_OFFER_CARD_REASONS or reply.need_human:
-        return reply
-    if any(
-        item.type in {"link_card", "mini_program"}
-        for item in reply.outbound_messages
-    ):
-        return reply
-    membership_intent = intent.model_copy(
-        update={
-            "slots": {
-                **(intent.slots if isinstance(intent.slots, dict) else {}),
-                "product_request_kind": "membership",
-                "membership_question_kind": "purchase",
-                "service_offer_followup": "value_card",
-            }
-        }
-    )
-    facts = await build_commerce_context(
-        message,
-        user_state,
-        membership_intent,
-        business_action=CATALOG_SEARCH,
-        allowed_source_groups={"product_catalog", "product_value", "sku_facts"},
-    )
-    card_reply = await render_business_reply(message, facts)
-    if card_reply is None:
-        return reply
-    cards = [
-        item
-        for item in card_reply.outbound_messages
-        if item.type in {"link_card", "mini_program"}
-    ]
-    if not cards:
-        return reply
-    return reply.model_copy(
-        update={
-            "outbound_messages": [*reply.outbound_messages, *cards],
-            "metadata": {
-                **reply.metadata,
-                "commerce_action": card_reply.metadata.get("commerce_action", {}),
-            },
-        }
-    )
-
-
-async def _prepare_membership_card_silence_follow_up(
-    *, reply, message, user_state, intent, sales_action
-):
-    """Prepare, but do not send, a card that is due after five quiet minutes."""
-
-    if (
-        sales_action.reason not in _SERVICE_CARD_SILENCE_REASONS
-        or reply.need_human
-        or any(
-            item.type in {"link_card", "mini_program"}
-            for item in reply.outbound_messages
-        )
-    ):
-        return reply
-    membership_intent = intent.model_copy(
-        update={
-            "slots": {
-                **(intent.slots if isinstance(intent.slots, dict) else {}),
-                "product_request_kind": "membership",
-                "membership_question_kind": "capability",
-            }
-        }
-    )
-    follow_up_state = user_state.model_copy(deep=True)
-    facts = await build_commerce_context(
-        message,
-        follow_up_state,
-        membership_intent,
-        business_action=CATALOG_SEARCH,
-        allowed_source_groups={"product_catalog", "product_value", "sku_facts"},
-    )
-    card_reply = await render_business_reply(message, facts)
-    if card_reply is None:
-        return reply
-    cards = [
-        item.model_dump()
-        for item in card_reply.outbound_messages
-        if item.type in {"link_card", "mini_program"}
-    ]
-    if not cards:
-        return reply
-    products = facts.tool_state.get("products")
-    first_product = (
-        products[0]
-        if isinstance(products, list) and products and isinstance(products[0], dict)
-        else {}
-    )
-    return reply.model_copy(
-        update={
-            "metadata": {
-                **reply.metadata,
-                "scheduled_follow_up": {
-                    "kind": "membership_card",
-                    "delay_seconds": _SERVICE_CARD_SILENCE_SECONDS,
-                    "cancel_on_customer_message": True,
-                    "source_trace_id": str(getattr(message, "trace_id", "") or ""),
-                    "product_id": str(first_product.get("item_id") or ""),
-                    "messages": [
-                        {"type": "text", "content": _SERVICE_CARD_FOLLOW_UP_TEXT},
-                        *cards,
-                    ],
-                },
-            }
-        }
-    )
-
-
-_SERVICE_OFFER_INTEREST_PATTERN = re.compile(
-    r"感兴趣|想了解(?:一下)?|具体看看|发(?:我|一下).{0,6}(?:卡片|链接|介绍)|"
-    r"怎么(?:参加|加入|开通|购买|下单)|多少钱|什么价格|可以试试|这个可以|听起来不错"
-)
-
-
-def _service_offer_followup_business_intent(*, intent, user_state, message):
-    metadata = getattr(user_state, "metadata", {})
-    metadata = metadata if isinstance(metadata, dict) else {}
-    opportunity = metadata.get("active_opportunity")
-    opportunity = opportunity if isinstance(opportunity, dict) else {}
-    offer_started = str(opportunity.get("service_offer_phase") or "") in {
-        "introduced",
-        "deepened",
-    } or str(opportunity.get("last_sales_action") or "") in {
-        "recommend_solution",
-        "build_value",
-    }
-    if not offer_started:
-        return intent
-    slots = intent.slots if isinstance(intent.slots, dict) else {}
-    soft_response = bool(
-        slots.get("chitchat_kind") == "thanks"
-        or slots.get("rejection_kind") == "polite_decline"
-        or intent.primary_intent == "hesitation"
-        or intent.primary_goal == "defer_decision"
-    )
-    explicit_interest = _SERVICE_OFFER_INTEREST_PATTERN.search(
-        str(getattr(message, "message", "") or "")
-    ) is not None
-    if not soft_response and not explicit_interest:
-        return intent
-    return intent.model_copy(
-        update={
-            "slots": {
-                **slots,
-                "product_request_kind": "membership",
-                "membership_question_kind": "purchase",
-                "service_offer_followup": "value_card",
-                "service_offer_trigger": (
-                    "soft_decline" if soft_response else "explicit_interest"
-                ),
-            }
-        }
-    )
-
-
-def _prepend_opening(reply: FinalReply) -> FinalReply:
-    from app.domains.decisioning.services.reply_builder import build_opening_reply
-
-    opening = build_opening_reply()
-    opening_segments = list(opening.answer_segments)
-    if not opening_segments and opening.answer.strip():
-        opening_segments = [opening.answer.strip()]
-    reply_segments = list(reply.answer_segments)
-    if not reply_segments and reply.answer.strip():
-        reply_segments = [reply.answer.strip()]
-    reply_messages = list(reply.outbound_messages)
-    if not reply_messages:
-        reply_messages = [
-            OutboundMessage(type="text", content=segment)
-            for segment in reply_segments
-        ]
-    answer_segments = [*opening_segments, *reply_segments]
-    return reply.model_copy(
-        update={
-            "answer": "\n\n".join(
-                segment for segment in answer_segments if segment.strip()
-            ),
-            "answer_segments": answer_segments,
-            "outbound_messages": [
-                *opening.outbound_messages,
-                *reply_messages,
-            ],
-            "metadata": {
-                **reply.metadata,
-                "opening_prepended": True,
-            },
-        }
-    )
-
-
-def _public_reply_metadata(metadata: dict) -> dict:
-    internal_keys = {
-        "business_context",
-        "business_facts",
-        "decision",
-        "memory_v2_context",
-        "memory_v2_trace",
-        "reply_plan",
-        "sales_stage_decision",
-        "tool_state",
-    }
-
-    def strip(value):
-        if isinstance(value, dict):
-            return {
-                key: strip(item)
-                for key, item in value.items()
-                if str(key).lower() not in internal_keys
-            }
-        if isinstance(value, list):
-            return [strip(item) for item in value]
-        return value
-
-    cleaned = strip(metadata)
-    return cleaned if isinstance(cleaned, dict) else {}
-
-
-def _legacy_handoff(handoff: dict | None) -> dict | None:
-    if not handoff:
-        return None
-    reason = handoff.get("reason")
-    legacy_reason = {
-        "clarify_to_handoff": "clarify",
-        "rag_no_answer_to_handoff": "rag_no_answer",
-    }.get(reason, reason)
-    return {**handoff, "reason": legacy_reason}
-
-
-def _is_evaluation_request(message) -> bool:
-    return bool(getattr(message, "metadata", {}).get("evaluation_id"))
-
-
-async def _record_workbench_turn(*, message, result: dict, is_evaluation: bool) -> None:
+async def _record_workbench_turn(
+    *, message, result: dict[str, Any], is_evaluation: bool
+) -> None:
     if not is_evaluation and _is_gateway_managed_eyun(message):
-        # The Eyun gateway records the exact queued outbound sequence, including
-        # opening messages and cards, after it composes the provider payload.
         return
     if not is_evaluation:
         await record_ai_turn(message=message, result=result)
         return
-
     evaluation_id = str(message.metadata.get("evaluation_id") or "").strip()
     workbench_message = message.model_copy(
         update={
@@ -1000,128 +404,45 @@ async def _record_workbench_turn(*, message, result: dict, is_evaluation: bool) 
             },
         }
     )
-    await record_ai_turn(
-        message=workbench_message,
-        result={
-            **result,
-            # Simulated conversations preserve the expected handoff state for
-            # evaluation while the message flag suppresses real notifications.
-        },
-    )
+    await record_ai_turn(message=workbench_message, result=result)
 
 
-def _is_gateway_managed_eyun(message) -> bool:
-    metadata = getattr(message, "metadata", {}) or {}
-    return (
-        metadata.get("provider") == "eyun"
-        and metadata.get("provider_delivery_mode") != "simulated"
-    )
-
-
-def _apply_evaluation_context(message, user_state) -> None:
-    metadata = getattr(message, "metadata", {})
-    context = metadata.get("evaluation_context") if isinstance(metadata, dict) else None
-    if not isinstance(context, dict):
-        return
-    customer_context = str(context.get("customer_context") or "").strip()
-    recent_turns = context.get("recent_turns")
-    if customer_context:
-        user_state.metadata["profile"] = {"ai_summary": customer_context}
-    if isinstance(recent_turns, list):
-        user_state.metadata["recent_turns"] = recent_turns
-
-
-async def _hydrate_user_state_from_profile(user_id: str, user_state) -> None:
-    try:
-        bundle = await get_profile_bundle(user_id)
-    except Exception:  # noqa: BLE001
-        return
-    profile = bundle.get("profile") if isinstance(bundle, dict) else {}
-    if not isinstance(profile, dict):
-        profile = {}
-    persisted_stage = normalize_sales_stage(profile.get("current_stage"))
-    if normalize_sales_stage(user_state.sales_stage) == "unknown" and persisted_stage != "unknown":
-        user_state.sales_stage = persisted_stage
-    profile_tags = profile.get("customer_tags") or []
-    if isinstance(profile_tags, list):
-        user_state.customer_tags = _merge_list(user_state.customer_tags, profile_tags)
-    user_state.metadata = {
-        **user_state.metadata,
-        "profile": profile,
-        "recent_turns": bundle.get("recent_memories", []),
+def _public_reply_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    # Keep customer/API output free of reasoning, tool schemas and internal
+    # customer workspaces. Delivery metadata may still be added by the gateway.
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key not in {"agent_runtime", "business_context", "tool_state"}
     }
 
 
-def _merge_shipping_contact_into_state(user_state, contact: dict[str, str]) -> None:
-    if not contact:
-        return
-    profile = user_state.metadata.get("profile")
-    if not isinstance(profile, dict):
-        profile = {}
-    basic_info = profile.get("basic_info")
-    if not isinstance(basic_info, dict):
-        basic_info = {}
-    user_state.metadata["profile"] = {
-        **profile,
-        "basic_info": {**basic_info, **contact},
-    }
-
-
-def _merge_list(existing: list, incoming: list) -> list:
-    merged = list(existing or [])
-    for item in incoming:
-        if isinstance(item, str) and item and item not in merged:
-            merged.append(item)
-    return merged
-
-
-def _memory_owner_external_id(metadata: dict) -> str:
-    for key in ("w_id", "owner_external_id", "wechat_to_user"):
-        value = str(metadata.get(key) or "").strip()
-        if value:
-            return value
-    return ""
-
-
-def _answer_segments(
-    answer: str,
-    preferred: list[str] | None = None,
-) -> list[str]:
-    structured = [part.strip() for part in preferred or [] if part.strip()]
-    if structured:
-        messages = []
-        for part in structured:
-            message = plain_customer_text(part).replace("\n", " ").strip()
-            if message:
-                messages.append(message)
-        return coalesce_customer_messages(messages)
-    return split_customer_messages(answer)
-
-
-def _success_log_payload(message, intent, decision, reply: FinalReply) -> dict:
+def _success_log_payload(message, intent: IntentResult, reply: FinalReply) -> dict:
+    agent = reply.metadata.get("agent_runtime")
+    agent = agent if isinstance(agent, dict) else {}
     return {
         **_message_log_base(message),
         "answer": reply.answer,
         "route": reply.route,
         "reply_type": reply.reply_type,
         "primary_intent": intent.primary_intent,
-        "secondary_intents": intent.secondary_intents,
-        "sales_stage": intent.sales_stage,
+        "secondary_intents": [],
+        "sales_stage": None,
         "confidence": intent.confidence,
-        "template_id": reply.template_id,
-        "template_score": reply.metadata.get("score"),
+        "template_id": None,
         "next_action": reply.next_action,
         "sources": reply.sources,
         "need_human": reply.need_human,
-        "policy_reason": decision.reason,
+        "policy_reason": "single_agent_runtime",
         "intent_reason": intent.reason,
-        "tag_result": reply.metadata.get("tag_result"),
-        "policy_decision": reply.metadata.get("policy_decision"),
         "usage": reply.usage,
         "status": "success",
         "error_code": None,
         "error_message": None,
-        "metadata": reply.metadata,
+        "metadata": {
+            "agent_runtime": agent,
+            **({"handoff": reply.metadata.get("handoff")} if reply.metadata.get("handoff") else {}),
+        },
         "created_at": _now_iso(),
     }
 
@@ -1135,32 +456,19 @@ def _failed_log_payload(
     error_code: int,
     error_message: str,
 ) -> dict:
-    payload = _message_log_base(message) if message is not None else _request_log_base(request)
-    if intent is not None:
-        payload.update(
-            {
-                "route": intent.route,
-                "primary_intent": intent.primary_intent,
-                "secondary_intents": intent.secondary_intents,
-                "sales_stage": intent.sales_stage,
-                "confidence": intent.confidence,
-                "intent_reason": intent.reason,
-            }
-        )
-    if reply is not None:
-        payload.update(
-            {
-                "answer": reply.answer,
-                "route": reply.route,
-                "reply_type": reply.reply_type,
-                "template_id": reply.template_id,
-                "sources": reply.sources,
-                "usage": reply.usage,
-                "need_human": reply.need_human,
-            }
-        )
+    payload = _message_log_base(message) if message is not None else {
+        "trace_id": None,
+        "channel": request.channel,
+        "user_id": request.user_id,
+        "session_id": request.session_id,
+        "kb_id": request.kb_id,
+        "message": request.message,
+    }
     payload.update(
         {
+            "route": reply.route if reply is not None else None,
+            "primary_intent": intent.primary_intent if intent is not None else None,
+            "answer": reply.answer if reply is not None else "",
             "status": "failed",
             "error_code": error_code,
             "error_message": error_message,
@@ -1170,44 +478,100 @@ def _failed_log_payload(
     return payload
 
 
-def _message_log_base(message) -> dict:
+def _message_log_base(message) -> dict[str, Any]:
     return {
         "trace_id": message.trace_id,
-        "request_id": message.trace_id,
         "channel": message.channel,
         "user_id": message.user_id,
         "session_id": message.session_id,
-        "message_id": message.message_id,
         "kb_id": message.kb_id,
+        "message": message.message,
+        "message_id": message.message_id,
         "tenant_id": message.tenant_id,
-        "permission": message.permission,
-        "user_message": message.message,
-        "answer": None,
-        "sources": [],
-        "usage": {},
-        "need_human": False,
-        "metadata": message.metadata,
     }
 
 
-def _request_log_base(request: ChatRequest) -> dict:
+def _safe_business_context(metadata: dict[str, Any]) -> dict[str, Any]:
     return {
-        "trace_id": f"request_failed_{int(time.time() * 1000)}",
-        "request_id": None,
-        "channel": request.channel,
-        "user_id": request.user_id,
-        "session_id": request.session_id,
-        "message_id": None,
-        "kb_id": request.kb_id,
-        "tenant_id": (request.metadata or {}).get("tenant_id"),
-        "permission": (request.metadata or {}).get("permission"),
-        "user_message": request.message,
-        "answer": None,
-        "sources": [],
-        "usage": {},
-        "need_human": False,
-        "metadata": request.metadata or {},
+        key: metadata.get(key)
+        for key in (
+            "business_snapshot",
+            "tool_state",
+            "media",
+            "vision_description",
+            "attachment_error",
+        )
+        if metadata.get(key) not in (None, "", [], {})
     }
+
+
+def _is_evaluation_request(message) -> bool:
+    metadata = message.metadata if isinstance(message.metadata, dict) else {}
+    return bool(str(metadata.get("evaluation_id") or "").strip())
+
+
+def _apply_evaluation_context(message, user_state) -> None:
+    """Load offline case context without restoring any legacy routing fields."""
+    metadata = message.metadata if isinstance(message.metadata, dict) else {}
+    context = metadata.get("evaluation_context")
+    if not isinstance(context, dict):
+        return
+    customer_context = str(context.get("customer_context") or "").strip()
+    if customer_context:
+        profile = user_state.metadata.get("profile")
+        profile = dict(profile) if isinstance(profile, dict) else {}
+        profile["ai_summary"] = customer_context
+        user_state.metadata["profile"] = profile
+    recent_turns = context.get("recent_turns")
+    if isinstance(recent_turns, list):
+        user_state.metadata["recent_turns"] = [
+            {
+                "role": str(item.get("role") or ""),
+                "content": str(item.get("content") or ""),
+            }
+            for item in recent_turns[-10:]
+            if isinstance(item, dict) and item.get("content")
+        ]
+
+
+def _is_technical_noise(message) -> bool:
+    event_type = str(message.metadata.get("event_type") or "").strip().lower()
+    return event_type in {
+        "heartbeat",
+        "keepalive",
+        "duplicate_callback",
+        "self_echo",
+        "login_event",
+        "account_status",
+    }
+
+
+def _is_gateway_managed_eyun(message) -> bool:
+    metadata = message.metadata if isinstance(message.metadata, dict) else {}
+    return (
+        metadata.get("provider") == "eyun"
+        and metadata.get("provider_delivery_mode") != "simulated"
+    )
+
+
+def _memory_owner_external_id(metadata: dict[str, Any]) -> str:
+    for key in ("w_id", "owner_external_id", "wechat_to_user"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _answer_segments(answer: str, preferred: list[str] | None = None) -> list[str]:
+    structured = [part.strip() for part in preferred or [] if part.strip()]
+    if structured:
+        messages = []
+        for part in structured:
+            normalized = plain_customer_text(part).replace("\n", " ").strip()
+            if normalized:
+                messages.append(normalized)
+        return coalesce_customer_messages(messages)
+    return split_customer_messages(answer)
 
 
 def _elapsed_ms(started: float) -> int:
@@ -1215,4 +579,4 @@ def _elapsed_ms(started: float) -> int:
 
 
 def _now_iso() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    return datetime.now(timezone.utc).isoformat()

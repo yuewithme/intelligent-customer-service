@@ -13,7 +13,7 @@ class TagResult(BaseModel):
     entities: dict = Field(default_factory=dict)
     labels: list[str] = Field(default_factory=list)
     reason: str | None = None
-    source: str = "intent_service"
+    source: str = "profile_analysis"
 
     @property
     def tags(self) -> list[str]:

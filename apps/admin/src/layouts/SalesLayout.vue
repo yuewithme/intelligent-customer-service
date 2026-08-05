@@ -2,8 +2,8 @@
   <div class="sales-layout">
     <aside class="sidebar">
       <RouterLink class="brand" to="/workbench">
-        <span class="brand-mark">SA</span>
-        <span><strong>销售 Agent</strong><small>运营管理平台</small></span>
+        <span class="brand-mark">兰</span>
+        <span><strong>小兰 Agent</strong><small>萧岚苑销售运营台</small></span>
       </RouterLink>
       <nav>
         <section v-for="group in navigation" :key="group.title">
@@ -18,7 +18,7 @@
       <header>
         <div>
           <strong>{{ currentTitle }}</strong>
-          <span>销售 Agent 实时运营与策略管理</span>
+          <span>小兰自主销售 Agent 的实时运营与人工协作</span>
         </div>
         <div class="operator">
           <span v-if="testMode" class="test-badge">测试模式</span>
@@ -41,33 +41,31 @@ import { clearGateRole, isTestGate } from '@/utils/gate'
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
-const currentTitle = computed(() => String(route.meta.title || '销售工作台'))
+const currentTitle = computed(() => String(route.meta.title || '小兰工作台'))
 const testMode = isTestGate()
 
 const navigation = [
-  { title: '销售执行', items: [
-    { label: '销售工作台', to: '/workbench' },
-    { label: '首单销售流程', to: '/sales-flow' }
-  ] },
-  { title: '销售运营', items: [
-    { label: '意图标注日志', to: '/operations/chat-logs' },
-    { label: '影子决策评测', to: '/operations/reply-shadows' },
-    { label: '整案案例库', to: '/operations/conversation-cases' },
-    { label: '标签管理', to: '/operations/tags' },
-    { label: '产品信息', to: '/operations/products' },
-    { label: '养护手册', to: '/operations/care-manuals' }
-  ] },
-  { title: '策略与知识', items: [
-    { label: '销售活动', to: '/knowledge-ops/current-activities' }
-  ] },
-  { title: 'SOP流程', items: [
-    { label: '未购SOP', to: '/sop/unpurchased' },
-    { label: '服务SOP', to: '/sop/service' }
-  ] },
-  { title: '系统', items: [
-    { label: '转人工设置', to: '/settings/handoff' },
-    { label: '模型配置', to: '/settings/model-config' }
-  ] }
+  {
+    title: '销售执行',
+    items: [{ label: '小兰工作台', to: '/workbench' }]
+  },
+  {
+    title: '销售资产',
+    items: [
+      { label: '销售案例库', to: '/operations/conversation-cases' },
+      { label: '客户标签', to: '/operations/tags' },
+      { label: '产品信息', to: '/operations/products' },
+      { label: '养护手册', to: '/operations/care-manuals' },
+      { label: '销售活动', to: '/knowledge-ops/current-activities' }
+    ]
+  },
+  {
+    title: '系统',
+    items: [
+      { label: '转人工设置', to: '/settings/handoff' },
+      { label: '模型配置', to: '/settings/model-config' }
+    ]
+  }
 ]
 
 const logout = async () => {

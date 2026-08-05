@@ -190,8 +190,7 @@ async def test_verified_store_order_adds_purchase_tag_and_enters_chat(monkeypatc
     assert "已验证店铺订单截图" in chat_requests[0].message
     assert "***************9059" in chat_requests[0].message
     assert chat_requests[0].metadata["verified_order_count"] == 1
-    assert queued[0]["content"].startswith("兰友您好！欢迎来到萧岚苑")
-    assert queued[-1]["content"] == "订单已经看到了亲"
+    assert [item["content"] for item in queued] == ["订单已经看到了亲"]
 
 
 @pytest.mark.asyncio
@@ -248,7 +247,7 @@ async def test_unrecognized_image_silently_hands_off(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_order_from_other_store_uses_fixed_reply(monkeypatch):
+async def test_order_from_other_store_is_passed_to_agent(monkeypatch):
     from app.services import message_risk_control_service as service
     from app.services import vision_service
 
@@ -283,17 +282,25 @@ async def test_order_from_other_store_uses_fixed_reply(monkeypatch):
         queued.append(kwargs)
         return kwargs
 
+    captured = {}
+
+    async def fake_handle_chat(request):
+        captured["request"] = request
+        return {"answer": "这张截图不是萧岚苑订单，我先按您的问题继续帮您看。"}
+
     monkeypatch.setattr(vision_service, "analyze_image", fake_analyze)
     monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
     monkeypatch.setattr(
         service, "ensure_outbound_conversation_message", fake_conversation_message
     )
     monkeypatch.setattr(service, "enqueue_eyun_outbound", fake_enqueue_outbound)
+    monkeypatch.setattr(service, "handle_chat", fake_handle_chat)
     monkeypatch.setattr(service, "random_reply_delay_seconds", lambda: 0)
     monkeypatch.setattr(service, "utcnow", lambda: now)
 
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
-    assert queued[0]["content"] == "亲这不是我们萧岚苑的订单截图哦"
+    assert captured["request"].metadata["attachment_error"] == "图片识别确认这不是萧岚苑的订单截图"
+    assert queued[0]["content"] == "这张截图不是萧岚苑订单，我先按您的问题继续帮您看。"
 
 
 @pytest.mark.asyncio
@@ -354,7 +361,7 @@ async def test_second_image_failure_within_cooldown_silently_hands_off(monkeypat
     monkeypatch.setattr(service, "utcnow", lambda: now)
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
     assert len(queued) == 1
-    assert queued[0]["content"] == "亲这不是我们萧岚苑的订单截图哦"
+    assert "最想解决的问题" in queued[0]["content"]
     assert handoffs == []
 
     monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=1))

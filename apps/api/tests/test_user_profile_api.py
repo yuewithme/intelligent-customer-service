@@ -39,7 +39,6 @@ def test_get_profile_creates_empty_profile_and_legacy_state_still_works(monkeypa
     profile = body["data"]["profile"]
     assert profile["user_id"] == "user_001"
     assert profile["tenant_id"] == "tenant_default"
-    assert profile["current_stage"] == "unknown"
     assert profile["risk_level"] == "normal"
     assert profile["customer_tags"] == []
     assert body["data"]["recent_memories"] == []
@@ -216,50 +215,8 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
     assert profile["pain_points"] == ["兰花烂根，需要救治方案"]
     assert profile["ai_summary"] == (
         "客户情况：浙江省；产品兴趣：兰花养护。\n"
-        "当前诉求：兰花烂根，需要救治方案。\n"
-        "成交阻碍：暂未发现明确阻碍。\n"
-        "跟进建议：确认客户最想解决的问题或期望结果。"
+        "客户明确表达的问题：兰花烂根，需要救治方案。"
     )
-
-
-@pytest.mark.asyncio
-async def test_profile_analysis_does_not_override_decided_sales_stage(monkeypatch, tmp_path):
-    _reset_settings(monkeypatch, tmp_path)
-
-    async def fake_generate_json(prompt: str, purpose: str = "intent") -> dict:
-        del prompt, purpose
-        return {"current_stage": "greeting", "risk_level": "normal"}
-
-    monkeypatch.setattr(
-        "app.domains.customers.services.user_profile_service.generate_json",
-        fake_generate_json,
-    )
-    message = NormalizedMessage(
-        trace_id="trace_stage",
-        channel="wechat",
-        user_id="user_stage",
-        session_id="default",
-        message="我要下单",
-        kb_id="kb_default",
-        tenant_id="tenant_default",
-    )
-    intent = IntentResult(
-        route="template_reply",
-        primary_intent="order_intent",
-        sales_stage="order_intent",
-        confidence=0.95,
-    )
-    reply = FinalReply(
-        answer="好的",
-        reply_type="template",
-        route="template_reply",
-        metadata={},
-    )
-
-    await update_profile_after_chat(message, intent, reply)
-
-    profile = (await get_profile_bundle("user_stage"))["profile"]
-    assert profile["current_stage"] == "closing"
 
 
 @pytest.mark.asyncio
@@ -322,66 +279,11 @@ async def test_complaint_does_not_erase_stable_profile_summary(monkeypatch, tmp_
     profile = (await get_profile_bundle("user_stable"))["profile"]
     assert profile["ai_summary"] == (
         "客户情况：信息待补充；产品兴趣：建兰、大花蕙兰。\n"
-        "当前诉求：希望快速获得品种推荐和购买链接。\n"
-        "成交阻碍：暂未发现明确阻碍。\n"
-        "跟进建议：优先由人工接管并解决当前问题，暂停销售推进。"
+        "客户明确表达的问题：希望快速获得品种推荐和购买链接。"
     )
     assert profile["product_interests"] == ["建兰", "大花蕙兰"]
     assert profile["pain_points"] == ["希望快速获得品种推荐和购买链接"]
     assert profile["risk_level"] == "high"
-
-
-@pytest.mark.asyncio
-async def test_profile_persists_active_sales_opportunity(monkeypatch, tmp_path):
-    _reset_settings(monkeypatch, tmp_path)
-    message = NormalizedMessage(
-        trace_id="trace_opportunity",
-        channel="wechat",
-        user_id="user_opportunity",
-        session_id="default",
-        message="兰花烂根了",
-        kb_id="kb_default",
-        tenant_id="tenant_default",
-    )
-    intent = IntentResult(
-        route="rag_answer",
-        primary_intent="care_question",
-        sales_stage="need_discovery",
-        confidence=0.9,
-        slots={"pain_point": "root_rot"},
-    )
-    reply = FinalReply(
-        answer="大概有多少盆？",
-        reply_type="rag",
-        route="rag_answer",
-        metadata={
-            "sales_action": {
-                "sales_action": "discover_need",
-                    "reply_goal": "确认使用数量",
-                    "question_slot": "plant_count",
-                    "emitted_question_slot": "plant_count",
-                "known_slots": {
-                    "pain_point": "root_rot",
-                    "decision_blocker": {
-                        "type": "communication",
-                        "detail": "客户希望直接查看商品",
-                    },
-                },
-                "recommended_product_ids": [],
-            }
-        },
-    )
-
-    await update_profile_after_chat(message, intent, reply)
-
-    profile = (await get_profile_bundle("user_opportunity"))["profile"]
-    opportunity = profile["active_opportunity"]
-    assert opportunity["sales_stage"] == "need_discovery"
-    assert opportunity["slots"] == {"pain_point": "root_rot"}
-    assert opportunity["asked_slots"] == ["plant_count"]
-    assert opportunity["last_sales_action"] == "discover_need"
-    assert opportunity["decision_blocker"]["type"] == "communication"
-    assert "成交阻碍：客户希望直接查看商品。" in profile["ai_summary"]
 
 
 @pytest.mark.asyncio
@@ -419,9 +321,7 @@ async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, 
     assert profile["pain_points"] == ["兰花烂根、黄叶，担心养死，需要救治方案"]
     assert profile["ai_summary"] == (
         "客户情况：信息待补充；产品兴趣：兰花养护。\n"
-        "当前诉求：兰花烂根、黄叶，担心养死，需要救治方案。\n"
-        "成交阻碍：暂未发现明确阻碍。\n"
-        "跟进建议：确认客户最想解决的问题或期望结果。"
+        "客户明确表达的问题：兰花烂根、黄叶，担心养死，需要救治方案。"
     )
 
 
@@ -506,9 +406,7 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
     assert profile["customer_tags"] == ["广西省", "100-200盆"]
     assert profile["ai_summary"] == (
         "客户情况：广西省、100-200盆；产品兴趣：开花类兰花。\n"
-        "当前诉求：广西气候下有100盆花，想获得适合当地环境的品种推荐。\n"
-        "成交阻碍：暂未发现明确阻碍。\n"
-        "跟进建议：确认客户最想解决的问题或期望结果。"
+        "客户明确表达的问题：广西气候下有100盆花，想获得适合当地环境的品种推荐。"
     )
 
 

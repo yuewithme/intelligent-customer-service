@@ -14,10 +14,6 @@ from app.infrastructure.database.models import (
     TagPromptBindingModel,
 )
 from app.domains.sales.schemas.tag import TagResult
-from app.domains.sales.services.sales_stage_catalog import (
-    SALES_STAGE_VALUES,
-    normalize_sales_stage_reference,
-)
 
 
 @dataclass(frozen=True)
@@ -129,47 +125,6 @@ TAG_CATEGORIES: dict[str, TagCategory] = {
 
 
 SYSTEM_TAG_CATEGORIES: dict[str, TagCategory] = {
-    "intent": TagCategory(
-        id="intent",
-        name="对话意图",
-        prompt_rule="AI 和规则只能从本分类选择意图；未在目录中的意图统一回退为 unknown。",
-        values=tuple(
-            TagValue(f"intent:{value}")
-            for value in (
-                "greeting",
-                "profile_answer",
-                "ask_price",
-                "price_objection",
-                "discount_request",
-                "ask_logistics",
-                "ask_after_sale",
-                "order_intent",
-                "payment_intent",
-                "order_query",
-                "product_query",
-                "purchase_rejection",
-                "knowledge_question",
-                "care_question",
-                "process_question",
-                "usage_question",
-                "refund_request",
-                "complaint",
-                "human_request",
-                "unsupported",
-                "unknown",
-            )
-        ),
-        exclusive=False,
-    ),
-    "sales_stage": TagCategory(
-        id="sales_stage",
-        name="销售阶段",
-        prompt_rule="首单销售只允许写入七个标准阶段；售后和人工接管使用独立中断状态。",
-        values=tuple(
-            TagValue(f"stage:{value}")
-            for value in ("unknown", *SALES_STAGE_VALUES)
-        ),
-    ),
     "customer_segment": TagCategory(
         id="customer_segment",
         name="客户分群",
@@ -216,17 +171,15 @@ SYSTEM_TAG_CATEGORIES: dict[str, TagCategory] = {
 TAG_CATEGORIES.update(SYSTEM_TAG_CATEGORIES)
 
 SYSTEM_CATEGORY_IDS = frozenset(SYSTEM_TAG_CATEGORIES)
-FROZEN_CATEGORY_IDS = frozenset({"sales_stage"})
+FROZEN_CATEGORY_IDS = frozenset()
 SYSTEM_TAG_PREFIXES = {
-    "intent": "intent:",
-    "sales_stage": "stage:",
     "customer_segment": "segment:",
     "customer_sentiment": "emotion:",
     "risk_level": "risk:",
     "pain_point": "pain_point:",
     "product_interest": "product_interest:",
 }
-_CATALOG_VERSION = "4"
+_CATALOG_VERSION = "5"
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -318,12 +271,36 @@ def _ensure_seeded() -> None:
                 )
         if count and (marker is None or marker.value != _CATALOG_VERSION):
             _seed_missing_value(session, "province", "海南省")
-            _sync_frozen_category(session, SYSTEM_TAG_CATEGORIES["sales_stage"])
+            _remove_retired_categories(session, {"intent", "sales_stage"})
         if marker is None:
             session.add(TagCatalogMetaModel(key="seed_version", value=_CATALOG_VERSION))
         else:
             marker.value = _CATALOG_VERSION
         session.commit()
+
+
+def _remove_retired_categories(session: Session, category_ids: set[str]) -> None:
+    block_ids = set(
+        session.scalars(
+            select(TagPromptBindingModel.prompt_block_id).where(
+                TagPromptBindingModel.category_id.in_(category_ids)
+            )
+        ).all()
+    )
+    session.execute(
+        delete(TagPromptBindingModel).where(
+            TagPromptBindingModel.category_id.in_(category_ids)
+        )
+    )
+    session.execute(
+        delete(TagDefinitionModel).where(
+            TagDefinitionModel.category_id.in_(category_ids)
+        )
+    )
+    session.execute(
+        delete(TagCategoryModel).where(TagCategoryModel.id.in_(category_ids))
+    )
+    _delete_orphan_prompt_blocks(session, block_ids)
 
 
 def _sync_frozen_category(session: Session, category: TagCategory) -> None:
@@ -434,22 +411,11 @@ def system_tag_token(category_id: str, value: str | None) -> str:
     prefix = SYSTEM_TAG_PREFIXES.get(category_id, "")
     if not value or not prefix:
         return ""
-    if category_id == "sales_stage":
-        raw_value = value[len(prefix):] if value.startswith(prefix) else value
-        normalized = normalize_sales_stage_reference(raw_value)
-        if normalized.stage is not None:
-            value = normalized.stage.value
-        elif raw_value == "unknown":
-            value = raw_value
-        else:
-            return ""
     return value if value.startswith(prefix) else f"{prefix}{value}"
 
 
 def system_tag_values(category_id: str) -> list[str]:
     """Return raw values for one system dimension in live catalog order."""
-    if category_id == "sales_stage":
-        return ["unknown", *SALES_STAGE_VALUES]
     category = get_tag_categories().get(category_id)
     prefix = SYSTEM_TAG_PREFIXES.get(category_id, "")
     if category is None or not prefix:
@@ -467,9 +433,6 @@ def normalize_system_value(
     *,
     fallback: str,
 ) -> str:
-    if category_id == "sales_stage":
-        normalized = normalize_sales_stage_reference(value)
-        return normalized.stage.value if normalized.stage is not None else fallback
     allowed = set(system_tag_values(category_id))
     return value.strip() if isinstance(value, str) and value.strip() in allowed else fallback
 
@@ -480,14 +443,6 @@ def is_allowed_system_tag(label: str, category_id: str | None = None) -> bool:
     label = label.strip()
     category_ids = (category_id,) if category_id else tuple(SYSTEM_CATEGORY_IDS)
     for current_id in category_ids:
-        if current_id == "sales_stage" and label.startswith("stage:"):
-            value = label.split(":", 1)[1].strip()
-            normalized = normalize_sales_stage_reference(value)
-            if (
-                value == "unknown"
-                or normalized.stage is not None
-            ):
-                return True
         category = get_tag_categories().get(current_id)
         if category and any(value.name == label for value in category.values):
             return True
@@ -524,15 +479,6 @@ def filter_runtime_labels(labels: list[str]) -> list[str]:
         if label.startswith("customer_tag:"):
             value = label.split(":", 1)[1].strip()
             normalized = f"customer_tag:{value}" if is_allowed_profile_tag(value) else ""
-        elif label.startswith("stage:"):
-            raw_value = label.split(":", 1)[1].strip()
-            stage_reference = normalize_sales_stage_reference(raw_value)
-            if stage_reference.stage is not None:
-                normalized = f"stage:{stage_reference.stage.value}"
-            elif raw_value == "unknown":
-                normalized = "stage:unknown"
-            else:
-                normalized = ""
         else:
             normalized = label if is_allowed_system_tag(label) else ""
         if normalized and normalized not in result:

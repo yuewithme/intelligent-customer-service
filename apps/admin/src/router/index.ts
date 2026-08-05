@@ -13,17 +13,17 @@ const routes: RouteRecordRaw[] = [
     component: SalesLayout,
     redirect: '/workbench',
     children: [
-      { path: 'workbench', component: () => import('@/views/workbench/index.vue'), meta: { title: '销售工作台' } },
-      { path: 'sales-flow', component: () => import('@/views/sales-flow/index.vue'), meta: { title: '首单销售流程' } },
-      { path: 'operations/chat-logs', component: () => import('@/views/intent-observations/index.vue'), meta: { title: '意图识别日志' } },
-      { path: 'operations/reply-shadows', component: () => import('@/views/reply-shadows/index.vue'), meta: { title: '影子决策评测' } },
-      { path: 'operations/conversation-cases', component: () => import('@/views/conversation-cases/index.vue'), meta: { title: '整案案例库' } },
-      { path: 'operations/tags', component: () => import('@/views/tag-management/index.vue'), meta: { title: '标签管理' } },
+      { path: 'workbench', component: () => import('@/views/workbench/index.vue'), meta: { title: '小兰工作台' } },
+      { path: 'operations/conversation-cases', component: () => import('@/views/conversation-cases/index.vue'), meta: { title: '销售案例库' } },
+      { path: 'operations/tags', component: () => import('@/views/tag-management/index.vue'), meta: { title: '客户标签' } },
       { path: 'operations/products', component: () => import('@/views/product-information/index.vue'), meta: { title: '产品信息' } },
       { path: 'operations/care-manuals', component: () => import('@/views/care-manuals/index.vue'), meta: { title: '养护手册' } },
-      { path: 'knowledge-ops/current-activities', component: () => import('@/views/current-activities/index.vue'), meta: { title: '销售活动' } },
-      { path: 'sop/unpurchased', component: () => import('@/views/unpurchased-sop/index.vue'), meta: { title: '未购 SOP', sopKind: 'unpurchased' } },
-      { path: 'sop/service', component: () => import('@/views/unpurchased-sop/index.vue'), meta: { title: '服务 SOP', sopKind: 'service' } },
+      {
+        path: 'knowledge-ops/current-activities',
+        name: 'CurrentActivities',
+        component: () => import('@/views/current-activities/index.vue'),
+        meta: { title: '销售活动' }
+      },
       { path: 'settings/handoff', component: () => import('@/views/handoff-settings/index.vue'), meta: { title: '转人工设置' } },
       { path: 'settings/model-config', component: PlaceholderPage, props: { title: '模型配置' }, meta: { title: '模型配置' } }
     ]
@@ -50,6 +50,8 @@ router.beforeEach(async (to) => {
   return { path: '/gate', query: { redirect: to.fullPath } }
 })
 
-router.afterEach((to) => { document.title = `${String(to.meta.title || '销售 Agent')} - 销售 Agent` })
+router.afterEach((to) => {
+  document.title = `${String(to.meta.title || '小兰工作台')} - 萧岚苑销售 Agent`
+})
 
 export default router

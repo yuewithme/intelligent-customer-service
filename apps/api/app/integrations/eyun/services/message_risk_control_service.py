@@ -32,21 +32,13 @@ from app.domains.conversations.services.conversation_service import (
     RESOLVED,
     ensure_outbound_conversation_message,
     force_handoff,
-    latest_conversation_reply_route,
     make_conversation_id,
     record_customer_message,
     update_outbound_message_delivery,
 )
 from app.domains.decisioning.services.customer_reply_formatter import plain_customer_text, split_customer_messages
 from app.integrations.eyun.services.eyun_contact_service import get_eyun_contact_snapshot
-from app.domains.decisioning.services.intent_observation_service import (
-    is_intent_capture_noise,
-    record_bypassed_intent_observation,
-)
-from app.domains.catalog.services.orchid_material_service import (
-    orchid_material_order_screenshot_context,
-    orchid_material_video_issue_context,
-)
+from app.domains.conversations.services.input_filter_service import is_platform_noise_text
 from app.integrations.feishu.services.webhook_alert_service import (
     send_feishu_webhook_alert,
 )
@@ -54,16 +46,12 @@ from app.domains.customers.services.user_profile_service import (
     add_verified_customer_tag,
     append_conversation_memory,
 )
-from app.domains.sales.services.sales_stage_catalog import normalize_sales_stage_value
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
 
 _URL_PATTERN = re.compile(r"https?://[^\s<>，。！？；：、（）【】“”‘’《》]+")
 _URL_TRAILING_PUNCTUATION = "，。！？；：、,.!?;:)]}》〉”’\"'"
-_SERVICE_FOLLOW_UP_PREFIX = "service_followup:"
-
-WRONG_STORE_ORDER_REPLY = "亲这不是我们萧岚苑的订单截图哦"
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _initialized_urls: set[str] = set()
@@ -165,13 +153,6 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
             )
             batch.updated_at = now
 
-        _cancel_queued_service_followups(
-            session,
-            w_id=w_id,
-            wc_id=target_wc_id,
-            now=now,
-        )
-
         session.add(
             EyunInboundMessageModel(
                 provider_message_id=provider_message_id,
@@ -184,10 +165,6 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
         session.commit()
         session.refresh(batch)
         result = _inbound_batch_to_dict(batch)
-    if from_user and not from_group:
-        from app.domains.sales.services.unpurchased_sop_service import pause_unpurchased_sop_for_customer
-
-        pause_unpurchased_sop_for_customer(from_user)
     return result
 
 
@@ -553,86 +530,6 @@ async def enqueue_eyun_outbound(
     )
 
 
-async def _enqueue_scheduled_service_follow_up(
-    *, chat_result: dict[str, Any], batch: dict[str, Any]
-) -> None:
-    metadata = chat_result.get("metadata")
-    metadata = metadata if isinstance(metadata, dict) else {}
-    follow_up = metadata.get("scheduled_follow_up")
-    if not isinstance(follow_up, dict) or follow_up.get("kind") != "membership_card":
-        return
-    messages = follow_up.get("messages")
-    if not isinstance(messages, list) or not messages:
-        return
-    try:
-        delay_seconds = max(1, min(3600, int(follow_up.get("delay_seconds") or 0)))
-    except (TypeError, ValueError):
-        return
-    trace_id = re.sub(
-        r"[^0-9A-Za-z_.-]+",
-        "-",
-        str(follow_up.get("source_trace_id") or chat_result.get("trace_id") or "turn"),
-    )[:96]
-    product_id = re.sub(
-        r"[^0-9A-Za-z_.-]+",
-        "-",
-        str(follow_up.get("product_id") or "membership"),
-    )[:96]
-    source_batch_key = f"{_SERVICE_FOLLOW_UP_PREFIX}{product_id}:{trace_id}"
-    due_at = utcnow() + timedelta(seconds=delay_seconds)
-    dependency_id: int | None = None
-    for item in messages:
-        if not isinstance(item, dict):
-            continue
-        message_type = str(item.get("type") or "").strip()
-        content = str(item.get("content") or "").strip()
-        if message_type not in {"text", "link_card", "mini_program"} or not content:
-            continue
-        queued = await enqueue_wechat_outbound(
-            w_id=str(batch.get("w_id") or ""),
-            wc_id=str(batch.get("target_wc_id") or ""),
-            content=content,
-            source_batch_key=source_batch_key,
-            message_type=message_type,
-            depends_on_outbound_id=dependency_id,
-            priority=30,
-            due_at=due_at,
-            channel="wechat",
-            user_id=str(batch.get("from_user") or batch.get("target_wc_id") or ""),
-            session_id=str(batch.get("from_group") or "default"),
-            source_type="service_follow_up",
-            source_id=trace_id,
-        )
-        queued_id = queued.get("id") if isinstance(queued, dict) else None
-        dependency_id = int(queued_id) if queued_id is not None else None
-        due_at += timedelta(seconds=random_outbound_spacing_seconds())
-
-
-def _cancel_queued_service_followups(
-    session: Session, *, w_id: str, wc_id: str, now: datetime
-) -> None:
-    if not w_id or not wc_id:
-        return
-    rows = session.scalars(
-        select(EyunOutboundMessageModel).where(
-            EyunOutboundMessageModel.w_id == w_id,
-            EyunOutboundMessageModel.wc_id == wc_id,
-            EyunOutboundMessageModel.status == "queued",
-            EyunOutboundMessageModel.source_batch_key.like(
-                f"{_SERVICE_FOLLOW_UP_PREFIX}%"
-            ),
-        )
-    ).all()
-    for row in rows:
-        row.status = "cancelled"
-        row.last_error = "客户在静默等待期内发送了新消息"
-        row.updated_at = now
-        if row.conversation_message_id:
-            message = session.get(ConversationMessageModel, row.conversation_message_id)
-            if message is not None:
-                message.delivery_status = "cancelled"
-
-
 async def enqueue_wechat_bulk_send(
     *,
     recipients: list[dict[str, str]],
@@ -774,7 +671,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     row.last_error = "前一条组合消息发送失败"
                     row.updated_at = now
                     session.commit()
-                    _sync_sop_outbound(
+                    _sync_agent_wakeup_outbound(
                         row.source_batch_key, row.status, row.last_error
                     )
                     if row.conversation_message_id:
@@ -818,7 +715,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                             row.due_at = utcnow() + timedelta(seconds=30)
                         row.updated_at = utcnow()
                         session.commit()
-                        _sync_sop_outbound(
+                        _sync_agent_wakeup_outbound(
                             row.source_batch_key, row.status, row.last_error
                         )
                         if row.conversation_message_id:
@@ -949,7 +846,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         status=row.status,
                     )
                 logger.warning("Eyun outbound send failed: %s", exc)
-                _sync_sop_outbound(row.source_batch_key, row.status, row.last_error)
+                _sync_agent_wakeup_outbound(row.source_batch_key, row.status, row.last_error)
                 await _handle_opening_send_failure(row.id, exc)
                 continue
 
@@ -972,7 +869,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 rate.last_sent_at = sent_at
                 rate.updated_at = sent_at
             session.commit()
-            _sync_sop_outbound(row.source_batch_key, "sent")
+            _sync_agent_wakeup_outbound(row.source_batch_key, "sent")
             if row.conversation_message_id:
                 update_outbound_message_delivery(
                     row.conversation_message_id,
@@ -980,7 +877,6 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     provider_message_id=_eyun_provider_message_id_from_result(send_result),
                     sent_at=sent_at,
                 )
-            await _mark_service_follow_up_sent(row, message_type=message_type)
             await _handle_opening_send_success(row.id, sent_at)
             break
     return attempted
@@ -1015,26 +911,12 @@ async def _process_inbound_batch(batch_id: int) -> None:
             batch_data["batch_key"],
             created_after=batch_data["created_at"],
         )
-        observation_metadata = _intent_observation_metadata(
+        source_metadata = _source_trace_metadata(
             session, batch_data, inbound_payloads
         )
-        observation_trace_id = str(observation_metadata["source_trace_id"])
         customer_snapshot = _latest_customer_snapshot(session, batch_data["batch_key"])
         is_first_inbound = is_first_eyun_inbound_message(session, batch_data["batch_key"])
-        has_sent_orchid_material = _has_sent_orchid_material(
-            session,
-            user_id=batch_data["from_user"] or batch_data["target_wc_id"],
-            session_id=batch_data["from_group"],
-            before=batch_data["created_at"],
-        )
-        latest_reply_route = latest_conversation_reply_route(
-            channel="wechat",
-            user_id=batch_data["from_user"] or batch_data["target_wc_id"],
-            session_id=batch_data["from_group"],
-            before=batch_data["created_at"],
-        )
 
-    opening_message_count = 0
     try:
         if batch_data["from_group"]:
             _mark_batch(batch_id, "skipped")
@@ -1062,7 +944,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
             else:
                 _mark_batch(batch_id, "skipped")
             return
-        if _only_intent_capture_noise(inbound_payloads):
+        if _only_platform_noise(inbound_payloads):
             _mark_batch(batch_id, "skipped")
             return
 
@@ -1087,16 +969,6 @@ async def _process_inbound_batch(batch_id: int) -> None:
             customer_snapshot["customer_tags"] = profile.get("customer_tags", [])
 
         if _conversation_blocks_ai(batch_data):
-            await record_bypassed_intent_observation(
-                trace_id=observation_trace_id,
-                channel="wechat",
-                user_id=user_id,
-                session_id=batch_data["from_group"],
-                user_message=batch_data["content"],
-                final_route="human",
-                reason="human_conversation_locked",
-                metadata=observation_metadata,
-            )
             _mark_batch(batch_id, "skipped")
             return
 
@@ -1106,58 +978,25 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         customer_snapshot.update(contact_snapshot)
 
-        video_issue_context = orchid_material_video_issue_context(
-            batch_data["content"]
-        )
-        if has_sent_orchid_material and video_issue_context is not None:
-            customer_snapshot.update(video_issue_context)
-        elif latest_reply_route == "orchid_material_purchase_check":
-            screenshot_context = orchid_material_order_screenshot_context(
-                batch_data["content"]
+        if all_images_failed and wrong_store_order_count != image_count:
+            await _handoff_image_failure(
+                batch_id=batch_id,
+                batch=batch_data,
+                customer_snapshot=customer_snapshot,
             )
-            if screenshot_context is not None:
-                customer_snapshot.update(screenshot_context)
+            _mark_batch(batch_id, "processed")
+            return
         if all_images_failed:
-            if wrong_store_order_count == image_count:
-                chat_result = {
-                    "answer": WRONG_STORE_ORDER_REPLY,
-                    "route": "unsupported_store_order",
-                }
-                await record_bypassed_intent_observation(
-                    trace_id=observation_trace_id,
-                    channel="wechat",
-                    user_id=user_id,
-                    session_id=batch_data["from_group"],
-                    user_message=batch_data["content"],
-                    final_route="unsupported_store_order",
-                    primary_domain="conversation",
-                    primary_goal="unclear",
-                    scope="out_of_scope",
-                    reason="unsupported_store_order",
-                    metadata=observation_metadata,
-                )
-            else:
-                await record_bypassed_intent_observation(
-                    trace_id=observation_trace_id,
-                    channel="wechat",
-                    user_id=user_id,
-                    session_id=batch_data["from_group"],
-                    user_message=batch_data["content"],
-                    final_route="human",
-                    reason="image_recognition_failed",
-                    metadata=observation_metadata,
-                )
-                await _handoff_image_failure(
-                    batch_id=batch_id,
-                    batch=batch_data,
-                    customer_snapshot=customer_snapshot,
-                )
-                _mark_batch(batch_id, "processed")
-                return
-        elif is_first_inbound or needs_opening:
-            opening_result = _opening_chat_result()
-            opening_messages = _outbound_messages(opening_result)
-            opening_message_count = len(opening_messages)
+            customer_snapshot["attachment_error"] = (
+                "图片识别确认这不是萧岚苑的订单截图"
+            )
+            if not batch_data["content"].strip():
+                batch_data["content"] = "[客户发送了一张订单截图]"
+
+        if is_first_inbound or needs_opening:
+            # Harness v2 lets the Sales Agent compose the first-contact reply.
+            # It still enters the same persistent queue and ordinary rate limit;
+            # there is no separate fixed opening script in the runtime path.
             chat_result = await handle_chat(
                 ChatRequest(
                     channel="wechat",
@@ -1178,25 +1017,12 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "image_count": image_count,
                         "recognized_image_count": recognized_image_count,
                         "verified_order_count": verified_order_count,
-                        "skip_conversation_memory": True,
-                        **observation_metadata,
+                        "is_first_contact": True,
+                        **source_metadata,
                         **customer_snapshot,
                     },
                 )
             )
-            await _record_first_inbound_memories(
-                batch_data,
-                opening_result.get("answer", ""),
-                chat_result,
-            )
-            outbound_messages = [
-                *opening_messages,
-                *_outbound_messages(chat_result),
-            ]
-            for message in outbound_messages:
-                if message["type"] == "text":
-                    message["split"] = False
-            chat_result["outbound_messages"] = outbound_messages
         else:
             chat_result = await handle_chat(
                 ChatRequest(
@@ -1218,7 +1044,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "image_count": image_count,
                         "recognized_image_count": recognized_image_count,
                         "verified_order_count": verified_order_count,
-                        **observation_metadata,
+                        **source_metadata,
                         **customer_snapshot,
                     },
                 )
@@ -1229,46 +1055,17 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         if batch_data["w_id"] and batch_data["target_wc_id"]:
             outbound_messages = _outbound_messages(chat_result)
-            intent = (
-                chat_result.get("intent")
-                if isinstance(chat_result.get("intent"), dict)
-                else {}
-            )
-            sales_stage = normalize_sales_stage_value(
-                intent.get("sales_stage"),
-                fallback="",
-            )
             sales_turn_id = str(chat_result.get("trace_id") or "").strip()
             sales_metadata = {
-                **({"sales_stage": sales_stage} if sales_stage else {}),
                 **({"sales_turn_id": sales_turn_id} if sales_turn_id else {}),
+                "source_batch_key": batch_data["batch_key"],
             }
-            opening_message_count = min(
-                opening_message_count,
-                len(outbound_messages),
-            )
-            if opening_message_count:
-                due_slots = await _reserve_opening_delivery_slots(
-                    w_id=batch_data["w_id"],
-                    message_count=opening_message_count,
-                )
-                next_due_at = due_slots[-1]
-                for _ in range(opening_message_count, len(outbound_messages)):
-                    next_due_at += timedelta(
-                        seconds=random_outbound_spacing_seconds()
-                    )
-                    due_slots.append(next_due_at)
-            else:
-                due_at = utcnow() + timedelta(
-                    seconds=random_reply_delay_seconds()
-                )
-                due_slots = []
-                for index in range(len(outbound_messages)):
-                    due_slots.append(due_at)
-                    if index < len(outbound_messages) - 1:
-                        due_at += timedelta(
-                            seconds=random_outbound_spacing_seconds()
-                        )
+            due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
+            due_slots = []
+            for index in range(len(outbound_messages)):
+                due_slots.append(due_at)
+                if index < len(outbound_messages) - 1:
+                    due_at += timedelta(seconds=random_outbound_spacing_seconds())
             dependency_id: int | None = None
             for index, message in enumerate(outbound_messages):
                 conversation_message = await ensure_outbound_conversation_message(
@@ -1279,12 +1076,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     message_type=message["type"],
                     sender_type="ai",
                     sender_id="ai",
-                    route=str(
-                        "opening"
-                        if index < opening_message_count
-                        else chat_result.get("route")
-                        or ""
-                    ),
+                    route=str(chat_result.get("route") or ""),
                     created_after=batch_data["created_at"],
                     metadata=sales_metadata,
                 )
@@ -1294,26 +1086,16 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     "content": message["content"],
                     "source_batch_key": batch_data["batch_key"],
                     "conversation_message_id": conversation_message["id"],
+                    "depends_on_outbound_id": dependency_id,
                     "due_at": due_slots[index],
                 }
-                if opening_message_count:
-                    kwargs["depends_on_outbound_id"] = dependency_id
                 if message.get("material_id"):
                     kwargs["material_id"] = int(message["material_id"])
                 if message["type"] not in {"text", "material"}:
                     kwargs["message_type"] = message["type"]
                 queued = await enqueue_eyun_outbound(**kwargs)
-                if opening_message_count:
-                    queued_id = (
-                        queued.get("id") if isinstance(queued, dict) else None
-                    )
-                    dependency_id = (
-                        int(queued_id) if queued_id is not None else None
-                    )
-            await _enqueue_scheduled_service_follow_up(
-                chat_result=chat_result,
-                batch=batch_data,
-            )
+                queued_id = queued.get("id") if isinstance(queued, dict) else None
+                dependency_id = int(queued_id) if queued_id is not None else None
         _mark_batch(batch_id, "processed")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
@@ -1362,7 +1144,7 @@ def _batch_inbound_payloads(
     return payloads
 
 
-def _intent_observation_metadata(
+def _source_trace_metadata(
     session: Session,
     batch: dict[str, Any],
     payloads: list[dict[str, Any]],
@@ -1413,7 +1195,7 @@ def _intent_observation_metadata(
     }
 
 
-def _only_intent_capture_noise(payloads: list[dict[str, Any]]) -> bool:
+def _only_platform_noise(payloads: list[dict[str, Any]]) -> bool:
     text_values = []
     for payload in payloads:
         if str(payload.get("messageType") or "") != "60001":
@@ -1422,28 +1204,7 @@ def _only_intent_capture_noise(payloads: list[dict[str, Any]]) -> bool:
         content = str(data.get("content") or "").strip()
         if content:
             text_values.append(content)
-    return bool(text_values) and all(is_intent_capture_noise(value) for value in text_values)
-
-
-def _has_sent_orchid_material(
-    session: Session,
-    *,
-    user_id: str,
-    session_id: str | None,
-    before: datetime,
-) -> bool:
-    conversation_id = make_conversation_id("wechat", user_id, session_id)
-    return session.scalar(
-        select(ConversationMessageModel.id)
-        .where(
-            ConversationMessageModel.conversation_id == conversation_id,
-            ConversationMessageModel.sender_type.in_(("ai", "human")),
-            ConversationMessageModel.route == "orchid_material_delivery",
-            ConversationMessageModel.delivery_status == "sent",
-            ConversationMessageModel.created_at < before,
-        )
-        .limit(1)
-    ) is not None
+    return bool(text_values) and all(is_platform_noise_text(value) for value in text_values)
 
 
 async def _prepare_inbound_content(
@@ -1468,7 +1229,7 @@ async def _prepare_inbound_content(
         message_type = str(payload.get("messageType") or "")
         if message_type == "60001":
             text_content = str(data.get("content") or "").strip()
-            if text_content and not is_intent_capture_noise(text_content):
+            if text_content and not is_platform_noise_text(text_content):
                 parts.append(text_content)
             continue
         if message_type != "60002":
@@ -1541,8 +1302,8 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
             session_id=session_id,
             role="user",
             content=batch["content"],
-            intent="opening_trigger",
-            route="chitchat",
+            intent="autonomous_sales_turn",
+            route="agent_first_contact",
             channel="wechat",
             owner_external_id=str(batch.get("w_id") or ""),
             source_id=f"{batch['batch_key']}:customer",
@@ -1554,35 +1315,12 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
             session_id=session_id,
             role="assistant",
             content=answer,
-            intent="opening",
-            route="opening",
+            intent="autonomous_sales_turn",
+            route="agent_first_contact",
             channel="wechat",
             owner_external_id=str(batch.get("w_id") or ""),
             source_id=f"{batch['batch_key']}:assistant",
         )
-
-
-async def _record_first_inbound_memories(
-    batch: dict[str, Any], opening_answer: str, chat_result: dict[str, Any]
-) -> None:
-    await _record_opening_memories(batch, opening_answer)
-    answer = str(chat_result.get("answer") or "").strip()
-    if not answer:
-        return
-    intent = chat_result.get("intent") or {}
-    await append_conversation_memory(
-        user_id=batch["from_user"] or batch["target_wc_id"],
-        tenant_id="tenant_default",
-        session_id=batch["from_group"] or "default",
-        role="assistant",
-        content=answer,
-        intent=str(intent.get("primary_intent") or "") or None,
-        route=str(chat_result.get("route") or "") or None,
-        trace_id=str(chat_result.get("trace_id") or "") or None,
-        channel="wechat",
-        owner_external_id=str(batch.get("w_id") or ""),
-        source_id=f"{batch['batch_key']}:first-reply",
-    )
 
 
 async def _handoff_image_failure(
@@ -1770,10 +1508,6 @@ def _source_type_from_batch_key(source_batch_key: str | None) -> str:
     return {
         "activity": "activity",
         "bulk": "bulk",
-        "unpurchased_sop": "unpurchased_sop",
-        "unpurchased_sop_test": "unpurchased_sop_test",
-        "service_sop": "service_sop",
-        "service_sop_test": "service_sop_test",
         "workbench": "admin_workbench",
         "image_description_prompt": "image_description_prompt",
     }.get(prefix, prefix or "system")
@@ -1794,7 +1528,6 @@ def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
         batch["from_user"] or batch["target_wc_id"],
         batch["from_group"],
     )
-    opening_text = get_settings().eyun_opening_text.strip()
     with _get_session() as session:
         return session.scalar(
             select(ConversationMessageModel.id)
@@ -1804,7 +1537,7 @@ def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
                 ConversationMessageModel.delivery_status.in_(("queued", "sent")),
                 or_(
                     ConversationMessageModel.route == "opening",
-                    ConversationMessageModel.content == opening_text,
+                    ConversationMessageModel.route == "agent_first_contact",
                 ),
             )
             .limit(1)
@@ -1812,16 +1545,33 @@ def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
 
 
 async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
-    opening_result = _opening_chat_result()
+    opening_result = await handle_chat(
+        ChatRequest(
+            channel="wechat",
+            user_id=batch["from_user"] or batch["target_wc_id"],
+            session_id=batch["from_group"] or "default",
+            message="[系统新好友建立]",
+            kb_id=get_settings().wechat_default_kb_id,
+            metadata={
+                "provider": "eyun",
+                "system_event": "first_contact",
+                "is_first_contact": True,
+                "w_id": batch["w_id"],
+                "wc_id": batch["target_wc_id"],
+                "from_user": batch["from_user"],
+                "from_group": batch["from_group"],
+                "batch_key": batch["batch_key"],
+                "skip_customer_record": True,
+                "skip_conversation_memory": True,
+            },
+        )
+    )
     outbound_messages = _outbound_messages(opening_result)
     await _record_opening_memories(
         {**batch, "content": ""},
         opening_result.get("answer", ""),
     )
-    due_slots = await _reserve_opening_delivery_slots(
-        w_id=batch["w_id"],
-        message_count=len(outbound_messages),
-    )
+    due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
     dependency_id: int | None = None
     for index, message in enumerate(outbound_messages):
         conversation_message = await ensure_outbound_conversation_message(
@@ -1832,7 +1582,7 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
             message_type=message["type"],
             sender_type="ai",
             sender_id="ai",
-            route="opening",
+            route="agent_first_contact",
             created_after=batch["created_at"],
         )
         kwargs = {
@@ -1842,7 +1592,7 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
             "source_batch_key": batch["batch_key"],
             "conversation_message_id": conversation_message["id"],
             "depends_on_outbound_id": dependency_id,
-            "due_at": due_slots[index],
+            "due_at": due_at,
         }
         if message.get("material_id"):
             kwargs["material_id"] = int(message["material_id"])
@@ -1851,17 +1601,7 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
         queued = await enqueue_eyun_outbound(**kwargs)
         queued_id = queued.get("id") if isinstance(queued, dict) else None
         dependency_id = int(queued_id) if queued_id is not None else None
-
-
-def _opening_chat_result() -> dict[str, Any]:
-    from app.domains.decisioning.services.reply_builder import build_opening_reply
-
-    reply = build_opening_reply()
-    return {
-        "answer": reply.answer,
-        "route": "opening",
-        "outbound_messages": [message.model_dump() for message in reply.outbound_messages],
-    }
+        due_at += timedelta(seconds=random_outbound_spacing_seconds())
 
 
 def _encode_outbound_content(message_type: str, content: str) -> str:
@@ -2220,7 +1960,7 @@ def _outbound_priority(
 ) -> int:
     if bulk_job_id is not None or (source_batch_key or "").startswith("bulk:"):
         return 10
-    if (source_batch_key or "").startswith(("unpurchased_sop:", "service_sop:")):
+    if (source_batch_key or "").startswith("agent_wakeup:"):
         return 20
     return 100
 
@@ -2231,67 +1971,22 @@ def _ensure_aware(value: datetime) -> datetime:
     return value
 
 
-def _validate_sop_outbound(source_batch_key: str | None) -> bool:
-    if not source_batch_key or not source_batch_key.startswith(
-        ("unpurchased_sop:", "service_sop:")
-    ):
-        return True
-    from app.domains.sales.services.unpurchased_sop_service import validate_sop_delivery_before_send
-
-    return validate_sop_delivery_before_send(source_batch_key)
-
-
 def _validate_outbound_before_send(
     session: Session, row: EyunOutboundMessageModel
 ) -> bool:
-    if not _validate_sop_outbound(row.source_batch_key):
-        return False
-    if not (row.source_batch_key or "").startswith(_SERVICE_FOLLOW_UP_PREFIX):
-        return True
-    conversation_id = make_conversation_id("wechat", row.wc_id, "default")
-    return session.scalar(
-        select(ConversationMessageModel.id)
-        .where(
-            ConversationMessageModel.conversation_id == conversation_id,
-            ConversationMessageModel.sender_type == "customer",
-            ConversationMessageModel.created_at > row.created_at,
-        )
-        .limit(1)
-    ) is None
+    if (row.source_batch_key or "").startswith("agent_wakeup:"):
+        from app.domains.sales.services.daily_touch_service import validate_agent_wakeup_before_send
+
+        if not validate_agent_wakeup_before_send(row.source_batch_key):
+            return False
+    return True
 
 
-async def _mark_service_follow_up_sent(
-    row: EyunOutboundMessageModel, *, message_type: str
-) -> None:
-    source_batch_key = str(row.source_batch_key or "")
-    if (
-        not source_batch_key.startswith(_SERVICE_FOLLOW_UP_PREFIX)
-        or message_type not in {"link_card", "mini_program"}
-    ):
-        return
-    from app.domains.conversations.services.state_service import get_user_state
-
-    user_state = await get_user_state(row.wc_id, "default")
-    user_state.metadata.pop("pending_service_follow_up", None)
-    product_id = source_batch_key.removeprefix(_SERVICE_FOLLOW_UP_PREFIX).partition(":")[0]
-    if product_id:
-        sent_ids = user_state.metadata.get("commerce_sent_card_ids")
-        sent_ids = list(sent_ids) if isinstance(sent_ids, list) else []
-        if product_id not in sent_ids:
-            sent_ids.append(product_id)
-        user_state.metadata["commerce_sent_card_ids"] = sent_ids[-20:]
-    opportunity = user_state.metadata.get("active_opportunity")
-    if isinstance(opportunity, dict):
-        opportunity["service_offer_phase"] = "card_sent"
-
-
-def _sync_sop_outbound(
+def _sync_agent_wakeup_outbound(
     source_batch_key: str | None, status: str, error: str | None = None
 ) -> None:
-    if not source_batch_key or not source_batch_key.startswith(
-        ("unpurchased_sop:", "service_sop:")
-    ):
-        return
-    from app.domains.sales.services.unpurchased_sop_service import sync_sop_delivery_from_outbound
+    if source_batch_key and source_batch_key.startswith("agent_wakeup:"):
+        from app.domains.sales.services.daily_touch_service import sync_agent_wakeup_from_outbound
 
-    sync_sop_delivery_from_outbound(source_batch_key, status, error)
+        sync_agent_wakeup_from_outbound(source_batch_key, status, error)
+        return

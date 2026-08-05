@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 RouteName = Literal[
+    "agent",
     "template_reply",
     "rag_answer",
     "template_then_rag",

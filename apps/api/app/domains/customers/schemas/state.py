@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 class UserState(BaseModel):
     user_id: str
     session_id: str | None = None
-    sales_stage: str = "unknown"
     customer_tags: list[str] = Field(default_factory=list)
     interested_products: list[str] = Field(default_factory=list)
     last_intent: str | None = None

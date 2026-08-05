@@ -1,14 +1,12 @@
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
 from typing import Literal
 
 from app.core.config import get_settings
 from app.domains.conversations.schemas.chat import ChatRequest
 from app.domains.conversations.services.chat_orchestrator import handle_chat
 from app.domains.conversations.services.conversation_service import (
-    ensure_outbound_conversation_message,
     get_conversation_detail,
     get_demo_platform_state,
     make_conversation_id,
@@ -16,9 +14,7 @@ from app.domains.conversations.services.conversation_service import (
     update_customer_identity,
     user_has_conversation_in_channels,
 )
-from app.domains.decisioning.services.reply_builder import build_opening_reply
 from app.domains.customers.services.user_profile_service import append_conversation_memory
-from app.domains.conversations.services.state_service import get_user_state
 from app.core.ids import generate_id
 from app.shared.schemas.common import AppError, ErrorCode
 
@@ -72,34 +68,34 @@ async def open_demo_sales_conversation(
     conversation_id: str | None = None,
     customer_name: str | None = None,
 ) -> dict:
-    """Start a demo conversation with the opening used for new WeChat contacts."""
-    settings = get_settings()
+    """Start a demo conversation through the same autonomous Agent runtime."""
     user_id = demo_user_id(customer_id)
     runtime_channel = _runtime_channel(channel)
     session_id = conversation_id or (
         "default" if runtime_channel == "wechat" else generate_id("session")
     )
-    reply = build_opening_reply()
     identity = _entry_metadata(
         entry_channel=channel,
         customer_id=customer_id,
         customer_name=customer_name,
     )
-    outbound_messages = [item.model_dump() for item in reply.outbound_messages]
-
-    for index, item in enumerate(outbound_messages):
-        message_type = str(item.get("type") or "text")
-        await ensure_outbound_conversation_message(
+    result = await handle_chat(
+        ChatRequest(
             channel=runtime_channel,
             user_id=user_id,
             session_id=session_id,
-            content=str(item.get("content") or ""),
-            message_type=message_type,
-            provider_message_id=f"demo-opening:{session_id}:{index}",
-            delivery_status="sent",
-            route="opening",
-            metadata={**identity, "message_type": message_type},
+            message="[系统新好友建立]",
+            kb_id=get_settings().wechat_default_kb_id,
+            metadata={
+                **identity,
+                "system_event": "first_contact",
+                "is_first_contact": True,
+                "skip_customer_record": True,
+                "skip_conversation_memory": True,
+            },
         )
+    )
+    outbound_messages = result.get("outbound_messages") or []
     await update_customer_identity(
         channel=runtime_channel,
         user_id=user_id,
@@ -111,9 +107,9 @@ async def open_demo_sales_conversation(
         tenant_id="tenant_default",
         session_id=session_id,
         role="assistant",
-        content=reply.answer,
-        intent="opening",
-        route="chitchat",
+        content=str(result.get("answer") or ""),
+        intent="autonomous_sales_turn",
+        route="agent",
         channel=runtime_channel,
         source_id=f"demo-opening:{user_id}:{session_id}",
     )
@@ -126,19 +122,16 @@ async def open_demo_sales_conversation(
         )
 
     return {
-        "reply": reply.answer,
-        "answer_segments": [reply.answer] if reply.answer else [],
+        "reply": result.get("answer", ""),
+        "answer_segments": result.get("answer_segments", []),
         "outbound_messages": outbound_messages,
-        "opening_image_url": settings.eyun_opening_image_url or None,
+        "opening_image_url": None,
         "customer_id": customer_id,
         "conversation_id": session_id,
-        "sales_stage": "rapport",
-        "customer_tags": [],
-        "product_interests": [],
-        "next_action": "继续了解客户需求",
-        "need_human": False,
-        "route": "opening",
-        "trace_id": None,
+        "next_action": result.get("next_action"),
+        "need_human": bool(result.get("need_human")),
+        "route": result.get("route"),
+        "trace_id": result.get("trace_id"),
     }
 
 
@@ -157,7 +150,6 @@ async def get_active_demo_sales_conversation() -> dict:
     customer_id = str(state["customer_id"] or DEFAULT_DEMO_CUSTOMER_ID)
     session_id = str(state["session_id"] or "default")
     user_id = demo_user_id(customer_id)
-    await _flush_due_demo_follow_up(user_id=user_id, session_id=session_id)
     detail = await get_conversation_detail(
         make_conversation_id("wechat", user_id, session_id)
     )
@@ -171,55 +163,6 @@ async def get_active_demo_sales_conversation() -> dict:
         "conversation_id": session_id,
         "messages": _demo_history_messages(detail.get("messages") or []),
     }
-
-
-async def _flush_due_demo_follow_up(*, user_id: str, session_id: str) -> None:
-    user_state = await get_user_state(user_id, session_id)
-    pending = user_state.metadata.get("pending_service_follow_up")
-    if not isinstance(pending, dict):
-        return
-    try:
-        due_at = datetime.fromisoformat(str(pending.get("due_at") or ""))
-    except ValueError:
-        user_state.metadata.pop("pending_service_follow_up", None)
-        return
-    if due_at.tzinfo is None:
-        due_at = due_at.replace(tzinfo=timezone.utc)
-    if due_at > datetime.now(timezone.utc):
-        return
-    messages = pending.get("messages")
-    user_state.metadata.pop("pending_service_follow_up", None)
-    if not isinstance(messages, list):
-        return
-    source_trace_id = str(pending.get("source_trace_id") or "demo-follow-up")
-    for index, item in enumerate(messages):
-        if not isinstance(item, dict):
-            continue
-        message_type = str(item.get("type") or "").strip()
-        content = str(item.get("content") or "").strip()
-        if not message_type or not content:
-            continue
-        await ensure_outbound_conversation_message(
-            channel="wechat",
-            user_id=user_id,
-            session_id=session_id,
-            content=content,
-            message_type=message_type,
-            provider_message_id=f"demo-service-follow-up:{source_trace_id}:{index}",
-            delivery_status="sent",
-            route="service_silence_follow_up",
-            metadata={"message_type": message_type, "origin": "service_follow_up"},
-        )
-    product_id = str(pending.get("product_id") or "").strip()
-    if product_id:
-        sent_ids = user_state.metadata.get("commerce_sent_card_ids")
-        sent_ids = list(sent_ids) if isinstance(sent_ids, list) else []
-        if product_id not in sent_ids:
-            sent_ids.append(product_id)
-        user_state.metadata["commerce_sent_card_ids"] = sent_ids[-20:]
-    opportunity = user_state.metadata.get("active_opportunity")
-    if isinstance(opportunity, dict):
-        opportunity["service_offer_phase"] = "card_sent"
 
 
 def _demo_history_messages(messages: list[dict]) -> list[dict]:
@@ -318,7 +261,7 @@ async def chat_with_demo_sales_agent(
     if channel == "web_demo" and not await user_has_conversation_in_channels(
         user_id, (runtime_channel,)
     ):
-        metadata["prepend_opening"] = True
+        metadata["is_first_contact"] = True
     result = await handle_chat(
         ChatRequest(
             channel=runtime_channel,
@@ -341,22 +284,15 @@ async def chat_with_demo_sales_agent(
             session_id=str(result.get("session_id") or "default"),
         )
     intent = result.get("intent") or {}
-    metadata = result.get("metadata") or {}
-    sales_action = metadata.get("sales_action") or {}
-    tag_result = metadata.get("tag_result") or {}
     return {
         "reply": result.get("answer", ""),
         "answer_segments": result.get("answer_segments", []),
         "outbound_messages": result.get("outbound_messages", []),
         "customer_id": customer_id,
         "conversation_id": result.get("session_id"),
-        "sales_stage": intent.get("sales_stage") or tag_result.get("stage"),
-        "customer_tags": tag_result.get("tags", []),
-        "product_interests": tag_result.get("product_interests", []),
-        "next_action": result.get("next_action") or sales_action.get("sales_action"),
+        "next_action": result.get("next_action"),
         "need_human": bool(result.get("need_human")),
         "route": result.get("route"),
         "trace_id": result.get("trace_id"),
         "intent": intent,
-        "commerce_action": metadata.get("commerce_action", {}),
     }

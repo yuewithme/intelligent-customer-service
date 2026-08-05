@@ -5,7 +5,6 @@ export interface UserProfile {
   user_id: string
   tenant_id: string
   channel: string
-  current_stage: string
   risk_level: string
   is_human_handoff: boolean
   human_ticket_id?: string | null
@@ -16,14 +15,11 @@ export interface UserProfile {
   ai_summary?: string | null
   preference_summary?: string | null
   pain_points: string[]
-  last_intent?: string | null
   last_route?: string | null
-  last_template_id?: string | null
   last_active_at?: string | null
   friend_added_at?: string | null
   created_at?: string | null
   updated_at?: string | null
-  active_opportunity?: Record<string, unknown>
 }
 
 export interface ProfileEvent {
