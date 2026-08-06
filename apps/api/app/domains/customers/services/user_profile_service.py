@@ -931,7 +931,7 @@ def _list_memories_for_char_budget(
     *,
     session_id: str | None,
 ) -> list[dict]:
-    budget = max(1, min(int(char_budget), 5000))
+    budget = max(1, int(char_budget))
     filters = [ConversationMemoryModel.user_id == user_id]
     if session_id is not None:
         filters.append(ConversationMemoryModel.session_id == session_id)

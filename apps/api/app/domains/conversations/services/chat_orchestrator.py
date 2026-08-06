@@ -26,6 +26,9 @@ from app.domains.customers.services.user_profile_service import (
 )
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.reply import FinalReply
+from app.domains.decisioning.services.agent_prompt import (
+    FULL_CONVERSATION_CHAR_BUDGET,
+)
 from app.domains.decisioning.services.agent_runtime import run_sales_agent
 from app.domains.decisioning.services.customer_reply_formatter import (
     plain_customer_text,
@@ -133,7 +136,7 @@ async def handle_chat(request: ChatRequest) -> dict:
         _apply_evaluation_context(message, user_state)
         profile_bundle = await get_profile_bundle(
             message.user_id,
-            conversation_char_budget=1000,
+            conversation_char_budget=FULL_CONVERSATION_CHAR_BUDGET,
             conversation_session_id=message.session_id,
         )
         workspace = _customer_workspace(
