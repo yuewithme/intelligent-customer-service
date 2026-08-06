@@ -6,6 +6,7 @@
 **/rag.db
 **/chat_logs.db
 var/
+/data/
 .codex/
 .tmp/
 deploy/env/backend.prod.env*

@@ -1,5 +1,7 @@
 # 微信表达风格
 
+> 作用域：该文件只服务旧知识问答 Prompt、兼容测试和离线参考；生产主 Sales Agent 不读取它。这里的问句和格式要求不是在线硬门禁，现役表达原则以 `docs/agent-harness-v2/08-brand-and-style.md` 和 `agent_prompt.py` 为准。
+
 ## 默认节奏
 
 - 先回应客户真正关心的点，再给判断或建议，最后才考虑下一步。

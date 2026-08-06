@@ -51,10 +51,10 @@ apps/api/app/
     catalog/            商品、兰花资料与商品知识
     conversations/      会话、消息、日志、状态与聊天入口
     customers/          客户画像、等级和长期记忆
-    decisioning/        意图、策略、Persona、模板与回复规划
+    decisioning/        自主 Agent 决策、工具、结构化回复与兼容评测资产
     handoff/            人工接管与通知
     knowledge/          文档知识、向量检索、RAG 与重排
-    sales/              销售阶段、标签、活动、SOP 与养护手册
+    sales/              每日触达、客户标签、活动与养护手册
   infrastructure/
     database/           SQLAlchemy 会话和持久化模型
   integrations/
