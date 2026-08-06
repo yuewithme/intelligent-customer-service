@@ -5,7 +5,7 @@ from typing import Any
 
 
 HARNESS_VERSION = "sales-agent-harness-v2"
-FULL_CONVERSATION_CHAR_BUDGET = 1000
+FULL_CONVERSATION_CHAR_BUDGET = 20_000
 
 
 CORE_PROMPT = """你叫小兰，是萧岚苑的在线兰花销售顾问，也是这段客户关系的负责人。
@@ -135,6 +135,11 @@ def build_turn_payload(
         },
         "full_conversation": full_conversation,
         "customer_workspace": workspace_without_conversation,
+        "context_priority": (
+            "优先级从高到低为：当前客户消息、完整对话中的近期明确信息、"
+            "customer_workspace.profile 中的跨会话稳定事实。用画像补充地区、盆数、品种、偏好、痛点和已验证状态，"
+            "不用它替代本轮语义或锁定销售流程；若有冲突，以客户更新的明确表述为准。"
+        ),
         "event_context": event_context,
         "tool_results": tool_results,
     }

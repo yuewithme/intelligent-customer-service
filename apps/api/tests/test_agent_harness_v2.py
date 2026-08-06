@@ -151,8 +151,8 @@ def test_turn_payload_keeps_latest_full_conversation_within_char_budget():
             customer_message="是的",
             customer_workspace={
                 "recent_turns": [
-                    {"role": "customer", "content": "早" * 600},
-                    {"role": "assistant", "content": "近" * 600},
+                    {"role": "customer", "content": "早" * 12_000},
+                    {"role": "assistant", "content": "近" * 12_000},
                     {"role": "customer", "content": "是的"},
                 ]
             },
@@ -162,14 +162,16 @@ def test_turn_payload_keeps_latest_full_conversation_within_char_budget():
     )
 
     conversation = payload["full_conversation"]
-    assert conversation["content_chars"] == 1000
+    assert conversation["content_chars"] == 20_000
     assert conversation["truncated_oldest"] is True
     assert conversation["turns"][0]["content"].startswith("…")
     assert conversation["turns"][-1] == {
         "role": "assistant",
-        "content": "近" * 600,
+        "content": "近" * 12_000,
     }
     assert all(turn["content"] != "是的" for turn in conversation["turns"])
+    assert "跨会话稳定事实" in payload["context_priority"]
+    assert "客户更新的明确表述" in payload["context_priority"]
 
 
 @pytest.mark.asyncio
