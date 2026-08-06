@@ -304,6 +304,23 @@ async def run_sales_agent(
             }
         )
         if decision.tool_calls:
+            tool_trajectory_violations = _tool_sales_trajectory_violations(decision)
+            diagnostic["trajectory_violations"] = tool_trajectory_violations
+            if tool_trajectory_violations:
+                if trajectory_rewrites < MAX_TRAJECTORY_REWRITES:
+                    diagnostic["outcome"] = "trajectory_rewrite_requested"
+                    trajectory_rewrites += 1
+                else:
+                    diagnostic["outcome"] = "premature_card_suppressed"
+                conversation.append(
+                    {
+                        "role": "system",
+                        "content": _sales_flow_rewrite_instruction(
+                            tool_trajectory_violations
+                        ),
+                    }
+                )
+                continue
             if str(event_context.get("system_event") or "") == "first_contact":
                 diagnostic["outcome"] = "opening_tool_blocked"
                 diagnostic["hard_violations"] = ["opening_tool_call_forbidden"]
@@ -528,6 +545,7 @@ async def _finalize_reply(
                 "commercial_judgment": decision.commercial_judgment,
                 "relationship_purpose": decision.relationship_purpose,
                 "customer_signal": decision.customer_signal,
+                "purchase_signal": decision.purchase_signal,
                 "tool_trace": tool_results,
                 "hard_violations": [],
                 "quality_flags": quality_flags,
@@ -591,6 +609,9 @@ async def _safe_fallback(
                     "customer_signal": (
                         latest_decision.customer_signal if latest_decision else "none"
                     ),
+                    "purchase_signal": (
+                        latest_decision.purchase_signal if latest_decision else "none"
+                    ),
                     "tool_trace": tool_results,
                     "attempt_trace": attempt_trace,
                     "hard_boundary_fallback": required_handoff,
@@ -644,6 +665,9 @@ async def _safe_fallback(
                     "customer_signal": (
                         latest_decision.customer_signal if latest_decision else "none"
                     ),
+                    "purchase_signal": (
+                        latest_decision.purchase_signal if latest_decision else "none"
+                    ),
                     "tool_trace": tool_results,
                     "attempt_trace": attempt_trace,
                     "failure_reason": failure_reason,
@@ -675,6 +699,9 @@ async def _safe_fallback(
                 "relationship_purpose": purpose,
                 "customer_signal": (
                     latest_decision.customer_signal if latest_decision else "none"
+                ),
+                "purchase_signal": (
+                    latest_decision.purchase_signal if latest_decision else "none"
                 ),
                 "tool_trace": tool_results,
                 "attempt_trace": attempt_trace,
@@ -720,6 +747,7 @@ def _decision_diagnostic(
                 decision.relationship_purpose, 400
             ),
             "customer_signal": decision.customer_signal,
+            "purchase_signal": decision.purchase_signal,
             "tool_calls": [
                 {"call_id": call.call_id, "name": call.name}
                 for call in decision.tool_calls
@@ -768,6 +796,7 @@ def _invalid_attempt_diagnostic(
                 data.get("relationship_purpose"), 400
             ),
             "customer_signal": _truncate_log_text(data.get("customer_signal"), 64),
+            "purchase_signal": _truncate_log_text(data.get("purchase_signal"), 64),
             "final_response": _sanitize_raw_final(final),
         },
     }
@@ -943,6 +972,16 @@ def _quality_flags(decision: AgentTurnDecision) -> list[str]:
     return flags
 
 
+def _tool_sales_trajectory_violations(
+    decision: AgentTurnDecision,
+) -> list[str]:
+    if decision.purchase_signal != "none":
+        return []
+    if any(call.name == "product.send_card" for call in decision.tool_calls):
+        return ["premature_product_card_without_customer_interest"]
+    return []
+
+
 def _sales_trajectory_violations(
     decision: AgentTurnDecision,
     context: AgentExecutionContext,
@@ -954,6 +993,18 @@ def _sales_trajectory_violations(
     visible_text = "\n".join(
         str(item.content or "") for item in final.messages if item.type == "text"
     )
+    violations: list[str] = []
+    if _repeats_recent_assistant_content(visible_text, context):
+        violations.append("repeats_recent_assistant_content")
+    if decision.purchase_signal == "none" and any(
+        item.type == "prepared"
+        and str(
+            (context.tool_facts.get(str(item.ref or "")) or {}).get("tool") or ""
+        )
+        == "product.send_card"
+        for item in final.messages
+    ):
+        violations.append("premature_product_card_without_customer_interest")
     question_text = "\n".join(
         re.findall(r"[^。！!；;，,？?\n]*[？?]", visible_text)
     )
@@ -966,7 +1017,7 @@ def _sales_trajectory_violations(
     )
     candidate_topics = _technical_topics(candidate)
     if not candidate_topics:
-        return []
+        return list(dict.fromkeys(violations))
 
     recent = context.workspace.get("recent_turns")
     recent = recent if isinstance(recent, list) else []
@@ -1000,7 +1051,6 @@ def _sales_trajectory_violations(
         for topic in _technical_topics(text):
             prior_topic_questions[topic] = prior_topic_questions.get(topic, 0) + 1
 
-    violations: list[str] = []
     if not active_care_risk and candidate_topics & low_information_topics:
         violations.append("customer_cannot_answer_non_core_followup")
     if not active_care_risk and any(
@@ -1030,6 +1080,25 @@ def _is_video_access_context(reply_text: str, customer_text: str) -> bool:
 
 
 def _sales_flow_rewrite_instruction(violations: list[str]) -> str:
+    focused_instructions: list[str] = []
+    if "repeats_recent_assistant_content" in violations:
+        focused_instructions.append(
+            "当前候选回复复述了上一轮已经真实发送的内容。不要再次解释同一病因或重复已经讲过的服务概述；"
+            "先承接客户刚提供的新信息，再推进尚未讲清的价值。若客户刚确认一直自己摸索，"
+            "应说明萧岚苑与部分卖完后缺少持续承接的商家有何不同，并具体讲清单品养护教程和师傅一对一指导如何帮助他。"
+        )
+    if "premature_product_card_without_customer_interest" in violations:
+        focused_instructions.append(
+            "客户目前只暴露了养护痛点或服务缺口，还没有表达想进一步了解、愿意试试、询问内容价格、要链接或下单等清晰正向意向。"
+            "不要调用 product.send_card，也不要在 final_response 中放商品卡片。先完成服务价值塑造并自然邀请客户进一步了解；"
+            "本轮商品查询只用于辅助判断，不向客户发送；等客户形成 interest 或 direct 信号后重新核实并发卡试成交。"
+        )
+    if focused_instructions:
+        return (
+            "".join(focused_instructions)
+            + "请基于完整上下文重新做本轮商业判断和客户可见回复，不要只改写个别句子。"
+            f"本次偏离原因：{', '.join(violations)}"
+        )
     return (
         "当前方案仍在细化或等待同一个非核心技术问题，偏离了推进成交的目标。"
         "放弃这个细节，不再追问、索图、让客户检查，也不要把等待该细节写进 next_action。"
@@ -1038,6 +1107,49 @@ def _sales_flow_rewrite_instruction(violations: list[str]) -> str:
         "只了解盆数与主要品种、明确目标或痛点、经验与失败史、持续指导缺口、"
         "选择偏好中最接近推荐就绪的一项。请重新做完整商业判断，而不只是改写问句。"
         f"本次停滞原因：{', '.join(violations)}"
+    )
+
+
+def _repeats_recent_assistant_content(
+    visible_text: str,
+    context: AgentExecutionContext,
+) -> bool:
+    recent = context.workspace.get("recent_turns")
+    recent = recent if isinstance(recent, list) else []
+    prior_chunks: list[str] = []
+    for item in recent[-8:]:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("role") or "").lower() not in {
+            "assistant",
+            "agent",
+            "sales_agent",
+        }:
+            continue
+        prior_chunks.extend(_repeatable_text_chunks(str(item.get("content") or "")))
+    if not prior_chunks:
+        return False
+    current_chunks = _repeatable_text_chunks(visible_text)
+    return any(
+        current == prior
+        or (len(current) >= 36 and current in prior)
+        or (len(prior) >= 36 and prior in current)
+        for current in current_chunks
+        for prior in prior_chunks
+    )
+
+
+def _repeatable_text_chunks(text: str) -> list[str]:
+    chunks = re.split(r"\n\s*\n+", str(text or ""))
+    normalized = [_normalize_repeat_text(chunk) for chunk in chunks]
+    return [chunk for chunk in normalized if len(chunk) >= 24]
+
+
+def _normalize_repeat_text(text: str) -> str:
+    return re.sub(
+        r"[\s\"'“”‘’《》〈〉，。！？；：、,.!?;:（）()【】\[\]]+",
+        "",
+        str(text or "").casefold(),
     )
 
 

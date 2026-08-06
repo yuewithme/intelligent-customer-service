@@ -10,6 +10,11 @@ CustomerSignal = Literal[
     "soft_refusal",
     "explicit_refusal",
 ]
+PurchaseSignal = Literal[
+    "none",
+    "interest",
+    "direct",
+]
 
 
 class AgentToolCall(BaseModel):
@@ -43,6 +48,7 @@ class AgentTurnDecision(BaseModel):
     commercial_judgment: str = Field(min_length=1, max_length=800)
     relationship_purpose: str = Field(min_length=1, max_length=400)
     customer_signal: CustomerSignal = "none"
+    purchase_signal: PurchaseSignal = "none"
     tool_calls: list[AgentToolCall] = Field(default_factory=list, max_length=4)
     final_response: AgentFinalResponse | None = None
 
