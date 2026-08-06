@@ -88,7 +88,7 @@ async def test_new_friend_opening_uses_fixed_package_and_dedicated_queue(monkeyp
     async def fake_handle_chat(request):
         captured["request"] = request
         return {
-            "answer": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？",
+            "answer": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
             "outbound_messages": [
                 {
                     "type": "text",
@@ -96,7 +96,7 @@ async def test_new_friend_opening_uses_fixed_package_and_dedicated_queue(monkeyp
                 },
                 {
                     "type": "text",
-                    "content": "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？",
+                    "content": "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
                 },
             ],
         }
@@ -142,7 +142,7 @@ async def test_new_friend_opening_uses_fixed_package_and_dedicated_queue(monkeyp
     assert [item["content"] for item in queued] == [
         "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。",
         "https://cdn.example.com/opening.jpg",
-        "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？",
+        "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
     ]
     assert [item["due_at"] for item in queued] == due_slots
     assert [item["route"] for item in recorded] == ["opening", "opening", "opening"]

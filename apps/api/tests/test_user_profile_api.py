@@ -6,7 +6,11 @@ from app.main import app
 from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.reply import FinalReply
-from app.domains.customers.services.user_profile_service import get_profile_bundle, update_profile_after_chat
+from app.domains.customers.services.user_profile_service import (
+    add_ai_customer_tag,
+    get_profile_bundle,
+    update_profile_after_chat,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -73,6 +77,32 @@ def test_patch_profile_updates_allowed_fields_and_writes_event(monkeypatch, tmp_
     assert event["before"]["customer_tags"] == []
     assert event["after"]["customer_tags"] == ["浙江省", "建兰"]
     assert event["reason"] == "operator_update"
+
+
+@pytest.mark.asyncio
+async def test_ai_customer_tag_accepts_level_but_rejects_purchase_status(
+    monkeypatch, tmp_path
+):
+    _reset_settings(monkeypatch, tmp_path)
+
+    profile = await add_ai_customer_tag(
+        "user_tagged",
+        "L2 白银期",
+        reason="agent_customer_evidence",
+        trace_id="trace-tag",
+    )
+
+    assert profile["customer_tags"] == ["L2 白银期"]
+    with pytest.raises(ValueError, match="not AI assignable"):
+        await add_ai_customer_tag(
+            "user_tagged",
+            "抖音已购",
+            reason="customer_said_purchased",
+        )
+
+    bundle = await get_profile_bundle("user_tagged")
+    assert bundle["profile"]["customer_tags"] == ["L2 白银期"]
+    assert bundle["events"][0]["event_type"] == "ai_customer_tag_added"
 
 
 def test_get_profile_normalizes_legacy_tags_to_catalog(monkeypatch, tmp_path):

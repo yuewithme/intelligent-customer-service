@@ -92,7 +92,9 @@ def test_demo_opening_uses_agent_runtime_and_records_conversation(
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["reply"].startswith("您好，我是萧岚苑的小兰")
-    assert "给您的养护建议和资料也能更贴合" in data["reply"]
+    assert "给您更贴合的养护建议和资料" in data["reply"]
+    assert "大概养了多少盆" in data["reply"]
+    assert "什么品种" in data["reply"]
     assert data["opening_image_url"] == "https://cdn.example.com/opening.jpg"
     assert data["route"] == "agent"
     assert data["conversation_id"] == "default"
@@ -114,7 +116,8 @@ def test_demo_opening_uses_agent_runtime_and_records_conversation(
     assert all(item["sender_type"] == "ai" for item in detail["messages"])
     assert "萧岚苑的小兰" in detail["messages"][0]["content"]
     assert detail["messages"][1]["content"] == "[图片]"
-    assert "您是刚接触兰花" in detail["messages"][2]["content"]
+    assert "大概养了多少盆" in detail["messages"][2]["content"]
+    assert "什么品种" in detail["messages"][2]["content"]
 
 
 def test_demo_session_restores_shared_history_across_clients(monkeypatch, tmp_path):
@@ -224,7 +227,8 @@ def test_demo_session_restores_agent_opening(monkeypatch, tmp_path):
         "url": "https://cdn.example.com/opening.jpg",
         "fallback": False,
     }
-    assert "您是刚接触兰花" in messages[2]["content"]
+    assert "大概养了多少盆" in messages[2]["content"]
+    assert "什么品种" in messages[2]["content"]
 
 
 def test_demo_history_normalizes_cards_and_customer_media():
