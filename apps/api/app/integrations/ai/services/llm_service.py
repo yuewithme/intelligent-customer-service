@@ -243,6 +243,7 @@ async def _chat_completion(
         "temperature": temperature,
     }
     deepseek_v4 = config.model.lower().startswith("deepseek-v4-")
+    qwen_38_max = config.model.lower().startswith("qwen3.8-max")
     if deepseek_v4 and purpose == "review":
         request_body["reasoning_effort"] = settings.review_llm_reasoning_effort
     if purpose == "persona":
@@ -250,7 +251,9 @@ async def _chat_completion(
     if provider == "dashscope" and purpose in {"persona", "rag_fast", "business"}:
         request_body["enable_thinking"] = False
     if json_mode and provider == "dashscope":
-        request_body["enable_thinking"] = deepseek_v4
+        request_body["enable_thinking"] = deepseek_v4 or qwen_38_max
+        if qwen_38_max:
+            request_body["reasoning_effort"] = settings.llm_reasoning_effort
         request_body["response_format"] = {"type": "json_object"}
 
     started = time.perf_counter()
