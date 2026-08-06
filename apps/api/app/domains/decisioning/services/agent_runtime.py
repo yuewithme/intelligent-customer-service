@@ -172,12 +172,20 @@ _VIDEO_ACCESS_NOTIFICATION_CLAIMS = (
     "已经提醒同事",
     "已通知同事",
     "已经通知同事",
+    "已联系同事处理",
+    "已经联系同事处理",
     "已提交权限处理",
     "已经提交权限处理",
     "已提交权限申请",
     "已经提交权限申请",
     "已提交给同事核对",
     "已经提交给同事核对",
+)
+_VIDEO_ACCESS_INCORRECT_WORDING = (
+    "提交处理",
+    "提交申请",
+    "提交核对",
+    "提交权限",
 )
 
 
@@ -856,6 +864,10 @@ def _guard_violations(
         and not _has_tool_status(context, "video_access.request", "notified")
     ):
         violations.append("unverified_video_access_notification")
+    if _is_video_access_context(
+        text, str(context.message.message or "")
+    ) and any(wording in text for wording in _VIDEO_ACCESS_INCORRECT_WORDING):
+        violations.append("incorrect_video_access_wording")
     if any(pattern.search(text) for pattern in _SENT_SUCCESS_PATTERNS):
         violations.append("unverified_delivery_success")
     required_handoff = _required_handoff_reason(str(context.message.message or ""))
@@ -1026,9 +1038,16 @@ def _sales_flow_rewrite_instruction(violations: list[str]) -> str:
 
 
 def _hard_rewrite_instruction(violations: list[str]) -> str:
-    if "unverified_video_access_notification" in violations:
+    if any(
+        violation in violations
+        for violation in (
+            "unverified_video_access_notification",
+            "incorrect_video_access_wording",
+        )
+    ):
         return (
-            "不能在没有真实工具结果时声称已提醒同事或已提交视频权限处理。"
+            "视频权限处理的客户口径只使用‘已经联系同事处理了’，"
+            "不要说提交处理、提交申请或提交核对。不能在没有真实工具结果时声称已经联系同事。"
             "若工作区已有‘抖音已购’验证标签，先调用 video_access.request；"
             "若还没有，只询问是否在抖音购买并请客户发送能看到店铺与订单状态的截图。"
             "不要调用 human.handoff，保持 AI 继续回复，也不要声称权限已经开通。"
