@@ -941,6 +941,9 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "新建一个 text 消息" in prompt
     assert "客户索要资料是兴趣信号，不是自动发送指令" in prompt
     assert "发送后必须有主动的下一步" in prompt
+    assert "资料一旦已经发出，就从后续对话主线退到背景" in prompt
+    assert "不要用“资料里面有、您先对照看看”代替回答" in prompt
+    assert "先直接解决客户的新问题，再判断是否推品" in prompt
     assert "新客户开场优先了解当前盆数和主要品种" in prompt
     assert "L1-L6 客户等级、盆数和品种标签" in prompt
     assert "两个标签可以同时存在" in prompt
@@ -982,6 +985,18 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "不是客户一索要就自动发送" in material.instructions
     assert "本轮不发资料" in material.instructions
     assert "转入有依据的推品" in material.instructions
+    assert "资料发出后就退到背景" in material.instructions
+    assert "先像没有资料捷径一样直接解决" in material.instructions
+    assert "不能用‘资料里有’代替回答" in material.instructions
+
+    material_send = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "material.send"
+    )
+    assert "同一资料已经发过时" in material_send.instructions
+    assert "先直接解决新问题并判断是否推品" in material_send.instructions
+    assert "明确要求重发、找不到或上次未成功" in material_send.instructions
 
     objection = next(
         item
