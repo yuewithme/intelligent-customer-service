@@ -32,8 +32,13 @@ MAX_TOOL_ROUNDS = 5
 MAX_TOOL_CALLS = 10
 MAX_SCHEMA_REPAIRS = 1
 MAX_HARD_REWRITES = 1
+MAX_TRAJECTORY_REWRITES = 1
 MAX_AGENT_MODEL_CALLS = (
-    MAX_TOOL_ROUNDS + MAX_SCHEMA_REPAIRS + MAX_HARD_REWRITES + 2
+    MAX_TOOL_ROUNDS
+    + MAX_SCHEMA_REPAIRS
+    + MAX_HARD_REWRITES
+    + MAX_TRAJECTORY_REWRITES
+    + 2
 )
 _FORBIDDEN_PROMOTION_CLAIMS = (
     "申请成功",
@@ -82,6 +87,74 @@ _OPENING_SALES_PUSH_MARKERS = (
     "商品",
     "产品",
 )
+_LOW_INFORMATION_MARKERS = (
+    "不懂",
+    "不太懂",
+    "不知道",
+    "不清楚",
+    "不记得",
+    "记不清",
+    "没注意",
+    "没看",
+    "看不出来",
+    "说不准",
+    "商家给什么",
+    "商家给的",
+)
+_UNCERTAIN_ANSWER_MARKERS = ("好像", "可能", "大概", "应该", "估计")
+_ACTIVE_CARE_RISK_MARKERS = (
+    "烂根",
+    "腐苗",
+    "软腐",
+    "发臭",
+    "枯萎",
+    "倒苗",
+    "病斑",
+    "黑斑",
+    "虫害",
+    "大量黄叶",
+    "根发黑",
+)
+_FOLLOWUP_ACTION_MARKERS = (
+    "等待客户",
+    "等客户",
+    "客户反馈",
+    "继续追问",
+    "继续确认",
+    "让客户",
+    "请客户",
+    "进一步了解",
+)
+_TECHNICAL_TOPIC_MARKERS = {
+    "medium": (
+        "植料",
+        "树皮",
+        "石子",
+        "火山石",
+        "颗粒",
+        "粉末",
+        "细土",
+        "盆面",
+        "表层",
+        "拨开",
+        "透气",
+        "沥水",
+    ),
+    "watering": ("浇水", "干湿", "湿度", "干透", "积水"),
+    "environment": ("通风", "光照", "温度", "室内", "室外", "阳台", "朝向"),
+    "fertilizing": ("施肥", "肥料", "缓释肥", "营养液", "肥水"),
+    "symptom_detail": (
+        "叶尖",
+        "叶基",
+        "叶片",
+        "斑点",
+        "叶片颜色",
+        "根的颜色",
+        "软硬",
+        "变化速度",
+        "根系",
+    ),
+}
 
 
 async def run_sales_agent(
@@ -116,6 +189,7 @@ async def run_sales_agent(
     attempt_trace: list[dict[str, Any]] = []
     schema_repairs = 0
     hard_rewrites = 0
+    trajectory_rewrites = 0
     tool_rounds = 0
     tool_budget_exhausted = False
 
@@ -282,8 +356,10 @@ async def run_sales_agent(
             continue
         hard_violations = _guard_violations(decision, context)
         quality_flags = _quality_flags(decision)
+        trajectory_violations = _sales_trajectory_violations(decision, context)
         diagnostic["hard_violations"] = hard_violations
         diagnostic["quality_flags"] = quality_flags
+        diagnostic["trajectory_violations"] = trajectory_violations
         if hard_violations and hard_rewrites < MAX_HARD_REWRITES:
             diagnostic["outcome"] = "hard_rewrite_requested"
             hard_rewrites += 1
@@ -312,6 +388,28 @@ async def run_sales_agent(
                 tool_results=tool_results,
                 attempt_trace=attempt_trace,
                 failure_reason="hard_boundary_not_repaired",
+            )
+        if trajectory_violations and trajectory_rewrites < MAX_TRAJECTORY_REWRITES:
+            diagnostic["outcome"] = "trajectory_rewrite_requested"
+            trajectory_rewrites += 1
+            conversation.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "当前方案仍在细化或等待同一个非核心技术问题，偏离了推进成交的目标。"
+                        "放弃这个细节，不再追问、索图、让客户检查，也不要把等待该细节写进 next_action。"
+                        "保留对客户当前问题的专业回答；然后用已有事实推进更高价值动作："
+                        "若已足以说明匹配理由，就查询真实商品或服务并主动推荐；若仍不足，"
+                        "只了解盆数与主要品种、明确目标或痛点、经验与失败史、持续指导缺口、"
+                        "选择偏好中最接近推荐就绪的一项。请重新做完整商业判断，而不只是改写问句。"
+                        f"本次停滞原因：{', '.join(trajectory_violations)}"
+                    ),
+                }
+            )
+            continue
+        if trajectory_violations:
+            quality_flags = list(
+                dict.fromkeys([*quality_flags, *trajectory_violations])
             )
         diagnostic["outcome"] = "accepted"
         return await _finalize_reply(
@@ -802,6 +900,131 @@ def _quality_flags(decision: AgentTurnDecision) -> list[str]:
     if any(marker in text for marker in _CUSTOMER_QUOTE_MARKERS):
         flags.append("unnecessary_customer_quotes")
     return flags
+
+
+def _sales_trajectory_violations(
+    decision: AgentTurnDecision,
+    context: AgentExecutionContext,
+) -> list[str]:
+    """Detect repeated low-value technical discovery before it reaches customers."""
+    final = decision.final_response
+    if final is None:
+        return []
+    visible_text = "\n".join(
+        str(item.content or "") for item in final.messages if item.type == "text"
+    )
+    question_text = "\n".join(
+        re.findall(r"[^。！!；;，,？?\n]*[？?]", visible_text)
+    )
+    next_action = str(final.next_action or "")
+    action_is_followup = any(
+        marker in next_action for marker in _FOLLOWUP_ACTION_MARKERS
+    )
+    candidate = "\n".join(
+        part for part in (question_text, next_action if action_is_followup else "") if part
+    )
+    candidate_topics = _technical_topics(candidate)
+    if not candidate_topics:
+        return []
+
+    recent = context.workspace.get("recent_turns")
+    recent = recent if isinstance(recent, list) else []
+    recent = [item for item in recent[-8:] if isinstance(item, dict)]
+    current_user_text = str(context.message.message or "")
+    user_texts = [
+        str(item.get("content") or "")
+        for item in recent
+        if str(item.get("role") or "").lower() in {"user", "customer"}
+    ]
+    user_texts.append(current_user_text)
+    recent_user_context = "\n".join(user_texts[-4:])
+    active_care_risk = any(
+        marker in recent_user_context for marker in _ACTIVE_CARE_RISK_MARKERS
+    )
+
+    low_information_topics: set[str] = set()
+    for text in user_texts[-4:]:
+        if _is_low_information_answer(text):
+            low_information_topics.update(_technical_topics(text))
+
+    prior_topic_questions: dict[str, int] = {}
+    prior_question_texts: list[str] = []
+    for item in recent:
+        if str(item.get("role") or "").lower() not in {"assistant", "agent"}:
+            continue
+        text = str(item.get("content") or "")
+        if _customer_question_count(text) == 0:
+            continue
+        prior_question_texts.append(text)
+        for topic in _technical_topics(text):
+            prior_topic_questions[topic] = prior_topic_questions.get(topic, 0) + 1
+
+    violations: list[str] = []
+    if not active_care_risk and candidate_topics & low_information_topics:
+        violations.append("customer_cannot_answer_non_core_followup")
+    if not active_care_risk and any(
+        prior_topic_questions.get(topic, 0) >= 1 for topic in candidate_topics
+    ):
+        violations.append("repeated_non_core_topic_followup")
+    if any(
+        _questions_are_near_duplicates(question_text, prior)
+        for prior in prior_question_texts
+    ):
+        violations.append("repeated_customer_question")
+    return list(dict.fromkeys(violations))
+
+
+def _technical_topics(text: str) -> set[str]:
+    normalized = re.sub(r"\s+", "", str(text or ""))
+    return {
+        topic
+        for topic, markers in _TECHNICAL_TOPIC_MARKERS.items()
+        if any(marker in normalized for marker in markers)
+    }
+
+
+def _is_low_information_answer(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(text or ""))
+    if any(marker in normalized for marker in _LOW_INFORMATION_MARKERS):
+        return True
+    if _customer_question_count(normalized) == 0 and any(
+        marker in normalized for marker in _UNCERTAIN_ANSWER_MARKERS
+    ):
+        return True
+    return normalized.endswith("吧") and len(normalized) <= 20
+
+
+def _questions_are_near_duplicates(candidate: str, previous: str) -> bool:
+    left = _question_fingerprint(candidate)
+    right = _question_fingerprint(previous)
+    if min(len(left), len(right)) < 6:
+        return False
+    if left in right or right in left:
+        return True
+    left_pairs = {left[index : index + 2] for index in range(len(left) - 1)}
+    right_pairs = {right[index : index + 2] for index in range(len(right) - 1)}
+    union = left_pairs | right_pairs
+    return bool(union) and len(left_pairs & right_pairs) / len(union) >= 0.45
+
+
+def _question_fingerprint(text: str) -> str:
+    normalized = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "", str(text or ""))
+    for filler in (
+        "您",
+        "请问",
+        "方便",
+        "麻烦",
+        "现在",
+        "之前",
+        "一下",
+        "可以",
+        "能不能",
+        "还是",
+        "看看",
+        "回忆",
+    ):
+        normalized = normalized.replace(filler, "")
+    return normalized
 
 
 def _customer_question_count(text: str) -> int:

@@ -920,6 +920,10 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "新客户开场优先了解当前盆数和主要品种" in prompt
     assert "L1-L6 客户等级、盆数和品种标签" in prompt
     assert "两个标签可以同时存在" in prompt
+    assert "这只是一次专业答疑，不要擅自升级成诊断会诊" in prompt
+    assert "同一个技术细节最多追问一轮" in prompt
+    assert "未知但不阻塞" in prompt
+    assert "不把“等待客户继续反馈该细节”写进 next_action" in prompt
 
     experience = next(
         item
@@ -937,6 +941,8 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "足以支撑销售匹配的客户事实" in discovery.instructions
     assert "主动推品" in discovery.instructions
     assert "问题不是每轮默认动作" in discovery.instructions
+    assert "普通概念或养护知识答疑不是诊断会诊" in discovery.instructions
+    assert "不再索图" in discovery.instructions
 
     material = next(
         item
@@ -973,6 +979,185 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "单品知识" in service_fit.instructions
     assert "实时指导" in service_fit.instructions
     assert "优先经验而非硬阈值" in service_fit.instructions
+
+
+def test_trajectory_guard_stops_non_core_detail_after_customer_cannot_answer():
+    context = AgentExecutionContext(
+        message=_message("植料是什么？我不太懂，反正商家给我的我就用着了"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={"recent_turns": []},
+    )
+    drilling = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "植料要透气沥水。您倒出来看，是细土还是树皮和石子呀？",
+                    }
+                ],
+                "need_human": False,
+                "next_action": "等待客户反馈植料形态",
+            }
+        )["data"]
+    )
+    high_value_discovery = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "植料就是兰花根系的生长介质，关键是透气沥水，您现在大概养了多少盆，主要是什么品种呀？",
+                    }
+                ],
+                "need_human": False,
+                "next_action": "补齐盆数和品种后判断推荐方向",
+            }
+        )["data"]
+    )
+
+    assert agent_runtime._sales_trajectory_violations(drilling, context) == [
+        "customer_cannot_answer_non_core_followup"
+    ]
+    assert agent_runtime._sales_trajectory_violations(
+        high_value_discovery, context
+    ) == []
+
+
+def test_trajectory_guard_catches_repeated_topic_in_visible_reply_and_next_action():
+    context = AgentExecutionContext(
+        message=_message("小石子吧"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={
+            "recent_turns": [
+                {
+                    "role": "user",
+                    "content": "植料是什么？我不太懂，反正商家给我的我就用着了",
+                },
+                {
+                    "role": "assistant",
+                    "content": "您之前用的植料，是细土还是树皮和小石子呀？",
+                },
+                {"role": "user", "content": "是植料吧，这个有什么讲究吗"},
+            ]
+        },
+    )
+    asks_for_photo = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "小石子如果颗粒较大，至少沥水会好一些。您拍张盆面照片，或者拨开看看下面是大颗粒还是细粉末状的？",
+                    }
+                ],
+                "need_human": False,
+                "next_action": "等待客户反馈植料颗粒形态",
+            }
+        )["data"]
+    )
+    waits_without_visible_question = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {"type": "text", "content": "小石子颗粒大、沥水快，方向上没问题。"}
+                ],
+                "need_human": False,
+                "next_action": "等待客户继续反馈盆面植料颗粒形态",
+            }
+        )["data"]
+    )
+
+    assert "repeated_non_core_topic_followup" in (
+        agent_runtime._sales_trajectory_violations(asks_for_photo, context)
+    )
+    assert "repeated_non_core_topic_followup" in (
+        agent_runtime._sales_trajectory_violations(
+            waits_without_visible_question, context
+        )
+    )
+
+
+def test_trajectory_guard_allows_core_diagnostic_question_for_active_damage():
+    context = AgentExecutionContext(
+        message=_message("兰花已经烂根发臭了，植料我也不懂"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={"recent_turns": []},
+    )
+    decision = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "先停水并隔离。现在植料是一直湿黏，还是还能正常沥水？",
+                    }
+                ],
+                "need_human": False,
+            }
+        )["data"]
+    )
+
+    assert agent_runtime._sales_trajectory_violations(decision, context) == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_rewrites_stalled_detail_toward_recommendation_readiness(
+    monkeypatch,
+):
+    calls = []
+    responses = iter(
+        [
+            _decision(
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "好的植料要透气沥水。您之前用的是细土还是树皮和小石子呀？",
+                        }
+                    ],
+                    "need_human": False,
+                    "next_action": "等待客户反馈植料形态",
+                }
+            ),
+            _decision(
+                judgment="植料细节不阻塞推荐，转而补齐客户层级与品种信息",
+                purpose="用专业回答建立信任并推进推荐准备",
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "植料主要看透气和沥水，商家原配的先不用反复折腾。您现在大概养了多少盆，主要是什么品种呀？",
+                        }
+                    ],
+                    "need_human": False,
+                    "next_action": "补齐盆数和品种后判断推荐方向",
+                },
+            ),
+        ]
+    )
+
+    async def fake_generate(messages, **kwargs):
+        del kwargs
+        calls.append(json.loads(json.dumps(messages, ensure_ascii=False)))
+        return next(responses)
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("植料是什么？我不太懂，反正商家给我的我就用着了"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={"recent_turns": []},
+    )
+
+    assert len(calls) == 2
+    assert "多少盆" in reply.answer
+    assert "细土还是" not in reply.answer
+    attempts = reply.metadata["agent_runtime"]["attempt_trace"]
+    assert [attempt["outcome"] for attempt in attempts] == [
+        "trajectory_rewrite_requested",
+        "accepted",
+    ]
+    assert "偏离了推进成交的目标" in calls[1][-1]["content"]
 
 
 @pytest.mark.asyncio
