@@ -5,6 +5,7 @@ from typing import Any
 
 
 HARNESS_VERSION = "sales-agent-harness-v2"
+FULL_CONVERSATION_CHAR_BUDGET = 1000
 
 
 CORE_PROMPT = """你叫小兰，是萧岚苑的在线兰花销售顾问，也是这段客户关系的负责人。
@@ -115,6 +116,12 @@ def build_turn_payload(
     tool_results: list[dict[str, Any]],
 ) -> str:
     previous_assistant_messages = _previous_assistant_messages(customer_workspace)
+    full_conversation = _full_conversation_context(
+        customer_workspace,
+        customer_message=customer_message,
+    )
+    workspace_without_conversation = dict(customer_workspace)
+    workspace_without_conversation.pop("recent_turns", None)
     payload = {
         "customer_message": customer_message,
         "turn_focus": {
@@ -126,7 +133,8 @@ def build_turn_payload(
                 "肯定回答应继承它所认可的对象，并推进下一步，不能重做上一轮。"
             ),
         },
-        "customer_workspace": customer_workspace,
+        "full_conversation": full_conversation,
+        "customer_workspace": workspace_without_conversation,
         "event_context": event_context,
         "tool_results": tool_results,
     }
@@ -152,6 +160,66 @@ def _previous_assistant_messages(customer_workspace: dict[str, Any]) -> list[str
             break
     messages.reverse()
     return messages
+
+
+def _full_conversation_context(
+    customer_workspace: dict[str, Any],
+    *,
+    customer_message: str,
+) -> dict[str, Any]:
+    recent = customer_workspace.get("recent_turns")
+    recent = recent if isinstance(recent, list) else []
+    turns = [
+        {
+            "role": _conversation_role(item.get("role")),
+            "content": str(item.get("content") or "").strip(),
+        }
+        for item in recent
+        if isinstance(item, dict) and str(item.get("content") or "").strip()
+    ]
+    if (
+        turns
+        and turns[-1]["role"] == "customer"
+        and turns[-1]["content"] == str(customer_message or "").strip()
+    ):
+        turns.pop()
+
+    selected: list[dict[str, str]] = []
+    used_chars = 0
+    truncated = False
+    for turn in reversed(turns):
+        content = turn["content"]
+        remaining = FULL_CONVERSATION_CHAR_BUDGET - used_chars
+        if remaining <= 0:
+            truncated = True
+            break
+        if len(content) <= remaining:
+            selected.append(turn)
+            used_chars += len(content)
+            continue
+        truncated = True
+        if remaining > 1:
+            clipped = f"…{content[-(remaining - 1):]}"
+            selected.append({**turn, "content": clipped})
+            used_chars += len(clipped)
+        break
+    selected.reverse()
+    return {
+        "turns": selected,
+        "content_chars": used_chars,
+        "truncated_oldest": truncated,
+        "instruction": (
+            "这是按真实时间顺序保留的完整对话背景。用它判断已问过、已回答、已塑造和应推进的下一步；"
+            "它不覆盖 turn_focus 中当前消息的最高优先级。"
+        ),
+    }
+
+
+def _conversation_role(value: Any) -> str:
+    role = str(value or "").strip().lower()
+    if role in {"assistant", "agent", "sales_agent", "ai", "human"}:
+        return "assistant"
+    return "customer"
 
 
 def build_tool_result_payload(tool_results: list[dict[str, Any]]) -> str:

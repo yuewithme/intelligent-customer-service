@@ -8,6 +8,7 @@ from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.reply import FinalReply
 from app.domains.customers.services.user_profile_service import (
     add_ai_customer_tag,
+    append_conversation_memory,
     get_profile_bundle,
     update_profile_after_chat,
 )
@@ -103,6 +104,41 @@ async def test_ai_customer_tag_accepts_level_but_rejects_purchase_status(
     bundle = await get_profile_bundle("user_tagged")
     assert bundle["profile"]["customer_tags"] == ["L2 白银期"]
     assert bundle["events"][0]["event_type"] == "ai_customer_tag_added"
+
+
+@pytest.mark.asyncio
+async def test_profile_bundle_can_load_all_conversation_within_char_budget(
+    monkeypatch,
+    tmp_path,
+):
+    _reset_settings(monkeypatch, tmp_path)
+    for index in range(12):
+        await append_conversation_memory(
+            user_id="user_full_context",
+            session_id="default",
+            role="user" if index % 2 == 0 else "assistant",
+            content=f"第{index}条对话",
+            source_id=f"full-context-{index}",
+        )
+    await append_conversation_memory(
+        user_id="user_full_context",
+        session_id="another-session",
+        role="user",
+        content="另一个会话不应该混入",
+        source_id="other-session-context",
+    )
+
+    default_bundle = await get_profile_bundle("user_full_context")
+    full_bundle = await get_profile_bundle(
+        "user_full_context",
+        conversation_char_budget=1000,
+        conversation_session_id="default",
+    )
+
+    assert len(default_bundle["recent_memories"]) == 10
+    assert [item["content"] for item in full_bundle["recent_memories"]] == [
+        f"第{index}条对话" for index in range(12)
+    ]
 
 
 def test_get_profile_normalizes_legacy_tags_to_catalog(monkeypatch, tmp_path):

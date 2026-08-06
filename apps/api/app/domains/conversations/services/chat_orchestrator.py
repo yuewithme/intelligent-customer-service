@@ -131,7 +131,11 @@ async def handle_chat(request: ChatRequest) -> dict:
         stage_started = time.perf_counter()
         user_state = await get_user_state(message.user_id, message.session_id)
         _apply_evaluation_context(message, user_state)
-        profile_bundle = await get_profile_bundle(message.user_id)
+        profile_bundle = await get_profile_bundle(
+            message.user_id,
+            conversation_char_budget=1000,
+            conversation_session_id=message.session_id,
+        )
         workspace = _customer_workspace(
             message=message,
             user_state=user_state,
@@ -307,7 +311,7 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
                 "content": str(item.get("content") or "")[:1200],
                 "created_at": item.get("created_at"),
             }
-            for item in recent[-10:]
+            for item in recent
             if isinstance(item, dict) and item.get("content")
         ],
         "evidence_memory": (
