@@ -192,6 +192,7 @@ async def test_video_access_request_notifies_without_handoff(monkeypatch):
     assert result.status == "notified"
     assert result.data["permission_status"] == "pending_human_review"
     assert result.data["ai_continues"] is True
+    assert result.data["customer_reply"] == "已经联系同事处理了"
     assert context.handoff is None
     assert notified["customer_wc_id"] == "customer-wxid"
     assert notified["notification_kind"] == "reminder"
@@ -792,7 +793,7 @@ def test_video_access_notification_claim_requires_notified_tool_fact():
                 "messages": [
                     {
                         "type": "text",
-                        "content": "我已经提醒同事核对视频权限了，处理期间我继续帮您看养护问题。",
+                        "content": "已经联系同事处理了，处理期间我继续帮您看养护问题。",
                     }
                 ],
                 "need_human": False,
@@ -821,6 +822,20 @@ def test_video_access_notification_claim_requires_notified_tool_fact():
         "unverified_video_access_notification"
     ]
     assert agent_runtime._guard_violations(decision, verified) == []
+
+    wrong_wording = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {"type": "text", "content": "已经提交权限处理了。"}
+                ],
+                "need_human": False,
+            }
+        )["data"]
+    )
+    assert agent_runtime._guard_violations(wrong_wording, verified) == [
+        "incorrect_video_access_wording"
+    ]
 
     unrelated_decision = AgentTurnDecision.model_validate(
         _decision(
@@ -1092,6 +1107,9 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "不需要精确到 3 盆还是 5 盆" in prompt
     assert "先问是否在抖音购买" in prompt
     assert "保持 AI 回复，不调用 human.handoff" in prompt
+    assert "客户口径只说“已经联系同事处理了”" in prompt
+    assert "不是调用工具的硬门槛" in prompt
+    assert "不要求固定字段、精确盆数、完整画像" in prompt
 
     experience = next(
         item
@@ -1180,12 +1198,20 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "先问客户是否在抖音购买" in video_access.instructions
     assert "不调用 human.handoff" in video_access.instructions
     assert "不停止 AI 回复" in video_access.instructions
+    assert "只对客户说‘已经联系同事处理了’" in video_access.instructions
 
     video_access_tool = next(
         item for item in agent_tools.CAPABILITIES if item.name == "video_access.request"
     )
     assert "工作区已有‘抖音已购’标签" in video_access_tool.instructions
     assert "不创建人工接管" in video_access_tool.instructions
+    assert "客户口径只说‘已经联系同事处理了’" in video_access_tool.instructions
+
+    product_search = next(
+        item for item in agent_tools.CAPABILITIES if item.name == "product.search"
+    )
+    assert "不要求固定字段、精确盆数、完整画像" in product_search.instructions
+    assert "这是优先经验，不是硬门槛" in product_search.instructions
 
     service_facts = next(
         item
