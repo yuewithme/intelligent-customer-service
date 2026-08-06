@@ -6,7 +6,10 @@ from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.schemas.agent import AgentTurnDecision
 from app.domains.decisioning.services import agent_runtime, agent_tools
-from app.domains.decisioning.services.agent_prompt import build_system_prompt
+from app.domains.decisioning.services.agent_prompt import (
+    build_system_prompt,
+    build_tool_result_payload,
+)
 from app.domains.decisioning.services.agent_tools import AgentExecutionContext
 
 
@@ -33,6 +36,151 @@ def _decision(*, tools=None, final=None, judgment="判断", purpose="推进关�
         },
         "usage": {"prompt_tokens": 2, "completion_tokens": 1},
     }
+
+
+def test_agent_decision_rejects_tool_calls_with_final_response():
+    with pytest.raises(
+        ValueError,
+        match="tool calls and final response are mutually exclusive",
+    ):
+        AgentTurnDecision.model_validate(
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-card",
+                        "name": "product.send_card",
+                        "arguments": {"product_ref": "product:service-1"},
+                    }
+                ],
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "两三天浇一次偏勤，我再把适合您的服务放下面。",
+                        }
+                    ],
+                    "need_human": False,
+                },
+            )["data"]
+        )
+
+
+def test_tool_result_payload_marks_draft_and_prepared_items_as_unsent():
+    payload = json.loads(
+        build_tool_result_payload(
+            [
+                {
+                    "call_id": "service-card",
+                    "tool": "product.send_card",
+                    "status": "prepared",
+                }
+            ]
+        )
+    )
+
+    assert payload["delivery_state"] == {
+        "customer_visible_messages_sent_in_tool_round": False,
+        "prepared_items_sent": False,
+        "instruction": (
+            "工具轮不会向客户发送文字或卡片，上轮如有回复草稿也未发送。"
+            "请继续调用必要工具，或在最终回复中重新完整承接并回答客户当前问题；"
+            "要发送已准备卡片，必须在 final_response.messages 中引用对应 call_id。"
+        ),
+    }
+
+
+@pytest.mark.asyncio
+async def test_runtime_repairs_mixed_tool_and_reply_without_losing_customer_answer(
+    monkeypatch,
+):
+    service = {
+        "item_id": "service-1",
+        "title": "陪伴养兰服务",
+        "price_cent": 9900,
+        "stock": 20,
+        "status": "online",
+        "h5_url": "https://shop.example.com/companion",
+        "knowledge": {"product_name": "陪伴养兰服务"},
+    }
+    calls = []
+    responses = iter(
+        [
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-card-draft",
+                        "name": "product.send_card",
+                        "arguments": {"product_ref": "product:service-1"},
+                    }
+                ],
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "两三天浇一次确实偏勤，这段草稿不能被当成已经发送。",
+                        }
+                    ],
+                    "need_human": False,
+                },
+            ),
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-card",
+                        "name": "product.send_card",
+                        "arguments": {"product_ref": "product:service-1"},
+                    }
+                ]
+            ),
+            _decision(
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": (
+                                "两三天浇一次确实偏勤，春兰肉质根长期处在湿植料里很容易闷烂。"
+                                "先等植料明显干一些再浇透，同时保持通风；如果您总拿不准节奏，"
+                                "陪伴养兰服务可以按实际情况持续帮您调整。"
+                            ),
+                        },
+                        {"type": "prepared", "ref": "service-card"},
+                    ],
+                    "need_human": False,
+                }
+            ),
+        ]
+    )
+
+    async def fake_generate(messages, **kwargs):
+        del kwargs
+        calls.append(json.loads(json.dumps(messages, ensure_ascii=False)))
+        return next(responses)
+
+    monkeypatch.setattr(agent_tools, "get_catalog_product", lambda item_id: service)
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("我不太懂，都是之前商家配的，浇水两三天一次吧"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
+    assert len(calls) == 3
+    assert "工具调用与最终回复必须二选一" in calls[1][-1]["content"]
+    tool_payload = json.loads(calls[2][-1]["content"])
+    assert tool_payload["delivery_state"][
+        "customer_visible_messages_sent_in_tool_round"
+    ] is False
+    assert tool_payload["delivery_state"]["prepared_items_sent"] is False
+    assert "两三天浇一次确实偏勤" in reply.answer
+    assert "陪伴养兰服务" in reply.answer
+    assert [item.type for item in reply.outbound_messages] == ["text", "link_card"]
+    assert json.loads(reply.outbound_messages[1].content)["title"] == "陪伴养兰服务"
+    attempts = reply.metadata["agent_runtime"]["attempt_trace"]
+    assert [attempt["outcome"] for attempt in attempts] == [
+        "invalid_schema",
+        "tool_calls_executed",
+        "accepted",
+    ]
 
 
 @pytest.mark.asyncio

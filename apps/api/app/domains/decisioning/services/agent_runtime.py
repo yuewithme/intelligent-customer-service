@@ -261,7 +261,11 @@ async def run_sales_agent(
             conversation.append(
                 {
                     "role": "system",
-                    "content": "上一个输出不符合 Agent JSON 契约。请按规定结构重新判断，不要输出解释。",
+                    "content": (
+                        "上一个输出不符合 Agent JSON 契约。工具调用与最终回复必须二选一："
+                        "需要调用工具时 final_response 必须为 null；准备回复客户时 tool_calls 必须为空。"
+                        "未进入最终回复的文字和卡片都没有发送给客户。请按规定结构重新判断，不要输出解释。"
+                    ),
                 }
             )
             continue

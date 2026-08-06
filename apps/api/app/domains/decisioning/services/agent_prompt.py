@@ -124,7 +124,18 @@ def build_turn_payload(
 
 def build_tool_result_payload(tool_results: list[dict[str, Any]]) -> str:
     return json.dumps(
-        {"new_tool_results": tool_results},
+        {
+            "new_tool_results": tool_results,
+            "delivery_state": {
+                "customer_visible_messages_sent_in_tool_round": False,
+                "prepared_items_sent": False,
+                "instruction": (
+                    "工具轮不会向客户发送文字或卡片，上轮如有回复草稿也未发送。"
+                    "请继续调用必要工具，或在最终回复中重新完整承接并回答客户当前问题；"
+                    "要发送已准备卡片，必须在 final_response.messages 中引用对应 call_id。"
+                ),
+            },
+        },
         ensure_ascii=False,
         separators=(",", ":"),
         default=str,

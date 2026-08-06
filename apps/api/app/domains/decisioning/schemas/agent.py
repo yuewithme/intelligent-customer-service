@@ -50,6 +50,10 @@ class AgentTurnDecision(BaseModel):
     def require_progress(self):
         if not self.tool_calls and self.final_response is None:
             raise ValueError("decision must call a tool or provide a final response")
+        if self.tool_calls and self.final_response is not None:
+            raise ValueError(
+                "tool calls and final response are mutually exclusive"
+            )
         return self
 
 
