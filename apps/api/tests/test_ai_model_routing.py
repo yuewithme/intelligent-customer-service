@@ -75,6 +75,7 @@ async def test_dashscope_agent_json_disables_thinking_and_requests_json(
 
         def json(self):
             return {
+                "id": "chatcmpl-business-1",
                 "choices": [
                     {
                         "message": {
@@ -119,6 +120,9 @@ async def test_dashscope_agent_json_disables_thinking_and_requests_json(
         get_settings.cache_clear()
 
     assert result["data"]["commercial_judgment"] == "继续了解需求"
+    assert result["provider"] == "dashscope"
+    assert result["model"] == "qwen3.7-plus"
+    assert result["provider_request_id"] == "chatcmpl-business-1"
     assert captured["body"]["enable_thinking"] is False
     assert captured["body"]["response_format"] == {"type": "json_object"}
     assert captured["body"]["model"] == "qwen3.7-plus"

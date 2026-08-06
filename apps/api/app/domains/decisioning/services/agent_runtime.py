@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from pydantic import ValidationError
@@ -13,6 +14,7 @@ from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 from app.domains.decisioning.services.agent_prompt import (
     HARNESS_VERSION,
     build_system_prompt,
+    build_tool_result_payload,
     build_turn_payload,
 )
 from app.domains.decisioning.services.customer_reply_formatter import (
@@ -26,8 +28,13 @@ from app.integrations.ai.services.llm_service import generate_messages_json
 
 
 logger = logging.getLogger("wechat_rag_bot.sales_agent")
-MAX_AGENT_STEPS = 5
+MAX_TOOL_ROUNDS = 5
 MAX_TOOL_CALLS = 10
+MAX_SCHEMA_REPAIRS = 1
+MAX_HARD_REWRITES = 1
+MAX_AGENT_MODEL_CALLS = (
+    MAX_TOOL_ROUNDS + MAX_SCHEMA_REPAIRS + MAX_HARD_REWRITES + 2
+)
 _FORBIDDEN_PROMOTION_CLAIMS = (
     "申请成功",
     "已经申请到",
@@ -63,10 +70,6 @@ _LIST_STYLE_PATTERN = re.compile(
 )
 _MARKDOWN_HEADING_PATTERN = re.compile(r"(?m)^\s*#{1,6}\s+")
 _CUSTOMER_QUOTE_MARKERS = "“”‘’「」『』《》【】\"'"
-_SUBSTANTIVE_QUESTION_PATTERN = re.compile(
-    r"哪一种|哪一款|哪种|哪个|哪里|哪儿|什么|多少|多久|多大|几(?:盆|株|天|次|年)?|"
-    r"怎么|为什么|有没有|是否|是不是|能不能|可不可以|还是"
-)
 _OPENING_SALES_PUSH_MARKERS = (
     "购买",
     "想买",
@@ -95,25 +98,30 @@ async def run_sales_agent(
     event_context = _event_context(message)
     conversation: list[dict[str, str]] = [
         {"role": "system", "content": build_system_prompt()},
+        {
+            "role": "user",
+            "content": build_turn_payload(
+                customer_message=message.message,
+                customer_workspace=workspace,
+                event_context=event_context,
+                tool_results=[],
+            ),
+        },
     ]
     tool_results: list[dict[str, Any]] = []
     seen_call_ids: set[str] = set()
     total_tool_calls = 0
     usage: dict[str, int] = {}
     latest_decision: AgentTurnDecision | None = None
+    attempt_trace: list[dict[str, Any]] = []
+    schema_repairs = 0
+    hard_rewrites = 0
+    tool_rounds = 0
+    tool_budget_exhausted = False
 
-    for step in range(MAX_AGENT_STEPS):
-        conversation.append(
-            {
-                "role": "user",
-                "content": build_turn_payload(
-                    customer_message=message.message,
-                    customer_workspace=workspace,
-                    event_context=event_context,
-                    tool_results=tool_results,
-                ),
-            }
-        )
+    for attempt_number in range(1, MAX_AGENT_MODEL_CALLS + 1):
+        raw: dict[str, Any] | None = None
+        started = time.perf_counter()
         try:
             raw = await generate_messages_json(
                 conversation,
@@ -125,6 +133,25 @@ async def run_sales_agent(
             decision = AgentTurnDecision.model_validate(raw.get("data"))
         except (ValidationError, TypeError, ValueError) as exc:
             logger.warning("Sales Agent returned invalid decision: %s", type(exc).__name__)
+            attempt_trace.append(
+                _invalid_attempt_diagnostic(
+                    attempt_number=attempt_number,
+                    raw=raw,
+                    error=type(exc).__name__,
+                    duration_ms=_elapsed_ms(started),
+                )
+            )
+            if schema_repairs >= MAX_SCHEMA_REPAIRS:
+                return await _safe_fallback(
+                    message=message,
+                    latest_decision=latest_decision,
+                    context=context,
+                    usage=usage,
+                    tool_results=tool_results,
+                    attempt_trace=attempt_trace,
+                    failure_reason="invalid_agent_schema",
+                )
+            schema_repairs += 1
             conversation.append(
                 {
                     "role": "system",
@@ -132,8 +159,34 @@ async def run_sales_agent(
                 }
             )
             continue
+        except Exception as exc:
+            logger.exception("Sales Agent model call failed: %s", type(exc).__name__)
+            attempt_trace.append(
+                {
+                    "attempt": attempt_number,
+                    "outcome": "model_failure",
+                    "error": type(exc).__name__,
+                    "duration_ms": _elapsed_ms(started),
+                }
+            )
+            return await _safe_fallback(
+                message=message,
+                latest_decision=latest_decision,
+                context=context,
+                usage=usage,
+                tool_results=tool_results,
+                attempt_trace=attempt_trace,
+                failure_reason="model_failure",
+            )
 
         latest_decision = decision
+        diagnostic = _decision_diagnostic(
+            attempt_number=attempt_number,
+            raw=raw,
+            decision=decision,
+            duration_ms=_elapsed_ms(started),
+        )
+        attempt_trace.append(diagnostic)
         conversation.append(
             {
                 "role": "assistant",
@@ -142,6 +195,19 @@ async def run_sales_agent(
         )
         if decision.tool_calls:
             if str(event_context.get("system_event") or "") == "first_contact":
+                diagnostic["outcome"] = "opening_tool_blocked"
+                diagnostic["hard_violations"] = ["opening_tool_call_forbidden"]
+                if hard_rewrites >= MAX_HARD_REWRITES:
+                    return await _safe_fallback(
+                        message=message,
+                        latest_decision=latest_decision,
+                        context=context,
+                        usage=usage,
+                        tool_results=tool_results,
+                        attempt_trace=attempt_trace,
+                        failure_reason="invalid_opening",
+                    )
+                hard_rewrites += 1
                 conversation.append(
                     {
                         "role": "system",
@@ -149,7 +215,22 @@ async def run_sales_agent(
                     }
                 )
                 continue
-            if total_tool_calls + len(decision.tool_calls) > MAX_TOOL_CALLS:
+            if (
+                tool_rounds >= MAX_TOOL_ROUNDS
+                or total_tool_calls + len(decision.tool_calls) > MAX_TOOL_CALLS
+            ):
+                diagnostic["outcome"] = "tool_budget_exhausted"
+                if tool_budget_exhausted:
+                    return await _safe_fallback(
+                        message=message,
+                        latest_decision=latest_decision,
+                        context=context,
+                        usage=usage,
+                        tool_results=tool_results,
+                        attempt_trace=attempt_trace,
+                        failure_reason="tool_budget_exhausted",
+                    )
+                tool_budget_exhausted = True
                 conversation.append(
                     {
                         "role": "system",
@@ -157,6 +238,7 @@ async def run_sales_agent(
                     }
                 )
                 continue
+            tool_rounds += 1
             round_results = []
             for call in decision.tool_calls:
                 if call.call_id in seen_call_ids:
@@ -179,39 +261,66 @@ async def run_sales_agent(
                 )
                 round_results.append(result.model_dump(mode="json"))
             tool_results.extend(round_results)
+            diagnostic["outcome"] = "tool_calls_executed"
+            diagnostic["tool_results"] = [
+                {
+                    "call_id": result.get("call_id"),
+                    "tool": result.get("tool"),
+                    "status": result.get("status"),
+                }
+                for result in round_results
+            ]
+            conversation.append(
+                {
+                    "role": "user",
+                    "content": build_tool_result_payload(round_results),
+                }
+            )
             continue
 
         if decision.final_response is None:
             continue
-        violations = _guard_violations(decision, context)
-        if violations and step < MAX_AGENT_STEPS - 1:
-            tool_results.append(
-                {
-                    "call_id": "system_guard",
-                    "tool": "system.hard_boundary",
-                    "status": "forbidden",
-                    "data": {"violations": violations},
-                }
-            )
+        hard_violations = _guard_violations(decision, context)
+        quality_flags = _quality_flags(decision)
+        diagnostic["hard_violations"] = hard_violations
+        diagnostic["quality_flags"] = quality_flags
+        if hard_violations and hard_rewrites < MAX_HARD_REWRITES:
+            diagnostic["outcome"] = "hard_rewrite_requested"
+            hard_rewrites += 1
             conversation.append(
                 {
                     "role": "system",
                     "content": (
-                        "客户可见回复触发硬边界。基于反馈重写；不要删除已核实的有用信息，不要输出内部说明。"
-                        "如果是表达问题，每轮只问一个信息点，不用编号、项目符号、Markdown，也不要给普通词语加引号。"
-                        f"本次问题：{', '.join(violations)}"
+                        "客户可见回复包含不能发送的事实或权限问题。只改写这些问题，"
+                        "保留其余已核实且有用的内容，不要输出内部说明，也不要重复调用已经成功的工具。"
+                        f"本次硬违规：{', '.join(hard_violations)}"
                     ),
                 }
             )
             continue
-        if violations:
-            logger.warning("Sales Agent final response blocked: %s", ",".join(violations))
-            break
+        if hard_violations:
+            diagnostic["outcome"] = "hard_blocked"
+            logger.warning(
+                "Sales Agent final response blocked: %s",
+                ",".join(hard_violations),
+            )
+            return await _safe_fallback(
+                message=message,
+                latest_decision=latest_decision,
+                context=context,
+                usage=usage,
+                tool_results=tool_results,
+                attempt_trace=attempt_trace,
+                failure_reason="hard_boundary_not_repaired",
+            )
+        diagnostic["outcome"] = "accepted"
         return await _finalize_reply(
             decision=decision,
             context=context,
             usage=usage,
             tool_results=tool_results,
+            quality_flags=quality_flags,
+            attempt_trace=attempt_trace,
         )
 
     return await _safe_fallback(
@@ -220,6 +329,8 @@ async def run_sales_agent(
         context=context,
         usage=usage,
         tool_results=tool_results,
+        attempt_trace=attempt_trace,
+        failure_reason="model_call_budget_exhausted",
     )
 
 
@@ -229,6 +340,8 @@ async def _finalize_reply(
     context: AgentExecutionContext,
     usage: dict[str, int],
     tool_results: list[dict[str, Any]],
+    quality_flags: list[str],
+    attempt_trace: list[dict[str, Any]],
 ) -> FinalReply:
     final = decision.final_response
     assert final is not None
@@ -262,9 +375,16 @@ async def _finalize_reply(
     need_human = context.handoff is not None or final.need_human
     answer = "\n\n".join(visible_texts)
     if not outbound and not need_human:
-        answer = "您接着说就行，我先按您现在最想解决的问题帮您看。"
-        outbound = [OutboundMessage(type="text", content=answer)]
-        visible_texts = [answer]
+        await execute_agent_tool(
+            call_id="system_empty_reply_handoff",
+            name="human.handoff",
+            arguments={
+                "reason": "empty_agent_reply",
+                "summary": decision.commercial_judgment,
+            },
+            context=context,
+        )
+        need_human = True
     if _is_opening_system_event(context):
         outbound = _insert_opening_image(outbound)
     return FinalReply(
@@ -280,10 +400,19 @@ async def _finalize_reply(
         metadata={
             "agent_runtime": {
                 "version": HARNESS_VERSION,
+                "trace_id": context.message.trace_id,
                 "commercial_judgment": decision.commercial_judgment,
                 "relationship_purpose": decision.relationship_purpose,
                 "customer_signal": decision.customer_signal,
                 "tool_trace": tool_results,
+                "hard_violations": [],
+                "quality_flags": quality_flags,
+                "attempt_trace": attempt_trace,
+                "result": (
+                    "human_handoff"
+                    if need_human and not outbound
+                    else "sent_with_handoff" if need_human else "sent"
+                ),
             },
             **({"handoff": context.handoff} if context.handoff else {}),
         },
@@ -297,6 +426,8 @@ async def _safe_fallback(
     context: AgentExecutionContext,
     usage: dict[str, int],
     tool_results: list[dict[str, Any]],
+    attempt_trace: list[dict[str, Any]],
+    failure_reason: str,
 ) -> FinalReply:
     required_handoff = _required_handoff_reason(str(message.message or ""))
     if required_handoff:
@@ -326,6 +457,7 @@ async def _safe_fallback(
             metadata={
                 "agent_runtime": {
                     "version": HARNESS_VERSION,
+                    "trace_id": context.message.trace_id,
                     "commercial_judgment": (
                         latest_decision.commercial_judgment
                         if latest_decision is not None
@@ -336,7 +468,10 @@ async def _safe_fallback(
                         latest_decision.customer_signal if latest_decision else "none"
                     ),
                     "tool_trace": tool_results,
+                    "attempt_trace": attempt_trace,
                     "hard_boundary_fallback": required_handoff,
+                    "failure_reason": failure_reason,
+                    "result": "human_handoff",
                 },
                 **({"handoff": context.handoff} if context.handoff else {}),
             },
@@ -348,14 +483,51 @@ async def _safe_fallback(
         texts = [intro, question]
         text = "\n\n".join(texts)
         purpose = "完成自然自我介绍，并了解客户当前盆数和主要品种"
-    elif system_event == "daily_touch":
-        text = "最近养兰有哪里拿不准，您随时拍张照片发我，我帮您一起看看。"
-        texts = [text]
-        purpose = "用低压力的专业服务完成今日关系触达"
     else:
-        text = "您接着说就行，我先按您现在最想解决的问题帮您看。"
-        texts = [text]
-        purpose = "安全承接客户并保持对话"
+        if context.handoff is None:
+            await execute_agent_tool(
+                call_id="system_runtime_handoff",
+                name="human.handoff",
+                arguments={
+                    "reason": "agent_runtime_failure",
+                    "summary": (
+                        latest_decision.commercial_judgment
+                        if latest_decision is not None
+                        else "Agent 未形成可安全发送的完整回复"
+                    ),
+                },
+                context=context,
+            )
+        return FinalReply(
+            answer="",
+            answer_segments=[],
+            outbound_messages=[],
+            reply_type="human",
+            route="human",
+            usage=usage,
+            need_human=True,
+            next_action="human_handoff",
+            metadata={
+                "agent_runtime": {
+                    "version": HARNESS_VERSION,
+                    "trace_id": context.message.trace_id,
+                    "commercial_judgment": (
+                        latest_decision.commercial_judgment
+                        if latest_decision is not None
+                        else "Agent 未形成可安全发送的完整回复"
+                    ),
+                    "relationship_purpose": "交给人工继续处理当前客户问题",
+                    "customer_signal": (
+                        latest_decision.customer_signal if latest_decision else "none"
+                    ),
+                    "tool_trace": tool_results,
+                    "attempt_trace": attempt_trace,
+                    "failure_reason": failure_reason,
+                    "result": "human_handoff",
+                },
+                **({"handoff": context.handoff} if context.handoff else {}),
+            },
+        )
     judgment = (
         latest_decision.commercial_judgment
         if latest_decision is not None
@@ -374,16 +546,150 @@ async def _safe_fallback(
         metadata={
             "agent_runtime": {
                 "version": HARNESS_VERSION,
+                "trace_id": context.message.trace_id,
                 "commercial_judgment": judgment,
                 "relationship_purpose": purpose,
                 "customer_signal": (
                     latest_decision.customer_signal if latest_decision else "none"
                 ),
                 "tool_trace": tool_results,
+                "attempt_trace": attempt_trace,
                 "fallback": True,
+                "failure_reason": failure_reason,
+                "result": "opening_fallback",
             }
         },
     )
+
+
+def _decision_diagnostic(
+    *,
+    attempt_number: int,
+    raw: dict[str, Any],
+    decision: AgentTurnDecision,
+    duration_ms: int,
+) -> dict[str, Any]:
+    final = decision.final_response
+    visible_messages: list[dict[str, Any]] = []
+    if final is not None:
+        for item in final.messages:
+            if item.type == "text":
+                visible_messages.append(
+                    {"type": "text", "content": _truncate_log_text(item.content)}
+                )
+            else:
+                visible_messages.append(
+                    {"type": "prepared", "ref": _truncate_log_text(item.ref, 128)}
+                )
+    return {
+        "attempt": attempt_number,
+        "provider": raw.get("provider"),
+        "model": raw.get("model"),
+        "provider_request_id": raw.get("provider_request_id"),
+        "duration_ms": duration_ms,
+        "outcome": "validated",
+        "decision": {
+            "commercial_judgment": _truncate_log_text(
+                decision.commercial_judgment, 800
+            ),
+            "relationship_purpose": _truncate_log_text(
+                decision.relationship_purpose, 400
+            ),
+            "customer_signal": decision.customer_signal,
+            "tool_calls": [
+                {"call_id": call.call_id, "name": call.name}
+                for call in decision.tool_calls
+            ],
+            "final_response": (
+                {
+                    "messages": visible_messages,
+                    "need_human": final.need_human,
+                    "handoff_reason": _truncate_log_text(
+                        final.handoff_reason, 256
+                    ),
+                    "next_action": _truncate_log_text(final.next_action, 400),
+                }
+                if final is not None
+                else None
+            ),
+        },
+    }
+
+
+def _invalid_attempt_diagnostic(
+    *,
+    attempt_number: int,
+    raw: dict[str, Any] | None,
+    error: str,
+    duration_ms: int,
+) -> dict[str, Any]:
+    raw = raw if isinstance(raw, dict) else {}
+    data = raw.get("data")
+    data = data if isinstance(data, dict) else {}
+    final = data.get("final_response")
+    final = final if isinstance(final, dict) else None
+    return {
+        "attempt": attempt_number,
+        "provider": raw.get("provider"),
+        "model": raw.get("model"),
+        "provider_request_id": raw.get("provider_request_id"),
+        "duration_ms": duration_ms,
+        "outcome": "invalid_schema",
+        "error": error,
+        "decision": {
+            "commercial_judgment": _truncate_log_text(
+                data.get("commercial_judgment"), 800
+            ),
+            "relationship_purpose": _truncate_log_text(
+                data.get("relationship_purpose"), 400
+            ),
+            "customer_signal": _truncate_log_text(data.get("customer_signal"), 64),
+            "final_response": _sanitize_raw_final(final),
+        },
+    }
+
+
+def _sanitize_raw_final(final: dict[str, Any] | None) -> dict[str, Any] | None:
+    if final is None:
+        return None
+    messages = final.get("messages")
+    safe_messages: list[dict[str, Any]] = []
+    if isinstance(messages, list):
+        for item in messages[:5]:
+            if not isinstance(item, dict):
+                continue
+            item_type = str(item.get("type") or "")
+            if item_type == "text":
+                safe_messages.append(
+                    {
+                        "type": "text",
+                        "content": _truncate_log_text(item.get("content")),
+                    }
+                )
+            elif item_type == "prepared":
+                safe_messages.append(
+                    {
+                        "type": "prepared",
+                        "ref": _truncate_log_text(item.get("ref"), 128),
+                    }
+                )
+    return {
+        "messages": safe_messages,
+        "need_human": bool(final.get("need_human")),
+        "handoff_reason": _truncate_log_text(final.get("handoff_reason"), 256),
+        "next_action": _truncate_log_text(final.get("next_action"), 400),
+    }
+
+
+def _truncate_log_text(value: Any, limit: int = 1200) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if len(text) <= limit else f"{text[:limit]}…"
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, round((time.perf_counter() - started) * 1000))
 
 
 def _guard_violations(
@@ -397,7 +703,6 @@ def _guard_violations(
         str(item.content or "") for item in final.messages if item.type == "text"
     )
     violations: list[str] = []
-    question_count = _customer_question_count(text)
     opening_event = _is_opening_system_event(context)
     opening_profile_question = False
     if opening_event and final is not None:
@@ -406,12 +711,6 @@ def _guard_violations(
             opening_profile_question = _is_opening_profile_question(
                 str(opening_texts[1].content or "")
             )
-    if question_count > (2 if opening_profile_question else 1):
-        violations.append("too_many_customer_questions")
-    if _LIST_STYLE_PATTERN.search(text) or _MARKDOWN_HEADING_PATTERN.search(text):
-        violations.append("non_conversational_list_style")
-    if any(marker in text for marker in _CUSTOMER_QUOTE_MARKERS):
-        violations.append("unnecessary_customer_quotes")
     if opening_event:
         text_messages = [item for item in final.messages if item.type == "text"]
         if len(final.messages) != 2 or len(text_messages) != 2:
@@ -424,8 +723,7 @@ def _guard_violations(
             if _customer_question_count(intro) != 0:
                 violations.append("opening_intro_contains_question")
             if _customer_question_count(question) != 1:
-                if not opening_profile_question:
-                    violations.append("opening_needs_question_invalid")
+                violations.append("opening_needs_question_invalid")
             if not opening_profile_question:
                 violations.append("opening_profile_question_invalid")
             if any(marker in question for marker in _OPENING_SALES_PUSH_MARKERS):
@@ -489,21 +787,25 @@ def _guard_violations(
     return list(dict.fromkeys(violations))
 
 
-def _customer_question_count(text: str) -> int:
-    punctuation_count = text.count("？") + text.count("?")
-    if punctuation_count == 0:
-        return 0
-    clauses = [
-        part.strip() for part in re.split(r"[，,；;、！？?]", text) if part.strip()
-    ]
-    question_clauses = sum(
-        1
-        for clause in clauses
-        if _SUBSTANTIVE_QUESTION_PATTERN.search(clause)
-        or clause.endswith(("吗", "呢"))
+def _quality_flags(decision: AgentTurnDecision) -> list[str]:
+    final = decision.final_response
+    if final is None:
+        return []
+    text = "\n".join(
+        str(item.content or "") for item in final.messages if item.type == "text"
     )
-    substantive_markers = len(_SUBSTANTIVE_QUESTION_PATTERN.findall(text))
-    return max(punctuation_count, question_clauses, substantive_markers)
+    flags: list[str] = []
+    if _customer_question_count(text) > 1:
+        flags.append("too_many_customer_questions")
+    if _LIST_STYLE_PATTERN.search(text) or _MARKDOWN_HEADING_PATTERN.search(text):
+        flags.append("non_conversational_list_style")
+    if any(marker in text for marker in _CUSTOMER_QUOTE_MARKERS):
+        flags.append("unnecessary_customer_quotes")
+    return flags
+
+
+def _customer_question_count(text: str) -> int:
+    return text.count("？") + text.count("?")
 
 
 def _is_opening_profile_question(text: str) -> bool:
