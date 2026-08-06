@@ -28,7 +28,6 @@ from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.reply import FinalReply
 from app.domains.decisioning.services.agent_runtime import run_sales_agent
 from app.domains.decisioning.services.customer_reply_formatter import (
-    coalesce_customer_messages,
     plain_customer_text,
     split_customer_messages,
 )
@@ -570,7 +569,7 @@ def _answer_segments(answer: str, preferred: list[str] | None = None) -> list[st
             normalized = plain_customer_text(part).replace("\n", " ").strip()
             if normalized:
                 messages.append(normalized)
-        return coalesce_customer_messages(messages)
+        return messages
     return split_customer_messages(answer)
 
 

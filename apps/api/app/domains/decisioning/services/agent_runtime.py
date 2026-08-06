@@ -15,6 +15,9 @@ from app.domains.decisioning.services.agent_prompt import (
     build_system_prompt,
     build_turn_payload,
 )
+from app.domains.decisioning.services.customer_reply_formatter import (
+    split_customer_messages,
+)
 from app.domains.decisioning.services.agent_tools import (
     AgentExecutionContext,
     execute_agent_tool,
@@ -235,14 +238,16 @@ async def _finalize_reply(
         if item.type == "text":
             content = str(item.content or "").strip()
             if content:
-                visible_texts.append(content)
-                outbound.append(OutboundMessage(type="text", content=content))
+                for message in split_customer_messages(content):
+                    visible_texts.append(message)
+                    outbound.append(OutboundMessage(type="text", content=message))
             continue
         ref = str(item.ref or "").strip()
         prepared = context.prepared.get(ref)
         if prepared:
             outbound.extend(prepared)
     outbound = outbound[:5]
+    visible_texts = [message.content for message in outbound if message.type == "text"]
 
     if final.need_human and context.handoff is None:
         await execute_agent_tool(
@@ -339,7 +344,7 @@ async def _safe_fallback(
     system_event = str((message.metadata or {}).get("system_event") or "")
     if system_event == "first_contact":
         intro = "您好，我是萧岚苑的小兰，我们团队平时都在和兰花打交道，后面养护上有什么拿不准都可以找我。"
-        question = "您平时也养兰花吗？"
+        question = "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？"
         texts = [intro, question]
         text = "\n\n".join(texts)
         purpose = "完成自然自我介绍，并用一个低压力问题了解客户来意"
@@ -640,7 +645,8 @@ def _event_context(message) -> dict[str, Any]:
     elif allowed.get("system_event") == "first_contact":
         allowed["instruction"] = (
             "这是新好友建立事件，不是客户原话。只生成两条短文字：第一条自然介绍自己是萧岚苑的小兰，"
-            "并自然带出团队长期做兰花、后面愿意继续帮客户看养护问题；第二条只问一个容易回答、能让客户自然开口的挖需问题。"
+            "并自然带出团队长期做兰花、后面愿意继续帮客户看养护问题；第二条先从客户视角简短说明回答后能得到什么，"
+            "例如更贴合的养护建议或资料，再只问一个容易回答、能让客户自然开口的挖需问题。"
             "不要问客户要不要买、看花、选花、预算或价格，不要假设他有购买意向。固定图片会由发送网关插在两条文字之间，"
             "你不要调用工具、安排卡片或资料，也不要提到系统事件。措辞可以自然变化，但不要机械盘问地区、盆数和品种。"
         )
