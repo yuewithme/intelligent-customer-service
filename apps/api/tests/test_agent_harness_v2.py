@@ -25,12 +25,20 @@ def _message(text: str = "我想看看建兰") -> NormalizedMessage:
     )
 
 
-def _decision(*, tools=None, final=None, judgment="判断", purpose="推进关系"):
+def _decision(
+    *,
+    tools=None,
+    final=None,
+    judgment="判断",
+    purpose="推进关系",
+    purchase_signal="none",
+):
     return {
         "data": {
             "commercial_judgment": judgment,
             "relationship_purpose": purpose,
             "customer_signal": "none",
+            "purchase_signal": purchase_signal,
             "tool_calls": tools or [],
             "final_response": final,
         },
@@ -122,6 +130,7 @@ async def test_runtime_repairs_mixed_tool_and_reply_without_losing_customer_answ
                     ],
                     "need_human": False,
                 },
+                purchase_signal="direct",
             ),
             _decision(
                 tools=[
@@ -130,7 +139,8 @@ async def test_runtime_repairs_mixed_tool_and_reply_without_losing_customer_answ
                         "name": "product.send_card",
                         "arguments": {"product_ref": "product:service-1"},
                     }
-                ]
+                ],
+                purchase_signal="direct",
             ),
             _decision(
                 final={
@@ -146,7 +156,8 @@ async def test_runtime_repairs_mixed_tool_and_reply_without_losing_customer_answ
                         {"type": "prepared", "ref": "service-card"},
                     ],
                     "need_human": False,
-                }
+                },
+                purchase_signal="direct",
             ),
         ]
     )
@@ -194,7 +205,7 @@ async def test_agent_discovers_capability_then_replies(monkeypatch):
                         "name": "capability.search",
                         "arguments": {"query": "客户问养护问题，需要专业知识"},
                     }
-                ]
+                ],
             ),
             _decision(
                 final={
@@ -508,7 +519,9 @@ async def test_agent_uses_pot_count_and_pain_to_bridge_to_guidance_gap(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_agent_recommends_companion_service_after_guidance_gap(monkeypatch):
+async def test_agent_shapes_service_without_repeating_or_sending_card_before_interest(
+    monkeypatch,
+):
     service = {
         "item_id": "service-1",
         "title": "陪伴养兰服务",
@@ -528,38 +541,83 @@ async def test_agent_recommends_companion_service_after_guidance_gap(monkeypatch
             _decision(
                 tools=[
                     {
+                        "call_id": "service-facts",
+                        "name": "brand.service_facts",
+                        "arguments": {},
+                    }
+                ],
+                judgment="客户刚确认一直自己摸索，应该承接指导缺口并具体塑造服务",
+                purpose="说明萧岚苑与卖完即止模式的差异",
+            ),
+            _decision(
+                tools=[
+                    {
                         "call_id": "service-search",
                         "name": "product.search",
                         "arguments": {"query": "陪伴养兰", "limit": 2},
                     }
                 ],
-                judgment="盆数、黄叶痛点和无人指导已经明确，适合主动匹配陪伴养兰服务",
-                purpose="从问题解释进入可落地的持续指导方案",
+                judgment="服务事实已核实，可以查询真实服务商品供后续试成交使用",
+                purpose="内部核实服务商品，不向客户发卡",
             ),
             _decision(
                 tools=[
                     {
-                        "call_id": "service-card",
+                        "call_id": "service-card-too-early",
                         "name": "product.send_card",
                         "arguments": {"product_ref": "product:service-1"},
                     }
                 ],
-                judgment="真实服务已查询且与客户反复黄叶和缺少指导匹配",
-                purpose="说明具体服务价值并给出购买入口",
+                judgment="客户缺少指导，准备直接发送服务卡片",
+                purpose="尝试成交",
             ),
             _decision(
                 final={
                     "messages": [
                         {
                             "type": "text",
-                            "content": "您之前主要靠自己摸索，问题才容易反复。我们会按具体品种告诉您关键养法，遇到黄叶这类情况还能结合实际情况继续指导，能少走很多弯路。",
+                            "content": (
+                                "那问题可能就出在这儿了。建兰虽然喜湿，但根部更需要透气。"
+                                "两三天浇一次，如果盆土还没干透就接着浇，根部长期泡在湿气里，很容易闷坏。"
+                            ),
                         },
-                        {"type": "prepared", "ref": "service-card"},
+                        {
+                            "type": "text",
+                            "content": (
+                                "其实养兰最难的就是把握这个度，每个家庭的环境、通风都不一样，"
+                                "固定的天数很难套用在所有情况上。我们这边会有师傅一对一教您判断浇水。"
+                            ),
+                        },
                     ],
                     "need_human": False,
                 },
-                judgment="客户的服务缺口已确认，无需继续盘问",
-                purpose="推荐真实陪伴服务并提供购买下一步",
+                judgment="重新解释病因并概述服务",
+                purpose="说明服务价值",
+            ),
+            _decision(
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": (
+                                "原来您之前一直都是自己摸索，难怪浇水这个度不容易拿准。"
+                                "市面上有些商家把兰花卖出去后，后面的养护只能靠兰友自己试；"
+                                "我们更看重您买回去以后能不能真正养稳。"
+                            ),
+                        },
+                        {
+                            "type": "text",
+                            "content": (
+                                "我们每个品种都有对应的单品养护教程，收货、上盆、浇水、施肥都会讲清楚；"
+                                "实际养的时候还有不懂，师傅会结合您家里的通风和盆土一对一帮您调整。"
+                                "您要是觉得这种有人跟着教的方式更省心，我再给您具体讲讲。"
+                            ),
+                        },
+                    ],
+                    "need_human": False,
+                },
+                judgment="客户仅确认指导缺口，先完成差异和服务落地塑造，不发卡",
+                purpose="让客户理解陪伴服务并自然试探意向",
             ),
         ]
     )
@@ -578,14 +636,116 @@ async def test_agent_recommends_companion_service_after_guidance_gap(monkeypatch
                 "pain_points": ["建兰反复黄叶"],
             },
             "recent_turns": [
-                {"role": "customer", "content": "家里有8盆建兰，最近总是黄叶"},
+                {"role": "customer", "content": "一般两三天一次，具体什么时候想起来就浇"},
+                {
+                    "role": "assistant",
+                    "content": "那问题可能就出在这儿了。建兰虽然喜湿，但根部更需要透气。两三天浇一次，如果盆土还没干透就接着浇，根部长期泡在湿气里，很容易闷坏。",
+                },
+                {
+                    "role": "assistant",
+                    "content": "其实养兰最难的就是把握这个度，每个家庭的环境、通风都不一样，固定的天数很难套用在所有情况上。我们这边会有师傅一对一教您判断浇水。",
+                },
             ],
         },
     )
 
+    assert [item.type for item in reply.outbound_messages] == ["text", "text"]
+    assert "市面上有些商家" in reply.answer
+    assert "单品养护教程" in reply.answer
+    assert "师傅" in reply.answer and "一对一" in reply.answer
+    assert "那问题可能就出在这儿了" not in reply.answer
+    trace = reply.metadata["agent_runtime"]["tool_trace"]
+    assert [item["tool"] for item in trace] == [
+        "brand.service_facts",
+        "product.search",
+    ]
+    attempts = reply.metadata["agent_runtime"]["attempt_trace"]
+    assert [attempt["outcome"] for attempt in attempts] == [
+        "tool_calls_executed",
+        "tool_calls_executed",
+        "trajectory_rewrite_requested",
+        "trajectory_rewrite_requested",
+        "accepted",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_sends_companion_service_card_after_customer_interest(
+    monkeypatch,
+):
+    service = {
+        "item_id": "service-1",
+        "title": "陪伴养兰服务",
+        "price_cent": 3990,
+        "stock": 20,
+        "status": "online",
+        "h5_url": "https://shop.example.com/companion",
+        "knowledge": {"product_name": "陪伴养兰服务"},
+    }
+    monkeypatch.setattr(
+        agent_tools,
+        "search_catalog_products",
+        lambda query, limit=3: [service],
+    )
+    monkeypatch.setattr(agent_tools, "get_catalog_product", lambda item_id: service)
+    responses = iter(
+        [
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-search",
+                        "name": "product.search",
+                        "arguments": {"query": "陪伴养兰", "limit": 2},
+                    }
+                ],
+                judgment="客户明确想进一步了解陪伴服务，查询真实服务商品",
+                purpose="核实服务商品后进入试成交",
+                purchase_signal="interest",
+            ),
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-card",
+                        "name": "product.send_card",
+                        "arguments": {"product_ref": "product:service-1"},
+                    }
+                ],
+                judgment="客户主动询问服务收费，已有清晰正向意向",
+                purpose="发送真实服务入口试成交",
+                purchase_signal="interest",
+            ),
+            _decision(
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "可以，我把陪伴养兰服务的真实卡片放下面，您先看看具体内容。",
+                        },
+                        {"type": "prepared", "ref": "service-card"},
+                    ],
+                    "need_human": False,
+                },
+                judgment="客户已主动询问服务，卡片用于试成交",
+                purpose="让客户查看服务并承接购买问题",
+                purchase_signal="interest",
+            ),
+        ]
+    )
+
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return next(responses)
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("这种有人带着养的服务我想了解一下，怎么收费？"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
     assert [item.type for item in reply.outbound_messages] == ["text", "link_card"]
-    assert "具体品种" in reply.outbound_messages[0].content
     assert json.loads(reply.outbound_messages[1].content)["title"] == "陪伴养兰服务"
+    assert reply.metadata["agent_runtime"]["purchase_signal"] == "interest"
 
 
 @pytest.mark.asyncio
@@ -620,7 +780,8 @@ async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
                         "name": "product.send_card",
                         "arguments": {"product_ref": "product:item-39"},
                     }
-                ]
+                ],
+                purchase_signal="direct",
             ),
             _decision(
                 final={
@@ -632,6 +793,7 @@ async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
                 },
                 judgment="客户已明确选择，直接推进成交",
                 purpose="核实后给购买入口",
+                purchase_signal="direct",
             ),
         ]
     )
@@ -742,11 +904,6 @@ async def test_agent_releases_earned_material_then_proactively_recommends(monkey
                             "material_ref": "material:orchid-companion"
                         },
                     },
-                    {
-                        "call_id": "product-card-1",
-                        "name": "product.send_card",
-                        "arguments": {"product_ref": "product:item-beginner"},
-                    },
                 ]
             ),
             _decision(
@@ -759,9 +916,8 @@ async def test_agent_releases_earned_material_then_proactively_recommends(monkey
                         {"type": "prepared", "ref": "material-send-1"},
                         {
                             "type": "text",
-                            "content": "按您想从第一盆好养的开始，我更建议这款适合新手和通风阳台的建兰，我把真实商品卡片也放下面。",
+                            "content": "按您想从第一盆好养的开始，我更建议适合新手和通风阳台的建兰。您如果想进一步看看具体品种，我再按这个条件给您介绍。",
                         },
-                        {"type": "prepared", "ref": "product-card-1"},
                     ],
                     "need_human": False,
                 },
@@ -794,14 +950,11 @@ async def test_agent_releases_earned_material_then_proactively_recommends(monkey
         "text",
         "link_card",
         "text",
-        "link_card",
     ]
     material_card = json.loads(reply.outbound_messages[1].content)
-    product_card = json.loads(reply.outbound_messages[3].content)
     assert material_card["title"] == "萧岚苑陪伴养兰资料"
-    assert product_card["title"] == "新手入门建兰"
     assert "您是刚入门" in reply.outbound_messages[0].content
-    assert "更建议这款" in reply.outbound_messages[2].content
+    assert "更建议适合新手" in reply.outbound_messages[2].content
 
 
 @pytest.mark.asyncio
@@ -830,7 +983,8 @@ async def test_prepared_card_is_not_sent_when_agent_does_not_place_it(monkeypatc
                         "name": "product.send_card",
                         "arguments": {"product_ref": "product:item-39"},
                     }
-                ]
+                ],
+                purchase_signal="interest",
             ),
             _decision(
                 final={
@@ -1229,7 +1383,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     prompt = build_system_prompt()
     assert "新客户开场优先了解当前盆数和主要品种" in prompt
     assert "能否用客户已经说过的事实" in prompt
-    assert "也可以主动查询并推荐合适商品" in prompt
+    assert "也可以主动查询并口头推荐合适商品" in prompt
     assert "先用一句客户收益说明回答后能得到什么" in prompt
     assert "新建一个 text 消息" in prompt
     assert "客户索要资料是兴趣信号，不是自动发送指令" in prompt
@@ -1248,7 +1402,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "自主决定表达顺序、消息轮次和是否需要同行对比" in prompt
     assert "顺序不能跳过" not in prompt
     assert "调用 brand.service_facts 核实" in prompt
-    assert "先挑几盆" in prompt
+    assert "自然询问客户是否想进一步了解这种陪伴方式" in prompt
     assert "市面上有些商家卖完后缺少持续养护承接" in prompt
     assert "几盆、十来盆、不多、几十盆" in prompt
     assert "否则不追问精确数字" in prompt
@@ -1256,13 +1410,15 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "先问是否在抖音购买" in prompt
     assert "保持 AI 回复，不调用 human.handoff" in prompt
     assert "客户口径只说“已经联系同事处理了”" in prompt
-    assert "不是调用工具的硬门槛" in prompt
-    assert "不要求固定字段、精确盆数、完整画像" in prompt
+    assert "不要求固定字段、精确盆数或完整画像" in prompt
     assert "推品方向采用明确的默认权重，但不做运行时固定路由" in prompt
     assert "都是养兰服务需求信号，不能据此推导客户想再买一盆兰花" in prompt
     assert "只要客户没有明确的兰花购买需求，推品方向就落在陪伴养兰服务" in prompt
     assert "仅仅提到自己现有的建兰等品种不算购买需求" in prompt
-    assert "不是运行时关键词拦截、固定流程或硬规则重试" in prompt
+    assert "商品卡片是客户已有清晰正向意向后的试成交动作" in prompt
+    assert "客户只是承认养不好、没人指导、一直自己摸索" in prompt
+    assert "只有 purchase_signal 为 interest 或 direct 时才调用 product.send_card" in prompt
+    assert "是否形成意向由 Agent 理解完整语义，不用关键词硬匹配" in prompt
 
     experience = next(
         item
@@ -1327,14 +1483,15 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     )
     assert "盆数是前期分层入口" in service_fit.instructions
     assert "已有大致盆数和痛点通常足以" in service_fit.instructions
-    assert "单品知识" in service_fit.instructions
-    assert "实时指导" in service_fit.instructions
-    assert "强默认经验，不是运行时硬阈值或固定路由" in service_fit.instructions
+    assert "单品养护教程" in service_fit.instructions
+    assert "师傅一对一实操指导" in service_fit.instructions
+    assert "不是固定话术或固定轮次" in service_fit.instructions
     assert "以三个结果检查价值是否足够" in service_fit.instructions
     assert "表达顺序、轮次和取舍由 Agent 根据上下文决定" in service_fit.instructions
     assert "按固定价值顺序" not in service_fit.instructions
     assert "对应品种的单品养护教程" in service_fit.instructions
-    assert "不让客户在挑苗和发资料之间选择流程" in service_fit.instructions
+    assert "客户确认没人教、一直自己摸索后" in service_fit.instructions
+    assert "只有客户给出清晰正向意向后才发送商品卡片试成交" in service_fit.instructions
     assert "几盆、十来盆、不多、几十盆" in service_fit.instructions
     assert "不再追问精确数字" in service_fit.instructions
 
@@ -1376,7 +1533,16 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "推品统一落在陪伴养兰服务" in direction_weighting.instructions
     assert "都不能推导出客户想买新兰花" in direction_weighting.instructions
     assert "query‘陪伴养兰’" in direction_weighting.instructions
-    assert "不是固定路由、必经流程或运行时硬阻拦" in direction_weighting.instructions
+    assert "商品卡片属于试成交" in direction_weighting.instructions
+    assert "客户明确表示想进一步了解" in direction_weighting.instructions
+    assert "不是固定话术或固定轮次" in direction_weighting.instructions
+
+    product_send = next(
+        item for item in agent_tools.CAPABILITIES if item.name == "product.send_card"
+    )
+    assert "商品卡片是试成交动作" in product_send.instructions
+    assert "一直自己摸索或信息已经收集充分" in product_send.instructions
+    assert "不等于可以发卡" in product_send.instructions
 
     service_facts = next(
         item
