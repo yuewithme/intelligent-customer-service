@@ -32,7 +32,7 @@ MAX_TOOL_ROUNDS = 5
 MAX_TOOL_CALLS = 10
 MAX_SCHEMA_REPAIRS = 1
 MAX_HARD_REWRITES = 1
-MAX_TRAJECTORY_REWRITES = 2
+MAX_TRAJECTORY_REWRITES = 3
 MAX_AGENT_MODEL_CALLS = (
     MAX_TOOL_ROUNDS
     + MAX_SCHEMA_REPAIRS
@@ -996,6 +996,8 @@ def _sales_trajectory_violations(
     violations: list[str] = []
     if _repeats_recent_assistant_content(visible_text, context):
         violations.append("repeats_recent_assistant_content")
+    if decision.purchase_signal == "none" and _affirmed_service_trial_close(context):
+        violations.append("missed_affirmed_service_trial_close")
     if decision.purchase_signal == "none" and any(
         item.type == "prepared"
         and str(
@@ -1081,6 +1083,12 @@ def _is_video_access_context(reply_text: str, customer_text: str) -> bool:
 
 def _sales_flow_rewrite_instruction(violations: list[str]) -> str:
     focused_instructions: list[str] = []
+    if "missed_affirmed_service_trial_close" in violations:
+        focused_instructions.append(
+            "客户当前的短肯定回复，是在认可上一轮关于陪伴服务价值的问题，"
+            "不是再次询问服务内容。将 purchase_signal 判断为 interest，停止重复教程和一对一指导介绍；"
+            "查询并核实真实的陪伴养兰服务，然后发送服务卡片进入试成交。"
+        )
     if "repeats_recent_assistant_content" in violations:
         focused_instructions.append(
             "当前候选回复复述了上一轮已经真实发送的内容。不要再次解释同一病因或重复已经讲过的服务概述；"
@@ -1124,6 +1132,7 @@ def _repeats_recent_assistant_content(
             "assistant",
             "agent",
             "sales_agent",
+            "ai",
         }:
             continue
         prior_chunks.extend(_repeatable_text_chunks(str(item.get("content") or "")))
@@ -1137,6 +1146,81 @@ def _repeats_recent_assistant_content(
         for current in current_chunks
         for prior in prior_chunks
     )
+
+
+def _affirmed_service_trial_close(context: AgentExecutionContext) -> bool:
+    """Recognize a short acceptance of the immediately preceding service offer."""
+    customer_text = _normalize_short_reply(context.message.message)
+    if customer_text not in {
+        "是",
+        "是的",
+        "对",
+        "对的",
+        "嗯",
+        "嗯嗯",
+        "可以",
+        "可以的",
+        "好",
+        "好的",
+        "不错",
+        "愿意",
+        "我愿意",
+    }:
+        return False
+
+    previous = _previous_assistant_turn_text(context)
+    if not previous or not any(marker in previous for marker in ("？", "?")):
+        return False
+    service_context = any(
+        marker in previous
+        for marker in (
+            "陪伴",
+            "服务",
+            "有人带",
+            "师傅",
+            "一对一",
+            "养护教程",
+        )
+    )
+    value_confirmation = any(
+        marker in previous
+        for marker in (
+            "这种方式",
+            "有人带着",
+            "更踏实",
+            "更省心",
+            "有帮助",
+            "适合您",
+            "愿意进一步了解",
+            "想进一步了解",
+        )
+    )
+    return service_context and value_confirmation
+
+
+def _previous_assistant_turn_text(context: AgentExecutionContext) -> str:
+    recent = context.workspace.get("recent_turns")
+    recent = recent if isinstance(recent, list) else []
+    chunks: list[str] = []
+    found_assistant = False
+    for item in reversed(recent[-10:]):
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").lower()
+        if role in {"assistant", "agent", "sales_agent", "ai"}:
+            content = str(item.get("content") or "").strip()
+            if content:
+                chunks.append(content)
+                found_assistant = True
+            continue
+        if found_assistant:
+            break
+    chunks.reverse()
+    return "\n".join(chunks)
+
+
+def _normalize_short_reply(text: str) -> str:
+    return re.sub(r"[\s，。！？、,.!?;；:：]+", "", str(text or "")).casefold()
 
 
 def _repeatable_text_chunks(text: str) -> list[str]:
