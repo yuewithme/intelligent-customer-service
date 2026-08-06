@@ -1,3 +1,4 @@
+from app.domains.conversations.services.chat_orchestrator import _answer_segments
 from app.domains.decisioning.services.customer_reply_formatter import plain_customer_text, split_customer_messages
 
 
@@ -45,6 +46,15 @@ def test_blank_lines_preserve_semantic_message_boundaries():
         "请确认订单后，我会尽快安排发出。",
         "我这边持续跟进。",
     ]
+
+
+def test_orchestrator_preserves_agent_selected_message_units():
+    preferred = [
+        "先别急，兰花反复烂根通常和浇水、植料或通风有关。",
+        "您现在用的是普通泥土，还是颗粒植料？",
+    ]
+
+    assert _answer_segments("\n\n".join(preferred), preferred) == preferred
 
 
 def test_short_fragment_with_comma_is_merged_into_one_reply():

@@ -53,7 +53,7 @@ logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
 _URL_PATTERN = re.compile(r"https?://[^\s<>，。！？；：、（）【】“”‘’《》]+")
 _URL_TRAILING_PUNCTUATION = "，。！？；：、,.!?;:)]}》〉”’\"'"
 _OPENING_INTRO_FALLBACK = "您好，我是萧岚苑的小兰，我们团队平时都在和兰花打交道，后面养护上有什么拿不准都可以找我。"
-_OPENING_QUESTION_FALLBACK = "您平时也养兰花吗？"
+_OPENING_QUESTION_FALLBACK = "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？"
 _OPENING_SALES_PUSH_MARKERS = (
     "购买",
     "想买",

@@ -81,6 +81,40 @@ async def test_agent_discovers_capability_then_replies(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_agent_splits_explanation_and_follow_up_into_message_units(monkeypatch):
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": (
+                            "先别急，根系反复出问题通常和浇水、植料或通风有关。\n\n"
+                            "您现在用的是普通泥土，还是颗粒植料？"
+                        ),
+                    }
+                ],
+                "need_human": False,
+            }
+        )
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("盆土一直湿漉漉的，兰花也总是烂根"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
+    assert [item.type for item in reply.outbound_messages] == ["text", "text"]
+    assert [item.content for item in reply.outbound_messages] == [
+        "先别急，根系反复出问题通常和浇水、植料或通风有关。",
+        "您现在用的是普通泥土，还是颗粒植料？",
+    ]
+    assert reply.answer_segments == [item.content for item in reply.outbound_messages]
+
+
+@pytest.mark.asyncio
 async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
     product = {
         "item_id": "item-39",
@@ -347,7 +381,10 @@ def test_opening_guard_requires_identity_and_one_needs_question():
                         "type": "text",
                         "content": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花，养护上拿不准都可以找我。",
                     },
-                    {"type": "text", "content": "您平时也养兰花吗？"},
+                    {
+                        "type": "text",
+                        "content": "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？",
+                    },
                 ],
                 "need_human": False,
             }
@@ -393,6 +430,8 @@ def test_harness_prioritizes_relationship_before_product():
     assert "新客户默认先经营关系，不默认推荐商品" in prompt
     assert "新好友和普通养护聊天不默认调用" in prompt
     assert "先在 commercial_judgment 中说明客户已经出现的购买信号" in prompt
+    assert "先用一句客户收益说明回答后能得到什么" in prompt
+    assert "新建一个 text 消息" in prompt
 
     experience = next(
         item
@@ -401,6 +440,13 @@ def test_harness_prioritizes_relationship_before_product():
     )
     assert "没有真实购买信号时不主动查商品、推品或发卡片" in experience.instructions
     assert "不为走流程拖延" in experience.instructions
+
+    discovery = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.need_discovery"
+    )
+    assert "回答后能得到的具体收益" in discovery.instructions
 
 
 @pytest.mark.asyncio
@@ -425,7 +471,10 @@ async def test_opening_does_not_execute_agent_tools(monkeypatch):
                             "type": "text",
                             "content": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花，养护上拿不准都可以找我。",
                         },
-                        {"type": "text", "content": "您平时也养兰花吗？"},
+                        {
+                            "type": "text",
+                            "content": "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？",
+                        },
                     ],
                     "need_human": False,
                 }
