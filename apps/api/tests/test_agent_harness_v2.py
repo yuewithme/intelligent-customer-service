@@ -180,10 +180,65 @@ async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_agent_places_need_discovery_after_material_card(monkeypatch):
+async def test_agent_holds_material_while_match_facts_are_unknown(monkeypatch):
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "这份资料会讲新手入门和常见养护问题，我先看看哪部分对您最有用。您家里已经养着兰花，还是准备从第一盆开始？",
+                    }
+                ],
+                "need_human": False,
+            },
+            judgment="客户索要资料但养兰经验和需求未知，还不足以判断资料释放和商品匹配",
+            purpose="借资料兴趣先了解客户的养兰起点",
+        )
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("你们直播间说有资料的，我要资料"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
+    assert [item.type for item in reply.outbound_messages] == ["text"]
+    assert "哪部分对您最有用" in reply.answer
+    assert reply.answer.endswith("？")
+
+
+@pytest.mark.asyncio
+async def test_agent_releases_earned_material_then_proactively_recommends(monkeypatch):
     async def material_not_recently_sent(*args, **kwargs):
         del args, kwargs
         return False
+
+    product = {
+        "item_id": "item-beginner",
+        "title": "新手入门建兰",
+        "price_cent": 16800,
+        "stock": 6,
+        "status": "onsale",
+        "h5_url": "https://h5.youzan.com/goods/item-beginner",
+        "image_url": "https://cdn.example.com/item-beginner.jpg",
+        "knowledge": {
+            "product_name": "新手入门建兰",
+            "category": "建兰",
+            "suitable_for": "新手、通风阳台",
+        },
+    }
+    monkeypatch.setattr(
+        agent_tools,
+        "search_catalog_products",
+        lambda query, limit: [product],
+    )
+    monkeypatch.setattr(
+        agent_tools,
+        "get_catalog_product",
+        lambda item_id: product if item_id == "item-beginner" else None,
+    )
 
     responses = iter(
         [
@@ -193,7 +248,15 @@ async def test_agent_places_need_discovery_after_material_card(monkeypatch):
                         "call_id": "material-search-1",
                         "name": "material.search",
                         "arguments": {"query": "新手养兰资料", "limit": 3},
-                    }
+                    },
+                    {
+                        "call_id": "product-search-1",
+                        "name": "product.search",
+                        "arguments": {
+                            "query": "南向通风阳台新手第一盆好养兰花",
+                            "limit": 3,
+                        },
+                    },
                 ]
             ),
             _decision(
@@ -204,7 +267,12 @@ async def test_agent_places_need_discovery_after_material_card(monkeypatch):
                         "arguments": {
                             "material_ref": "material:orchid-companion"
                         },
-                    }
+                    },
+                    {
+                        "call_id": "product-card-1",
+                        "name": "product.send_card",
+                        "arguments": {"product_ref": "product:item-beginner"},
+                    },
                 ]
             ),
             _decision(
@@ -212,18 +280,19 @@ async def test_agent_places_need_discovery_after_material_card(monkeypatch):
                     "messages": [
                         {
                             "type": "text",
-                            "content": "这是直播里提到的养兰资料，您可以先看新手常见问题那部分。",
+                            "content": "您是刚入门，又是南向通风阳台，这份资料里的新手养护和浇水部分正好适合您先看。",
                         },
                         {"type": "prepared", "ref": "material-send-1"},
                         {
                             "type": "text",
-                            "content": "我也好按您的情况给更具体的建议。您家里已经养着兰花，还是准备先从第一盆开始？",
+                            "content": "按您想从第一盆好养的开始，我更建议这款适合新手和通风阳台的建兰，我把真实商品卡片也放下面。",
                         },
+                        {"type": "prepared", "ref": "product-card-1"},
                     ],
                     "need_human": False,
                 },
-                judgment="客户主动索要资料，需要及时交付并顺势了解养兰经验",
-                purpose="交付资料的同时让客户容易继续开口",
+                judgment="已知客户是新手、南向通风阳台、想选第一盆好养兰花，足以匹配入门资料并主动推荐新手建兰",
+                purpose="用已经收集的信息完成价值释放并转入合适商品推荐",
             ),
         ]
     )
@@ -237,20 +306,28 @@ async def test_agent_places_need_discovery_after_material_card(monkeypatch):
         agent_tools, "_material_recently_sent", material_not_recently_sent
     )
     reply = await agent_runtime.run_sales_agent(
-        message=_message("你们直播间说有资料的，我要资料"),
+        message=_message("我就是想先学习，你把那份资料发我看看"),
         user_state=UserState(user_id="customer-1"),
-        workspace={},
+        workspace={
+            "recent_turns": [
+                {"role": "user", "content": "我还没养过，想从第一盆好养的开始。"},
+                {"role": "user", "content": "家里是南向阳台，通风还可以。"},
+            ]
+        },
     )
 
     assert [item.type for item in reply.outbound_messages] == [
         "text",
         "link_card",
         "text",
+        "link_card",
     ]
-    card = json.loads(reply.outbound_messages[1].content)
-    assert card["title"] == "萧岚苑陪伴养兰资料"
-    assert "已经养着兰花" in reply.outbound_messages[2].content
-    assert reply.outbound_messages[2].content.endswith("？")
+    material_card = json.loads(reply.outbound_messages[1].content)
+    product_card = json.loads(reply.outbound_messages[3].content)
+    assert material_card["title"] == "萧岚苑陪伴养兰资料"
+    assert product_card["title"] == "新手入门建兰"
+    assert "您是刚入门" in reply.outbound_messages[0].content
+    assert "更建议这款" in reply.outbound_messages[2].content
 
 
 @pytest.mark.asyncio
@@ -499,38 +576,40 @@ def test_opening_guard_requires_identity_and_one_needs_question():
     ]
 
 
-def test_harness_prioritizes_relationship_before_product():
+def test_harness_collects_match_facts_before_product_and_material_release():
     prompt = build_system_prompt()
-    assert "新客户默认先经营关系，不默认推荐商品" in prompt
-    assert "新好友和普通养护聊天不默认调用" in prompt
-    assert "先在 commercial_judgment 中说明客户已经出现的购买信号" in prompt
+    assert "新客户前段的主要任务是逐步理解这个人" in prompt
+    assert "能否用客户已经说过的事实" in prompt
+    assert "也可以主动查询并推荐合适商品" in prompt
     assert "先用一句客户收益说明回答后能得到什么" in prompt
     assert "新建一个 text 消息" in prompt
-    assert "在同一回复包的资料卡片后" in prompt
-    assert "不要只用“有问题随时找我”" in prompt
+    assert "客户索要资料是兴趣信号，不是自动发送指令" in prompt
+    assert "发送后必须有主动的下一步" in prompt
 
     experience = next(
         item
         for item in agent_tools.CAPABILITIES
         if item.name == "experience.relationship_before_product"
     )
-    assert "没有真实购买信号时不主动查商品、推品或发卡片" in experience.instructions
-    assert "不为走流程拖延" in experience.instructions
+    assert "每轮收集一项会影响匹配的客户事实" in experience.instructions
+    assert "应自然转入真实商品查询和主动推荐" in experience.instructions
 
     discovery = next(
         item
         for item in agent_tools.CAPABILITIES
         if item.name == "experience.need_discovery"
     )
-    assert "回答后能得到的具体收益" in discovery.instructions
+    assert "足以支撑销售匹配的客户事实" in discovery.instructions
+    assert "转入主动推品" in discovery.instructions
 
     material = next(
         item
         for item in agent_tools.CAPABILITIES
         if item.name == "experience.material_value"
     )
-    assert "紧接着顺资料内容只问一个" in material.instructions
-    assert "不把挖需当领取门槛" in material.instructions
+    assert "不是客户一索要就自动发送" in material.instructions
+    assert "本轮不发资料" in material.instructions
+    assert "转入有依据的推品" in material.instructions
 
     objection = next(
         item
