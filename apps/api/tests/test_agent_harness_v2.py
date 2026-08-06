@@ -125,6 +125,80 @@ async def test_customer_tag_records_evidence_backed_catalog_tag(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_video_access_request_requires_verified_douyin_purchase(monkeypatch):
+    from app.domains.handoff.services import handoff_notification_service
+
+    async def fail_if_notified(**kwargs):
+        del kwargs
+        raise AssertionError("unverified customer must not notify humans")
+
+    monkeypatch.setattr(
+        handoff_notification_service,
+        "enqueue_handoff_notification",
+        fail_if_notified,
+    )
+    context = AgentExecutionContext(
+        message=_message("我在抖音买过，视频看不了"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={"profile": {"customer_tags": []}},
+    )
+
+    result = await agent_tools.execute_agent_tool(
+        call_id="video-access-1",
+        name="video_access.request",
+        arguments={},
+        context=context,
+    )
+
+    assert result.status == "forbidden"
+    assert result.data["reason"] == "verified_douyin_purchase_required"
+    assert context.handoff is None
+
+
+@pytest.mark.asyncio
+async def test_video_access_request_notifies_without_handoff(monkeypatch):
+    from app.domains.handoff.services import handoff_notification_service
+
+    notified = {}
+
+    async def fake_notify(**kwargs):
+        notified.update(kwargs)
+        return {"queued": 1, "outbound_message_ids": [9], "feishu_sent": False}
+
+    monkeypatch.setattr(
+        handoff_notification_service,
+        "enqueue_handoff_notification",
+        fake_notify,
+    )
+    message = _message("[订单截图已核验] 视频看不了")
+    message.metadata = {
+        "wc_id": "customer-wxid",
+        "nickname": "兰友小王",
+        "alias_name": "orchid_wang",
+    }
+    context = AgentExecutionContext(
+        message=message,
+        user_state=UserState(user_id="customer-1"),
+        workspace={"profile": {"customer_tags": ["抖音已购"]}},
+    )
+
+    result = await agent_tools.execute_agent_tool(
+        call_id="video-access-2",
+        name="video_access.request",
+        arguments={},
+        context=context,
+    )
+
+    assert result.status == "notified"
+    assert result.data["permission_status"] == "pending_human_review"
+    assert result.data["ai_continues"] is True
+    assert context.handoff is None
+    assert notified["customer_wc_id"] == "customer-wxid"
+    assert notified["notification_kind"] == "reminder"
+    assert notified["handoff_reason"] == "video_access_review"
+
+
+@pytest.mark.asyncio
 async def test_brand_service_facts_returns_verified_two_part_delivery():
     context = AgentExecutionContext(
         message=_message("我反复养不好，也一直没人教"),
@@ -711,6 +785,62 @@ def test_hard_guard_requires_exact_verified_stock_and_url():
     }
 
 
+def test_video_access_notification_claim_requires_notified_tool_fact():
+    decision = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "我已经提醒同事核对视频权限了，处理期间我继续帮您看养护问题。",
+                    }
+                ],
+                "need_human": False,
+            }
+        )["data"]
+    )
+    unverified = AgentExecutionContext(
+        message=_message("视频看不了"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+    verified = AgentExecutionContext(
+        message=_message("视频看不了"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+        tool_facts={
+            "video-access-1": {
+                "tool": "video_access.request",
+                "status": "notified",
+                "data": {"permission_status": "pending_human_review"},
+            }
+        },
+    )
+
+    assert agent_runtime._guard_violations(decision, unverified) == [
+        "unverified_video_access_notification"
+    ]
+    assert agent_runtime._guard_violations(decision, verified) == []
+
+    unrelated_decision = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {"type": "text", "content": "我已经提醒同事核对优惠了。"}
+                ],
+                "need_human": True,
+            }
+        )["data"]
+    )
+    unrelated = AgentExecutionContext(
+        message=_message("我想申请一下优惠"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+        handoff={"status": "pending", "reason": "discount"},
+    )
+    assert agent_runtime._guard_violations(unrelated_decision, unrelated) == []
+
+
 def test_style_flags_do_not_become_hard_violations():
     context = AgentExecutionContext(
         message=_message("总是养死，怎么办"),
@@ -957,6 +1087,11 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "调用 brand.service_facts 核实" in prompt
     assert "先挑几盆" in prompt
     assert "市面上有些商家卖完后缺少持续养护承接" in prompt
+    assert "几盆、十来盆、不多、几十盆" in prompt
+    assert "否则不追问精确数字" in prompt
+    assert "不需要精确到 3 盆还是 5 盆" in prompt
+    assert "先问是否在抖音购买" in prompt
+    assert "保持 AI 回复，不调用 human.handoff" in prompt
 
     experience = next(
         item
@@ -1020,7 +1155,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         if item.name == "experience.companion_service_fit"
     )
     assert "盆数是前期分层入口" in service_fit.instructions
-    assert "已有具体盆数和痛点通常足以" in service_fit.instructions
+    assert "已有大致盆数和痛点通常足以" in service_fit.instructions
     assert "单品知识" in service_fit.instructions
     assert "实时指导" in service_fit.instructions
     assert "优先经验而非硬阈值" in service_fit.instructions
@@ -1029,6 +1164,28 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "按固定价值顺序" not in service_fit.instructions
     assert "对应品种的单品养护教程" in service_fit.instructions
     assert "不让客户在挑苗和发资料之间选择流程" in service_fit.instructions
+    assert "几盆、十来盆、不多、几十盆" in service_fit.instructions
+    assert "不再追问精确数字" in service_fit.instructions
+
+    customer_tag = next(
+        item for item in agent_tools.CAPABILITIES if item.name == "customer.tag"
+    )
+    assert "不要为了把标签精确到某个区间重新追问" in customer_tag.instructions
+
+    video_access = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.video_access"
+    )
+    assert "先问客户是否在抖音购买" in video_access.instructions
+    assert "不调用 human.handoff" in video_access.instructions
+    assert "不停止 AI 回复" in video_access.instructions
+
+    video_access_tool = next(
+        item for item in agent_tools.CAPABILITIES if item.name == "video_access.request"
+    )
+    assert "工作区已有‘抖音已购’标签" in video_access_tool.instructions
+    assert "不创建人工接管" in video_access_tool.instructions
 
     service_facts = next(
         item

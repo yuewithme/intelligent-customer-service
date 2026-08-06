@@ -38,6 +38,7 @@ HANDOFF_REASON_TEXTS = {
     "invalid_route_to_handoff": "自动处理路线异常",
     "need_human": "当前问题需要人工处理",
     "need_human_non_critical": "建议人工介入处理",
+    "video_access_review": "核实抖音购买截图并处理视频课程权限",
 }
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -126,6 +127,7 @@ async def enqueue_handoff_notification(
     handoff_reason: str | None = None,
     trigger_message: str | None = None,
     source_reference: str | None = None,
+    notification_kind: str = "handoff",
 ) -> dict[str, Any]:
     with _get_session() as session:
         setting = _get_or_create_setting(session)
@@ -181,6 +183,7 @@ async def enqueue_handoff_notification(
         wechat_id=customer_wechat_id,
         handoff_reason=_handoff_reason_text(handoff_reason),
         trigger_message=(trigger_message or "").strip() or "未记录",
+        notification_kind=notification_kind,
     )
 
     from app.integrations.eyun.services.message_risk_control_service import enqueue_wechat_outbound
@@ -249,7 +252,16 @@ def _render_notification_message(
     wechat_id: str,
     handoff_reason: str,
     trigger_message: str,
+    notification_kind: str = "handoff",
 ) -> str:
+    if notification_kind == "reminder":
+        return (
+            "有客户需要人工协助处理，请及时跟进。\n\n"
+            f"待处理用户昵称：{nickname}\n"
+            f"待处理用户微信号：{wechat_id}\n"
+            f"处理事项：{handoff_reason}\n"
+            f"触发客户消息：{trigger_message}"
+        )
     return (
         f"{message_text.strip()}\n\n"
         f"转人工用户昵称：{nickname}\n"

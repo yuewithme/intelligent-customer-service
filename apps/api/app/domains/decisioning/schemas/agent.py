@@ -65,6 +65,7 @@ class AgentToolResult(BaseModel):
         "prepared",
         "recorded",
         "scheduled",
+        "notified",
         "pending",
     ]
     data: dict[str, Any] = Field(default_factory=dict)

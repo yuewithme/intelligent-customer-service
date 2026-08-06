@@ -59,7 +59,7 @@ CAPABILITIES = (
         "customer.tag",
         "tool",
         ("标签", "盆数", "品种", "客户等级", "L1", "L2", "L3", "L4", "L5", "L6"),
-        "输入 {\"tag\":\"标签库中的准确名称\",\"evidence\":\"客户本轮原话片段\"}。当客户亲口提供盆数、主要品种或足以判断 L1-L6 的稳定证据时记录标签；标签只辅助后续判断，不是销售阶段。等级准确名称是 L1 青铜期、L2 白银期、L3 黄金期、L4 铂金期、L5 宗师期、L6 王者期；常用盆数准确名称是 1-10盆、10-30盆、30-50盆、50-100盆、100-200盆、200+盆、1000+盆。L1 潜在或试错期，L2 有少量经验且常见养护问题，L3 有较多品种和稳定经验，L4 收藏与品种档案，L5 艺草研究，L6 品种缔造或高价值交易。不要凭一个品种名、一个痛点或盆数单独拔高等级；证据不足就不打。抖音已购和微信已购属于受保护标签，客户口头自述不能调用本工具写入。",
+        "输入 {\"tag\":\"标签库中的准确名称\",\"evidence\":\"客户本轮原话片段\"}。当客户亲口提供盆数、主要品种或足以判断 L1-L6 的稳定证据时记录标签；标签只辅助后续判断，不是销售阶段。客户说‘几盆、不多’已经给出了可用于销售判断的小规模信息，不要为了把标签精确到某个区间重新追问；无法稳妥映射时可以不打盆数标签，但继续推进。等级准确名称是 L1 青铜期、L2 白银期、L3 黄金期、L4 铂金期、L5 宗师期、L6 王者期；常用盆数准确名称是 1-10盆、10-30盆、30-50盆、50-100盆、100-200盆、200+盆、1000+盆。L1 潜在或试错期，L2 有少量经验且常见养护问题，L3 有较多品种和稳定经验，L4 收藏与品种档案，L5 艺草研究，L6 品种缔造或高价值交易。不要凭一个品种名、一个痛点或盆数单独拔高等级；证据不足就不打。抖音已购和微信已购属于受保护标签，客户口头自述不能调用本工具写入。",
     ),
     CapabilitySpec(
         "brand.service_facts",
@@ -101,7 +101,13 @@ CAPABILITIES = (
         "material.search",
         "tool",
         ("资料", "教程", "指南", "手册", "学习", "视频", "福利触点"),
-        "输入 {\"query\":\"客户问题或资料目的\",\"limit\":5}。返回匹配资料 material_ref、价值、适用范围和权益限制；搜索不等于发送。养兰卡片可发不代表卡内受限视频可看；若客户反馈视频无权限，先说明需核验购买权益，可请客户提供抖音购买截图并转人工，不能自行开通或承诺。",
+        "输入 {\"query\":\"客户问题或资料目的\",\"limit\":5}。返回匹配资料 material_ref、价值、适用范围和权益限制；搜索不等于发送。养兰卡片可发不代表卡内受限视频可看；若客户反馈视频无权限，先问是否在抖音购买过萧岚苑商品，确认买过后请他发送能看到店铺与订单状态的购买截图。截图经系统核验后使用 video_access.request 提醒人工处理权限，不调用 human.handoff；AI 继续回复，也不能承诺权限已经开通。",
+    ),
+    CapabilitySpec(
+        "video_access.request",
+        "tool",
+        ("视频看不了", "视频权限", "开权限", "抖音已购", "订单截图"),
+        "输入 {}。只在客户发送的抖音购买截图已经由系统核验、工作区已有‘抖音已购’标签时调用；向现有值班人员通知链路发送视频权限处理提醒。返回 notified 只代表提醒已送达、权限仍待人工核对，不代表已经开通。本工具不创建人工接管，不改变会话状态，回复保持 need_human=false，由 AI 继续承接客户问题和销售关系。若只有客户口头说买过，先请他发能看到萧岚苑店铺与订单状态的截图，不能调用。",
     ),
     CapabilitySpec(
         "material.send",
@@ -155,7 +161,7 @@ CAPABILITIES = (
         "experience.companion_service_fit",
         "experience",
         ("盆数", "养兰时间", "新手", "养死", "黑斑", "黄叶", "腐苗", "不开花", "没人教", "指导", "同行", "陪伴养兰"),
-        "盆数是前期分层入口，痛点和失败史是陪伴服务信号，养兰时间用于校准，过去是否有人持续指导用于确认服务缺口。客户 10 盆以内时，可结合上下文了解是否刚开始以及当前最具体的痛点；已有具体盆数和痛点通常足以开始解释问题并转向服务价值，不再横向盘问。客户 0 盆但曾经养死时，了解他是否愿意重新学习，或过去是否主要靠自己摸索；确认后可从重新选对适配的种苗和建立正确方法切入。客户只说养护痛点时，先补盆数；仍不足再分轮了解养兰时间，养兰两年内且 10 至 50 盆并反复出问题，通常更需要规范养护体系。先用通俗语言概括可能的病理、生理和环境因素，再自然了解原商家买后有没有持续指导；不要把问题武断归咎于客户，也不要断言一定是种苗问题。信息足够后，以三个结果检查价值是否足够：客户是否理解过去失败的关键原因或风险、萧岚苑解决方式的相关差异、买后服务怎样具体落地。常见经验是结合选苗适配和持续指导解释问题；同行对比只有在有助于客户理解时才使用。调用 brand.service_facts 后，可把单品知识落到对应品种的单品养护教程，把实时指导落到师傅一对一实操指导。表达顺序、轮次和取舍由 Agent 根据上下文决定，已经讲清的内容不重复；讲到足以支撑推荐就自主查商品或补选品偏好，不让客户在挑苗和发资料之间选择流程。以上是优先经验而非硬阈值；长期熟练客户、简单单点问题或已成熟购买机会应压缩或跳过，信息足够就主动搜索真实陪伴养兰服务或合适产品。",
+        "盆数是前期分层入口，痛点和失败史是陪伴服务信号，养兰时间用于校准，过去是否有人持续指导用于确认服务缺口。‘几盆、十来盆、不多、几十盆’都是已经回答规模的可用信息；除非跨规模会真实改变眼前选品，否则不再追问精确数字，也不为打标签重问。客户大致在 10 盆以内时，可结合上下文了解是否刚开始以及当前最具体的痛点；已有大致盆数和痛点通常足以开始解释问题并转向服务价值，不再横向盘问。客户 0 盆但曾经养死时，了解他是否愿意重新学习，或过去是否主要靠自己摸索；确认后可从重新选对适配的种苗和建立正确方法切入。客户只说养护痛点且上下文完全没有规模信息时，可补一个大致盆数；仍不足再分轮了解养兰时间，养兰两年内且少量养兰并反复出问题，通常更需要规范养护体系。先用通俗语言概括可能的病理、生理和环境因素，再自然了解原商家买后有没有持续指导；不要把问题武断归咎于客户，也不要断言一定是种苗问题。信息足够后，以三个结果检查价值是否足够：客户是否理解过去失败的关键原因或风险、萧岚苑解决方式的相关差异、买后服务怎样具体落地。常见经验是结合选苗适配和持续指导解释问题；同行对比只有在有助于客户理解时才使用。调用 brand.service_facts 后，可把单品知识落到对应品种的单品养护教程，把实时指导落到师傅一对一实操指导。表达顺序、轮次和取舍由 Agent 根据上下文决定，已经讲清的内容不重复；讲到足以支撑推荐就自主查商品或补选品偏好，不让客户在挑苗和发资料之间选择流程。以上是优先经验而非硬阈值；长期熟练客户、简单单点问题或已成熟购买机会应压缩或跳过，信息足够就主动搜索真实陪伴养兰服务或合适产品。",
     ),
     CapabilitySpec(
         "experience.relationship_before_product",
@@ -168,6 +174,12 @@ CAPABILITIES = (
         "experience",
         ("资料", "手册", "教程", "福利", "触点"),
         "资料是销售资产，不是客户一索要就自动发送的公共附件。索要资料说明客户愿意学习，应借资料会涉及的品种、养护、痛点或目标自然收集一项关键信息。当基本情况和需求尚未形成可用判断时，本轮不发资料，也不用固定‘再问一次’次数规则；当资料已与客户问题和成交目的匹配，或客户不购买时把它作为最终福利触点，才决定释放。真正发送时说明为什么给和重点看什么。资料发出后就退到背景，不围绕资料继续组织后续回复；客户提出黄叶等具体问题时，先像没有资料捷径一样直接解决，再根据已有事实判断是否推品，不能用‘资料里有’代替回答，也不重复发送同一资料。只有客户明确要求重发、表示找不到或上次未成功时才考虑重发。若信息仍不足就了解一个真正影响匹配的事实，若已足够就转入有依据的推品。",
+    ),
+    CapabilitySpec(
+        "experience.video_access",
+        "experience",
+        ("视频看不了", "视频打不开", "视频权限", "抖音购买", "订单截图"),
+        "视频看不了是需要解决的权益问题，不把它猜成网络波动，也不用图文内容代替。先问客户是否在抖音购买过萧岚苑商品；确认买过后请他发送能看清萧岚苑店铺与订单状态的截图。口头自述不等于核验通过。系统识别截图并在工作区写入‘抖音已购’后，调用 video_access.request 提醒人工处理，再如实说明已提交核对、权限仍待处理。整个过程不调用 human.handoff、不停止 AI 回复；处理完当前问题后，继续根据已有客户事实解决养护问题或推进合适商品与服务。",
     ),
     CapabilitySpec(
         "experience.objection",
@@ -211,6 +223,7 @@ async def execute_agent_tool(
         "care_manual.search": _care_manual_search,
         "material.search": _material_search,
         "material.send": _material_send,
+        "video_access.request": _video_access_request,
         "order.search": _order_search,
         "order.get": _order_get,
         "memory.record": _memory_record,
@@ -506,6 +519,69 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
         title=payload["title"],
         delivery_truth="prepared_not_sent",
     )
+
+
+async def _video_access_request(*, call_id, arguments, context) -> AgentToolResult:
+    del arguments
+    if not _has_verified_douyin_purchase(context):
+        return _result(
+            call_id,
+            "video_access.request",
+            "forbidden",
+            reason="verified_douyin_purchase_required",
+        )
+
+    from app.domains.handoff.services.handoff_notification_service import (
+        enqueue_handoff_notification,
+    )
+
+    metadata = context.message.metadata if isinstance(context.message.metadata, dict) else {}
+    notification = await enqueue_handoff_notification(
+        customer_wc_id=str(metadata.get("wc_id") or context.message.user_id),
+        nickname=_text(
+            metadata.get("nickname") or metadata.get("display_name"), maximum=200
+        ) or None,
+        wechat_id=_text(
+            metadata.get("alias_name") or metadata.get("wechat_id"), maximum=200
+        ) or None,
+        handoff_reason="video_access_review",
+        trigger_message=str(context.message.message or ""),
+        source_reference=context.message.trace_id,
+        notification_kind="reminder",
+    )
+    delivered = bool(notification.get("queued") or notification.get("feishu_sent"))
+    if not delivered:
+        return _result(
+            call_id,
+            "video_access.request",
+            "temporarily_unavailable",
+            reason="human_notification_unavailable",
+        )
+    return _result(
+        call_id,
+        "video_access.request",
+        "notified",
+        permission_status="pending_human_review",
+        ai_continues=True,
+        notification={
+            "queued": int(notification.get("queued") or 0),
+            "feishu_sent": bool(notification.get("feishu_sent")),
+        },
+    )
+
+
+def _has_verified_douyin_purchase(context: AgentExecutionContext) -> bool:
+    profile = context.workspace.get("profile")
+    profile = profile if isinstance(profile, dict) else {}
+    tags = profile.get("customer_tags")
+    tags = tags if isinstance(tags, list) else []
+    if "抖音已购" in tags:
+        return True
+    metadata = context.message.metadata if isinstance(context.message.metadata, dict) else {}
+    try:
+        return int(metadata.get("verified_order_count") or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 async def _order_search(*, call_id, arguments, context) -> AgentToolResult:
