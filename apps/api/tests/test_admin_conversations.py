@@ -220,6 +220,71 @@ def test_evaluation_card_is_recorded_as_real_workbench_message(
     assert ai_messages[1]["metadata"]["simulated_delivery"] is True
 
 
+def test_demo_card_counts_as_sent_for_material_deduplication(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    from app.domains.conversations.schemas.event import NormalizedMessage
+    from app.domains.conversations.services.conversation_service import (
+        record_ai_turn,
+        was_outbound_content_sent,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    title = "萧岚苑陪伴养兰资料"
+    card = {
+        "title": title,
+        "url": "https://example.com/orchid-guide",
+        "description": "养兰基础资料",
+        "thumb_url": "",
+    }
+    asyncio.run(
+        record_ai_turn(
+            message=NormalizedMessage(
+                trace_id="trace_demo_material",
+                channel="wechat",
+                user_id="demo_material_customer",
+                session_id="default",
+                message="把资料发我",
+                kb_id="kb_default",
+                metadata={
+                    "provider": "eyun",
+                    "provider_delivery_mode": "simulated",
+                },
+            ),
+            result={
+                "answer": "资料发您了。",
+                "outbound_messages": [
+                    {"type": "text", "content": "资料发您了。"},
+                    {
+                        "type": "link_card",
+                        "content": json.dumps(card, ensure_ascii=False),
+                    },
+                ],
+                "route": "agent",
+                "intent": {"primary_intent": "autonomous_sales_turn"},
+                "need_human": False,
+            },
+        )
+    )
+
+    detail = TestClient(app).get(
+        "/api/v1/admin/conversations/"
+        "wechat:demo_material_customer:default"
+    ).json()["data"]
+    ai_messages = [
+        item for item in detail["messages"] if item["sender_type"] == "ai"
+    ]
+    assert all(item["delivery_status"] == "sent" for item in ai_messages)
+    assert was_outbound_content_sent(
+        channel="wechat",
+        user_id="demo_material_customer",
+        content_marker=title,
+        within_days=30,
+    )
+
+
 def test_hidden_conversation_reappears_after_new_customer_message(monkeypatch, tmp_path):
     import asyncio
 

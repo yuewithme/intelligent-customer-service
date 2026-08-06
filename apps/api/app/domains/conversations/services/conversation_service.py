@@ -354,6 +354,10 @@ async def record_ai_turn(*, message, result: dict) -> None:
     skip_customer_record = bool(message.metadata.get("skip_customer_record"))
     evaluation_metadata = _evaluation_metadata(message.metadata)
     turn_metadata = {**evaluation_metadata}
+    simulated_delivery = bool(
+        message.metadata.get("provider_delivery_mode") == "simulated"
+        or message.metadata.get("demo")
+    )
     now = _now()
     suppress_handoff_notification = bool(
         message.metadata.get("suppress_handoff_notification")
@@ -532,12 +536,15 @@ async def record_ai_turn(*, message, result: dict) -> None:
             if evaluation_metadata:
                 outbound_metadata["provider"] = "evaluation"
                 outbound_metadata["simulated_delivery"] = True
+            elif simulated_delivery:
+                outbound_metadata["simulated_delivery"] = True
             session.add(
                 ConversationMessageModel(
                     conversation_id=conversation_id,
                     trace_id=message.trace_id,
                     sender_type="ai",
                     sender_id="ai",
+                    delivery_status="sent" if simulated_delivery else None,
                     content=_outbound_display_content(
                         message_type,
                         outbound_content,
