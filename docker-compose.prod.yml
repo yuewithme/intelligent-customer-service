@@ -11,18 +11,6 @@ services:
       HF_HOME: /app/data/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
-      INTENT_LLM_PROVIDER: dashscope
-      INTENT_LLM_MODEL: qwen3.7-flash
-      INTENT_LLM_TIMEOUT_SECONDS: "5"
-      INTENT_FAST_RULES_ENABLED: "true"
-      INTENT_FAST_RULE_THRESHOLD: "0.85"
-      INTENT_PROMPT_VERSION: v2
-      INTENT_SHADOW_ENABLED: "true"
-      INTENT_SHADOW_SAMPLE_PERCENT: "100"
-      INTENT_SHADOW_LLM_PROVIDER: dashscope
-      INTENT_SHADOW_LLM_MODEL: qwen3.7-plus
-      INTENT_EXAMPLE_PREWARM_ENABLED: "true"
-      INTENT_EMBEDDING_CACHE_PATH: /app/data/intent_taxonomy_embeddings.json
       PERSONA_LLM_PROVIDER: dashscope
       PERSONA_LLM_MODEL: qwen3.7-flash
       RAG_FAST_LLM_PROVIDER: dashscope

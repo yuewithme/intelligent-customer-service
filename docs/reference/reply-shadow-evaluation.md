@@ -1,5 +1,7 @@
 # 影子销售决策评测
 
+> 历史状态：回复影子链已退出生产运行，本文件仅供旧设计追溯。当前主链不生成影子候选，现役说明见 [`agent-harness-v2/README.md`](../agent-harness-v2/README.md)。
+
 完整历史会话的案例库与逐轮影子回放见
 [`conversation-case-shadow-evaluation.md`](conversation-case-shadow-evaluation.md)。
 

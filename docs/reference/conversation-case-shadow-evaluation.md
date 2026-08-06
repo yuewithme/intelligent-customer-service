@@ -1,5 +1,7 @@
 # 整案案例库与影子回放
 
+> 历史状态：影子回放已退出生产运行，本文件记录旧离线评测设计；其中运行入口和硬约束不得作为当前 Sales Agent 行为依据。现役评测原则见 [`agent-harness-v2/10-evaluation-and-acceptance.md`](../agent-harness-v2/10-evaluation-and-acceptance.md)。
+
 ## 目标
 
 整案案例库以“一位客户的一整段聊天”为最小存储、运行和审核单位。对话内部保留原始顺序，并生成顺序检查点，但不会把检查点拆成独立案例。
