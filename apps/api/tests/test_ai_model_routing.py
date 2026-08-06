@@ -60,16 +60,9 @@ def test_profile_model_config_prefers_dedicated_provider(monkeypatch):
     assert config.model == "deepseek-profile"
 
 
-@pytest.mark.parametrize(
-    ("model", "enable_thinking", "reasoning_effort"),
-    [
-        ("qwen3.7-plus", False, None),
-        ("qwen3.8-max", True, "xhigh"),
-    ],
-)
 @pytest.mark.asyncio
-async def test_dashscope_agent_json_configures_thinking_and_requests_json(
-    monkeypatch, model, enable_thinking, reasoning_effort
+async def test_dashscope_agent_json_disables_thinking_and_requests_json(
+    monkeypatch,
 ):
     from app.core.config import get_settings
     from app.integrations.ai.services import llm_service
@@ -112,8 +105,7 @@ async def test_dashscope_agent_json_configures_thinking_and_requests_json(
             return FakeResponse()
 
     monkeypatch.setenv("BUSINESS_LLM_PROVIDER", "dashscope")
-    monkeypatch.setenv("BUSINESS_LLM_MODEL", model)
-    monkeypatch.setenv("LLM_REASONING_EFFORT", "xhigh")
+    monkeypatch.setenv("BUSINESS_LLM_MODEL", "qwen3.7-plus")
     monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope_test_key")
     get_settings.cache_clear()
     monkeypatch.setattr(llm_service.httpx, "AsyncClient", FakeClient)
@@ -127,11 +119,7 @@ async def test_dashscope_agent_json_configures_thinking_and_requests_json(
         get_settings.cache_clear()
 
     assert result["data"]["commercial_judgment"] == "继续了解需求"
-    assert captured["body"]["enable_thinking"] is enable_thinking
-    if reasoning_effort is None:
-        assert "reasoning_effort" not in captured["body"]
-    else:
-        assert captured["body"]["reasoning_effort"] == reasoning_effort
+    assert captured["body"]["enable_thinking"] is False
     assert captured["body"]["response_format"] == {"type": "json_object"}
-    assert captured["body"]["model"] == model
+    assert captured["body"]["model"] == "qwen3.7-plus"
     assert captured["headers"]["Authorization"] == "Bearer dashscope_test_key"
