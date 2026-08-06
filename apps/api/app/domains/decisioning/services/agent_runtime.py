@@ -32,7 +32,7 @@ MAX_TOOL_ROUNDS = 5
 MAX_TOOL_CALLS = 10
 MAX_SCHEMA_REPAIRS = 1
 MAX_HARD_REWRITES = 1
-MAX_TRAJECTORY_REWRITES = 1
+MAX_TRAJECTORY_REWRITES = 2
 MAX_AGENT_MODEL_CALLS = (
     MAX_TOOL_ROUNDS
     + MAX_SCHEMA_REPAIRS
@@ -155,6 +155,98 @@ _TECHNICAL_TOPIC_MARKERS = {
         "根系",
     ),
 }
+_SERVICE_PAIN_MARKERS = (
+    "养不好",
+    "养死",
+    "不会养",
+    "反复出问题",
+    "总出问题",
+    "烂根",
+    "腐苗",
+    "黄叶",
+    "焦尖",
+    "黑斑",
+    "不开花",
+)
+_DIRECT_ACTION_REQUEST_MARKERS = (
+    "多少钱",
+    "价格",
+    "库存",
+    "有货",
+    "链接",
+    "下单",
+    "就要",
+    "我要买",
+    "给我推荐",
+    "发资料",
+    "发教程",
+    "发养护",
+)
+_OFFER_OR_BRANCH_MARKERS = (
+    "挑两盆",
+    "挑几盆",
+    "选两盆",
+    "选几盆",
+    "给您挑",
+    "给您推荐",
+    "查询适配",
+    "查询商品",
+    "推荐适配",
+    "进入推品",
+    "开始选苗",
+    "先试试",
+    "试试手",
+    "发一份",
+    "发资料",
+    "发教程",
+    "养护要点",
+    "根据客户选择",
+    "若选试手",
+    "若选资料",
+    "product.search",
+    "material.send",
+)
+_SEED_FIT_VALUE_MARKERS = (
+    "苗没选对",
+    "没有选对苗",
+    "选苗不适配",
+    "品种不适配",
+    "苗情不适配",
+    "适合您的苗",
+    "适配的健康苗",
+)
+_GUIDANCE_GAP_VALUE_MARKERS = (
+    "缺少一对一",
+    "没有一对一",
+    "没人一对一",
+    "缺少持续指导",
+    "没人指导",
+    "没人带",
+    "只能自己摸索",
+)
+_SERVICE_CONTRAST_MARKERS = (
+    "有些商家",
+    "部分商家",
+    "卖完就结束",
+    "卖完后",
+    "只卖",
+    "不只卖",
+    "不仅卖",
+    "买回去能不能养好",
+    "买后养护",
+)
+_TUTORIAL_DELIVERY_MARKERS = (
+    "单品养护教程",
+    "单品养护手册",
+    "对应品种的养护教程",
+    "对应品种的单品",
+)
+_ONE_TO_ONE_DELIVERY_MARKERS = (
+    "一对一指导",
+    "一对一实操",
+    "师傅一对一",
+    "养兰师傅",
+)
 
 
 async def run_sales_agent(
@@ -356,7 +448,14 @@ async def run_sales_agent(
             continue
         hard_violations = _guard_violations(decision, context)
         quality_flags = _quality_flags(decision)
-        trajectory_violations = _sales_trajectory_violations(decision, context)
+        trajectory_violations = list(
+            dict.fromkeys(
+                [
+                    *_sales_trajectory_violations(decision, context),
+                    *_service_value_sequence_violations(decision, context),
+                ]
+            )
+        )
         diagnostic["hard_violations"] = hard_violations
         diagnostic["quality_flags"] = quality_flags
         diagnostic["trajectory_violations"] = trajectory_violations
@@ -366,11 +465,7 @@ async def run_sales_agent(
             conversation.append(
                 {
                     "role": "system",
-                    "content": (
-                        "客户可见回复包含不能发送的事实或权限问题。只改写这些问题，"
-                        "保留其余已核实且有用的内容，不要输出内部说明，也不要重复调用已经成功的工具。"
-                        f"本次硬违规：{', '.join(hard_violations)}"
-                    ),
+                    "content": _hard_rewrite_instruction(hard_violations),
                 }
             )
             continue
@@ -395,14 +490,8 @@ async def run_sales_agent(
             conversation.append(
                 {
                     "role": "system",
-                    "content": (
-                        "当前方案仍在细化或等待同一个非核心技术问题，偏离了推进成交的目标。"
-                        "放弃这个细节，不再追问、索图、让客户检查，也不要把等待该细节写进 next_action。"
-                        "保留对客户当前问题的专业回答；然后用已有事实推进更高价值动作："
-                        "若已足以说明匹配理由，就查询真实商品或服务并主动推荐；若仍不足，"
-                        "只了解盆数与主要品种、明确目标或痛点、经验与失败史、持续指导缺口、"
-                        "选择偏好中最接近推荐就绪的一项。请重新做完整商业判断，而不只是改写问句。"
-                        f"本次停滞原因：{', '.join(trajectory_violations)}"
+                    "content": _sales_flow_rewrite_instruction(
+                        trajectory_violations
                     ),
                 }
             )
@@ -831,6 +920,11 @@ def _guard_violations(
         violations.append("internal_state_leak")
     if any(claim in text for claim in _FORBIDDEN_PROMOTION_CLAIMS):
         violations.append("unverified_promotion_claim")
+    if (
+        _contains_specific_brand_service_claim(text)
+        and not _has_found_tool(context, "brand.service_facts")
+    ):
+        violations.append("unverified_brand_service_claim")
     if any(pattern.search(text) for pattern in _SENT_SUCCESS_PATTERNS):
         violations.append("unverified_delivery_success")
     required_handoff = _required_handoff_reason(str(context.message.message or ""))
@@ -972,6 +1066,98 @@ def _sales_trajectory_violations(
     ):
         violations.append("repeated_customer_question")
     return list(dict.fromkeys(violations))
+
+
+def _service_value_sequence_violations(
+    decision: AgentTurnDecision,
+    context: AgentExecutionContext,
+) -> list[str]:
+    final = decision.final_response
+    if final is None:
+        return []
+    recent = context.workspace.get("recent_turns")
+    recent = recent if isinstance(recent, list) else []
+    customer_context = "\n".join(
+        [
+            str(item.get("content") or "")
+            for item in recent[-8:]
+            if isinstance(item, dict)
+            and str(item.get("role") or "").lower() in {"user", "customer"}
+        ]
+        + [str(context.message.message or "")]
+    )
+    if not any(marker in customer_context for marker in _SERVICE_PAIN_MARKERS):
+        return []
+    current_message = str(context.message.message or "")
+    if any(marker in current_message for marker in _DIRECT_ACTION_REQUEST_MARKERS):
+        return []
+
+    visible_text = "\n".join(
+        str(item.content or "") for item in final.messages if item.type == "text"
+    )
+    next_action = str(final.next_action or "")
+    proposed_flow = f"{visible_text}\n{next_action}"
+    if not any(marker in proposed_flow for marker in _OFFER_OR_BRANCH_MARKERS):
+        return []
+    if _service_value_sequence_complete(visible_text):
+        return []
+    return ["premature_offer_before_service_value"]
+
+
+def _service_value_sequence_complete(text: str) -> bool:
+    return all(
+        (
+            any(marker in text for marker in _SEED_FIT_VALUE_MARKERS),
+            any(marker in text for marker in _GUIDANCE_GAP_VALUE_MARKERS),
+            any(marker in text for marker in _SERVICE_CONTRAST_MARKERS),
+            any(marker in text for marker in _TUTORIAL_DELIVERY_MARKERS),
+            any(marker in text for marker in _ONE_TO_ONE_DELIVERY_MARKERS),
+        )
+    )
+
+
+def _contains_specific_brand_service_claim(text: str) -> bool:
+    return any(marker in text for marker in _TUTORIAL_DELIVERY_MARKERS) and any(
+        marker in text for marker in _ONE_TO_ONE_DELIVERY_MARKERS
+    )
+
+
+def _sales_flow_rewrite_instruction(violations: list[str]) -> str:
+    if "premature_offer_before_service_value" in violations:
+        return (
+            "当前方案在服务价值还没有讲透前，就让客户选择挑苗还是拿资料，偏离了推进成交的目标。"
+            "不要把销售流程选择权交给客户。请重新做完整商业判断：先把反复养不好的常见原因"
+            "归纳为选苗不适配和买后缺少一对一指导；再可信地说明市面上有些商家卖完后缺少"
+            "持续养护承接，而萧岚苑更关注客户买回去能不能养好。随后先调用 brand.service_facts，"
+            "再具体讲清两个交付：对应品种的单品养护教程，以及教程看完或实操不懂时由养兰师傅"
+            "结合实际情况一对一指导。完成价值塑造后，由你决定直接查询适配商品，还是只补一个"
+            "真正影响选品的偏好；不要再问客户要先挑几盆还是先发资料。"
+            f"本次停滞原因：{', '.join(violations)}"
+        )
+    return (
+        "当前方案仍在细化或等待同一个非核心技术问题，偏离了推进成交的目标。"
+        "放弃这个细节，不再追问、索图、让客户检查，也不要把等待该细节写进 next_action。"
+        "保留对客户当前问题的专业回答；然后用已有事实推进更高价值动作："
+        "若已足以说明匹配理由，就查询真实商品或服务并主动推荐；若仍不足，"
+        "只了解盆数与主要品种、明确目标或痛点、经验与失败史、持续指导缺口、"
+        "选择偏好中最接近推荐就绪的一项。请重新做完整商业判断，而不只是改写问句。"
+        f"本次停滞原因：{', '.join(violations)}"
+    )
+
+
+def _hard_rewrite_instruction(violations: list[str]) -> str:
+    if "unverified_brand_service_claim" in violations:
+        return (
+            "具体的单品养护教程和师傅一对一指导属于需要核实的服务事实。"
+            "先调用 brand.service_facts；工具返回 found 后，再基于结果完整保留服务价值说明。"
+            "不要为了修复事实边界而删掉塑品步骤，也不要输出内部说明。"
+            f"本次硬违规：{', '.join(violations)}"
+        )
+    return (
+        "客户可见回复包含不能发送的事实或权限问题。只改写这些问题，"
+        "保留其余已核实且有用的内容，不要输出内部说明，也不要重复调用已经成功的工具。"
+        f"本次硬违规：{', '.join(violations)}"
+    )
 
 
 def _technical_topics(text: str) -> set[str]:
