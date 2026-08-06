@@ -153,6 +153,9 @@ async def generate_messages_json(
                 },
             },
             "usage": {},
+            "provider": config.provider,
+            "model": config.model,
+            "provider_request_id": None,
         }
     prompt = json.dumps(messages, ensure_ascii=False, separators=(",", ":"))
     last_error: Exception | None = None
@@ -172,6 +175,15 @@ async def generate_messages_json(
             return {
                 "data": json.loads(body["choices"][0]["message"]["content"]),
                 "usage": body.get("usage", {}),
+                "provider": config.provider,
+                "model": config.model,
+                "provider_request_id": str(
+                    body.get("_provider_request_id")
+                    or body.get("request_id")
+                    or body.get("id")
+                    or ""
+                )
+                or None,
             }
         except json.JSONDecodeError as exc:
             last_error = exc
@@ -265,6 +277,12 @@ async def _chat_completion(
             body = response.json()
             if json_mode:
                 json.loads(body["choices"][0]["message"]["content"])
+            body["_provider_request_id"] = str(
+                body.get("request_id")
+                or body.get("id")
+                or getattr(response, "headers", {}).get("x-request-id")
+                or ""
+            )
         _record_success(
             purpose=purpose,
             config=config,
@@ -336,7 +354,8 @@ def _record_success(
             usage.get("completion_tokens") or usage.get("output_tokens")
         ),
         provider_request_id=str(
-            body.get("request_id")
+            body.get("_provider_request_id")
+            or body.get("request_id")
             or body.get("id")
             or getattr(response, "headers", {}).get("x-request-id")
             or ""

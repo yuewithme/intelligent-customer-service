@@ -687,7 +687,7 @@ def test_hard_guard_requires_exact_verified_stock_and_url():
     }
 
 
-def test_style_guard_rejects_multi_question_list_and_quotes():
+def test_style_flags_do_not_become_hard_violations():
     context = AgentExecutionContext(
         message=_message("总是养死，怎么办"),
         user_state=UserState(user_id="customer-1"),
@@ -713,7 +713,8 @@ def test_style_guard_rejects_multi_question_list_and_quotes():
         )["data"]
     )
 
-    assert set(agent_runtime._guard_violations(decision, context)) == {
+    assert agent_runtime._guard_violations(decision, context) == []
+    assert set(agent_runtime._quality_flags(decision)) == {
         "too_many_customer_questions",
         "non_conversational_list_style",
         "unnecessary_customer_quotes",
@@ -741,6 +742,106 @@ def test_style_guard_allows_one_natural_question():
     )
 
     assert agent_runtime._guard_violations(decision, context) == []
+    assert agent_runtime._quality_flags(decision) == []
+
+
+def test_natural_compound_question_is_not_counted_by_question_words():
+    decision = AgentTurnDecision.model_validate(
+        _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "您以前有没有专门学过养兰，还是主要凭自己的感觉摸索呀？",
+                    }
+                ],
+                "need_human": False,
+            }
+        )["data"]
+    )
+
+    assert agent_runtime._quality_flags(decision) == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_sends_quality_flagged_reply_without_retry(monkeypatch):
+    calls = 0
+
+    async def fake_generate(*args, **kwargs):
+        nonlocal calls
+        del args, kwargs
+        calls += 1
+        return _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "您说的“老叶发黄”我明白。\n1. 是底部老叶吗？\n2. 最近有没有施肥？",
+                    }
+                ],
+                "need_human": False,
+            }
+        )
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("主要是老叶发黄，这种怎么处理"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
+    assert calls == 1
+    assert reply.route == "agent"
+    assert "老叶发黄" in reply.answer
+    assert set(reply.metadata["agent_runtime"]["quality_flags"]) == {
+        "too_many_customer_questions",
+        "non_conversational_list_style",
+        "unnecessary_customer_quotes",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tool_rounds_append_only_new_results(monkeypatch):
+    snapshots = []
+    responses = iter(
+        [
+            _decision(
+                tools=[
+                    {
+                        "call_id": "discover-1",
+                        "name": "capability.search",
+                        "arguments": {"query": "养兰服务"},
+                    }
+                ]
+            ),
+            _decision(
+                final={
+                    "messages": [{"type": "text", "content": "我先按您现在的情况帮您理清。"}],
+                    "need_human": False,
+                }
+            ),
+        ]
+    )
+
+    async def fake_generate(messages, **kwargs):
+        del kwargs
+        snapshots.append(json.loads(json.dumps(messages, ensure_ascii=False)))
+        return next(responses)
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    await agent_runtime.run_sales_agent(
+        message=_message("养不好怎么办"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={"profile": {"customer_tags": ["1-10盆"]}},
+    )
+
+    first_user_messages = [m for m in snapshots[0] if m["role"] == "user"]
+    second_user_messages = [m for m in snapshots[1] if m["role"] == "user"]
+    assert len(first_user_messages) == 1
+    assert len(second_user_messages) == 2
+    assert "customer_workspace" in second_user_messages[0]["content"]
+    assert "new_tool_results" in second_user_messages[1]["content"]
+    assert "customer_workspace" not in second_user_messages[1]["content"]
 
 
 def test_opening_guard_requires_identity_and_one_needs_question():
@@ -782,11 +883,13 @@ def test_opening_guard_requires_identity_and_one_needs_question():
 
     assert agent_runtime._guard_violations(valid, context) == []
     assert set(agent_runtime._guard_violations(invalid, context)) == {
-        "too_many_customer_questions",
         "opening_identity_missing",
         "opening_needs_question_invalid",
         "opening_profile_question_invalid",
     }
+    assert agent_runtime._quality_flags(invalid) == [
+        "too_many_customer_questions"
+    ]
 
     pushy = AgentTurnDecision.model_validate(
         _decision(
@@ -823,7 +926,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         for item in agent_tools.CAPABILITIES
         if item.name == "experience.relationship_before_product"
     )
-    assert "每轮收集一项会影响匹配的客户事实" in experience.instructions
+    assert "只收集会影响匹配的客户事实" in experience.instructions
     assert "应自然转入真实商品查询和主动推荐" in experience.instructions
 
     discovery = next(
@@ -832,7 +935,8 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         if item.name == "experience.need_discovery"
     )
     assert "足以支撑销售匹配的客户事实" in discovery.instructions
-    assert "转入主动推品" in discovery.instructions
+    assert "主动推品" in discovery.instructions
+    assert "问题不是每轮默认动作" in discovery.instructions
 
     material = next(
         item
@@ -944,9 +1048,58 @@ async def test_hard_guard_blocks_ungrounded_price(monkeypatch):
         workspace={},
     )
 
-    assert reply.reply_type == "sales_agent_fallback"
-    assert "99元" not in reply.answer
-    assert "库存充足" not in reply.answer
+    assert reply.reply_type == "human"
+    assert reply.route == "human"
+    assert reply.outbound_messages == []
+    attempts = reply.metadata["agent_runtime"]["attempt_trace"]
+    assert len(attempts) == 2
+    assert attempts[0]["outcome"] == "hard_rewrite_requested"
+    assert attempts[1]["outcome"] == "hard_blocked"
+
+
+@pytest.mark.asyncio
+async def test_hard_guard_rewrites_once_and_keeps_safe_agent_reply(monkeypatch):
+    responses = iter(
+        [
+            _decision(
+                final={
+                    "messages": [{"type": "text", "content": "这款现在99元。"}],
+                    "need_human": False,
+                }
+            ),
+            _decision(
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "具体价格我先按真实商品帮您查清楚，再给您准确答复。",
+                        }
+                    ],
+                    "need_human": False,
+                }
+            ),
+        ]
+    )
+
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return next(responses)
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("多少钱"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
+    assert reply.route == "agent"
+    assert "真实商品" in reply.answer
+    attempts = reply.metadata["agent_runtime"]["attempt_trace"]
+    assert [attempt["outcome"] for attempt in attempts] == [
+        "hard_rewrite_requested",
+        "accepted",
+    ]
+    assert reply.metadata["agent_runtime"]["result"] == "sent"
 
 
 @pytest.mark.asyncio
