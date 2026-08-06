@@ -274,14 +274,14 @@ class Settings(BaseSettings):
     rag_llm_provider: str = ""
     rag_llm_model: str = ""
     rag_fast_llm_provider: str = ""
-    rag_fast_llm_model: str = "qwen3.6-flash"
+    rag_fast_llm_model: str = "qwen3.7-flash"
     reply_model_router_enabled: bool = Field(
         default=True, alias="REPLY_MODEL_ROUTER_ENABLED"
     )
     business_llm_provider: str = ""
     business_llm_model: str = ""
     persona_llm_provider: str = ""
-    persona_llm_model: str = "qwen3.6-flash"
+    persona_llm_model: str = "qwen3.7-flash"
     persona_llm_timeout_seconds: float = Field(
         default=15, ge=1, alias="PERSONA_LLM_TIMEOUT_SECONDS"
     )
