@@ -180,6 +180,80 @@ async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_agent_places_need_discovery_after_material_card(monkeypatch):
+    async def material_not_recently_sent(*args, **kwargs):
+        del args, kwargs
+        return False
+
+    responses = iter(
+        [
+            _decision(
+                tools=[
+                    {
+                        "call_id": "material-search-1",
+                        "name": "material.search",
+                        "arguments": {"query": "新手养兰资料", "limit": 3},
+                    }
+                ]
+            ),
+            _decision(
+                tools=[
+                    {
+                        "call_id": "material-send-1",
+                        "name": "material.send",
+                        "arguments": {
+                            "material_ref": "material:orchid-companion"
+                        },
+                    }
+                ]
+            ),
+            _decision(
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "这是直播里提到的养兰资料，您可以先看新手常见问题那部分。",
+                        },
+                        {"type": "prepared", "ref": "material-send-1"},
+                        {
+                            "type": "text",
+                            "content": "我也好按您的情况给更具体的建议。您家里已经养着兰花，还是准备先从第一盆开始？",
+                        },
+                    ],
+                    "need_human": False,
+                },
+                judgment="客户主动索要资料，需要及时交付并顺势了解养兰经验",
+                purpose="交付资料的同时让客户容易继续开口",
+            ),
+        ]
+    )
+
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return next(responses)
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    monkeypatch.setattr(
+        agent_tools, "_material_recently_sent", material_not_recently_sent
+    )
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("你们直播间说有资料的，我要资料"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
+    assert [item.type for item in reply.outbound_messages] == [
+        "text",
+        "link_card",
+        "text",
+    ]
+    card = json.loads(reply.outbound_messages[1].content)
+    assert card["title"] == "萧岚苑陪伴养兰资料"
+    assert "已经养着兰花" in reply.outbound_messages[2].content
+    assert reply.outbound_messages[2].content.endswith("？")
+
+
+@pytest.mark.asyncio
 async def test_prepared_card_is_not_sent_when_agent_does_not_place_it(monkeypatch):
     product = {
         "item_id": "item-39",
@@ -432,6 +506,8 @@ def test_harness_prioritizes_relationship_before_product():
     assert "先在 commercial_judgment 中说明客户已经出现的购买信号" in prompt
     assert "先用一句客户收益说明回答后能得到什么" in prompt
     assert "新建一个 text 消息" in prompt
+    assert "在同一回复包的资料卡片后" in prompt
+    assert "不要只用“有问题随时找我”" in prompt
 
     experience = next(
         item
@@ -447,6 +523,22 @@ def test_harness_prioritizes_relationship_before_product():
         if item.name == "experience.need_discovery"
     )
     assert "回答后能得到的具体收益" in discovery.instructions
+
+    material = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.material_value"
+    )
+    assert "紧接着顺资料内容只问一个" in material.instructions
+    assert "不把挖需当领取门槛" in material.instructions
+
+    objection = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.objection"
+    )
+    assert "是礼貌性软收口，不是明确拒绝" in objection.instructions
+    assert "换一个更容易回答的角度" in objection.instructions
 
 
 @pytest.mark.asyncio
