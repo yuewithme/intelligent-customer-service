@@ -132,6 +132,44 @@ def test_turn_payload_foregrounds_short_reply_and_previous_assistant_question():
         "您觉得这种有人带着走的方式，是不是更踏实？",
     ]
     assert "推进下一步" in payload["turn_focus"]["instruction"]
+    assert payload["full_conversation"]["turns"] == [
+        {"role": "customer", "content": "你们什么服务？"},
+        {"role": "assistant", "content": "每个品种都有对应的单品养护教程。"},
+        {"role": "assistant", "content": "实际养护中还有师傅一对一指导。"},
+        {
+            "role": "assistant",
+            "content": "您觉得这种有人带着走的方式，是不是更踏实？",
+        },
+    ]
+    assert payload["full_conversation"]["truncated_oldest"] is False
+    assert "recent_turns" not in payload["customer_workspace"]
+
+
+def test_turn_payload_keeps_latest_full_conversation_within_char_budget():
+    payload = json.loads(
+        build_turn_payload(
+            customer_message="是的",
+            customer_workspace={
+                "recent_turns": [
+                    {"role": "customer", "content": "早" * 600},
+                    {"role": "assistant", "content": "近" * 600},
+                    {"role": "customer", "content": "是的"},
+                ]
+            },
+            event_context={},
+            tool_results=[],
+        )
+    )
+
+    conversation = payload["full_conversation"]
+    assert conversation["content_chars"] == 1000
+    assert conversation["truncated_oldest"] is True
+    assert conversation["turns"][0]["content"].startswith("…")
+    assert conversation["turns"][-1] == {
+        "role": "assistant",
+        "content": "近" * 600,
+    }
+    assert all(turn["content"] != "是的" for turn in conversation["turns"])
 
 
 @pytest.mark.asyncio

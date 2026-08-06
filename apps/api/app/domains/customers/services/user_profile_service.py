@@ -84,13 +84,27 @@ JSON 格式：
 """
 
 
-async def get_profile_bundle(user_id: str) -> dict:
+async def get_profile_bundle(
+    user_id: str,
+    conversation_char_budget: int | None = None,
+    conversation_session_id: str | None = None,
+) -> dict:
     with _get_session() as session:
         profile = _get_or_create_profile(session, user_id)
         session.commit()
+        recent_memories = (
+            _list_memories_for_char_budget(
+                session,
+                user_id,
+                conversation_char_budget,
+                session_id=conversation_session_id,
+            )
+            if conversation_char_budget is not None
+            else _list_memories(session, user_id, 10)
+        )
         bundle = {
             "profile": _profile_to_dict(profile),
-            "recent_memories": _list_memories(session, user_id, 10),
+            "recent_memories": recent_memories,
             "events": _list_events(session, user_id, 20),
         }
     return bundle
@@ -908,6 +922,39 @@ def _list_memories(session: Session, user_id: str, limit: int) -> list[dict]:
         .limit(limit)
     ).all()
     return [_memory_to_dict(row) for row in reversed(rows)]
+
+
+def _list_memories_for_char_budget(
+    session: Session,
+    user_id: str,
+    char_budget: int,
+    *,
+    session_id: str | None,
+) -> list[dict]:
+    budget = max(1, min(int(char_budget), 5000))
+    filters = [ConversationMemoryModel.user_id == user_id]
+    if session_id is not None:
+        filters.append(ConversationMemoryModel.session_id == session_id)
+    rows = session.scalars(
+        select(ConversationMemoryModel)
+        .where(*filters)
+        .order_by(
+            ConversationMemoryModel.created_at.desc(),
+            ConversationMemoryModel.id.desc(),
+        )
+    ).yield_per(50)
+    selected: list[ConversationMemoryModel] = []
+    used_chars = 0
+    for row in rows:
+        content_length = len(str(row.content or ""))
+        if selected and used_chars + content_length > budget:
+            selected.append(row)
+            break
+        selected.append(row)
+        used_chars += content_length
+        if used_chars >= budget:
+            break
+    return [_memory_to_dict(row) for row in reversed(selected)]
 
 
 def _list_profile_context_records(
