@@ -1110,10 +1110,11 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "客户口径只说“已经联系同事处理了”" in prompt
     assert "不是调用工具的硬门槛" in prompt
     assert "不要求固定字段、精确盆数、完整画像" in prompt
-    assert "推品方向采用柔性权重，不做固定路由" in prompt
-    assert "这些首先是养兰服务需求信号，不等于他想再买一盆兰花" in prompt
-    assert "优先用 query“陪伴养兰”查询真实服务商品" in prompt
-    assert "这是默认权重和销售经验，不是运行时硬规则" in prompt
+    assert "推品方向采用明确的默认权重，但不做运行时固定路由" in prompt
+    assert "都是养兰服务需求信号，不能据此推导客户想再买一盆兰花" in prompt
+    assert "只要客户没有明确的兰花购买需求，推品方向就落在陪伴养兰服务" in prompt
+    assert "仅仅提到自己现有的建兰等品种不算购买需求" in prompt
+    assert "不是运行时关键词拦截、固定流程或硬规则重试" in prompt
 
     experience = next(
         item
@@ -1180,7 +1181,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "已有大致盆数和痛点通常足以" in service_fit.instructions
     assert "单品知识" in service_fit.instructions
     assert "实时指导" in service_fit.instructions
-    assert "优先经验而非硬阈值" in service_fit.instructions
+    assert "强默认经验，不是运行时硬阈值或固定路由" in service_fit.instructions
     assert "以三个结果检查价值是否足够" in service_fit.instructions
     assert "表达顺序、轮次和取舍由 Agent 根据上下文决定" in service_fit.instructions
     assert "按固定价值顺序" not in service_fit.instructions
@@ -1215,16 +1216,17 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         item for item in agent_tools.CAPABILITIES if item.name == "product.search"
     )
     assert "不要求固定字段、精确盆数或完整画像" in product_search.instructions
-    assert "不要仅把养护痛点解释成需要换一盆好养兰花" in product_search.instructions
-    assert "默认权重和销售经验，不是运行时硬门槛" in product_search.instructions
+    assert "推品方向统一为陪伴养兰服务" in product_search.instructions
+    assert "养护痛点不能被解释成需要换一盆好养兰花" in product_search.instructions
+    assert "不是运行时关键词硬拦截" in product_search.instructions
 
     direction_weighting = next(
         item
         for item in agent_tools.CAPABILITIES
         if item.name == "experience.product_direction_weighting"
     )
-    assert "主要提高陪伴养兰服务权重" in direction_weighting.instructions
-    assert "并不表示客户想买新兰花" in direction_weighting.instructions
+    assert "推品统一落在陪伴养兰服务" in direction_weighting.instructions
+    assert "都不能推导出客户想买新兰花" in direction_weighting.instructions
     assert "query‘陪伴养兰’" in direction_weighting.instructions
     assert "不是固定路由、必经流程或运行时硬阻拦" in direction_weighting.instructions
 
