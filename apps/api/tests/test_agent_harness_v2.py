@@ -382,7 +382,7 @@ async def test_agent_recommends_companion_service_after_guidance_gap(monkeypatch
                     {
                         "call_id": "service-search",
                         "name": "product.search",
-                        "arguments": {"query": "陪伴养兰服务", "limit": 2},
+                        "arguments": {"query": "陪伴养兰", "limit": 2},
                     }
                 ],
                 judgment="盆数、黄叶痛点和无人指导已经明确，适合主动匹配陪伴养兰服务",
@@ -1110,6 +1110,10 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "客户口径只说“已经联系同事处理了”" in prompt
     assert "不是调用工具的硬门槛" in prompt
     assert "不要求固定字段、精确盆数、完整画像" in prompt
+    assert "推品方向采用柔性权重，不做固定路由" in prompt
+    assert "这些首先是养兰服务需求信号，不等于他想再买一盆兰花" in prompt
+    assert "优先用 query“陪伴养兰”查询真实服务商品" in prompt
+    assert "这是默认权重和销售经验，不是运行时硬规则" in prompt
 
     experience = next(
         item
@@ -1210,8 +1214,19 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     product_search = next(
         item for item in agent_tools.CAPABILITIES if item.name == "product.search"
     )
-    assert "不要求固定字段、精确盆数、完整画像" in product_search.instructions
-    assert "这是优先经验，不是硬门槛" in product_search.instructions
+    assert "不要求固定字段、精确盆数或完整画像" in product_search.instructions
+    assert "不要仅把养护痛点解释成需要换一盆好养兰花" in product_search.instructions
+    assert "默认权重和销售经验，不是运行时硬门槛" in product_search.instructions
+
+    direction_weighting = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.product_direction_weighting"
+    )
+    assert "主要提高陪伴养兰服务权重" in direction_weighting.instructions
+    assert "并不表示客户想买新兰花" in direction_weighting.instructions
+    assert "query‘陪伴养兰’" in direction_weighting.instructions
+    assert "不是固定路由、必经流程或运行时硬阻拦" in direction_weighting.instructions
 
     service_facts = next(
         item
