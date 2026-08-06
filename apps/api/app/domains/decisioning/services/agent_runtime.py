@@ -167,6 +167,18 @@ _ONE_TO_ONE_DELIVERY_MARKERS = (
     "师傅一对一",
     "养兰师傅",
 )
+_VIDEO_ACCESS_NOTIFICATION_CLAIMS = (
+    "已提醒同事",
+    "已经提醒同事",
+    "已通知同事",
+    "已经通知同事",
+    "已提交权限处理",
+    "已经提交权限处理",
+    "已提交权限申请",
+    "已经提交权限申请",
+    "已提交给同事核对",
+    "已经提交给同事核对",
+)
 
 
 async def run_sales_agent(
@@ -838,6 +850,12 @@ def _guard_violations(
         and not _has_found_tool(context, "brand.service_facts")
     ):
         violations.append("unverified_brand_service_claim")
+    if (
+        _is_video_access_context(text, str(context.message.message or ""))
+        and any(claim in text for claim in _VIDEO_ACCESS_NOTIFICATION_CLAIMS)
+        and not _has_tool_status(context, "video_access.request", "notified")
+    ):
+        violations.append("unverified_video_access_notification")
     if any(pattern.search(text) for pattern in _SENT_SUCCESS_PATTERNS):
         violations.append("unverified_delivery_success")
     required_handoff = _required_handoff_reason(str(context.message.message or ""))
@@ -987,6 +1005,14 @@ def _contains_specific_brand_service_claim(text: str) -> bool:
     )
 
 
+def _is_video_access_context(reply_text: str, customer_text: str) -> bool:
+    combined = f"{customer_text}\n{reply_text}"
+    return "视频" in combined and any(
+        marker in combined
+        for marker in ("看不了", "打不开", "无法播放", "权限", "开通")
+    )
+
+
 def _sales_flow_rewrite_instruction(violations: list[str]) -> str:
     return (
         "当前方案仍在细化或等待同一个非核心技术问题，偏离了推进成交的目标。"
@@ -1000,6 +1026,14 @@ def _sales_flow_rewrite_instruction(violations: list[str]) -> str:
 
 
 def _hard_rewrite_instruction(violations: list[str]) -> str:
+    if "unverified_video_access_notification" in violations:
+        return (
+            "不能在没有真实工具结果时声称已提醒同事或已提交视频权限处理。"
+            "若工作区已有‘抖音已购’验证标签，先调用 video_access.request；"
+            "若还没有，只询问是否在抖音购买并请客户发送能看到店铺与订单状态的截图。"
+            "不要调用 human.handoff，保持 AI 继续回复，也不要声称权限已经开通。"
+            f"本次硬违规：{', '.join(violations)}"
+        )
     if "unverified_brand_service_claim" in violations:
         return (
             "具体的单品养护教程和师傅一对一指导属于需要核实的服务事实。"
@@ -1202,6 +1236,17 @@ def _collect_urls(value: Any, output: set[str]) -> None:
 def _has_found_tool(context: AgentExecutionContext, *names: str) -> bool:
     return any(
         fact.get("tool") in names and fact.get("status") in {"found", "prepared"}
+        for fact in context.tool_facts.values()
+    )
+
+
+def _has_tool_status(
+    context: AgentExecutionContext,
+    name: str,
+    *statuses: str,
+) -> bool:
+    return any(
+        fact.get("tool") == name and fact.get("status") in statuses
         for fact in context.tool_facts.values()
     )
 

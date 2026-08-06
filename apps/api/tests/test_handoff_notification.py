@@ -274,3 +274,42 @@ async def test_feishu_webhook_receives_same_handoff_notification(
             },
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_video_access_reminder_notifies_operator_without_handoff_wording(
+    monkeypatch, tmp_path
+):
+    contact_id = await _create_contact(monkeypatch, tmp_path)
+    update_handoff_notification_settings(
+        HandoffNotificationSettingsUpdateRequest(
+            recipient_contact_ids=[contact_id],
+            message_text="请及时接待这位客户。",
+        )
+    )
+    queued: list[dict] = []
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.message_risk_control_service.enqueue_wechat_outbound",
+        fake_enqueue,
+    )
+
+    result = await enqueue_handoff_notification(
+        customer_wc_id="customer-wxid",
+        nickname="兰友小王",
+        wechat_id="orchid_wang",
+        handoff_reason="video_access_review",
+        trigger_message="[订单截图已核验] 视频看不了",
+        source_reference="test-video-access",
+        notification_kind="reminder",
+    )
+
+    assert result["queued"] == 1
+    assert "转人工" not in queued[0]["content"]
+    assert "待处理用户昵称：兰友小王" in queued[0]["content"]
+    assert "处理事项：核实抖音购买截图并处理视频课程权限" in queued[0]["content"]
+    assert "触发客户消息：[订单截图已核验] 视频看不了" in queued[0]["content"]
