@@ -269,9 +269,6 @@ class Settings(BaseSettings):
 
     llm_provider: str = "mock"
     llm_model: str = "deepseek-chat"
-    llm_reasoning_effort: Literal["low", "medium", "xhigh"] = Field(
-        default="xhigh", alias="LLM_REASONING_EFFORT"
-    )
     llm_timeout_seconds: float = Field(default=180, ge=1)
     rag_llm_timeout_seconds: float = Field(default=60, ge=1)
     rag_llm_provider: str = ""
