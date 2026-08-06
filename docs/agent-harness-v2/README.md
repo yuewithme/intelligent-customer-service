@@ -36,6 +36,7 @@
 | 9 | [微信队列与输入处理](09-wechat-queue-and-input.md) | 通道队列、输入处理和触达计数 | 已确认 |
 | 10 | [评测与验收](10-evaluation-and-acceptance.md) | 离线回归、替换门槛和上线监控 | 已确认 |
 | 11 | [实施状态与运维交接](11-implementation-status.md) | 已落地模块、配置、验证与 Git 回退 | 已完成 |
+| 12 | [硬规则精简与自主销售推进改造计划](12-hard-guard-simplification-plan.md) | 硬边界收缩、重试与兜底改造、商业充分性和实施验收 | 待实施 |
 
 ## 哪些内容不需要你提供
 
