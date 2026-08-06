@@ -9,6 +9,7 @@ from app.domains.decisioning.services import agent_runtime, agent_tools
 from app.domains.decisioning.services.agent_prompt import (
     build_system_prompt,
     build_tool_result_payload,
+    build_turn_payload,
 )
 from app.domains.decisioning.services.agent_tools import AgentExecutionContext
 
@@ -95,6 +96,42 @@ def test_tool_result_payload_marks_draft_and_prepared_items_as_unsent():
             "要发送已准备卡片，必须在 final_response.messages 中引用对应 call_id。"
         ),
     }
+
+
+def test_turn_payload_foregrounds_short_reply_and_previous_assistant_question():
+    payload = json.loads(
+        build_turn_payload(
+            customer_message="是的",
+            customer_workspace={
+                "recent_turns": [
+                    {"role": "customer", "content": "你们什么服务？"},
+                    {
+                        "role": "assistant",
+                        "content": "每个品种都有对应的单品养护教程。",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "实际养护中还有师傅一对一指导。",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "您觉得这种有人带着走的方式，是不是更踏实？",
+                    },
+                    {"role": "customer", "content": "是的"},
+                ]
+            },
+            event_context={},
+            tool_results=[],
+        )
+    )
+
+    assert payload["turn_focus"]["current_customer_message"] == "是的"
+    assert payload["turn_focus"]["previous_assistant_messages"] == [
+        "每个品种都有对应的单品养护教程。",
+        "实际养护中还有师傅一对一指导。",
+        "您觉得这种有人带着走的方式，是不是更踏实？",
+    ]
+    assert "推进下一步" in payload["turn_focus"]["instruction"]
 
 
 @pytest.mark.asyncio
@@ -746,6 +783,158 @@ async def test_agent_sends_companion_service_card_after_customer_interest(
     assert [item.type for item in reply.outbound_messages] == ["text", "link_card"]
     assert json.loads(reply.outbound_messages[1].content)["title"] == "陪伴养兰服务"
     assert reply.metadata["agent_runtime"]["purchase_signal"] == "interest"
+
+
+@pytest.mark.asyncio
+async def test_agent_advances_short_service_acceptance_to_trial_close(monkeypatch):
+    service = {
+        "item_id": "service-1",
+        "title": "陪伴养兰服务",
+        "price_cent": 3990,
+        "stock": 20,
+        "status": "online",
+        "h5_url": "https://shop.example.com/companion",
+        "knowledge": {"product_name": "陪伴养兰服务"},
+    }
+    monkeypatch.setattr(
+        agent_tools,
+        "search_catalog_products",
+        lambda query, limit=3: [service],
+    )
+    monkeypatch.setattr(agent_tools, "get_catalog_product", lambda item_id: service)
+    responses = iter(
+        [
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-facts",
+                        "name": "brand.service_facts",
+                        "arguments": {},
+                    }
+                ],
+                judgment="客户询问服务，先核实服务事实",
+                purpose="准备说明服务",
+            ),
+            _decision(
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": (
+                                "主要是两块实在的支撑。一是每个品种都有对应的单品养护教程，"
+                                "从收货、上盆到浇水施肥都会写清楚。"
+                            ),
+                        },
+                        {
+                            "type": "text",
+                            "content": (
+                                "二是真人指导，遇到拿不准的地方，"
+                                "师傅会结合您家的环境给一对一建议。"
+                            ),
+                        },
+                    ],
+                    "need_human": False,
+                },
+                judgment="客户还在询问服务内容",
+                purpose="再次介绍服务",
+            ),
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-search",
+                        "name": "product.search",
+                        "arguments": {"query": "陪伴养兰", "limit": 2},
+                    }
+                ],
+                judgment="是的是对上一轮服务价值的认可，已形成兴趣",
+                purpose="核实真实服务后试成交",
+                purchase_signal="interest",
+            ),
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-card",
+                        "name": "product.send_card",
+                        "arguments": {"product_ref": "product:service-1"},
+                    }
+                ],
+                judgment="客户认可陪伴服务，可以进入试成交",
+                purpose="发送真实服务卡片",
+                purchase_signal="interest",
+            ),
+            _decision(
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "那您可以先看看这个陪伴养兰服务，我把真实卡片放在下面。",
+                        },
+                        {"type": "prepared", "ref": "service-card"},
+                    ],
+                    "need_human": False,
+                },
+                judgment="客户已认可服务价值",
+                purpose="试成交并承接后续问题",
+                purchase_signal="interest",
+            ),
+        ]
+    )
+
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return next(responses)
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("是的"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={
+            "recent_turns": [
+                {"role": "customer", "content": "你们什么服务？"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "主要是两块实在的支撑。一是每个品种都有对应的单品养护教程，"
+                        "从收货、上盆到浇水施肥都会写清楚。"
+                    ),
+                },
+                {
+                    "role": "assistant",
+                    "content": (
+                        "二是真人指导，遇到拿不准的地方，"
+                        "师傅会结合您家的环境给一对一建议。"
+                    ),
+                },
+                {
+                    "role": "assistant",
+                    "content": "您觉得这种有人带着走的方式，是不是比自己摸索更踏实一些？",
+                },
+                {"role": "customer", "content": "是的"},
+            ]
+        },
+    )
+
+    assert [item.type for item in reply.outbound_messages] == ["text", "link_card"]
+    assert "两块实在的支撑" not in reply.answer
+    assert json.loads(reply.outbound_messages[1].content)["title"] == "陪伴养兰服务"
+    assert reply.metadata["agent_runtime"]["purchase_signal"] == "interest"
+    assert [item["tool"] for item in reply.metadata["agent_runtime"]["tool_trace"]] == [
+        "brand.service_facts",
+        "product.search",
+        "product.send_card",
+    ]
+    attempts = reply.metadata["agent_runtime"]["attempt_trace"]
+    assert [attempt["outcome"] for attempt in attempts] == [
+        "tool_calls_executed",
+        "trajectory_rewrite_requested",
+        "tool_calls_executed",
+        "tool_calls_executed",
+        "accepted",
+    ]
+    assert attempts[1]["trajectory_violations"] == [
+        "repeats_recent_assistant_content",
+        "missed_affirmed_service_trial_close",
+    ]
 
 
 @pytest.mark.asyncio
@@ -1418,6 +1607,8 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "商品卡片是客户已有清晰正向意向后的试成交动作" in prompt
     assert "客户只是承认养不好、没人指导、一直自己摸索" in prompt
     assert "只有 purchase_signal 为 interest 或 direct 时才调用 product.send_card" in prompt
+    assert "短回复必须结合紧邻的上一轮理解" in prompt
+    assert "purchase_signal 应从 none 进入 interest" in prompt
     assert "是否形成意向由 Agent 理解完整语义，不用关键词硬匹配" in prompt
 
     experience = next(
@@ -1535,6 +1726,8 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "query‘陪伴养兰’" in direction_weighting.instructions
     assert "商品卡片属于试成交" in direction_weighting.instructions
     assert "客户明确表示想进一步了解" in direction_weighting.instructions
+    assert "短肯定回复要与上一条 Agent 问话配对理解" in direction_weighting.instructions
+    assert "应推进真实服务卡片试成交" in direction_weighting.instructions
     assert "不是固定话术或固定轮次" in direction_weighting.instructions
 
     product_send = next(
@@ -1671,6 +1864,35 @@ def test_trajectory_guard_stops_non_core_detail_after_customer_cannot_answer():
     assert agent_runtime._sales_trajectory_violations(
         high_value_discovery, context
     ) == []
+
+
+def test_short_affirmative_inherits_service_value_not_unrelated_question():
+    accepted_service = AgentExecutionContext(
+        message=_message("是的"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={
+            "recent_turns": [
+                {
+                    "role": "assistant",
+                    "content": "您觉得这种陪伴服务是不是更踏实？",
+                },
+                {"role": "customer", "content": "是的"},
+            ]
+        },
+    )
+    confirmed_watering = AgentExecutionContext(
+        message=_message("是的"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={
+            "recent_turns": [
+                {"role": "assistant", "content": "您是不是两三天浇一次水？"},
+                {"role": "customer", "content": "是的"},
+            ]
+        },
+    )
+
+    assert agent_runtime._affirmed_service_trial_close(accepted_service) is True
+    assert agent_runtime._affirmed_service_trial_close(confirmed_watering) is False
 
 
 def test_trajectory_guard_catches_repeated_topic_in_visible_reply_and_next_action():
