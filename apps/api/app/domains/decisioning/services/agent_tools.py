@@ -56,6 +56,12 @@ CAPABILITIES = (
         "输入 {}。返回当前客户画像、最近对话、证据化记忆和今日触达状态；不能替代动态商品或订单查询。",
     ),
     CapabilitySpec(
+        "customer.tag",
+        "tool",
+        ("标签", "盆数", "品种", "客户等级", "L1", "L2", "L3", "L4", "L5", "L6"),
+        "输入 {\"tag\":\"标签库中的准确名称\",\"evidence\":\"客户本轮原话片段\"}。当客户亲口提供盆数、主要品种或足以判断 L1-L6 的稳定证据时记录标签；标签只辅助后续判断，不是销售阶段。等级准确名称是 L1 青铜期、L2 白银期、L3 黄金期、L4 铂金期、L5 宗师期、L6 王者期；常用盆数准确名称是 1-10盆、10-30盆、30-50盆、50-100盆、100-200盆、200+盆、1000+盆。L1 潜在或试错期，L2 有少量经验且常见养护问题，L3 有较多品种和稳定经验，L4 收藏与品种档案，L5 艺草研究，L6 品种缔造或高价值交易。不要凭一个品种名、一个痛点或盆数单独拔高等级；证据不足就不打。抖音已购和微信已购属于受保护标签，客户口头自述不能调用本工具写入。",
+    ),
+    CapabilitySpec(
         "knowledge.search",
         "tool",
         ("养护", "兰花", "病害", "烂根", "黄叶", "黑斑", "浇水", "施肥", "上盆", "开花"),
@@ -101,13 +107,13 @@ CAPABILITIES = (
         "order.search",
         "tool",
         ("订单", "付款", "发货", "物流", "快递", "手机号"),
-        "输入 {\"mobile\":\"客户主动提供的手机号，可选\",\"limit\":3}。只能查询当前客户绑定或其主动提供手机号的订单，返回脱敏信息和 order_ref。",
+        "输入 {\"mobile\":\"客户主动提供的手机号，可选\",\"limit\":3}。只能查询当前客户绑定或其主动提供手机号的订单，返回脱敏信息和 order_ref；查到已付款的真实微信/有赞订单后，系统自动记录微信已购。",
     ),
     CapabilitySpec(
         "order.get",
         "tool",
         ("订单详情", "order_ref", "物流详情"),
-        "输入 {\"order_ref\":\"order:真实订单号\",\"mobile\":\"可选\"}。只读当前客户订单；不能修改、退款或取消。",
+        "输入 {\"order_ref\":\"order:真实订单号\",\"mobile\":\"可选\"}。只读当前客户订单；查到已付款真实订单后系统自动记录微信已购，不能修改、退款或取消。",
     ),
     CapabilitySpec(
         "memory.record",
@@ -132,6 +138,18 @@ CAPABILITIES = (
         "experience",
         ("需求", "挖需", "追问", "信息不足", "情况"),
         "挖需是为了收集足以支撑销售匹配的客户事实，不是走表单。前段根据客户话题逐步了解目标或问题、养兰经验、环境、选择偏好、预算与顾虑中真正会改变推荐的部分，每轮只问一项。首次提问或目的不明时，先说回答后能得到的具体收益。不按固定字段数量判断完成；当已知事实足以说清客户需求、关键适配条件和推荐理由时，就停止无关追问并转入主动推品；如果一个未知还会明显改变推荐，就继续问。",
+    ),
+    CapabilitySpec(
+        "experience.customer_leveling",
+        "experience",
+        ("客户等级", "L1", "L2", "L3", "L4", "L5", "L6", "盆数", "品种", "收藏", "艺草", "稀有"),
+        "L1-L6 是可修正的客户理解，不是回复路由。L1 多为尚未入门、0 盆想重新开始或少量试养且需要基础认知；L2 有少量经验，但反复遇到黄叶、黑斑、腐苗、烂根、不开花等基础问题；L3 已有较多品种和相对稳定经验，关注病虫害、环境适配和经典品种；L4 关注收藏、瓣型、老种鉴定和品种档案；L5 深入研究艺草、叶艺和进化；L6 涉及育种、命名权、稀有种源或高价值交易。等级要综合客户亲口提供的盆数、养兰时间、问题复杂度和关注点；单个关键词不能决定等级。信息不足保持未知，有新证据时可以修正。",
+    ),
+    CapabilitySpec(
+        "experience.companion_service_fit",
+        "experience",
+        ("盆数", "养兰时间", "新手", "养死", "黑斑", "黄叶", "腐苗", "不开花", "没人教", "指导", "同行", "陪伴养兰"),
+        "盆数是前期分层入口，痛点和失败史是陪伴服务信号，养兰时间用于校准，过去是否有人持续指导用于确认服务缺口。客户 10 盆以内时，可结合上下文了解是否刚开始以及当前最具体的痛点；已有具体盆数和痛点通常足以开始解释问题并转向服务价值，不再横向盘问。客户 0 盆但曾经养死时，了解他是否愿意重新学习，或过去是否主要靠自己摸索；确认后可从重新选对适配的种苗和建立正确方法切入。客户只说养护痛点时，先补盆数；仍不足再分轮了解养兰时间，养兰两年内且 10 至 50 盆并反复出问题，通常更需要规范养护体系。先用通俗语言概括可能的病理、生理和环境因素，再自然了解原商家买后有没有持续指导；不要把问题武断归咎于客户，也不要断言一定是种苗问题。结合事实说明常见缺口是最初品种或苗情不适配、买后缺少专业指导，再介绍萧岚苑通过单品知识和结合实际情况的实时指导帮助客户少走弯路。以上是优先经验而非硬阈值；长期熟练客户、简单单点问题或已成熟购买机会应跳过，信息足够就主动搜索真实陪伴养兰服务或合适产品。",
     ),
     CapabilitySpec(
         "experience.relationship_before_product",
@@ -178,6 +196,7 @@ async def execute_agent_tool(
     handlers: dict[str, Callable[..., Awaitable[AgentToolResult]]] = {
         "capability.search": _capability_search,
         "customer.get_context": _customer_context,
+        "customer.tag": _customer_tag,
         "knowledge.search": _knowledge_search,
         "product.search": _product_search,
         "product.get": _product_get,
@@ -236,6 +255,58 @@ async def _capability_search(*, call_id, arguments, context) -> AgentToolResult:
 async def _customer_context(*, call_id, arguments, context) -> AgentToolResult:
     del arguments
     return _result(call_id, "customer.get_context", "found", workspace=context.workspace)
+
+
+async def _customer_tag(*, call_id, arguments, context) -> AgentToolResult:
+    tag = _text(arguments.get("tag"), maximum=100)
+    evidence = _text(arguments.get("evidence"), maximum=500)
+    current = str(context.message.message or "")
+    if not tag or not evidence or evidence not in current:
+        return _result(
+            call_id,
+            "customer.tag",
+            "invalid_arguments",
+            error="catalog_tag_and_verbatim_current_message_evidence_required",
+        )
+    metadata = context.message.metadata if isinstance(context.message.metadata, dict) else {}
+    if metadata.get("evaluation_id") or metadata.get("is_evaluation"):
+        return _result(
+            call_id,
+            "customer.tag",
+            "recorded",
+            tag=tag,
+            evidence=evidence,
+            persisted=False,
+        )
+    from app.domains.customers.services.user_profile_service import add_ai_customer_tag
+
+    try:
+        profile = await add_ai_customer_tag(
+            context.message.user_id,
+            tag,
+            reason="agent_customer_evidence",
+            trace_id=context.message.trace_id,
+        )
+    except ValueError:
+        return _result(
+            call_id,
+            "customer.tag",
+            "forbidden",
+            reason="unknown_or_protected_customer_tag",
+        )
+    tags = profile.get("customer_tags") if isinstance(profile, dict) else []
+    profile_view = context.workspace.setdefault("profile", {})
+    if isinstance(profile_view, dict):
+        profile_view["customer_tags"] = list(tags or [])
+    return _result(
+        call_id,
+        "customer.tag",
+        "recorded",
+        tag=tag,
+        evidence=evidence,
+        customer_tags=list(tags or []),
+        persisted=True,
+    )
 
 
 async def _knowledge_search(*, call_id, arguments, context) -> AgentToolResult:
@@ -414,6 +485,7 @@ async def _order_search(*, call_id, arguments, context) -> AgentToolResult:
         tenant_id=context.message.tenant_id,
         channel=context.message.channel,
     )
+    await _record_verified_wechat_purchase(context, result)
     return _order_tool_result(call_id, "order.search", result)
 
 
@@ -432,7 +504,54 @@ async def _order_get(*, call_id, arguments, context) -> AgentToolResult:
         tenant_id=context.message.tenant_id,
         channel=context.message.channel,
     )
+    await _record_verified_wechat_purchase(context, result)
     return _order_tool_result(call_id, "order.get", result)
+
+
+async def _record_verified_wechat_purchase(
+    context: AgentExecutionContext, result: dict[str, Any]
+) -> None:
+    if not _has_verified_paid_order(result):
+        return
+    metadata = context.message.metadata if isinstance(context.message.metadata, dict) else {}
+    if metadata.get("evaluation_id") or metadata.get("is_evaluation"):
+        return
+    from app.domains.customers.services.user_profile_service import add_verified_customer_tag
+
+    try:
+        profile = await add_verified_customer_tag(
+            context.message.user_id,
+            "微信已购",
+            reason="youzan_order_tool_verified_paid_order",
+            trace_id=context.message.trace_id,
+        )
+    except (RuntimeError, ValueError) as exc:
+        logger.warning("Unable to persist verified WeChat purchase tag: %s", type(exc).__name__)
+        return
+    tags = profile.get("customer_tags") if isinstance(profile, dict) else []
+    profile_view = context.workspace.setdefault("profile", {})
+    if isinstance(profile_view, dict):
+        profile_view["customer_tags"] = list(tags or [])
+
+
+def _has_verified_paid_order(result: dict[str, Any]) -> bool:
+    if not result.get("ok"):
+        return False
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if data.get("status") != "found":
+        return False
+    orders: list[dict[str, Any]] = []
+    if isinstance(data.get("orders"), list):
+        orders.extend(item for item in data["orders"] if isinstance(item, dict))
+    if isinstance(data.get("order"), dict):
+        orders.append(data["order"])
+    paid_statuses = {
+        "WAIT_SELLER_SEND_GOODS",
+        "WAIT_BUYER_CONFIRM_GOODS",
+        "TRADE_BUYER_SIGNED",
+        "TRADE_SUCCESS",
+    }
+    return any(str(order.get("status") or "").upper() in paid_statuses for order in orders)
 
 
 async def _memory_record(*, call_id, arguments, context) -> AgentToolResult:

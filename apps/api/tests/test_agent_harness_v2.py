@@ -81,6 +81,119 @@ async def test_agent_discovers_capability_then_replies(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_customer_tag_records_evidence_backed_catalog_tag(monkeypatch):
+    from app.domains.customers.services import user_profile_service
+
+    recorded = {}
+
+    async def fake_add_ai_customer_tag(user_id, tag, *, reason, trace_id=None):
+        recorded.update(
+            user_id=user_id,
+            tag=tag,
+            reason=reason,
+            trace_id=trace_id,
+        )
+        return {"customer_tags": ["1-10盆", "建兰"]}
+
+    monkeypatch.setattr(
+        user_profile_service,
+        "add_ai_customer_tag",
+        fake_add_ai_customer_tag,
+    )
+    context = AgentExecutionContext(
+        message=_message("我现在养了8盆，主要是建兰"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={"profile": {}},
+    )
+
+    result = await agent_tools.execute_agent_tool(
+        call_id="tag-1",
+        name="customer.tag",
+        arguments={"tag": "1-10盆", "evidence": "养了8盆"},
+        context=context,
+    )
+
+    assert result.status == "recorded"
+    assert result.data["persisted"] is True
+    assert context.workspace["profile"]["customer_tags"] == ["1-10盆", "建兰"]
+    assert recorded == {
+        "user_id": "customer-1",
+        "tag": "1-10盆",
+        "reason": "agent_customer_evidence",
+        "trace_id": "trace-agent-v2",
+    }
+
+
+def test_paid_order_detection_excludes_unpaid_and_closed_orders():
+    assert agent_tools._has_verified_paid_order(
+        {
+            "ok": True,
+            "data": {
+                "status": "found",
+                "orders": [{"order_no": "E1", "status": "WAIT_SELLER_SEND_GOODS"}],
+            },
+        }
+    )
+    assert not agent_tools._has_verified_paid_order(
+        {
+            "ok": True,
+            "data": {
+                "status": "found",
+                "orders": [
+                    {"order_no": "E2", "status": "WAIT_BUYER_PAY"},
+                    {"order_no": "E3", "status": "TRADE_CLOSED"},
+                ],
+            },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_verified_paid_order_records_wechat_purchase_tag(monkeypatch):
+    from app.domains.customers.services import user_profile_service
+
+    recorded = {}
+
+    async def fake_add_verified_customer_tag(user_id, tag, *, reason, trace_id=None):
+        recorded.update(
+            user_id=user_id,
+            tag=tag,
+            reason=reason,
+            trace_id=trace_id,
+        )
+        return {"customer_tags": ["L2 白银期", "微信已购"]}
+
+    monkeypatch.setattr(
+        user_profile_service,
+        "add_verified_customer_tag",
+        fake_add_verified_customer_tag,
+    )
+    context = AgentExecutionContext(
+        message=_message("帮我查一下订单"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={"profile": {"customer_tags": ["L2 白银期"]}},
+    )
+
+    await agent_tools._record_verified_wechat_purchase(
+        context,
+        {
+            "ok": True,
+            "data": {
+                "status": "found",
+                "order": {"order_no": "E1", "status": "TRADE_SUCCESS"},
+            },
+        },
+    )
+
+    assert recorded["tag"] == "微信已购"
+    assert recorded["reason"] == "youzan_order_tool_verified_paid_order"
+    assert context.workspace["profile"]["customer_tags"] == [
+        "L2 白银期",
+        "微信已购",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_agent_splits_explanation_and_follow_up_into_message_units(monkeypatch):
     async def fake_generate(*args, **kwargs):
         del args, kwargs
@@ -112,6 +225,120 @@ async def test_agent_splits_explanation_and_follow_up_into_message_units(monkeyp
         "您现在用的是普通泥土，还是颗粒植料？",
     ]
     assert reply.answer_segments == [item.content for item in reply.outbound_messages]
+
+
+@pytest.mark.asyncio
+async def test_agent_uses_pot_count_and_pain_to_bridge_to_guidance_gap(monkeypatch):
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return _decision(
+            final={
+                "messages": [
+                    {
+                        "type": "text",
+                        "content": "8盆建兰反复黄叶，常见要一起排查根系、浇水和通风，光补肥往往解决不了。",
+                    },
+                    {
+                        "type": "text",
+                        "content": "您买回来以后，原来的商家有继续指导您怎么养吗？",
+                    },
+                ],
+                "need_human": False,
+            },
+            judgment="客户已给出具体盆数和黄叶痛点，足以停止横向盘问并确认持续指导缺口",
+            purpose="先让客户理解问题框架，再自然确认陪伴服务需求",
+        )
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("我现在有8盆建兰，最近总是黄叶"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={"profile": {"customer_tags": ["1-10盆", "建兰"]}},
+    )
+
+    assert [item.type for item in reply.outbound_messages] == ["text", "text"]
+    assert "原来的商家有继续指导" in reply.outbound_messages[1].content
+
+
+@pytest.mark.asyncio
+async def test_agent_recommends_companion_service_after_guidance_gap(monkeypatch):
+    service = {
+        "item_id": "service-1",
+        "title": "陪伴养兰服务",
+        "price_cent": 9900,
+        "stock": 20,
+        "status": "online",
+        "h5_url": "https://shop.example.com/companion",
+        "knowledge": {
+            "product_name": "陪伴养兰服务",
+            "highlighted_features": ["单品知识", "实时指导"],
+        },
+    }
+    monkeypatch.setattr(agent_tools, "search_catalog_products", lambda query, limit=3: [service])
+    monkeypatch.setattr(agent_tools, "get_catalog_product", lambda item_id: service)
+    responses = iter(
+        [
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-search",
+                        "name": "product.search",
+                        "arguments": {"query": "陪伴养兰服务", "limit": 2},
+                    }
+                ],
+                judgment="盆数、黄叶痛点和无人指导已经明确，适合主动匹配陪伴养兰服务",
+                purpose="从问题解释进入可落地的持续指导方案",
+            ),
+            _decision(
+                tools=[
+                    {
+                        "call_id": "service-card",
+                        "name": "product.send_card",
+                        "arguments": {"product_ref": "product:service-1"},
+                    }
+                ],
+                judgment="真实服务已查询且与客户反复黄叶和缺少指导匹配",
+                purpose="说明具体服务价值并给出购买入口",
+            ),
+            _decision(
+                final={
+                    "messages": [
+                        {
+                            "type": "text",
+                            "content": "您之前主要靠自己摸索，问题才容易反复。我们会按具体品种告诉您关键养法，遇到黄叶这类情况还能结合实际情况继续指导，能少走很多弯路。",
+                        },
+                        {"type": "prepared", "ref": "service-card"},
+                    ],
+                    "need_human": False,
+                },
+                judgment="客户的服务缺口已确认，无需继续盘问",
+                purpose="推荐真实陪伴服务并提供购买下一步",
+            ),
+        ]
+    )
+
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return next(responses)
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("以前都是自己摸索，卖家也没教过"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={
+            "profile": {
+                "customer_tags": ["1-10盆", "L2 白银期", "建兰"],
+                "pain_points": ["建兰反复黄叶"],
+            },
+            "recent_turns": [
+                {"role": "customer", "content": "家里有8盆建兰，最近总是黄叶"},
+            ],
+        },
+    )
+
+    assert [item.type for item in reply.outbound_messages] == ["text", "link_card"]
+    assert "具体品种" in reply.outbound_messages[0].content
+    assert json.loads(reply.outbound_messages[1].content)["title"] == "陪伴养兰服务"
 
 
 @pytest.mark.asyncio
@@ -534,7 +761,7 @@ def test_opening_guard_requires_identity_and_one_needs_question():
                     },
                     {
                         "type": "text",
-                        "content": "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？",
+                        "content": "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
                     },
                 ],
                 "need_human": False,
@@ -558,6 +785,7 @@ def test_opening_guard_requires_identity_and_one_needs_question():
         "too_many_customer_questions",
         "opening_identity_missing",
         "opening_needs_question_invalid",
+        "opening_profile_question_invalid",
     }
 
     pushy = AgentTurnDecision.model_validate(
@@ -571,20 +799,24 @@ def test_opening_guard_requires_identity_and_one_needs_question():
             }
         )["data"]
     )
-    assert agent_runtime._guard_violations(pushy, context) == [
-        "opening_sales_push_question"
-    ]
+    assert set(agent_runtime._guard_violations(pushy, context)) == {
+        "opening_profile_question_invalid",
+        "opening_sales_push_question",
+    }
 
 
 def test_harness_collects_match_facts_before_product_and_material_release():
     prompt = build_system_prompt()
-    assert "新客户前段的主要任务是逐步理解这个人" in prompt
+    assert "新客户开场优先了解当前盆数和主要品种" in prompt
     assert "能否用客户已经说过的事实" in prompt
     assert "也可以主动查询并推荐合适商品" in prompt
     assert "先用一句客户收益说明回答后能得到什么" in prompt
     assert "新建一个 text 消息" in prompt
     assert "客户索要资料是兴趣信号，不是自动发送指令" in prompt
     assert "发送后必须有主动的下一步" in prompt
+    assert "新客户开场优先了解当前盆数和主要品种" in prompt
+    assert "L1-L6 客户等级、盆数和品种标签" in prompt
+    assert "两个标签可以同时存在" in prompt
 
     experience = next(
         item
@@ -619,6 +851,25 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "是礼貌性软收口，不是明确拒绝" in objection.instructions
     assert "换一个更容易回答的角度" in objection.instructions
 
+    leveling = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.customer_leveling"
+    )
+    assert "L1-L6 是可修正的客户理解" in leveling.instructions
+    assert "单个关键词不能决定等级" in leveling.instructions
+
+    service_fit = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.companion_service_fit"
+    )
+    assert "盆数是前期分层入口" in service_fit.instructions
+    assert "已有具体盆数和痛点通常足以" in service_fit.instructions
+    assert "单品知识" in service_fit.instructions
+    assert "实时指导" in service_fit.instructions
+    assert "优先经验而非硬阈值" in service_fit.instructions
+
 
 @pytest.mark.asyncio
 async def test_opening_does_not_execute_agent_tools(monkeypatch):
@@ -644,7 +895,7 @@ async def test_opening_does_not_execute_agent_tools(monkeypatch):
                         },
                         {
                             "type": "text",
-                            "content": "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？",
+                            "content": "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
                         },
                     ],
                     "need_human": False,

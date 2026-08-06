@@ -344,10 +344,10 @@ async def _safe_fallback(
     system_event = str((message.metadata or {}).get("system_event") or "")
     if system_event == "first_contact":
         intro = "您好，我是萧岚苑的小兰，我们团队平时都在和兰花打交道，后面养护上有什么拿不准都可以找我。"
-        question = "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？"
+        question = "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？"
         texts = [intro, question]
         text = "\n\n".join(texts)
-        purpose = "完成自然自我介绍，并用一个低压力问题了解客户来意"
+        purpose = "完成自然自我介绍，并了解客户当前盆数和主要品种"
     elif system_event == "daily_touch":
         text = "最近养兰有哪里拿不准，您随时拍张照片发我，我帮您一起看看。"
         texts = [text]
@@ -398,13 +398,21 @@ def _guard_violations(
     )
     violations: list[str] = []
     question_count = _customer_question_count(text)
-    if question_count > 1:
+    opening_event = _is_opening_system_event(context)
+    opening_profile_question = False
+    if opening_event and final is not None:
+        opening_texts = [item for item in final.messages if item.type == "text"]
+        if len(opening_texts) == 2:
+            opening_profile_question = _is_opening_profile_question(
+                str(opening_texts[1].content or "")
+            )
+    if question_count > (2 if opening_profile_question else 1):
         violations.append("too_many_customer_questions")
     if _LIST_STYLE_PATTERN.search(text) or _MARKDOWN_HEADING_PATTERN.search(text):
         violations.append("non_conversational_list_style")
     if any(marker in text for marker in _CUSTOMER_QUOTE_MARKERS):
         violations.append("unnecessary_customer_quotes")
-    if _is_opening_system_event(context):
+    if opening_event:
         text_messages = [item for item in final.messages if item.type == "text"]
         if len(final.messages) != 2 or len(text_messages) != 2:
             violations.append("invalid_opening_message_structure")
@@ -416,7 +424,10 @@ def _guard_violations(
             if _customer_question_count(intro) != 0:
                 violations.append("opening_intro_contains_question")
             if _customer_question_count(question) != 1:
-                violations.append("opening_needs_question_invalid")
+                if not opening_profile_question:
+                    violations.append("opening_needs_question_invalid")
+            if not opening_profile_question:
+                violations.append("opening_profile_question_invalid")
             if any(marker in question for marker in _OPENING_SALES_PUSH_MARKERS):
                 violations.append("opening_sales_push_question")
     lowered = text.casefold()
@@ -493,6 +504,16 @@ def _customer_question_count(text: str) -> int:
     )
     substantive_markers = len(_SUBSTANTIVE_QUESTION_PATTERN.findall(text))
     return max(punctuation_count, question_clauses, substantive_markers)
+
+
+def _is_opening_profile_question(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", text)
+    has_quantity = bool(re.search(r"(?:多少|几|大概|现在).{0,8}盆|盆.{0,6}(?:多少|几)", normalized))
+    has_variety = "品种" in normalized or bool(
+        re.search(r"主要.{0,6}(?:什么|哪类|哪种).{0,4}兰", normalized)
+    )
+    punctuation_count = normalized.count("？") + normalized.count("?")
+    return has_quantity and has_variety and punctuation_count == 1
 
 
 def _is_opening_system_event(context: AgentExecutionContext) -> bool:
@@ -646,9 +667,9 @@ def _event_context(message) -> dict[str, Any]:
         allowed["instruction"] = (
             "这是新好友建立事件，不是客户原话。只生成两条短文字：第一条自然介绍自己是萧岚苑的小兰，"
             "并自然带出团队长期做兰花、后面愿意继续帮客户看养护问题；第二条先从客户视角简短说明回答后能得到什么，"
-            "例如更贴合的养护建议或资料，再只问一个容易回答、能让客户自然开口的挖需问题。"
+            "例如更贴合的养护建议或资料，再用一个自然问句关联询问客户家里当前大概养了多少盆、主要是什么品种。"
             "不要问客户要不要买、看花、选花、预算或价格，不要假设他有购买意向。固定图片会由发送网关插在两条文字之间，"
-            "你不要调用工具、安排卡片或资料，也不要提到系统事件。措辞可以自然变化，但不要机械盘问地区、盆数和品种。"
+            "你不要调用工具、安排卡片或资料，也不要提到系统事件。盆数和主要品种必须问到，但措辞可以自然变化，不使用编号或调查表。"
         )
     return allowed
 

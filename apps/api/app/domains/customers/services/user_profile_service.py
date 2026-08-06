@@ -133,6 +133,46 @@ async def add_verified_customer_tag(
     reason: str,
     trace_id: str | None = None,
 ) -> dict:
+    return _add_customer_tag(
+        user_id,
+        tag,
+        reason=reason,
+        trace_id=trace_id,
+        event_type="verified_customer_tag_added",
+    )
+
+
+async def add_ai_customer_tag(
+    user_id: str,
+    tag: str,
+    *,
+    reason: str,
+    trace_id: str | None = None,
+) -> dict:
+    normalized_tag = _normalize_customer_tag(tag)
+    if not normalized_tag:
+        raise ValueError(f"unknown customer tag: {tag}")
+    category_id = _catalog_category_for_tag(normalized_tag)
+    categories = get_profile_tag_categories()
+    if not category_id or not categories[category_id].ai_assignable:
+        raise ValueError(f"customer tag is not AI assignable: {tag}")
+    return _add_customer_tag(
+        user_id,
+        normalized_tag,
+        reason=reason,
+        trace_id=trace_id,
+        event_type="ai_customer_tag_added",
+    )
+
+
+def _add_customer_tag(
+    user_id: str,
+    tag: str,
+    *,
+    reason: str,
+    trace_id: str | None,
+    event_type: str,
+) -> dict:
     normalized_tag = _normalize_customer_tag(tag)
     if not normalized_tag:
         raise ValueError(f"unknown customer tag: {tag}")
@@ -151,7 +191,7 @@ async def add_verified_customer_tag(
                 ProfileEventModel(
                     user_id=profile.user_id,
                     tenant_id=profile.tenant_id,
-                    event_type="verified_customer_tag_added",
+                    event_type=event_type,
                     before_json=_json_dumps(changed_before),
                     after_json=_json_dumps(changed_after),
                     reason=reason,

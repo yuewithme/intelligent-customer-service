@@ -53,7 +53,7 @@ logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
 _URL_PATTERN = re.compile(r"https?://[^\s<>，。！？；：、（）【】“”‘’《》]+")
 _URL_TRAILING_PUNCTUATION = "，。！？；：、,.!?;:)]}》〉”’\"'"
 _OPENING_INTRO_FALLBACK = "您好，我是萧岚苑的小兰，我们团队平时都在和兰花打交道，后面养护上有什么拿不准都可以找我。"
-_OPENING_QUESTION_FALLBACK = "我先了解一下您的情况，后面给您的养护建议和资料也能更贴合。您是刚接触兰花，还是家里已经养了一些？"
+_OPENING_QUESTION_FALLBACK = "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？"
 _OPENING_SALES_PUSH_MARKERS = (
     "购买",
     "想买",
@@ -1641,6 +1641,7 @@ def _opening_outbound_messages(opening_result: dict[str, Any]) -> list[dict[str,
         or "小兰" not in texts[0]
         or texts[0].count("？") + texts[0].count("?") != 0
         or texts[1].count("？") + texts[1].count("?") != 1
+        or not _opening_question_collects_profile(texts[1])
         or any(marker in texts[1] for marker in _OPENING_SALES_PUSH_MARKERS)
     ):
         texts = [_OPENING_INTRO_FALLBACK, _OPENING_QUESTION_FALLBACK]
@@ -1663,6 +1664,15 @@ def _opening_outbound_messages(opening_result: dict[str, Any]) -> list[dict[str,
         logger.warning("Opening image is not configured; sending text-only opening")
     messages.append({"type": "text", "content": texts[1]})
     return messages
+
+
+def _opening_question_collects_profile(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", text)
+    has_quantity = bool(re.search(r"(?:多少|几|大概|现在).{0,8}盆|盆.{0,6}(?:多少|几)", normalized))
+    has_variety = "品种" in normalized or bool(
+        re.search(r"主要.{0,6}(?:什么|哪类|哪种).{0,4}兰", normalized)
+    )
+    return has_quantity and has_variety
 
 
 def _encode_outbound_content(message_type: str, content: str) -> str:
