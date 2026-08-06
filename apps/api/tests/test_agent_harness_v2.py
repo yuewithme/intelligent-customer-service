@@ -948,7 +948,9 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "同一个技术细节最多追问一轮" in prompt
     assert "未知但不阻塞" in prompt
     assert "不把“等待客户继续反馈该细节”写进 next_action" in prompt
-    assert "顺序不能跳过" in prompt
+    assert "推品经验和价值完整性目标，不是固定话术、固定顺序或逐项打卡" in prompt
+    assert "自主决定表达顺序、消息轮次和是否需要同行对比" in prompt
+    assert "顺序不能跳过" not in prompt
     assert "调用 brand.service_facts 核实" in prompt
     assert "先挑几盆" in prompt
     assert "市面上有些商家卖完后缺少持续养护承接" in prompt
@@ -1007,7 +1009,9 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "单品知识" in service_fit.instructions
     assert "实时指导" in service_fit.instructions
     assert "优先经验而非硬阈值" in service_fit.instructions
-    assert "固定价值顺序" in service_fit.instructions
+    assert "以三个结果检查价值是否足够" in service_fit.instructions
+    assert "表达顺序、轮次和取舍由 Agent 根据上下文决定" in service_fit.instructions
+    assert "按固定价值顺序" not in service_fit.instructions
     assert "对应品种的单品养护教程" in service_fit.instructions
     assert "不让客户在挑苗和发资料之间选择流程" in service_fit.instructions
 
@@ -1018,62 +1022,6 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     )
     assert "已核实买后服务事实" in service_facts.instructions
     assert "一对一指导" in service_facts.instructions
-
-
-def test_service_value_guard_blocks_offer_before_full_value_sequence():
-    context = AgentExecutionContext(
-        message=_message("养在阳台，但是这里也有自然风吹"),
-        user_state=UserState(user_id="customer-1"),
-        workspace={
-            "recent_turns": [
-                {
-                    "role": "user",
-                    "content": "我养了十几盆，总是反复养不好，买完也没人指导",
-                },
-                {
-                    "role": "assistant",
-                    "content": "您之前养在室内还是有自然风的地方？",
-                },
-            ]
-        },
-    )
-    premature = AgentTurnDecision.model_validate(
-        _decision(
-            final={
-                "messages": [
-                    {
-                        "type": "text",
-                        "content": "我给您挑适合杭州的壮苗，带着您把浇水节奏找准。您想先挑两盆试试，还是我先发一份养护要点？",
-                    }
-                ],
-                "need_human": False,
-                "next_action": "根据客户选择调用product.search或material.send",
-            }
-        )["data"]
-    )
-    complete = AgentTurnDecision.model_validate(
-        _decision(
-            final={
-                "messages": [
-                    {
-                        "type": "text",
-                        "content": "反复养不好，常见是一开始苗没选对，买回去又缺少一对一指导。市面上有些商家卖完后缺少承接，我们更看重您买回去能不能养好。",
-                    },
-                    {
-                        "type": "text",
-                        "content": "每个结缘品种有对应的单品养护教程；实操不懂时，再由养兰师傅结合环境一对一指导。接下来我按杭州阳台环境给您选苗。",
-                    },
-                ],
-                "need_human": False,
-                "next_action": "查询适合杭州阳台和当前经验的建兰",
-            }
-        )["data"]
-    )
-
-    assert agent_runtime._service_value_sequence_violations(
-        premature, context
-    ) == ["premature_offer_before_service_value"]
-    assert agent_runtime._service_value_sequence_violations(complete, context) == []
 
 
 def test_specific_brand_service_claim_requires_verified_tool_facts():
@@ -1115,60 +1063,23 @@ def test_specific_brand_service_claim_requires_verified_tool_facts():
 
 
 @pytest.mark.asyncio
-async def test_runtime_rewrites_premature_offer_into_service_value_sequence(
+async def test_runtime_does_not_enforce_service_sales_experience_as_flow(
     monkeypatch,
 ):
-    snapshots = []
-    responses = iter(
-        [
-            _decision(
-                final={
-                    "messages": [
-                        {
-                            "type": "text",
-                            "content": "我给您挑适合杭州的壮苗，带着您养。您想先挑两盆试试，还是我发一份养护要点？",
-                        }
-                    ],
-                    "need_human": False,
-                    "next_action": "根据客户选择调用product.search或material.send",
-                }
-            ),
-            _decision(
-                tools=[
+    async def fake_generate(messages, **kwargs):
+        del messages, kwargs
+        return _decision(
+            final={
+                "messages": [
                     {
-                        "call_id": "brand-1",
-                        "name": "brand.service_facts",
-                        "arguments": {},
+                        "type": "text",
+                        "content": "自然风是加分项。您反复养不稳，下一步更重要的是按杭州阳台环境把种苗适配好，买后养护也有人承接。我直接按这个条件给您筛两款。",
                     }
                 ],
-                judgment="客户反复养不好，先核实并讲清买后服务价值",
-                purpose="建立选苗加持续指导的完整价值认知",
-            ),
-            _decision(
-                judgment="客户已有十几盆且反复养不好，服务价值已可完整塑造",
-                purpose="让客户理解萧岚苑如何从理论和实操两层承接养护",
-                final={
-                    "messages": [
-                        {
-                            "type": "text",
-                            "content": "反复养不好，常见是一开始苗没选对，买回去又缺少一对一指导。市面上有些商家卖完后缺少承接，我们更看重您买回去能不能养好。",
-                        },
-                        {
-                            "type": "text",
-                            "content": "每个结缘品种都有对应的单品养护教程，先把上盆、浇水、施肥和防病讲清；实操有不懂，再由养兰师傅结合杭州阳台环境一对一指导。下一步我按这个条件给您选苗。",
-                        },
-                    ],
-                    "need_human": False,
-                    "next_action": "查询适合杭州阳台、已有十几盆基础客户的建兰",
-                },
-            ),
-        ]
-    )
-
-    async def fake_generate(messages, **kwargs):
-        del kwargs
-        snapshots.append(json.loads(json.dumps(messages, ensure_ascii=False)))
-        return next(responses)
+                "need_human": False,
+                "next_action": "查询适配杭州阳台的建兰",
+            }
+        )
 
     monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
     reply = await agent_runtime.run_sales_agent(
@@ -1184,20 +1095,10 @@ async def test_runtime_rewrites_premature_offer_into_service_value_sequence(
         },
     )
 
-    assert "苗没选对" in reply.answer
-    assert "单品养护教程" in reply.answer
-    assert "一对一指导" in reply.answer
-    assert "还是我发" not in reply.answer
+    assert "我直接按这个条件给您筛两款" in reply.answer
     attempts = reply.metadata["agent_runtime"]["attempt_trace"]
-    assert [attempt["outcome"] for attempt in attempts] == [
-        "trajectory_rewrite_requested",
-        "tool_calls_executed",
-        "accepted",
-    ]
-    assert reply.metadata["agent_runtime"]["tool_trace"][0]["tool"] == (
-        "brand.service_facts"
-    )
-    assert "不要把销售流程选择权交给客户" in snapshots[1][-1]["content"]
+    assert [attempt["outcome"] for attempt in attempts] == ["accepted"]
+    assert attempts[0]["trajectory_violations"] == []
 
 
 def test_trajectory_guard_stops_non_core_detail_after_customer_cannot_answer():
