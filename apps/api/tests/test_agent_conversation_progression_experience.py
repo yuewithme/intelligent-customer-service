@@ -29,6 +29,8 @@ def test_prompt_teaches_progression_as_contextual_experience_not_fixed_routing()
     assert "图文资料只是陪伴指导的一步" in prompt
     assert "不重讲刚说过的资料、服务或客户背景" in prompt
     assert "不是按关键词触发的硬路由" in prompt
+    assert "先按 12.3 判断它是在确认紧邻提议" in prompt
+    assert "会员课程和长期服务不能脱离已核实权益扩大承诺" in prompt
 
 
 def test_progression_capability_connects_beginner_material_and_next_action():
@@ -44,6 +46,24 @@ def test_progression_capability_connects_beginner_material_and_next_action():
     assert "图文资料只是陪伴指导的一步" in progression.instructions
     assert "不再复述刚说过的资料" in progression.instructions
     assert "不是按短语触发的固定路由" in progression.instructions
+
+
+def test_merged_experience_keeps_material_and_short_reply_meaning_consistent():
+    capabilities = {item.name: item.instructions for item in agent_tools.CAPABILITIES}
+
+    material = capabilities["experience.material_value"]
+    assert "图文版电子档" in material
+    assert "链接 48 小时内有效" in material
+    assert "资料只是陪伴指导的其中一步" in material
+
+    objection = capabilities["experience.objection"]
+    assert "必须放回紧邻上下文" in objection
+    assert "不能仅凭短语决定" in objection
+
+    companion = capabilities["experience.companion_service_fit"]
+    assert "会员百节视频教学" in companion
+    assert "师傅一对一实时指导" in companion
+    assert "按真实权益" in companion
 
 
 @pytest.mark.asyncio

@@ -1721,7 +1721,9 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         for item in agent_tools.CAPABILITIES
         if item.name == "experience.objection"
     )
-    assert "是礼貌性软收口，不是明确拒绝" in objection.instructions
+    assert "必须放回紧邻上下文" in objection.instructions
+    assert "不能仅凭短语决定" in objection.instructions
+    assert "只有确实是软收口时才降低压力" in objection.instructions
     assert "换一个更容易回答的角度" in objection.instructions
 
     leveling = next(
@@ -1740,7 +1742,9 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "盆数是前期分层入口" in service_fit.instructions
     assert "已有大致盆数和痛点通常足以" in service_fit.instructions
     assert "单品养护教程" in service_fit.instructions
-    assert "师傅一对一实操指导" in service_fit.instructions
+    assert "会员百节视频教学" in service_fit.instructions
+    assert "师傅一对一实时指导" in service_fit.instructions
+    assert "按真实权益" in service_fit.instructions
     assert "不是固定话术或固定轮次" in service_fit.instructions
     assert "以三个结果检查价值是否足够" in service_fit.instructions
     assert "表达顺序、轮次和取舍由 Agent 根据上下文决定" in service_fit.instructions
@@ -1878,7 +1882,9 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         if item.name == "brand.service_facts"
     )
     assert "已核实买后服务事实" in service_facts.instructions
-    assert "一对一指导" in service_facts.instructions
+    assert "会员百节视频教学" in service_facts.instructions
+    assert "一对一实时指导" in service_facts.instructions
+    assert "真实权益" in service_facts.instructions
 
 
 def test_private_sales_experience_package_is_discoverable_and_service_first():

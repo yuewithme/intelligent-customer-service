@@ -1086,14 +1086,14 @@ def _sales_flow_rewrite_instruction(violations: list[str]) -> str:
     if "missed_affirmed_service_trial_close" in violations:
         focused_instructions.append(
             "客户当前的短肯定回复，是在认可上一轮关于陪伴服务价值的问题，"
-            "不是再次询问服务内容。将 purchase_signal 判断为 interest，停止重复教程和一对一指导介绍；"
+            "不是再次询问服务内容。将 purchase_signal 判断为 interest，停止重复教程、视频和一对一指导介绍；"
             "查询并核实真实的陪伴养兰服务，然后发送服务卡片进入试成交。"
         )
     if "repeats_recent_assistant_content" in violations:
         focused_instructions.append(
             "当前候选回复复述了上一轮已经真实发送的内容。不要再次解释同一病因或重复已经讲过的服务概述；"
             "先承接客户刚提供的新信息，再推进尚未讲清的价值。若客户刚确认一直自己摸索，"
-            "应说明萧岚苑与部分卖完后缺少持续承接的商家有何不同，并具体讲清单品养护教程和师傅一对一指导如何帮助他。"
+            "应说明萧岚苑与部分卖完后缺少持续承接的商家有何不同，并按真实权益讲清单品养护教程、会员百节视频教学和师傅一对一实时指导如何帮助他。"
         )
     if "premature_product_card_without_customer_interest" in violations:
         focused_instructions.append(
@@ -1255,7 +1255,7 @@ def _hard_rewrite_instruction(violations: list[str]) -> str:
         )
     if "unverified_brand_service_claim" in violations:
         return (
-            "具体的单品养护教程和师傅一对一指导属于需要核实的服务事实。"
+            "具体的单品养护教程、会员百节视频教学和师傅一对一实时指导属于需要核实的服务事实。"
             "先调用 brand.service_facts；工具返回 found 后，再基于结果完整保留服务价值说明。"
             "不要为了修复事实边界而删掉塑品步骤，也不要输出内部说明。"
             f"本次硬违规：{', '.join(violations)}"
