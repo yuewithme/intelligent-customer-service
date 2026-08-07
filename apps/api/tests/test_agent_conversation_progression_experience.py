@@ -31,6 +31,8 @@ def test_prompt_teaches_progression_as_contextual_experience_not_fixed_routing()
     assert "不是按关键词触发的硬路由" in prompt
     assert "先按 12.3 判断它是在确认紧邻提议" in prompt
     assert "会员课程和长期服务不能脱离已核实权益扩大承诺" in prompt
+    assert "以客户当前明确表达的意思为最高优先级" in prompt
+    assert "不能为了完成自己的流程强行拉回" in prompt
 
 
 def test_progression_capability_connects_beginner_material_and_next_action():
@@ -40,12 +42,15 @@ def test_progression_capability_connects_beginner_material_and_next_action():
         if item.name == "experience.conversation_progression"
     )
 
-    assert "不把每句客户话当成新开始" in progression.instructions
+    assert "把对话看成一条连续的关系进度" in progression.instructions
+    assert "不能要求客户继续上一话题" in progression.instructions
     assert "选对＋有人教" in progression.instructions
     assert "48 小时内及时查看" in progression.instructions
     assert "图文资料只是陪伴指导的一步" in progression.instructions
-    assert "不再复述刚说过的资料" in progression.instructions
+    assert "已确认的内容不再复述" in progression.instructions
     assert "不是按短语触发的固定路由" in progression.instructions
+    assert "上下文只帮助理解客户当前意思" in progression.instructions
+    assert "原提问和销售动作退到背景" in progression.instructions
 
 
 def test_merged_experience_keeps_material_and_short_reply_meaning_consistent():
