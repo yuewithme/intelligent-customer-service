@@ -71,6 +71,66 @@ def test_merged_experience_keeps_material_and_short_reply_meaning_consistent():
     assert "按真实权益" in companion
 
 
+def test_new_product_interest_restarts_discovery_without_returning_to_old_flow():
+    prompt = build_system_prompt()
+    capabilities = {item.name: item.instructions for item in agent_tools.CAPABILITIES}
+
+    assert "这已经是新的当前主线" in prompt
+    assert "不在同一轮又自动回到旧的订单截图" in prompt
+    assert "从花色、香味、预算、地区环境和经验中" in prompt
+    assert "易养和信心风险当作核心选品条件" in prompt
+
+    direction = capabilities["experience.product_direction_weighting"]
+    assert "新出现的兰花购买需求会成为当前主线" in direction
+    assert "不当成必填表" in direction
+    assert "不重问原问题" in direction
+
+
+def test_beginner_product_value_and_companion_close_use_verified_facts():
+    capabilities = {item.name: item.instructions for item in agent_tools.CAPABILITIES}
+
+    pain = capabilities["experience.pain_to_service"]
+    assert "如果客户已在选兰花" in pain
+    assert "人群上说清新手为什么需要降低试错" in pain
+    assert "不把所有在售兰花都说成自然放养或皮实好养" in pain
+
+    close = capabilities["experience.trial_and_close"]
+    assert "把花养好养开花的目标" in close
+    assert "一顿快餐的成本" in close
+    assert "不从历史案例继承 39.9 元、原价 199 元或‘终身有效’" in close
+    assert "不只是一份资料" in close
+    assert "才能把赠品具体说成高价值国兰、带花苞" in close
+
+
+@pytest.mark.asyncio
+async def test_capability_search_retrieves_product_restart_and_stronger_close():
+    context = AgentExecutionContext(
+        message=_message("我是新手，想选好养的兰花"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
+    product_result = await agent_tools.execute_agent_tool(
+        call_id="cap-product",
+        name="capability.search",
+        arguments={"query": "适合新手的兰花，挖花色香味和预算"},
+        context=context,
+    )
+    product_names = {
+        item["name"] for item in product_result.data["capabilities"]
+    }
+    assert "experience.product_direction_weighting" in product_names
+
+    close_result = await agent_tools.execute_agent_tool(
+        call_id="cap-close",
+        name="capability.search",
+        arguments={"query": "付费体验价和赠品怎么促单"},
+        context=context,
+    )
+    close_names = {item["name"] for item in close_result.data["capabilities"]}
+    assert "experience.trial_and_close" in close_names
+
+
 @pytest.mark.asyncio
 async def test_material_send_returns_verified_post_send_positioning(monkeypatch):
     async def material_not_recently_sent(context, title):
