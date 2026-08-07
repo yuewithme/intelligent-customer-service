@@ -14,6 +14,9 @@ def test_orchid_material_registry_exposes_verified_asset_facts():
     assert ORCHID_MATERIAL_CARD["title"] == "萧岚苑陪伴养兰资料"
     assert ORCHID_MATERIAL_CARD["url"].startswith("https://h5.youzan.com/")
     assert "核实购买权益" in ORCHID_MATERIAL_ASSET["access"]
+    assert "直播间展示的是图文版" in ORCHID_MATERIAL_ASSET["format"]
+    assert "48 小时" in ORCHID_MATERIAL_ASSET["access"]
+    assert "其中一步" in ORCHID_MATERIAL_ASSET["service_role"]
 
 
 def test_orchid_material_card_thumbnail_is_delivery_ready():

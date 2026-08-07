@@ -182,6 +182,12 @@ CAPABILITIES = (
         "资料是销售资产，不是客户一索要就自动发送的公共附件。索要资料说明客户愿意学习，应借资料会涉及的品种、养护、痛点或目标自然收集一项关键信息。当基本情况和需求尚未形成可用判断时，本轮不发资料，也不用固定‘再问一次’次数规则；当资料已与客户问题和成交目的匹配，或客户不购买时把它作为最终福利触点，才决定释放。真正发送时说明为什么给和重点看什么。资料发出后就退到背景，不围绕资料继续组织后续回复；客户提出黄叶等具体问题时，先像没有资料捷径一样直接解决，再根据已有事实判断是否推品，不能用‘资料里有’代替回答，也不重复发送同一资料。只有客户明确要求重发、表示找不到或上次未成功时才考虑重发。若信息仍不足就了解一个真正影响匹配的事实，若已足够就转入有依据的推品。",
     ),
     CapabilitySpec(
+        "experience.conversation_progression",
+        "experience",
+        ("新手", "第一盆", "同行差异", "资料已发", "肯定回复", "好的", "谢谢", "寒暄", "重复", "推进", "下一步"),
+        "把对话看成一条连续的关系进度，不把每句客户话当成新开始。先识别上一轮已完成的动作、客户这句话确认的对象，以及当前尚未完成的销售目的。新手、零基础或正在选第一盆时，服务价值不能停在‘按地区和环境推荐适配品种’：还应让客户理解结缘后不是交付就结束，而会继续通过已核实的教程、会员教学和师傅一对一实时指导陪伴他学会养护；需要具体表达时先读取 brand.service_facts，这个‘选对＋有人教’的闭环是为推荐适配品种建立信任，不是固定铺垫。发送直播间展示的陪伴养兰资料时，依据资料工具事实说明客户收到的是图文版电子档、应在 48 小时内及时查看，并让他理解图文资料只是陪伴指导的一步；交付定位讲清后就继续选品、服务意向或成交。‘好的’‘谢谢’‘是的’等短回复通常是对紧邻动作或提议的确认，简短承接即可，不再复述刚说过的资料、服务概述或客户背景；若上一动作还有未讲清的价值环节则补足，已经讲清就推进下一步。这是上下文进度判断经验，不是按短语触发的固定路由，客户明确转换话题或拒绝时应按新语义处理。",
+    ),
+    CapabilitySpec(
         "experience.video_access",
         "experience",
         ("视频看不了", "视频打不开", "视频权限", "抖音购买", "订单截图"),
@@ -289,7 +295,14 @@ async def _brand_service_facts(*, call_id, arguments, context) -> AgentToolResul
         call_id,
         "brand.service_facts",
         "found",
-        positioning="萧岚苑不仅关注兰花卖出，更关注客户买回去后能否养好，并继续承接买后养护问题。",
+        positioning=(
+            "萧岚苑不只关注兰花卖出：选品时会结合客户的地区、"
+            "经验和环境帮忙匹配，结缘后继续承接陪伴养兰手把手指导。"
+        ),
+        customer_entitlement=(
+            "在萧岚苑结缘兰草的兰友，可获得买后陪伴养兰手把手指导承接；"
+            "会员专属课程与长期服务按当前商品和客户的真实权益交付。"
+        ),
         common_failure_pattern=[
             "前端没有选到适合客户地区、经验和环境的健康苗，会增加后续养护难度。",
             "买回去后缺少持续的一对一实操指导，遇到问题只能自己摸索，容易反复试错。",
@@ -301,8 +314,12 @@ async def _brand_service_facts(*, call_id, arguments, context) -> AgentToolResul
                 "details": "客户在萧岚苑结缘兰花后，可获得对应品种的单品养护教程，内容包括收货处理、上盆、浇水、施肥、防病和花期等基础养护。",
             },
             {
-                "name": "养兰师傅一对一实操指导",
-                "details": "教程看完或实际养护中有不懂，可以咨询养兰师傅，由师傅结合品种、地区和实际环境进行一对一指导。",
+                "name": "会员百节视频教学",
+                "details": "会员兰友可按当前权益学习系统的百节视频课程，用来建立完整的养兰基础和常见问题处理方法。",
+            },
+            {
+                "name": "养兰师傅一对一实时指导",
+                "details": "教程看完或实际养护中有不懂，可以咨询养兰师傅，由师傅结合品种、地区和实际环境进行一对一实时指导。",
             },
         ],
         claim_boundaries=[
@@ -472,7 +489,9 @@ async def _material_search(*, call_id, arguments, context) -> AgentToolResult:
             "material_ref": ORCHID_MATERIAL_REF,
             "title": ORCHID_MATERIAL_ASSET["title"],
             "value": ORCHID_MATERIAL_ASSET["value"],
+            "format": ORCHID_MATERIAL_ASSET["format"],
             "access": ORCHID_MATERIAL_ASSET["access"],
+            "service_role": ORCHID_MATERIAL_ASSET["service_role"],
             "use_cases": ORCHID_MATERIAL_ASSET["use_cases"],
             "match_reason": "综合养兰资料与关系资产",
         }
@@ -524,6 +543,15 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
         material_ref=material_ref,
         title=payload["title"],
         delivery_truth="prepared_not_sent",
+        post_send_facts=(
+            {
+                "format": ORCHID_MATERIAL_ASSET["format"],
+                "access": ORCHID_MATERIAL_ASSET["access"],
+                "service_role": ORCHID_MATERIAL_ASSET["service_role"],
+            }
+            if material_id == "orchid-companion"
+            else None
+        ),
     )
 
 

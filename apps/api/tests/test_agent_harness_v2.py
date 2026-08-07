@@ -436,7 +436,7 @@ async def test_video_access_request_notifies_without_handoff(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_brand_service_facts_returns_verified_two_part_delivery():
+async def test_brand_service_facts_returns_verified_selection_and_delivery():
     context = AgentExecutionContext(
         message=_message("我反复养不好，也一直没人教"),
         user_state=UserState(user_id="customer-1"),
@@ -453,8 +453,12 @@ async def test_brand_service_facts_returns_verified_two_part_delivery():
     assert result.status == "found"
     assert [item["name"] for item in result.data["delivery"]] == [
         "对应品种的单品养护教程",
-        "养兰师傅一对一实操指导",
+        "会员百节视频教学",
+        "养兰师傅一对一实时指导",
     ]
+    assert "地区" in result.data["positioning"]
+    assert "手把手指导" in result.data["customer_entitlement"]
+    assert "真实权益" in result.data["customer_entitlement"]
     assert "有些商家" in result.data["comparison_boundary"]
     assert "所有同行" in result.data["comparison_boundary"]
 

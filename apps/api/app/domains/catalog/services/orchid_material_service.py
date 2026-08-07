@@ -25,7 +25,9 @@ ORCHID_MATERIAL_ASSET: dict[str, Any] = {
     "material_ref": ORCHID_MATERIAL_REF,
     "title": ORCHID_MATERIAL_CARD["title"],
     "value": "系统理解养兰基础、常见问题和萧岚苑陪伴服务方式",
-    "access": "图文卡可发送；卡内受限视频需在核实购买权益后处理",
+    "format": "直播间展示的是图文版养兰资料，私域通过电子档链接卡片发放。",
+    "access": "电子档链接发放后 48 小时内有效，应提醒客户及时查看；卡内受限视频需在核实购买权益后处理。",
+    "service_role": "图文电子档只是陪伴养兰指导的其中一步，不代表全部服务。",
     "use_cases": ["养兰入门", "常见养护问题", "成交后的陪伴服务说明"],
     "card": ORCHID_MATERIAL_CARD,
 }
