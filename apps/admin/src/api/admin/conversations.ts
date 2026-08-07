@@ -164,6 +164,16 @@ export const replyConversationImage = (
   })
 }
 
+export const replyConversationCareManual = (
+  conversationId: string,
+  operator_id: string,
+  care_manual_id: number
+) =>
+  request.post<ConversationItem>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/reply-care-manual`,
+    data: { operator_id, care_manual_id }
+  })
+
 export const getConversationEmojis = (conversationId: string) =>
   request.get<{ items: ConversationEmoji[] }>({
     url: `${conversationBase()}/${conversationPath(conversationId)}/emojis`

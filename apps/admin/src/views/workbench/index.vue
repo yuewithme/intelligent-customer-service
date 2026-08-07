@@ -16,7 +16,7 @@
       :focus-message-id="focusMessageId"
       @loaded="handleConversationLoaded"
     />
-    <SupervisionPanel
+    <WorkbenchSidePanel
       class="panel side"
       :conversation-id="selectedId"
       :conversation="conversation"
@@ -44,7 +44,7 @@ import { getUserProfileBundle, type UserProfile } from '@/api/user-profile'
 import type { ConversationGroupItem } from './conversationGrouping'
 import ConversationList from './components/ConversationList.vue'
 import MessagePanel from './components/MessagePanel.vue'
-import SupervisionPanel from './components/SupervisionPanel.vue'
+import WorkbenchSidePanel from './components/WorkbenchSidePanel.vue'
 import { isTestGate } from '@/utils/gate'
 
 defineOptions({ name: 'Workbench' })
@@ -254,8 +254,7 @@ onBeforeUnmount(() => {
 
 .panel.side {
   box-sizing: border-box;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }

@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.conversations.schemas.conversation import (
     ClaimRequest,
+    ReplyCareManualRequest,
     ReplyEmojiRequest,
     ReplyRequest,
     StatusActionRequest,
@@ -23,6 +24,7 @@ from app.domains.conversations.services.conversation_service import (
     list_conversation_emojis,
     release_to_ai,
     reply_conversation,
+    reply_conversation_care_manual,
     reply_conversation_emoji,
     reply_conversation_image,
     resolve_message_media,
@@ -129,6 +131,18 @@ async def reply_image(
         conversation_id,
         operator_id,
         image["url"],
+    )
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/reply-care-manual", response_model=APIResponse)
+async def reply_care_manual(
+    conversation_id: str, request: ReplyCareManualRequest
+) -> APIResponse:
+    data = await reply_conversation_care_manual(
+        conversation_id,
+        request.operator_id,
+        request.care_manual_id,
     )
     return APIResponse(code=0, message="success", data=data)
 
