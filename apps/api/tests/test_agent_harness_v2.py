@@ -145,6 +145,36 @@ def test_turn_payload_foregrounds_short_reply_and_previous_assistant_question():
     assert "recent_turns" not in payload["customer_workspace"]
 
 
+def test_turn_payload_prioritizes_unrelated_current_question_over_previous_flow():
+    payload = json.loads(
+        build_turn_payload(
+            customer_message="我这盆叶子突然发黄是怎么回事？",
+            customer_workspace={
+                "recent_turns": [
+                    {
+                        "role": "assistant",
+                        "content": "您要不要先了解一下陪伴养兰服务？",
+                    },
+                    {
+                        "role": "customer",
+                        "content": "我这盆叶子突然发黄是怎么回事？",
+                    },
+                ]
+            },
+            event_context={},
+            tool_results=[],
+        )
+    )
+
+    assert payload["turn_focus"]["current_customer_message"] == (
+        "我这盆叶子突然发黄是怎么回事？"
+    )
+    assert "先判断它是否真的在回答上一问" in payload["turn_focus"]["instruction"]
+    assert "以当前消息为主先承接回答" in payload["turn_focus"]["instruction"]
+    assert "不要为了完成上一轮提问或销售动作强行拉回" in payload["turn_focus"]["instruction"]
+    assert "上一轮问题也不拥有续接权" in payload["context_priority"]
+
+
 def test_turn_payload_keeps_latest_full_conversation_within_char_budget():
     payload = json.loads(
         build_turn_payload(
