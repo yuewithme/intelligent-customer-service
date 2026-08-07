@@ -61,6 +61,11 @@ class ReplyEmojiRequest(BaseModel):
     source_message_id: int = Field(gt=0)
 
 
+class ReplyCareManualRequest(BaseModel):
+    operator_id: str
+    care_manual_id: int = Field(gt=0)
+
+
 class StatusActionRequest(BaseModel):
     operator_id: str
     reason: str | None = None

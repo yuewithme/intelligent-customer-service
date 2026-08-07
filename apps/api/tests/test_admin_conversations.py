@@ -898,6 +898,84 @@ def test_claimed_eyun_conversation_accepts_image_and_received_emoji(
     assert '"md5": "abc123"' in queued[1]["content"]
 
 
+def test_claimed_eyun_conversation_sends_care_manual_link_card(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    from app.domains.conversations.services.conversation_service import (
+        record_customer_message,
+    )
+    from app.domains.sales.services import care_manual_service
+    from app.integrations.eyun.services import message_risk_control_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    queued = []
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": 1, "status": "queued"}
+
+    monkeypatch.setattr(
+        message_risk_control_service,
+        "enqueue_wechat_outbound",
+        fake_enqueue,
+    )
+    monkeypatch.setattr(
+        care_manual_service,
+        "get_care_manual",
+        lambda card_id: {
+            "id": card_id,
+            "title": "【建兰玉白丹红】养护注意事项",
+            "note_url": "https://h5.example.com/note/11",
+            "cover_url": "https://img.example.com/11.jpg",
+            "card_description": "玉白丹红养护手册",
+            "available": True,
+        },
+    )
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="wxid_manual_customer",
+            session_id="default",
+            content="发我养护手册",
+            metadata={
+                "provider": "eyun",
+                "w_id": "wid-1",
+                "from_user": "wxid_manual_customer",
+                "message_type": "60001",
+            },
+        )
+    )
+    client = TestClient(app)
+    conversation_id = "wechat:wxid_manual_customer:default"
+    assert client.post(
+        f"/api/v1/admin/conversations/{conversation_id}/claim",
+        json={"operator_id": "op-manual"},
+    ).status_code == 200
+
+    response = client.post(
+        f"/api/v1/admin/conversations/{conversation_id}/reply-care-manual",
+        json={"operator_id": "op-manual", "care_manual_id": 11},
+    )
+
+    assert response.status_code == 200
+    assert queued[0]["message_type"] == "link_card"
+    assert json.loads(queued[0]["content"]) == {
+        "title": "【建兰玉白丹红】养护注意事项",
+        "url": "https://h5.example.com/note/11",
+        "description": "玉白丹红养护手册",
+        "thumb_url": "https://img.example.com/11.jpg",
+    }
+    detail = client.get(
+        f"/api/v1/admin/conversations/{conversation_id}"
+    ).json()["data"]
+    message = detail["messages"][-1]
+    assert message["sender_type"] == "human"
+    assert message["delivery_status"] == "queued"
+    assert message["metadata"]["link_card"]["url"].endswith("/note/11")
+
+
 def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 

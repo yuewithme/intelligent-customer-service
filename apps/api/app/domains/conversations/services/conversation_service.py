@@ -1144,7 +1144,49 @@ async def reply_conversation_image(
         message_type="image",
         content=image_url,
         display_content="[图片]",
-        media={"type": "image", "url": image_url, "fallback": False},
+        message_metadata={
+            "media": {"type": "image", "url": image_url, "fallback": False}
+        },
+    )
+
+
+async def reply_conversation_care_manual(
+    conversation_id: str,
+    operator_id: str,
+    care_manual_id: int,
+) -> dict:
+    from app.domains.sales.services.care_manual_service import get_care_manual
+
+    try:
+        manual = get_care_manual(care_manual_id)
+    except LookupError as exc:
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message="养护手册不存在",
+            status_code=404,
+        ) from exc
+    if not manual.get("available"):
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message="该养护手册当前不可发送",
+            status_code=409,
+        )
+    card = {
+        "title": str(manual.get("title") or "").strip(),
+        "url": str(manual.get("note_url") or "").strip(),
+        "description": str(
+            manual.get("card_description") or "对应品种的养护注意事项"
+        ).strip(),
+        "thumb_url": str(manual.get("cover_url") or "").strip(),
+    }
+    content = json.dumps(card, ensure_ascii=False)
+    return await _reply_conversation_media(
+        conversation_id,
+        operator_id,
+        message_type="link_card",
+        content=content,
+        display_content=f"[链接卡片] {card['title']}",
+        message_metadata={"link_card": card},
     )
 
 
@@ -1187,12 +1229,14 @@ async def reply_conversation_emoji(
         message_type="emoji",
         content=payload,
         display_content="[表情]",
-        media={
-            "type": "emoji",
-            "url": emoji["url"],
-            "md5": emoji["md5"],
-            "size": emoji["size"],
-            "fallback": not bool(emoji["url"]),
+        message_metadata={
+            "media": {
+                "type": "emoji",
+                "url": emoji["url"],
+                "md5": emoji["md5"],
+                "size": emoji["size"],
+                "fallback": not bool(emoji["url"]),
+            },
         },
     )
 
@@ -1204,7 +1248,7 @@ async def _reply_conversation_media(
     message_type: str,
     content: str,
     display_content: str,
-    media: dict[str, Any],
+    message_metadata: dict[str, Any],
 ) -> dict:
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)
@@ -1235,7 +1279,7 @@ async def _reply_conversation_media(
                     "message_type": message_type,
                     "outbound_content": content,
                     "origin": "admin_workbench",
-                    "media": media,
+                    **message_metadata,
                 },
                 ensure_ascii=False,
             ),
