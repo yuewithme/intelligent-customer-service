@@ -457,9 +457,27 @@ async def test_brand_service_facts_returns_verified_selection_and_delivery():
         "养兰师傅一对一实时指导",
     ]
     assert "地区" in result.data["positioning"]
-    assert "手把手指导" in result.data["customer_entitlement"]
+    assert "陪伴养兰手把手指导" in result.data["customer_entitlement"]
     assert "真实权益" in result.data["customer_entitlement"]
-    assert "有些商家" in result.data["comparison_boundary"]
+    claims = [item["claim"] for item in result.data["verified_evidence"]]
+    assert "专业种植国兰 20 余年" in claims
+    assert "拥有 200 亩兰棚和 2 千多个品种" in claims
+    assert "年培育优质国兰超过 30 万株" in claims
+    assert "新手养兰方法经过实际验证，整体有效率达到 99%" in claims
+    assert "长期没有进行病虫害预防的兰花，感染率超过 70%" in claims
+    assert "温室激素苗复花率不足 30%" in claims
+    assert "自然苗抗性是温室激素苗的 3 倍" in claims
+    assert "老客户反馈，按对应方案处理后的焦尖率可降低 80%" in claims
+    assert result.data["universal_risk_reversal"]["scope"] == "适用于所有客户和所有商品"
+    assert result.data["universal_risk_reversal"]["entitlements"] == [
+        "养不活包补发",
+        "可以由兰园寄养一段时间后再发货",
+        "固定有赠品",
+    ]
+    assert "不自行补充这些细节" in result.data["universal_risk_reversal"]["detail_limit"]
+    assert "常见且占比较大的风险方向" in result.data["comparison_boundary"]
+    assert "可能是" in result.data["comparison_boundary"]
+    assert "不能只凭购买渠道断言" in result.data["comparison_boundary"]
     assert "所有同行" in result.data["comparison_boundary"]
 
 
@@ -1644,9 +1662,11 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "保持 AI 回复，不调用 human.handoff" in prompt
     assert "客户口径只说“已经联系同事处理了”" in prompt
     assert "不要求固定字段、精确盆数或完整画像" in prompt
-    assert "推品方向采用明确的默认权重，但不做运行时固定路由" in prompt
+    assert "推品方向采用明确的默认权重但不做运行时固定路由" in prompt
+    assert "陪伴养兰服务＞兰花＞养护产品" in prompt
     assert "都是养兰服务需求信号，不能据此推导客户想再买一盆兰花" in prompt
-    assert "只要客户没有明确的兰花购买需求，推品方向就落在陪伴养兰服务" in prompt
+    assert "明确索要肥料、植料、杀菌杀虫用品" in prompt
+    assert "只要客户没有明确的兰花或养护产品购买需求，推品方向就落在陪伴养兰服务" in prompt
     assert "仅仅提到自己现有的建兰等品种不算购买需求" in prompt
     assert "商品卡片是客户已有清晰正向意向后的试成交动作" in prompt
     assert "客户只是承认养不好、没人指导、一直自己摸索" in prompt
@@ -1654,6 +1674,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "短回复必须结合紧邻的上一轮理解" in prompt
     assert "purchase_signal 应从 none 进入 interest" in prompt
     assert "是否形成意向由 Agent 理解完整语义，不用关键词硬匹配" in prompt
+    assert "先调用 capability.search 加载对应销售经验" in prompt
 
     experience = next(
         item
@@ -1758,6 +1779,8 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "不要求固定字段、精确盆数或完整画像" in product_search.instructions
     assert "推品方向统一为陪伴养兰服务" in product_search.instructions
     assert "养护痛点不能被解释成需要换一盆好养兰花" in product_search.instructions
+    assert "明确索要肥料、植料、杀菌杀虫用品" in product_search.instructions
+    assert "不自动改推下一优先级" in product_search.instructions
     assert "不是运行时关键词硬拦截" in product_search.instructions
 
     direction_weighting = next(
@@ -1774,6 +1797,74 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "应推进真实服务卡片试成交" in direction_weighting.instructions
     assert "不是固定话术或固定轮次" in direction_weighting.instructions
 
+    composition = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.sales_message_composition"
+    )
+    assert "本轮唯一主要目的" in composition.instructions
+    assert "选择最少够用的两到四个元素" in composition.instructions
+    assert "案例过程+数据证明+可复制第一步" in composition.instructions
+    assert "不把元素名称、内部策略或完整公式说给客户" in composition.instructions
+    assert "权威上下文已经核实的事实" in composition.instructions
+
+    service_routing = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.service_first_routing"
+    )
+    assert "陪伴养兰服务＞兰花＞养护产品" in service_routing.instructions
+    assert "普通黄叶、烂根、不开花和病虫害咨询" in service_routing.instructions
+    assert "客户拒绝服务时不自动改推下一优先级" in service_routing.instructions
+
+    pain_to_service = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.pain_to_service"
+    )
+    assert "不是完成深度会诊" in pain_to_service.instructions
+    assert "技术细节最多追问一轮" in pain_to_service.instructions
+    assert "立即从病因讨论切换到价值塑造" in pain_to_service.instructions
+
+    value_proof = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.value_proof"
+    )
+    assert "五个答案" in value_proof.instructions
+    assert "重点展示解决过程" in value_proof.instructions
+    assert "不能把个别风险说成所有同行事实" in value_proof.instructions
+
+    trial_close = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.trial_and_close"
+    )
+    assert "用低门槛行动测试购买意愿" in trial_close.instructions
+    assert "逼单只处理最后一个卡点" in trial_close.instructions
+    assert "适用于所有客户和所有商品的统一风险逆转权益" in trial_close.instructions
+    assert "不自行编造补发次数和条件" in trial_close.instructions
+    assert "预留、稀缺、优惠和时效必须先有真实工具结果" in trial_close.instructions
+    assert "不能把推测写成当前事实" in trial_close.instructions
+
+    source_scenario = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.source_scenario"
+    )
+    assert "不是直接下结论的证据" in source_scenario.instructions
+    assert "不能仅凭来源断言客户这盆一定是假苗" in source_scenario.instructions
+    assert "法律结论或具体处罚时先查当前权威知识" in source_scenario.instructions
+
+    engagement = next(
+        item
+        for item in agent_tools.CAPABILITIES
+        if item.name == "experience.engagement_followup"
+    )
+    assert "不是单向发广告" in engagement.instructions
+    assert "每次只有一个新关系目的" in engagement.instructions
+    assert "不重复问‘考虑得怎么样’" in engagement.instructions
+
     product_send = next(
         item for item in agent_tools.CAPABILITIES if item.name == "product.send_card"
     )
@@ -1788,6 +1879,49 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     )
     assert "已核实买后服务事实" in service_facts.instructions
     assert "一对一指导" in service_facts.instructions
+
+
+def test_private_sales_experience_package_is_discoverable_and_service_first():
+    prompt = build_system_prompt()
+    assert "陪伴养兰服务＞兰花＞养护产品" in prompt
+    assert "先调用 capability.search 加载对应销售经验" in prompt
+    assert "销售是这段关系的主要经营目的" in prompt
+    assert "不能因为问题简单就用“有问题再找我”被动结束" in prompt
+
+    capabilities = {item.name: item for item in agent_tools.CAPABILITIES}
+    expected = {
+        "experience.sales_message_composition",
+        "experience.service_first_routing",
+        "experience.pain_to_service",
+        "experience.value_proof",
+        "experience.trial_and_close",
+        "experience.source_scenario",
+        "experience.engagement_followup",
+    }
+    assert expected <= capabilities.keys()
+
+    composition = capabilities["experience.sales_message_composition"].instructions
+    assert "选择最少够用的两到四个元素" in composition
+    assert "权威上下文已经核实的事实" in composition
+
+    routing = capabilities["experience.service_first_routing"].instructions
+    assert "陪伴养兰服务＞兰花＞养护产品" in routing
+    assert "客户拒绝服务时不自动改推下一优先级" in routing
+
+    progression = capabilities["experience.pain_to_service"].instructions
+    assert "技术细节最多追问一轮" in progression
+    assert "立即从病因讨论切换到价值塑造" in progression
+    assert "不能因为问题简单就被动结束" in progression
+
+    assert agent_tools._capability_score(
+        "用案例和数据怎么塑品", capabilities["experience.sales_message_composition"]
+    ) > 0
+    assert agent_tools._capability_score(
+        "客户说贵了怎么逼单", capabilities["experience.trial_and_close"]
+    ) > 0
+    assert agent_tools._capability_score(
+        "朋友送的兰花怎么转化", capabilities["experience.source_scenario"]
+    ) > 0
 
 
 def test_specific_brand_service_claim_requires_verified_tool_facts():
