@@ -13,7 +13,7 @@
 
 ## Default Git Workflow
 
-- After development and verification are complete, commit the relevant changes and push them to the GitHub `main` branch by default.
+- After development and verification are complete, commit the relevant changes and push them to the Gitea `main` branch at `https://gitea.aiwohu.com/xiangwei/intelligent-customer-service.git` by default, authenticating as `huangguijie`.
 - Use a concise Conventional Commit message that describes the completed change.
 - Never stage unrelated user changes, local secrets, environment files, databases, generated artifacts, or untracked planning documents unless explicitly requested.
 - Before committing, run `git diff --check`, review the staged diff, and scan it for credentials or secrets.
@@ -22,7 +22,7 @@
 ## Local Development and Cloud Server Access
 
 - All code development, editing, debugging, and testing must be performed on the local development machine. Do not develop or modify source code on the cloud server.
-- The cloud server is for deployment and runtime operations only. For project code, only pull the latest committed code from the GitHub `main` branch; do not create, edit, patch, or commit source files on the server.
+- The cloud server is for deployment and runtime operations only. For project code, only pull the latest committed code from the Gitea `main` branch; do not create, edit, patch, or commit source files on the server.
 - Connect from Windows PowerShell with `ssh -i "$env:USERPROFILE\.ssh\guijie.pem" ubuntu@150.158.52.233`.
 - The SSH private key must remain local and must never be copied into the repository or committed to Git.
 
