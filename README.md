@@ -50,5 +50,7 @@ pnpm ts:check
 pnpm build:prod
 ```
 
-生产环境只有一条发布链路：提交到 Gitea `main` 后，由云服务器执行根目录的
-`docker-compose.prod.yml`。Render/Vercel 不再属于项目架构。
+代码协作主线已切换为 Gitea `main`。生产自动部署仍需将云服务器的 Git
+`origin` 和只读凭据迁移到 Gitea；迁移完成前，Gitea 推送不会自动上线。生产
+部署继续由云服务器执行根目录的 `docker-compose.prod.yml`，Render/Vercel
+不再属于项目架构。
