@@ -50,5 +50,5 @@ pnpm ts:check
 pnpm build:prod
 ```
 
-生产环境只有一条发布链路：提交到 GitHub `main` 后，由云服务器执行根目录的
+生产环境只有一条发布链路：提交到 Gitea `main` 后，由云服务器执行根目录的
 `docker-compose.prod.yml`。Render/Vercel 不再属于项目架构。
