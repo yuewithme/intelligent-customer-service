@@ -71,8 +71,8 @@ async def test_service_can_discover_post_service_repurchase_seed_experience():
     instructions = capabilities["experience.post_service_repurchase_seed"][
         "full_instructions"
     ]
-    assert "不是要求同一轮连续发送的三段话" in instructions
-    assert "绝不能在同一轮同时出现持续咨询、会员钩子和偏好提问三项" in instructions
+    assert "三项缺一不可" in instructions
+    assert "拆成三条独立 text 消息" in instructions
     assert "不触发 product.search、商品推荐或卡片" in instructions
     assert "用 memory.record 保存" in instructions
     assert "当前问题未解决" in instructions
@@ -81,9 +81,10 @@ async def test_service_can_discover_post_service_repurchase_seed_experience():
 def test_service_prompt_separates_preference_collection_from_purchase_intent():
     prompt = build_system_prompt(sop_scope="service")
 
-    assert "主动轻量询问一个尚未知的花色、瓣型、香味或品种鉴赏偏好" in prompt
+    assert "询问一个尚未知的花色、瓣型、香味或品种鉴赏偏好" in prompt
     assert "这是长期偏好采集，不代表客户现在有购买意向" in prompt
-    assert "单轮最多组合两个相邻动作，绝不能三项同轮" in prompt
+    assert "本轮必须完整完成三个动作" in prompt
+    assert "三个动作必须拆成三条独立 text 消息" in prompt
     assert "仅仅回答了未来鉴赏偏好" in prompt
     assert "每周会上新多款铭品供鉴赏" in prompt
     assert "有会员专属折扣活动" in prompt
@@ -158,8 +159,8 @@ def test_runtime_allows_general_member_hooks_but_blocks_invented_details():
     )
 
 
-def test_runtime_blocks_three_post_service_seed_actions_in_one_turn():
-    overloaded = AgentTurnDecision.model_validate(
+def test_runtime_requires_all_three_post_service_seed_actions_as_separate_messages():
+    merged = AgentTurnDecision.model_validate(
         {
             "commercial_judgment": "问题解决后经营长期关系",
             "relationship_purpose": "留下咨询心智、会员钩子和偏好",
@@ -170,18 +171,68 @@ def test_runtime_blocks_three_post_service_seed_actions_in_one_turn():
                 "messages": [
                     {
                         "type": "text",
-                        "content": "后面有变化随时发图给我。咱们每周都会上新，也有会员专属折扣。您更偏爱哪种香味？",
+                        "content": "后面有变化随时发图给我。咱们每周都会上新，也有会员专属折扣。您更偏爱哪种香味？买不买都没关系。",
                     }
                 ],
                 "need_human": False,
             },
         }
     )
+    valid = AgentTurnDecision.model_validate(
+        {
+            "commercial_judgment": "问题解决后经营长期关系",
+            "relationship_purpose": "完成三方向收口",
+            "customer_signal": "none",
+            "purchase_signal": "none",
+            "tool_calls": [],
+            "final_response": {
+                "messages": [
+                    {"type": "text", "content": "后面遇到任何养兰问题，随时拍图发消息找我。"},
+                    {"type": "text", "content": "咱们每周会上新多款铭品供鉴赏，也有会员专属折扣，后续有实拍图和优惠我会主动分享。"},
+                    {"type": "text", "content": "您平时更喜欢什么花色或瓣型？我以后按您的偏好分享，买不买都没关系。"},
+                ],
+                "need_human": False,
+            },
+        }
+    )
+    context = AgentExecutionContext(
+        message=SimpleNamespace(metadata={}, message="好的，谢谢，我明白了"),
+        user_state=SimpleNamespace(user_id="customer-1", customer_tags=["微信已购"]),
+        workspace={"profile": {"customer_tags": ["微信已购"]}},
+    )
 
-    violations = agent_runtime._guard_violations(overloaded, _context())
-    assert "overloaded_post_service_seed" in violations
+    violations = agent_runtime._guard_violations(merged, context)
+    assert "incomplete_or_merged_post_service_seed" in violations
     instruction = agent_runtime._hard_rewrite_instruction(violations)
-    assert "必须真正删掉一项" in instruction
+    assert "必须完整回复三个方向，缺一不可" in instruction
+    assert agent_runtime._guard_violations(valid, context) == []
+
+
+def test_runtime_does_not_treat_thanks_with_unresolved_question_as_natural_close():
+    reply = AgentTurnDecision.model_validate(
+        {
+            "commercial_judgment": "客户仍有养护问题",
+            "relationship_purpose": "继续解决当前问题",
+            "customer_signal": "none",
+            "purchase_signal": "none",
+            "tool_calls": [],
+            "final_response": {
+                "messages": [
+                    {"type": "text", "content": "先别急着加水，我再帮您看一下目前的变化。"}
+                ],
+                "need_human": False,
+            },
+        }
+    )
+    context = AgentExecutionContext(
+        message=SimpleNamespace(metadata={}, message="好的，谢谢，但是叶尖还在扩大，怎么办？"),
+        user_state=SimpleNamespace(user_id="customer-1", customer_tags=["微信已购"]),
+        workspace={"profile": {"customer_tags": ["微信已购"]}},
+    )
+
+    assert "incomplete_or_merged_post_service_seed" not in agent_runtime._guard_violations(
+        reply, context
+    )
 
 
 @pytest.mark.asyncio
