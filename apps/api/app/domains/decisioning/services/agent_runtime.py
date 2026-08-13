@@ -69,6 +69,33 @@ _SENT_SUCCESS_PATTERNS = (
 )
 _PRICE_PATTERN = re.compile(r"(?<!\d)(\d+(?:\.\d{1,2})?)\s*(?:元|块)(?!\d)")
 _STOCK_PATTERN = re.compile(r"(?:库存|还剩|剩余)\s*(\d+)\s*(?:件|盆|株|个)")
+_SPECIFIC_MEMBER_PROMOTION_PATTERNS = (
+    re.compile(r"(?<!\d)\d+(?:\.\d+)?\s*折(?!扣)"),
+    re.compile(r"(?:优惠|立减|便宜)\s*\d+(?:\.\d{1,2})?\s*(?:元|块)"),
+    re.compile(r"(?:每周|周)(?:一|二|三|四|五|六|日|天|[1-7])(?:上新|更新|发|推)"),
+    re.compile(r"(?:上新|更新|推出)\s*\d+\s*(?:款|种|个)"),
+    re.compile(r"\d{1,2}\s*月\s*\d{1,2}\s*日.*(?:上新|活动|优惠|折扣)"),
+)
+_POST_SERVICE_CONSULTATION_MARKERS = (
+    "随时发图",
+    "随时拍图",
+    "随时找我",
+    "继续发图",
+    "再拍图",
+    "有问题找我",
+    "有问题随时",
+)
+_MEMBER_HOOK_MARKERS = ("每周", "上新", "会员专属折扣", "实拍图", "优惠")
+_PREFERENCE_QUESTION_MARKERS = (
+    "偏爱",
+    "喜欢什么花色",
+    "喜欢哪种花色",
+    "什么瓣型",
+    "哪种瓣型",
+    "什么香味",
+    "哪种香味",
+    "品种偏好",
+)
 _URL_PATTERN = re.compile(r"https?://[^\s<>\"，。！、；：）)\]}]+")
 _LIST_STYLE_PATTERN = re.compile(
     r"(?m)^\s*(?:[-*•·]|(?:\d+|[一二三四五六七八九十]+)[.、．)）])\s*"
@@ -891,6 +918,13 @@ def _guard_violations(
     if any(claim in text for claim in _FORBIDDEN_PROMOTION_CLAIMS):
         violations.append("unverified_promotion_claim")
     if (
+        _sop_scope(context.message) == "service"
+        and any(pattern.search(text) for pattern in _SPECIFIC_MEMBER_PROMOTION_PATTERNS)
+    ):
+        violations.append("unverified_member_promotion_detail")
+    if _bundles_all_post_service_seed_actions(text):
+        violations.append("overloaded_post_service_seed")
+    if (
         _contains_specific_brand_service_claim(text)
         and not _has_found_tool(context, "brand.service_facts")
     ):
@@ -1077,6 +1111,15 @@ def _contains_specific_brand_service_claim(text: str) -> bool:
     )
 
 
+def _bundles_all_post_service_seed_actions(text: str) -> bool:
+    return (
+        any(marker in text for marker in _POST_SERVICE_CONSULTATION_MARKERS)
+        and any(marker in text for marker in _MEMBER_HOOK_MARKERS)
+        and "？" in text
+        and any(marker in text for marker in _PREFERENCE_QUESTION_MARKERS)
+    )
+
+
 def _is_video_access_context(reply_text: str, customer_text: str) -> bool:
     combined = f"{customer_text}\n{reply_text}"
     return "视频" in combined and any(
@@ -1242,6 +1285,14 @@ def _normalize_repeat_text(text: str) -> str:
 
 
 def _hard_rewrite_instruction(violations: list[str]) -> str:
+    if "overloaded_post_service_seed" in violations:
+        return (
+            "当前回复在同一轮同时包含持续咨询心智、会员钩子和偏好提问，节奏过满。"
+            "最多保留两个相邻动作：本场景优先保留持续咨询＋会员钩子，删除偏好问题，等客户回应后下一轮再问；"
+            "如果前文已经明确讲过持续咨询，则保留会员钩子＋一个偏好问题。"
+            "不要只把三项拆成多个消息，必须真正删掉一项；不要输出内部说明。"
+            f"本次硬违规：{', '.join(violations)}"
+        )
     if any(
         violation in violations
         for violation in (
@@ -1262,6 +1313,14 @@ def _hard_rewrite_instruction(violations: list[str]) -> str:
             "具体的单品养护教程、会员百节视频教学和师傅一对一实时指导属于需要核实的服务事实。"
             "先调用 brand.service_facts；工具返回 found 后，再基于结果完整保留服务价值说明。"
             "不要为了修复事实边界而删掉塑品步骤，也不要输出内部说明。"
+            f"本次硬违规：{', '.join(violations)}"
+        )
+    if "unverified_member_promotion_detail" in violations:
+        return (
+            "每周上新多款铭品供鉴赏、会员专属折扣活动、后续主动分享实拍与优惠可以作为长期会员吸引点直接表达，"
+            "但不能回答具体上新日期、数量、品种、折扣、金额、条件或有效期。"
+            "请自然说明每期品种和优惠安排会不同，有合适内容会按客户喜好分享，"
+            "再转向询问一个尚未知的花色、瓣型、香味或品种鉴赏偏好；不要输出内部核实说明。"
             f"本次硬违规：{', '.join(violations)}"
         )
     return (
