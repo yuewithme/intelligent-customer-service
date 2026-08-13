@@ -88,6 +88,7 @@ _POST_SERVICE_CONSULTATION_MARKERS = (
 _MEMBER_HOOK_MARKERS = ("每周", "上新", "会员专属折扣", "实拍图", "优惠")
 _PREFERENCE_QUESTION_MARKERS = (
     "偏爱",
+    "更喜欢",
     "喜欢什么花色",
     "喜欢哪种花色",
     "什么瓣型",
@@ -96,6 +97,32 @@ _PREFERENCE_QUESTION_MARKERS = (
     "哪种香味",
     "品种偏好",
 )
+_NATURAL_SERVICE_CLOSE_MARKERS = (
+    "好的",
+    "好嘞",
+    "谢谢",
+    "感谢",
+    "明白了",
+    "知道了",
+    "清楚了",
+    "懂了",
+    "晓得了",
+)
+_EXPLICIT_STOP_MARKERS = ("不用了", "别发", "不要发", "别联系", "不需要", "别问")
+_UNRESOLVED_CONTINUATION_MARKERS = (
+    "但是",
+    "不过",
+    "可是",
+    "还没",
+    "还是",
+    "继续",
+    "越来越",
+    "更严重",
+    "怎么办",
+    "怎么处理",
+    "怎么弄",
+)
+_NO_PRESSURE_MARKERS = ("买不买都没关系", "不买也没关系", "只是分享", "供您鉴赏")
 _URL_PATTERN = re.compile(r"https?://[^\s<>\"，。！、；：）)\]}]+")
 _LIST_STYLE_PATTERN = re.compile(
     r"(?m)^\s*(?:[-*•·]|(?:\d+|[一二三四五六七八九十]+)[.、．)）])\s*"
@@ -922,8 +949,10 @@ def _guard_violations(
         and any(pattern.search(text) for pattern in _SPECIFIC_MEMBER_PROMOTION_PATTERNS)
     ):
         violations.append("unverified_member_promotion_detail")
-    if _bundles_all_post_service_seed_actions(text):
-        violations.append("overloaded_post_service_seed")
+    if _requires_complete_post_service_seed(context) and not _has_complete_post_service_seed(
+        final.messages
+    ):
+        violations.append("incomplete_or_merged_post_service_seed")
     if (
         _contains_specific_brand_service_claim(text)
         and not _has_found_tool(context, "brand.service_facts")
@@ -1111,13 +1140,61 @@ def _contains_specific_brand_service_claim(text: str) -> bool:
     )
 
 
-def _bundles_all_post_service_seed_actions(text: str) -> bool:
-    return (
-        any(marker in text for marker in _POST_SERVICE_CONSULTATION_MARKERS)
-        and any(marker in text for marker in _MEMBER_HOOK_MARKERS)
-        and "？" in text
-        and any(marker in text for marker in _PREFERENCE_QUESTION_MARKERS)
+def _requires_complete_post_service_seed(context: AgentExecutionContext) -> bool:
+    if _sop_scope(context.message) != "service":
+        return False
+    customer_text = re.sub(r"\s+", "", str(context.message.message or ""))
+    if not customer_text or any(marker in customer_text for marker in _EXPLICIT_STOP_MARKERS):
+        return False
+    if (
+        "？" in customer_text
+        or "?" in customer_text
+        or any(marker in customer_text for marker in _UNRESOLVED_CONTINUATION_MARKERS)
+    ):
+        return False
+    if not any(marker in customer_text for marker in _NATURAL_SERVICE_CLOSE_MARKERS):
+        return False
+    profile = context.workspace.get("profile")
+    profile = profile if isinstance(profile, dict) else {}
+    tags = {
+        str(item)
+        for item in [
+            *(profile.get("customer_tags") or []),
+            *(getattr(context.user_state, "customer_tags", None) or []),
+        ]
+    }
+    purchase_status = str(profile.get("purchase_status") or "").casefold()
+    return bool(tags & {"抖音已购", "微信已购"}) or purchase_status in {
+        "verified_purchased",
+        "purchased",
+        "paid",
+    }
+
+
+def _has_complete_post_service_seed(messages: list[Any]) -> bool:
+    texts = [
+        str(item.content or "").strip()
+        for item in messages
+        if item.type == "text" and str(item.content or "").strip()
+    ]
+    if len(texts) != 3:
+        return False
+    consultation, member_hook, preference = texts
+    consultation_ok = any(
+        marker in consultation for marker in _POST_SERVICE_CONSULTATION_MARKERS
     )
+    member_hook_ok = (
+        "上新" in member_hook
+        and "会员" in member_hook
+        and "折扣" in member_hook
+        and any(marker in member_hook for marker in ("实拍", "优惠", "分享"))
+    )
+    preference_ok = (
+        ("？" in preference or "?" in preference)
+        and any(marker in preference for marker in _PREFERENCE_QUESTION_MARKERS)
+        and any(marker in preference for marker in _NO_PRESSURE_MARKERS)
+    )
+    return consultation_ok and member_hook_ok and preference_ok
 
 
 def _is_video_access_context(reply_text: str, customer_text: str) -> bool:
@@ -1285,12 +1362,14 @@ def _normalize_repeat_text(text: str) -> str:
 
 
 def _hard_rewrite_instruction(violations: list[str]) -> str:
-    if "overloaded_post_service_seed" in violations:
+    if "incomplete_or_merged_post_service_seed" in violations:
         return (
-            "当前回复在同一轮同时包含持续咨询心智、会员钩子和偏好提问，节奏过满。"
-            "最多保留两个相邻动作：本场景优先保留持续咨询＋会员钩子，删除偏好问题，等客户回应后下一轮再问；"
-            "如果前文已经明确讲过持续咨询，则保留会员钩子＋一个偏好问题。"
-            "不要只把三项拆成多个消息，必须真正删掉一项；不要输出内部说明。"
+            "这是已购客户的问题解决后表示感谢、明白或自然收口的场景，本轮必须完整回复三个方向，缺一不可。"
+            "请严格输出三条独立 text 消息：第一条告诉客户后续有任何养兰问题可继续拍图、发消息来咨询；"
+            "第二条告知每周会上新多款铭品供鉴赏、有会员专属折扣，后续有实拍图和优惠会主动分享；"
+            "第三条询问一个花色、瓣型、香味或品种偏好，并明确以后按偏好分享、买不买都没关系。"
+            "不能把三个方向合并在一条消息，也不能省略其中任何一个；purchase_signal 保持 none，不查询或发送商品。"
+            "不要输出内部说明。"
             f"本次硬违规：{', '.join(violations)}"
         )
     if any(
