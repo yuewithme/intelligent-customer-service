@@ -1598,7 +1598,7 @@ async def test_tool_rounds_append_only_new_results(monkeypatch):
 
 def test_opening_guard_requires_identity_and_one_needs_question():
     message = _message("[系统新好友建立]")
-    message.metadata = {"system_event": "first_contact"}
+    message.metadata = {"system_event": "first_contact", "sop_scope": "first_order"}
     context = AgentExecutionContext(
         message=message,
         user_state=UserState(user_id="customer-1"),
@@ -1661,7 +1661,7 @@ def test_opening_guard_requires_identity_and_one_needs_question():
 
 
 def test_harness_collects_match_facts_before_product_and_material_release():
-    prompt = build_system_prompt()
+    prompt = build_system_prompt(sop_scope="first_order")
     assert "新客户开场优先了解当前盆数和主要品种" in prompt
     assert "能否用客户已经说过的事实" in prompt
     assert "也可以主动查询并口头推荐合适商品" in prompt
@@ -1743,7 +1743,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         if item.name == "material.send"
     )
     assert "同一资料已经发过时" in material_send.instructions
-    assert "先直接解决新问题并判断是否推品" in material_send.instructions
+    assert "先直接解决新问题并判断是否需要后续服务" in material_send.instructions
     assert "明确要求重发、找不到或上次未成功" in material_send.instructions
 
     objection = next(
@@ -1811,11 +1811,9 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         item for item in agent_tools.CAPABILITIES if item.name == "product.search"
     )
     assert "不要求固定字段、精确盆数或完整画像" in product_search.instructions
-    assert "推品方向统一为陪伴养兰服务" in product_search.instructions
-    assert "养护痛点不能被解释成需要换一盆好养兰花" in product_search.instructions
-    assert "明确索要肥料、植料、杀菌杀虫用品" in product_search.instructions
-    assert "不自动改推下一优先级" in product_search.instructions
-    assert "不是运行时关键词硬拦截" in product_search.instructions
+    assert "只在客户出现明确选购" in product_search.instructions
+    assert "服务问题本身不构成购买需求" in product_search.instructions
+    assert "查询不会发送卡片" in product_search.instructions
 
     direction_weighting = next(
         item
@@ -1902,8 +1900,8 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     product_send = next(
         item for item in agent_tools.CAPABILITIES if item.name == "product.send_card"
     )
-    assert "商品卡片是试成交动作" in product_send.instructions
-    assert "一直自己摸索或信息已经收集充分" in product_send.instructions
+    assert "明确要链接、下单、已选定时使用" in product_send.instructions
+    assert "普通养护问题、服务缺口或画像充分" in product_send.instructions
     assert "不等于可以发卡" in product_send.instructions
 
     service_facts = next(
@@ -1918,7 +1916,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
 
 
 def test_private_sales_experience_package_is_discoverable_and_service_first():
-    prompt = build_system_prompt()
+    prompt = build_system_prompt(sop_scope="first_order")
     assert "陪伴养兰服务＞兰花＞养护产品" in prompt
     assert "先调用 capability.search 加载对应销售经验" in prompt
     assert "销售是这段关系的主要经营目的" in prompt
@@ -2248,7 +2246,7 @@ async def test_runtime_rewrites_stalled_detail_toward_recommendation_readiness(
 @pytest.mark.asyncio
 async def test_opening_does_not_execute_agent_tools(monkeypatch):
     message = _message("[系统新好友建立]")
-    message.metadata = {"system_event": "first_contact"}
+    message.metadata = {"system_event": "first_contact", "sop_scope": "first_order"}
     responses = iter(
         [
             _decision(

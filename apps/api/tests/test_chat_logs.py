@@ -310,7 +310,7 @@ def test_chat_api_logs_internal_agent_judgment_without_exposing_it(monkeypatch, 
     detail = client.get(f"/api/v1/admin/chat-logs/{data['trace_id']}")
     assert detail.status_code == 200
     agent = detail.json()["data"]["metadata"]["agent_runtime"]
-    assert agent["version"] == "sales-agent-harness-v2"
+    assert agent["version"] == "service-agent-harness-v1"
     assert agent["commercial_judgment"]
     assert agent["relationship_purpose"]
     assert "customer_workspace" not in agent

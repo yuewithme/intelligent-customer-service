@@ -678,29 +678,12 @@ async def test_opening_slots_persistently_serialize_customers(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_new_friend_opening_uses_agent_copy_with_image_and_opening_dependencies(monkeypatch):
-    from app.core.config import get_settings
+async def test_new_friend_opening_sends_service_copy_without_first_order_package(monkeypatch):
     from app.integrations.eyun.services import message_risk_control_service as service
 
     now = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
     queued = []
     recorded = []
-
-    async def compose_opening(request):
-        assert request.metadata["system_event"] == "first_contact"
-        return {
-            "answer": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
-            "outbound_messages": [
-                {
-                    "type": "text",
-                    "content": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。",
-                },
-                {
-                    "type": "text",
-                    "content": "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
-                },
-            ],
-        }
 
     async def ignore_memories(*args, **kwargs):
         return None
@@ -715,16 +698,9 @@ async def test_new_friend_opening_uses_agent_copy_with_image_and_opening_depende
 
     async def reserve_slots(*, w_id, message_count):
         assert w_id == "wid"
-        assert message_count == 3
-        return [
-            now,
-            now + timedelta(seconds=8),
-            now + timedelta(seconds=16),
-        ]
+        assert message_count == 1
+        return [now]
 
-    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://cdn.example.com/opening.jpg")
-    get_settings.cache_clear()
-    monkeypatch.setattr(service, "handle_chat", compose_opening)
     monkeypatch.setattr(service, "_record_opening_memories", ignore_memories)
     monkeypatch.setattr(service, "ensure_outbound_conversation_message", ensure_message)
     monkeypatch.setattr(service, "enqueue_eyun_outbound", enqueue)
@@ -741,17 +717,12 @@ async def test_new_friend_opening_uses_agent_copy_with_image_and_opening_depende
         }
     )
 
-    assert [item["due_at"] for item in queued] == [
-        now,
-        now + timedelta(seconds=8),
-        now + timedelta(seconds=16),
-    ]
-    assert [item["depends_on_outbound_id"] for item in queued] == [None, 201, 202]
-    assert [item["route"] for item in recorded] == ["opening", "opening", "opening"]
-    assert queued[1]["content"] == "https://cdn.example.com/opening.jpg"
-    assert queued[1]["message_type"] == "image"
-    assert queued[2]["content"] == "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？"
-    get_settings.cache_clear()
+    assert [item["due_at"] for item in queued] == [now]
+    assert [item["depends_on_outbound_id"] for item in queued] == [None]
+    assert [item["route"] for item in recorded] == ["opening"]
+    assert queued[0]["content"] == service.SERVICE_OPENING
+    assert "老朋友，欢迎加到我私人微信～" in queued[0]["content"]
+    assert "有老客专属铭品、成套组合福利" in queued[0]["content"]
 
 
 @pytest.mark.asyncio

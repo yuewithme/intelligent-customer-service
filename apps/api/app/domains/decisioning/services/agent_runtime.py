@@ -195,6 +195,7 @@ async def run_sales_agent(
     user_state,
     workspace: dict[str, Any],
 ) -> FinalReply:
+    sop_scope = _sop_scope(message)
     context = AgentExecutionContext(
         message=message,
         user_state=user_state,
@@ -202,7 +203,7 @@ async def run_sales_agent(
     )
     event_context = _event_context(message)
     conversation: list[dict[str, str]] = [
-        {"role": "system", "content": build_system_prompt()},
+        {"role": "system", "content": build_system_prompt(sop_scope=sop_scope)},
         {
             "role": "user",
             "content": build_turn_payload(
@@ -321,7 +322,10 @@ async def run_sales_agent(
                     }
                 )
                 continue
-            if str(event_context.get("system_event") or "") == "first_contact":
+            if (
+                sop_scope == "first_order"
+                and str(event_context.get("system_event") or "") == "first_contact"
+            ):
                 diagnostic["outcome"] = "opening_tool_blocked"
                 diagnostic["hard_violations"] = ["opening_tool_call_forbidden"]
                 if hard_rewrites >= MAX_HARD_REWRITES:
@@ -526,7 +530,7 @@ async def _finalize_reply(
             context=context,
         )
         need_human = True
-    if _is_opening_system_event(context):
+    if _is_first_order_opening(context):
         outbound = _insert_opening_image(outbound)
     return FinalReply(
         answer=answer,
@@ -622,7 +626,7 @@ async def _safe_fallback(
             },
         )
     system_event = str((message.metadata or {}).get("system_event") or "")
-    if system_event == "first_contact":
+    if system_event == "first_contact" and _sop_scope(message) == "first_order":
         intro = "您好，我是萧岚苑的小兰，我们团队平时都在和兰花打交道，后面养护上有什么拿不准都可以找我。"
         question = "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？"
         texts = [intro, question]
@@ -682,7 +686,7 @@ async def _safe_fallback(
         else "当前模型决策未形成可安全发送的完整回复"
     )
     outbound = [OutboundMessage(type="text", content=content) for content in texts]
-    if system_event == "first_contact":
+    if system_event == "first_contact" and _sop_scope(message) == "first_order":
         outbound = _insert_opening_image(outbound)
     return FinalReply(
         answer=text,
@@ -856,7 +860,7 @@ def _guard_violations(
         str(item.content or "") for item in final.messages if item.type == "text"
     )
     violations: list[str] = []
-    opening_event = _is_opening_system_event(context)
+    opening_event = _is_first_order_opening(context)
     opening_profile_question = False
     if opening_event and final is not None:
         opening_texts = [item for item in final.messages if item.type == "text"]
@@ -1337,6 +1341,18 @@ def _is_opening_profile_question(text: str) -> bool:
 def _is_opening_system_event(context: AgentExecutionContext) -> bool:
     metadata = context.message.metadata
     return isinstance(metadata, dict) and metadata.get("system_event") == "first_contact"
+
+
+def _sop_scope(message) -> str:
+    metadata = getattr(message, "metadata", {})
+    requested = metadata.get("sop_scope") if isinstance(metadata, dict) else None
+    return "first_order" if requested == "first_order" else "service"
+
+
+def _is_first_order_opening(context: AgentExecutionContext) -> bool:
+    return _sop_scope(context.message) == "first_order" and _is_opening_system_event(
+        context
+    )
 
 
 def _insert_opening_image(

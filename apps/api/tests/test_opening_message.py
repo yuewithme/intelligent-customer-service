@@ -71,35 +71,13 @@ async def test_first_inbound_message_skips_debounce_delay(monkeypatch, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_new_friend_opening_uses_fixed_package_and_dedicated_queue(monkeypatch):
-    from app.core.config import get_settings
+async def test_new_friend_opening_uses_service_copy_and_dedicated_queue(monkeypatch):
     from app.services import message_risk_control_service as risk_control
 
-    captured = {}
     queued = []
     recorded = []
     now = datetime(2026, 8, 5, tzinfo=timezone.utc)
-    due_slots = [
-        now,
-        now.replace(second=8),
-        now.replace(second=16),
-    ]
-
-    async def fake_handle_chat(request):
-        captured["request"] = request
-        return {
-            "answer": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
-            "outbound_messages": [
-                {
-                    "type": "text",
-                    "content": "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。",
-                },
-                {
-                    "type": "text",
-                    "content": "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
-                },
-            ],
-        }
+    due_slots = [now]
 
     async def fake_record(*args, **kwargs):
         del args, kwargs
@@ -114,12 +92,9 @@ async def test_new_friend_opening_uses_fixed_package_and_dedicated_queue(monkeyp
 
     async def fake_reserve(*, w_id, message_count):
         assert w_id == "wid"
-        assert message_count == 3
+        assert message_count == 1
         return due_slots
 
-    monkeypatch.setenv("EYUN_OPENING_IMAGE_URL", "https://cdn.example.com/opening.jpg")
-    get_settings.cache_clear()
-    monkeypatch.setattr(risk_control, "handle_chat", fake_handle_chat)
     monkeypatch.setattr(risk_control, "_record_opening_memories", fake_record)
     monkeypatch.setattr(risk_control, "ensure_outbound_conversation_message", fake_ensure)
     monkeypatch.setattr(risk_control, "enqueue_eyun_outbound", fake_enqueue)
@@ -136,18 +111,7 @@ async def test_new_friend_opening_uses_fixed_package_and_dedicated_queue(monkeyp
         }
     )
 
-    request = captured["request"]
-    assert request.metadata["system_event"] == "first_contact"
-    assert request.metadata["is_first_contact"] is True
-    assert [item["content"] for item in queued] == [
-        "您好，我是萧岚苑的小兰，我们团队平时主要做兰花。",
-        "https://cdn.example.com/opening.jpg",
-        "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？",
-    ]
+    assert [item["content"] for item in queued] == [risk_control.SERVICE_OPENING]
     assert [item["due_at"] for item in queued] == due_slots
-    assert [item["route"] for item in recorded] == ["opening", "opening", "opening"]
-    assert queued[1]["message_type"] == "image"
+    assert [item["route"] for item in recorded] == ["opening"]
     assert queued[0]["depends_on_outbound_id"] is None
-    assert queued[1]["depends_on_outbound_id"] == 1
-    assert queued[2]["depends_on_outbound_id"] == 2
-    get_settings.cache_clear()

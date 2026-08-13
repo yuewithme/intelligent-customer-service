@@ -91,18 +91,13 @@ def test_demo_opening_uses_agent_runtime_and_records_conversation(
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["reply"].startswith("您好，我是萧岚苑的小兰")
-    assert "给您更贴合的养护建议和资料" in data["reply"]
-    assert "大概养了多少盆" in data["reply"]
-    assert "什么品种" in data["reply"]
+    assert data["reply"].startswith("老朋友，欢迎加到我私人微信～")
+    assert "随时拍图联络我" in data["reply"]
+    assert "有老客专属铭品、成套组合福利" in data["reply"]
     assert data["opening_image_url"] == "https://cdn.example.com/opening.jpg"
     assert data["route"] == "agent"
     assert data["conversation_id"] == "default"
-    assert [item["type"] for item in data["outbound_messages"]] == [
-        "text",
-        "image",
-        "text",
-    ]
+    assert [item["type"] for item in data["outbound_messages"]] == ["text"]
 
     conversations = client.get("/api/v1/demo-admin/conversations").json()["data"]
     assert conversations["total"] == 1
@@ -112,12 +107,9 @@ def test_demo_opening_uses_agent_runtime_and_records_conversation(
     ).json()["data"]
     assert detail["conversation"]["channel"] == "wechat"
     assert detail["conversation"]["user_display_name"] == "测试客户"
-    assert len(detail["messages"]) == 3
+    assert len(detail["messages"]) == 1
     assert all(item["sender_type"] == "ai" for item in detail["messages"])
-    assert "萧岚苑的小兰" in detail["messages"][0]["content"]
-    assert detail["messages"][1]["content"] == "[图片]"
-    assert "大概养了多少盆" in detail["messages"][2]["content"]
-    assert "什么品种" in detail["messages"][2]["content"]
+    assert "老朋友，欢迎加到我私人微信～" in detail["messages"][0]["content"]
 
 
 def test_demo_session_restores_shared_history_across_clients(monkeypatch, tmp_path):
@@ -219,16 +211,9 @@ def test_demo_session_restores_agent_opening(monkeypatch, tmp_path):
     )
     messages = client.get("/api/v1/demo/session").json()["data"]["messages"]
 
-    assert [item["type"] for item in messages] == ["text", "image", "text"]
-    assert "萧岚苑的小兰" in messages[0]["content"]
-    assert messages[1]["content"] == "https://cdn.example.com/opening.jpg"
-    assert messages[1]["media"] == {
-        "type": "image",
-        "url": "https://cdn.example.com/opening.jpg",
-        "fallback": False,
-    }
-    assert "大概养了多少盆" in messages[2]["content"]
-    assert "什么品种" in messages[2]["content"]
+    assert [item["type"] for item in messages] == ["text"]
+    assert "老朋友，欢迎加到我私人微信～" in messages[0]["content"]
+    assert "随时拍图联络我" in messages[0]["content"]
 
 
 def test_demo_history_normalizes_cards_and_customer_media():

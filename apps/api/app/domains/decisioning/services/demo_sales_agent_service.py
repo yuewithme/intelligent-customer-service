@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.domains.conversations.schemas.chat import ChatRequest
 from app.domains.conversations.services.chat_orchestrator import handle_chat
 from app.domains.conversations.services.conversation_service import (
+    ensure_outbound_conversation_message,
     get_conversation_detail,
     get_demo_platform_state,
     make_conversation_id,
@@ -15,6 +16,7 @@ from app.domains.conversations.services.conversation_service import (
     user_has_conversation_in_channels,
 )
 from app.domains.customers.services.user_profile_service import append_conversation_memory
+from app.domains.decisioning.services.service_sop import SERVICE_OPENING
 from app.core.ids import generate_id
 from app.shared.schemas.common import AppError, ErrorCode
 
@@ -79,23 +81,26 @@ async def open_demo_sales_conversation(
         customer_id=customer_id,
         customer_name=customer_name,
     )
-    result = await handle_chat(
-        ChatRequest(
+    result = {
+        "answer": SERVICE_OPENING,
+        "outbound_messages": [{"type": "text", "content": SERVICE_OPENING}],
+        "next_action": None,
+        "need_human": False,
+        "route": "agent",
+        "trace_id": generate_id("request"),
+    }
+    outbound_messages = result["outbound_messages"]
+    for message in outbound_messages:
+        await ensure_outbound_conversation_message(
             channel=runtime_channel,
             user_id=user_id,
             session_id=session_id,
-            message="[系统新好友建立]",
-            kb_id=get_settings().wechat_default_kb_id,
-            metadata={
-                **identity,
-                "system_event": "first_contact",
-                "is_first_contact": True,
-                "skip_customer_record": True,
-                "skip_conversation_memory": True,
-            },
+            content=message["content"],
+            message_type=message["type"],
+            route="opening",
+            delivery_status="sent",
+            metadata={"test_entry": channel},
         )
-    )
-    outbound_messages = result.get("outbound_messages") or []
     await update_customer_identity(
         channel=runtime_channel,
         user_id=user_id,
