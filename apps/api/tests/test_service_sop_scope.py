@@ -53,6 +53,39 @@ async def test_service_capability_search_excludes_first_order_experience():
 
 
 @pytest.mark.asyncio
+async def test_service_can_discover_post_service_repurchase_seed_experience():
+    result = await execute_agent_tool(
+        call_id="search-post-service-seed",
+        name="capability.search",
+        arguments={
+            "query": "已购客户问题解决后服务收口，传达会员福利并了解花色瓣型鉴赏偏好",
+            "limit": 8,
+        },
+        context=_context(),
+    )
+
+    capabilities = {item["name"]: item for item in result.data["capabilities"]}
+    assert "experience.post_service_repurchase_seed" in capabilities
+    instructions = capabilities["experience.post_service_repurchase_seed"][
+        "full_instructions"
+    ]
+    assert "不是要求同一轮连续发送的三段话" in instructions
+    assert "不触发 product.search、商品推荐或卡片" in instructions
+    assert "用 memory.record 保存" in instructions
+    assert "当前问题未解决" in instructions
+
+
+def test_service_prompt_separates_preference_collection_from_purchase_intent():
+    prompt = build_system_prompt(sop_scope="service")
+
+    assert "主动轻量询问一个尚未知的花色、瓣型、香味或品种鉴赏偏好" in prompt
+    assert "这是长期偏好采集，不代表客户现在有购买意向" in prompt
+    assert "不把服务心智、权益和偏好三段一次性灌给客户" in prompt
+    assert "仅仅回答了未来鉴赏偏好" in prompt
+    assert "每周上新、专属折扣、实拍或优惠推送属于动态运营事实" in prompt
+
+
+@pytest.mark.asyncio
 async def test_first_order_capability_search_can_retrieve_archived_experience():
     result = await execute_agent_tool(
         call_id="search-first-order",
