@@ -46,27 +46,13 @@ from app.domains.customers.services.user_profile_service import (
     add_verified_customer_tag,
     append_conversation_memory,
 )
+from app.domains.decisioning.services.service_sop import SERVICE_OPENING
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
 
 _URL_PATTERN = re.compile(r"https?://[^\s<>，。！？；：、（）【】“”‘’《》]+")
 _URL_TRAILING_PUNCTUATION = "，。！？；：、,.!?;:)]}》〉”’\"'"
-_OPENING_INTRO_FALLBACK = "您好，我是萧岚苑的小兰，我们团队平时都在和兰花打交道，后面养护上有什么拿不准都可以找我。"
-_OPENING_QUESTION_FALLBACK = "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？"
-_OPENING_SALES_PUSH_MARKERS = (
-    "购买",
-    "想买",
-    "下单",
-    "价格",
-    "预算",
-    "看花",
-    "选花",
-    "挑花",
-    "商品",
-    "产品",
-)
-
 _sessionmakers: dict[str, sessionmaker] = {}
 _initialized_urls: set[str] = set()
 
@@ -1558,33 +1544,8 @@ def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
 
 
 async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
-    opening_result = await handle_chat(
-        ChatRequest(
-            channel="wechat",
-            user_id=batch["from_user"] or batch["target_wc_id"],
-            session_id=batch["from_group"] or "default",
-            message="[系统新好友建立]",
-            kb_id=get_settings().wechat_default_kb_id,
-            metadata={
-                "provider": "eyun",
-                "system_event": "first_contact",
-                "is_first_contact": True,
-                "w_id": batch["w_id"],
-                "wc_id": batch["target_wc_id"],
-                "from_user": batch["from_user"],
-                "from_group": batch["from_group"],
-                "batch_key": batch["batch_key"],
-                "skip_customer_record": True,
-                "skip_conversation_memory": True,
-            },
-        )
-    )
-    outbound_messages = _opening_outbound_messages(opening_result)
-    opening_answer = "\n\n".join(
-        message["content"]
-        for message in outbound_messages
-        if message["type"] == "text"
-    )
+    outbound_messages = [{"type": "text", "content": SERVICE_OPENING}]
+    opening_answer = SERVICE_OPENING
     await _record_opening_memories(
         {**batch, "content": ""},
         opening_answer,
@@ -1622,57 +1583,6 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
         queued = await enqueue_eyun_outbound(**kwargs)
         queued_id = queued.get("id") if isinstance(queued, dict) else None
         dependency_id = int(queued_id) if queued_id is not None else None
-
-
-def _opening_outbound_messages(opening_result: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_messages = opening_result.get("outbound_messages")
-    texts: list[str] = []
-    if isinstance(raw_messages, list):
-        for message in raw_messages:
-            if not isinstance(message, dict) or message.get("type") != "text":
-                continue
-            content = plain_customer_text(str(message.get("content") or ""))
-            content = " ".join(content.splitlines()).strip()
-            if content:
-                texts.append(content)
-    if (
-        len(texts) != 2
-        or "萧岚苑" not in texts[0]
-        or "小兰" not in texts[0]
-        or texts[0].count("？") + texts[0].count("?") != 0
-        or texts[1].count("？") + texts[1].count("?") != 1
-        or not _opening_question_collects_profile(texts[1])
-        or any(marker in texts[1] for marker in _OPENING_SALES_PUSH_MARKERS)
-    ):
-        texts = [_OPENING_INTRO_FALLBACK, _OPENING_QUESTION_FALLBACK]
-
-    messages: list[dict[str, Any]] = [{"type": "text", "content": texts[0]}]
-    settings = get_settings()
-    image_url = settings.eyun_opening_image_url.strip()
-    material_id = settings.eyun_opening_material_id
-    if material_id and image_url:
-        messages.append(
-            {"type": "image", "content": image_url, "material_id": material_id}
-        )
-    elif material_id:
-        messages.append(
-            {"type": "material", "content": "[开场白图片]", "material_id": material_id}
-        )
-    elif image_url:
-        messages.append({"type": "image", "content": image_url})
-    else:
-        logger.warning("Opening image is not configured; sending text-only opening")
-    messages.append({"type": "text", "content": texts[1]})
-    return messages
-
-
-def _opening_question_collects_profile(text: str) -> bool:
-    normalized = re.sub(r"\s+", "", text)
-    has_quantity = bool(re.search(r"(?:多少|几|大概|现在).{0,8}盆|盆.{0,6}(?:多少|几)", normalized))
-    has_variety = "品种" in normalized or bool(
-        re.search(r"主要.{0,6}(?:什么|哪类|哪种).{0,4}兰", normalized)
-    )
-    return has_quantity and has_variety
 
 
 def _encode_outbound_content(message_type: str, content: str) -> str:

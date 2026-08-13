@@ -20,7 +20,7 @@ def _message(text: str) -> NormalizedMessage:
 
 
 def test_prompt_teaches_progression_as_contextual_experience_not_fixed_routing():
-    prompt = build_system_prompt()
+    prompt = build_system_prompt(sop_scope="first_order")
 
     assert "选对＋有人教" in prompt
     assert "也为后续推荐适配品种建立信任" in prompt
@@ -72,7 +72,7 @@ def test_merged_experience_keeps_material_and_short_reply_meaning_consistent():
 
 
 def test_new_product_interest_restarts_discovery_without_returning_to_old_flow():
-    prompt = build_system_prompt()
+    prompt = build_system_prompt(sop_scope="first_order")
     capabilities = {item.name: item.instructions for item in agent_tools.CAPABILITIES}
 
     assert "这已经是新的当前主线" in prompt
@@ -109,6 +109,7 @@ async def test_capability_search_retrieves_product_restart_and_stronger_close():
         user_state=UserState(user_id="customer-1"),
         workspace={},
     )
+    context.message.metadata = {"sop_scope": "first_order"}
 
     product_result = await agent_tools.execute_agent_tool(
         call_id="cap-product",
