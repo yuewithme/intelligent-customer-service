@@ -75,6 +75,8 @@ def test_remote_library_manifest_builds_public_video_urls(monkeypatch):
     assert result[0]["format"] == "video"
     assert result[0]["url"].startswith("https://media.example.com/library/")
     assert result[0]["thumb_url"].endswith(".jpg")
+    assert result[0]["copy_type"] == "养护科普"
+    assert "会晾根多久" not in result[0]["copy_text"]
 
 
 def test_search_agent_media_returns_stable_public_reference(tmp_path, monkeypatch):
@@ -111,8 +113,9 @@ async def test_material_send_prepares_library_video(tmp_path, monkeypatch):
     )
 
     assert result.status == "prepared"
-    assert context.prepared["send-media"][0].type == "video"
-    payload = json.loads(context.prepared["send-media"][0].content)
+    assert [item.type for item in context.prepared["send-media"]] == ["text", "video"]
+    assert "浇水" in context.prepared["send-media"][0].content
+    payload = json.loads(context.prepared["send-media"][1].content)
     assert payload["path"].endswith(".mp4")
     assert payload["thumb_path"].endswith(".jpg")
 
@@ -138,6 +141,36 @@ async def test_material_search_category_returns_only_library_items(
     assert result.status == "found"
     assert len(result.data["materials"]) == 1
     assert result.data["materials"][0]["format"] == "video"
+
+
+def test_curated_copy_matches_user_topics(tmp_path, monkeypatch):
+    _write_library(tmp_path, monkeypatch)
+    root = tmp_path / "agent-material-library"
+    video = root / "知识类" / "37.为什么兰花需要晾根.mp4"
+    video.write_bytes(b"dry-root-video")
+    rows = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    rows.append(
+        {
+            "category": "知识类",
+            "relative_path": video.name,
+            "thumbnail_path": ".thumbnails/知识类/兰花浇水.jpg",
+            "bytes": video.stat().st_size,
+            "sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+        }
+    )
+    (root / "manifest.json").write_text(
+        json.dumps(rows, ensure_ascii=False), encoding="utf-8"
+    )
+    library.reset_agent_media_library_cache()
+
+    result = library.search_agent_media(
+        "晾根", category="知识类", copy_type="养护科普", limit=1
+    )
+
+    assert result[0]["copy_source"] == "curated"
+    assert result[0]["copy_text"] == (
+        "上盆必须晾根，90% 兰友都忽略！你平时种兰花会晾根多久？"
+    )
 
 
 def test_eyun_outbound_messages_preserve_agent_video():

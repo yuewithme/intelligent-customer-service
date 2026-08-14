@@ -106,7 +106,7 @@ CAPABILITIES = (
         "material.search",
         "tool",
         ("资料", "教程", "指南", "手册", "学习", "视频", "图文", "福利触点"),
-        "输入 {\"query\":\"客户问题、品种或资料目的（尽量使用简短主题关键词）\",\"category\":\"可选：图文解说类、AI类、知识类\",\"limit\":5}。这是 Agent 的真实素材库 Tool，返回可供 material.send 使用的 material_ref、图片或视频格式和分类；搜索不等于发送。养兰卡片可发不代表卡内受限视频可看；若客户反馈视频无权限，先问是否在抖音购买过萧岚苑商品，确认买过后请他发送能看到店铺与订单状态的购买截图。截图经系统核验后使用 video_access.request 通过现有通知链联系同事处理，不调用 human.handoff；AI 继续回复，也不能承诺权限已经开通。",
+        "输入 {\"query\":\"客户问题、品种或资料目的（尽量使用简短主题关键词）\",\"category\":\"可选：图文解说类、AI类、知识类\",\"copy_type\":\"可选：话题种草、养护科普、名品故事\",\"limit\":5}。这是 Agent 的真实素材库 Tool，返回可供 material.send 使用的 material_ref、图片或视频格式、分类以及已匹配的 copy_type 和 copy_text；搜索不等于发送。养兰卡片可发不代表卡内受限视频可看；若客户反馈视频无权限，先问是否在抖音购买过萧岚苑商品，确认买过后请他发送能看到店铺与订单状态的购买截图。截图经系统核验后使用 video_access.request 通过现有通知链联系同事处理，不调用 human.handoff；AI 继续回复，也不能承诺权限已经开通。",
     ),
     CapabilitySpec(
         "video_access.request",
@@ -118,7 +118,7 @@ CAPABILITIES = (
         "material.send",
         "tool",
         ("发资料", "资料卡片", "发送手册", "释放资料"),
-        "输入 {\"material_ref\":\"material:真实引用\"}。资料与客户当前问题、已购品种或真实会员权益匹配，并能说明用途和重点时使用。资料不能代替直接回答当前问题；上下文显示同一资料已经发过时，先直接解决新问题并判断是否需要后续服务，不再次调用；仅在客户明确要求重发、找不到或上次未成功时例外。服务端校验引用、发布状态、权益和近期重复后准备卡片；prepared 不等于 sent。",
+        "输入 {\"material_ref\":\"material:真实引用\"}。资料与客户当前问题、已购品种或真实会员权益匹配，并能说明用途和重点时使用。Agent 素材库引用由服务端按“匹配文案 + 对应图片或视频”准备为一个连续发送组合，不要另写一遍同类文案。资料不能代替直接回答当前问题；上下文显示同一资料已经发过时，先直接解决新问题并判断是否需要后续服务，不再次调用；仅在客户明确要求重发、找不到或上次未成功时例外。服务端校验引用、发布状态、权益和近期重复后准备消息；prepared 不等于 sent。",
     ),
     CapabilitySpec(
         "order.search",
@@ -621,15 +621,24 @@ async def _care_manual_search(*, call_id, arguments, context) -> AgentToolResult
 async def _material_search(*, call_id, arguments, context) -> AgentToolResult:
     query = _text(arguments.get("query"), maximum=200)
     if not query:
-        return _result(call_id, "material.search", "invalid_arguments", error="query_required")
+        return _result(
+            call_id, "material.search", "invalid_arguments", error="query_required"
+        )
     category = _text(arguments.get("category"), maximum=20)
     if category and category not in {"图文解说类", "AI类", "知识类"}:
-        return _result(call_id, "material.search", "invalid_arguments", error="invalid_category")
+        return _result(
+            call_id, "material.search", "invalid_arguments", error="invalid_category"
+        )
+    copy_type = _text(arguments.get("copy_type"), maximum=20)
+    if copy_type and copy_type not in {"话题种草", "养护科普", "名品故事"}:
+        return _result(
+            call_id, "material.search", "invalid_arguments", error="invalid_copy_type"
+        )
     limit = _limit(arguments.get("limit"), default=5, maximum=8)
     materials: list[dict[str, Any]] = search_agent_media(
-        query, category=category, limit=limit
+        query, category=category, copy_type=copy_type, limit=limit
     )
-    if category:
+    if category or copy_type:
         return _result(
             call_id,
             "material.search",
@@ -693,7 +702,10 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
             message = OutboundMessage(type="video", content=content)
         else:
             message = OutboundMessage(type="image", content=str(media["url"]))
-        context.prepared[call_id] = [message]
+        context.prepared[call_id] = [
+            OutboundMessage(type="text", content=str(media["copy_text"])),
+            message,
+        ]
         return _result(
             call_id,
             "material.send",
@@ -703,6 +715,8 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
             title=media["title"],
             category=media["category"],
             format=media["format"],
+            copy_type=media["copy_type"],
+            copy_text=media["copy_text"],
             delivery_truth="prepared_not_sent",
         )
     else:
