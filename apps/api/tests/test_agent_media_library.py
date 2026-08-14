@@ -4,8 +4,25 @@ import json
 import pytest
 
 from app.domains.catalog.services import agent_media_library_service as library
+from app.domains.catalog.services.agent_media_copy_service import (
+    copy_ref_for,
+    media_copy_for,
+)
 from app.domains.decisioning.services import agent_tools
 from app.integrations.eyun.services import message_risk_control_service
+
+
+def _copy_fields(title: str, category: str) -> dict:
+    copy = media_copy_for(title=title, category=category)
+    return {
+        "copy_ref": copy_ref_for(category=category, topic=copy["copy_topic"]),
+        "copy_topic": copy["copy_topic"],
+        "copy_type": copy["copy_type"],
+        "copy_text": copy["copy_text"],
+        "copy_source": copy["copy_source"],
+        "copy_version": 1,
+        "copy_status": "ready",
+    }
 
 
 def _write_library(tmp_path, monkeypatch):
@@ -31,6 +48,8 @@ def _write_library(tmp_path, monkeypatch):
             "sha256": hashlib.sha256(b"video").hexdigest(),
         },
     ]
+    rows[0].update(_copy_fields("2.兰花病害防治", "图文解说类"))
+    rows[1].update(_copy_fields("兰花浇水", "知识类"))
     (root / "manifest.json").write_text(
         json.dumps(rows, ensure_ascii=False), encoding="utf-8"
     )
@@ -45,6 +64,42 @@ def _write_library(tmp_path, monkeypatch):
 
 
 def test_remote_library_manifest_builds_public_video_urls(monkeypatch):
+    rows = [
+        {
+            "category": "知识类",
+            "relative_path": "兰花浇水.mp4",
+            "thumbnail_path": ".thumbnails/知识类/兰花浇水.jpg",
+            "bytes": 123,
+            "sha256": "a" * 64,
+        }
+    ]
+    rows[0].update(_copy_fields("兰花浇水", "知识类"))
+
+    class Response:
+        content = json.dumps(rows, ensure_ascii=False).encode()
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    monkeypatch.setattr(library.httpx, "get", lambda *args, **kwargs: Response())
+    monkeypatch.setattr(
+        library.get_settings(),
+        "agent_media_library_base_url",
+        "https://media.example.com/library",
+    )
+    library.reset_agent_media_library_cache()
+
+    result = library.search_agent_media("浇水视频", category="知识类", limit=1)
+
+    assert result[0]["format"] == "video"
+    assert result[0]["url"].startswith("https://media.example.com/library/")
+    assert result[0]["thumb_url"].endswith(".jpg")
+    assert result[0]["copy_type"] == "养护科普"
+    assert "会晾根多久" not in result[0]["copy_text"]
+
+
+def test_remote_library_rejects_media_without_fixed_copy(monkeypatch):
     rows = [
         {
             "category": "知识类",
@@ -70,13 +125,7 @@ def test_remote_library_manifest_builds_public_video_urls(monkeypatch):
     )
     library.reset_agent_media_library_cache()
 
-    result = library.search_agent_media("浇水视频", category="知识类", limit=1)
-
-    assert result[0]["format"] == "video"
-    assert result[0]["url"].startswith("https://media.example.com/library/")
-    assert result[0]["thumb_url"].endswith(".jpg")
-    assert result[0]["copy_type"] == "养护科普"
-    assert "会晾根多久" not in result[0]["copy_text"]
+    assert library.search_agent_media("浇水视频", limit=1) == []
 
 
 def test_search_agent_media_returns_stable_public_reference(tmp_path, monkeypatch):
@@ -149,15 +198,15 @@ def test_curated_copy_matches_user_topics(tmp_path, monkeypatch):
     video = root / "知识类" / "37.为什么兰花需要晾根.mp4"
     video.write_bytes(b"dry-root-video")
     rows = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    rows.append(
-        {
+    row = {
             "category": "知识类",
             "relative_path": video.name,
             "thumbnail_path": ".thumbnails/知识类/兰花浇水.jpg",
             "bytes": video.stat().st_size,
             "sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
         }
-    )
+    row.update(_copy_fields("37.为什么兰花需要晾根", "知识类"))
+    rows.append(row)
     (root / "manifest.json").write_text(
         json.dumps(rows, ensure_ascii=False), encoding="utf-8"
     )

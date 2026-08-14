@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -80,14 +81,29 @@ _CARE_KEYWORDS = (
     "晾根",
     "舌形",
     "瓣型",
+    "光照",
+    "耐寒",
+    "春化",
+    "不开花",
+    "虫害",
+    "症状",
+    "深栽",
+    "浅栽",
+    "下花",
+    "三伏天",
+    "12个月",
+    "种子能繁殖",
 )
+
+_TOPIC_KEYWORDS = ("一口气", "盘点", "排行榜", "最受欢迎")
 
 
 def media_copy_for(*, title: str, category: str) -> dict[str, Any]:
-    topic = _clean_topic(title)
+    topic = clean_media_topic(title)
     for keywords, copy_type, copy_text in _CURATED_COPY:
         if any(keyword in topic for keyword in keywords):
             return {
+                "copy_topic": topic,
                 "copy_type": copy_type,
                 "copy_text": copy_text,
                 "copy_source": "curated",
@@ -95,11 +111,10 @@ def media_copy_for(*, title: str, category: str) -> dict[str, Any]:
 
     if any(keyword in topic for keyword in _CARE_KEYWORDS):
         copy_type = "养护科普"
-        copy_text = (
-            f"{topic}，这一步很多兰友容易忽略！"
-            "你平时是怎么处理的？评论区聊聊～"
-        )
-    elif category == "AI类":
+        copy_text = _care_copy(topic)
+    elif category == "AI类" and not any(
+        keyword in topic for keyword in _TOPIC_KEYWORDS
+    ):
         copy_type = "名品故事"
         copy_text = (
             f"{topic}｜一盆兰花背后的品种故事和观赏看点，"
@@ -107,17 +122,71 @@ def media_copy_for(*, title: str, category: str) -> dict[str, Any]:
         )
     else:
         copy_type = "话题种草"
-        copy_text = (
-            f"{topic}，懂兰的人越看越有味道。"
-            "你家里有没有同类兰花？评论区聊聊～"
-        )
+        copy_text = _topic_copy(topic)
     return {
+        "copy_topic": topic,
         "copy_type": copy_type,
         "copy_text": copy_text,
         "copy_source": "template",
     }
 
 
-def _clean_topic(value: str) -> str:
+def copy_ref_for(*, category: str, topic: str) -> str:
+    digest = hashlib.sha256(f"{category}\0{topic}".encode()).hexdigest()
+    return f"copy:{digest[:24]}"
+
+
+def _care_copy(topic: str) -> str:
+    if any(
+        keyword in topic
+        for keyword in ("病害", "虫害", "黄叶", "黑斑", "烂根", "腐苗", "症状")
+    ):
+        return (
+            f"{topic}，早发现才能少走弯路。"
+            "你遇到过哪种情况？评论区聊聊～"
+        )
+    if any(
+        keyword in topic
+        for keyword in ("图解", "结构", "瓣型", "叶形", "舌形", "名词")
+    ):
+        return (
+            f"{topic}，一张图带你看明白。"
+            "你能认出自家兰花属于哪一种吗？"
+        )
+    if any(
+        keyword in topic for keyword in ("对比", "排名", "区分", "分辨", "识别")
+    ):
+        return (
+            f"{topic}，不同品种的差别比想象中更大。"
+            "你养的是哪一类？"
+        )
+    return (
+        f"{topic}，这一步很多兰友容易忽略！"
+        "你平时是怎么处理的？评论区聊聊～"
+    )
+
+
+def _topic_copy(topic: str) -> str:
+    if any(keyword in topic for keyword in ("香", "香气")):
+        return (
+            f"{topic}，兰香各有性格。"
+            "你最喜欢清香、幽香还是浓香？评论区聊聊～"
+        )
+    if any(
+        keyword in topic
+        for keyword in ("品系", "品种", "图鉴", "排名", "哪一种")
+    ):
+        return (
+            f"{topic}，不同兰友心里的答案可能都不一样。"
+            "你最喜欢哪一款？"
+        )
+    return (
+        f"{topic}，懂兰的人越看越有味道。"
+        "你家里有没有同类兰花？评论区聊聊～"
+    )
+
+
+def clean_media_topic(value: str) -> str:
     topic = re.sub(r"^\s*\d+[.、]?\s*", "", str(value or "").strip())
+    topic = re.sub(r"(?<=[\u4e00-\u9fff])[1-4]$", "", topic)
     return topic or "兰花分享"
