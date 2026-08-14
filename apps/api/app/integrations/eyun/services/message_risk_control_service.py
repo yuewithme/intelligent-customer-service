@@ -1414,7 +1414,7 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
             for message in messages
             if isinstance(message, dict)
             and message.get("type")
-            in {"text", "image", "link_card", "mini_program", "material"}
+            in {"text", "image", "video", "link_card", "mini_program", "material"}
             and str(message.get("content") or "").strip()
         ]
         if valid:

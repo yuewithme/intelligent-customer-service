@@ -13,6 +13,10 @@ from app.domains.catalog.services.orchid_material_service import (
     ORCHID_MATERIAL_CARD,
     ORCHID_MATERIAL_REF,
 )
+from app.domains.catalog.services.agent_media_library_service import (
+    get_agent_media,
+    search_agent_media,
+)
 from app.domains.catalog.services.product_knowledge_service import (
     get_catalog_product,
     search_catalog_products,
@@ -102,7 +106,7 @@ CAPABILITIES = (
         "material.search",
         "tool",
         ("资料", "教程", "指南", "手册", "学习", "视频", "福利触点"),
-        "输入 {\"query\":\"客户问题或资料目的\",\"limit\":5}。返回匹配资料 material_ref、价值、适用范围和权益限制；搜索不等于发送。养兰卡片可发不代表卡内受限视频可看；若客户反馈视频无权限，先问是否在抖音购买过萧岚苑商品，确认买过后请他发送能看到店铺与订单状态的购买截图。截图经系统核验后使用 video_access.request 通过现有通知链联系同事处理，不调用 human.handoff；AI 继续回复，也不能承诺权限已经开通。",
+        "输入 {\"query\":\"客户问题、品种或资料目的（尽量使用简短主题关键词）\",\"limit\":5}。返回图文解说类、AI类、知识类素材及其他匹配资料的 material_ref、格式和使用限制；搜索不等于发送。养兰卡片可发不代表卡内受限视频可看；若客户反馈视频无权限，先问是否在抖音购买过萧岚苑商品，确认买过后请他发送能看到店铺与订单状态的购买截图。截图经系统核验后使用 video_access.request 通过现有通知链联系同事处理，不调用 human.handoff；AI 继续回复，也不能承诺权限已经开通。",
     ),
     CapabilitySpec(
         "video_access.request",
@@ -619,7 +623,8 @@ async def _material_search(*, call_id, arguments, context) -> AgentToolResult:
     if not query:
         return _result(call_id, "material.search", "invalid_arguments", error="query_required")
     limit = _limit(arguments.get("limit"), default=5, maximum=8)
-    materials: list[dict[str, Any]] = [
+    materials: list[dict[str, Any]] = search_agent_media(query, limit=limit)
+    materials.append(
         {
             "material_ref": ORCHID_MATERIAL_REF,
             "title": ORCHID_MATERIAL_ASSET["title"],
@@ -630,7 +635,7 @@ async def _material_search(*, call_id, arguments, context) -> AgentToolResult:
             "use_cases": ORCHID_MATERIAL_ASSET["use_cases"],
             "match_reason": "综合养兰资料与关系资产",
         }
-    ]
+    )
     manual_result = await _care_manual_search(
         call_id=f"{call_id}:manual",
         arguments={"query": query, "limit": limit},
@@ -660,6 +665,34 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
             "description": record.get("card_description") or "对应品种的养护注意事项",
             "thumb_url": record.get("cover_url") or "",
         }
+    elif material_id.startswith("agent-media:"):
+        media = get_agent_media(material_id)
+        if media is None:
+            return _result(call_id, "material.send", "not_found")
+        if await _material_recently_sent(context, str(media.get("url") or "")):
+            return _result(call_id, "material.send", "forbidden", reason="material_sent_within_30_days")
+        if media["format"] == "video":
+            if not media.get("thumb_url"):
+                return _result(call_id, "material.send", "not_found", reason="video_thumbnail_unavailable")
+            content = json.dumps(
+                {"path": media["url"], "thumb_path": media["thumb_url"]},
+                ensure_ascii=False,
+            )
+            message = OutboundMessage(type="video", content=content)
+        else:
+            message = OutboundMessage(type="image", content=str(media["url"]))
+        context.prepared[call_id] = [message]
+        return _result(
+            call_id,
+            "material.send",
+            "prepared",
+            prepared_refs=[call_id],
+            material_ref=material_ref,
+            title=media["title"],
+            category=media["category"],
+            format=media["format"],
+            delivery_truth="prepared_not_sent",
+        )
     else:
         return _result(call_id, "material.send", "not_found")
     if not str(card.get("url") or "").strip():
