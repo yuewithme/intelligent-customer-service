@@ -59,6 +59,24 @@ def test_config_module_does_not_require_repository_parents():
     assert "PROJECT_ROOT.parents[" not in source
 
 
+def test_legacy_eyun_http_origin_is_upgraded_to_https():
+    settings = Settings(
+        _env_file=None,
+        eyun_base_url="http://www.eyunz.com/wx-api",
+    )
+
+    assert settings.eyun_base_url == "https://www.eyunz.com/wx-api"
+
+
+def test_custom_eyun_http_origin_is_preserved():
+    settings = Settings(
+        _env_file=None,
+        eyun_base_url="http://eyun.internal/wx-api",
+    )
+
+    assert settings.eyun_base_url == "http://eyun.internal/wx-api"
+
+
 def test_backend_example_is_the_complete_settings_contract():
     keys = _read_env_keys(PROJECT_ROOT / ".env.example")
 
