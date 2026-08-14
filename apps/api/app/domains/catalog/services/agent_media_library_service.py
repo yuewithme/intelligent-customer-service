@@ -11,10 +11,7 @@ from urllib.parse import quote
 import httpx
 
 from app.core.config import get_settings
-from app.domains.catalog.services.agent_media_copy_service import (
-    COPY_TYPES,
-    media_copy_for,
-)
+from app.domains.catalog.services.agent_media_copy_service import COPY_TYPES
 
 
 LIBRARY_DIR_NAME = "agent-material-library"
@@ -182,16 +179,25 @@ def _parse_rows(
         )
         if root is not None and thumbnail_relative and not thumbnail.is_file():
             thumbnail_relative = ""
-        topic_title = (
-            Path(relative_path).parent.name
-            if media_type == "image" and Path(relative_path).parent.name
-            else Path(relative_path).stem
-        )
+        copy_ref = str(row.get("copy_ref") or "").strip()
+        copy_topic = str(row.get("copy_topic") or "").strip()
+        copy_type = str(row.get("copy_type") or "").strip()
+        copy_text = str(row.get("copy_text") or "").strip()
+        copy_source = str(row.get("copy_source") or "").strip()
+        copy_status = str(row.get("copy_status") or "").strip()
+        if (
+            not copy_ref.startswith("copy:")
+            or not copy_topic
+            or copy_type not in COPY_TYPES
+            or not copy_text
+            or copy_status != "ready"
+        ):
+            continue
         item = {
             "id": digest[:24],
             "category": category,
             "relative_path": relative_path,
-            "title": topic_title,
+            "title": copy_topic,
             "media_type": media_type,
             "bytes": int(
                 row.get("bytes")
@@ -199,8 +205,14 @@ def _parse_rows(
             ),
             "thumbnail_path": thumbnail_relative,
             "asset_base_url": asset_base_url,
+            "copy_ref": copy_ref,
+            "copy_topic": copy_topic,
+            "copy_type": copy_type,
+            "copy_text": copy_text,
+            "copy_source": copy_source,
+            "copy_version": int(row.get("copy_version") or 1),
+            "copy_status": copy_status,
         }
-        item.update(media_copy_for(title=topic_title, category=category))
         items.append(item)
     return tuple(items)
 
@@ -245,6 +257,9 @@ def _public_item(item: dict[str, Any]) -> dict[str, Any]:
         "copy_type": item["copy_type"],
         "copy_text": item["copy_text"],
         "copy_source": item["copy_source"],
+        "copy_ref": item["copy_ref"],
+        "copy_version": item["copy_version"],
+        "copy_status": item["copy_status"],
     }
 
 
