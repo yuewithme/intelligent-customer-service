@@ -11,6 +11,10 @@ from urllib.parse import quote
 import httpx
 
 from app.core.config import get_settings
+from app.domains.catalog.services.agent_media_copy_service import (
+    COPY_TYPES,
+    media_copy_for,
+)
 
 
 LIBRARY_DIR_NAME = "agent-material-library"
@@ -36,12 +40,13 @@ def agent_media_library_dir() -> Path:
 
 
 def search_agent_media(
-    query: str, *, category: str = "", limit: int = 5
+    query: str, *, category: str = "", copy_type: str = "", limit: int = 5
 ) -> list[dict[str, Any]]:
     normalized_query = _normalize(query)
     if not normalized_query:
         return []
     normalized_category = _normalize(category)
+    normalized_copy_type = copy_type if copy_type in COPY_TYPES else ""
     terms = _query_terms(normalized_query)
     matches: list[tuple[int, dict[str, Any]]] = []
     for item in _load_items():
@@ -50,6 +55,8 @@ def search_agent_media(
             and _normalize(str(item.get("category") or ""))
             != normalized_category
         ):
+            continue
+        if normalized_copy_type and item.get("copy_type") != normalized_copy_type:
             continue
         haystack = _normalize(
             " ".join(
@@ -175,21 +182,26 @@ def _parse_rows(
         )
         if root is not None and thumbnail_relative and not thumbnail.is_file():
             thumbnail_relative = ""
-        items.append(
-            {
-                "id": digest[:24],
-                "category": category,
-                "relative_path": relative_path,
-                "title": Path(relative_path).stem,
-                "media_type": media_type,
-                "bytes": int(
-                    row.get("bytes")
-                    or (media_path.stat().st_size if media_path is not None else 0)
-                ),
-                "thumbnail_path": thumbnail_relative,
-                "asset_base_url": asset_base_url,
-            }
+        topic_title = (
+            Path(relative_path).parent.name
+            if media_type == "image" and Path(relative_path).parent.name
+            else Path(relative_path).stem
         )
+        item = {
+            "id": digest[:24],
+            "category": category,
+            "relative_path": relative_path,
+            "title": topic_title,
+            "media_type": media_type,
+            "bytes": int(
+                row.get("bytes")
+                or (media_path.stat().st_size if media_path is not None else 0)
+            ),
+            "thumbnail_path": thumbnail_relative,
+            "asset_base_url": asset_base_url,
+        }
+        item.update(media_copy_for(title=topic_title, category=category))
+        items.append(item)
     return tuple(items)
 
 
@@ -230,6 +242,9 @@ def _public_item(item: dict[str, Any]) -> dict[str, Any]:
         "thumb_url": _asset_url(base_url, thumbnail_path) if thumbnail_path else "",
         "access": "customer_service_agent",
         "match_reason": f"{category}素材库匹配",
+        "copy_type": item["copy_type"],
+        "copy_text": item["copy_text"],
+        "copy_source": item["copy_source"],
     }
 
 
