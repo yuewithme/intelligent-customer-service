@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+
+import httpx
 
 from app.core.config import get_settings
 
@@ -32,13 +35,22 @@ def agent_media_library_dir() -> Path:
     return Path(get_settings().upload_dir) / LIBRARY_DIR_NAME
 
 
-def search_agent_media(query: str, *, limit: int = 5) -> list[dict[str, Any]]:
+def search_agent_media(
+    query: str, *, category: str = "", limit: int = 5
+) -> list[dict[str, Any]]:
     normalized_query = _normalize(query)
     if not normalized_query:
         return []
+    normalized_category = _normalize(category)
     terms = _query_terms(normalized_query)
     matches: list[tuple[int, dict[str, Any]]] = []
     for item in _load_items():
+        if (
+            normalized_category
+            and _normalize(str(item.get("category") or ""))
+            != normalized_category
+        ):
+            continue
         haystack = _normalize(
             " ".join(
                 (
@@ -78,9 +90,13 @@ def get_agent_media(material_id: str) -> dict[str, Any] | None:
 
 def reset_agent_media_library_cache() -> None:
     _read_manifest.cache_clear()
+    _read_remote_manifest.cache_clear()
 
 
 def _load_items() -> tuple[dict[str, Any], ...]:
+    remote_base_url = get_settings().agent_media_library_base_url.strip().rstrip("/")
+    if remote_base_url:
+        return _read_remote_manifest(remote_base_url, int(time.time() // 60))
     manifest = agent_media_library_dir() / "manifest.json"
     if not manifest.is_file():
         return ()
@@ -95,6 +111,30 @@ def _read_manifest(path: str, modified_ns: int) -> tuple[dict[str, Any], ...]:
         rows = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return ()
+    return _parse_rows(rows, root=root, asset_base_url=_local_asset_base_url())
+
+
+@lru_cache(maxsize=4)
+def _read_remote_manifest(
+    base_url: str, cache_minute: int
+) -> tuple[dict[str, Any], ...]:
+    del cache_minute
+    try:
+        response = httpx.get(
+            f"{base_url}/manifest.json",
+            timeout=10,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        rows = json.loads(response.content.decode("utf-8-sig"))
+    except (httpx.HTTPError, UnicodeDecodeError, json.JSONDecodeError):
+        return ()
+    return _parse_rows(rows, root=None, asset_base_url=base_url)
+
+
+def _parse_rows(
+    rows: Any, *, root: Path | None, asset_base_url: str
+) -> tuple[dict[str, Any], ...]:
     if not isinstance(rows, list):
         return ()
     items: list[dict[str, Any]] = []
@@ -108,10 +148,13 @@ def _read_manifest(path: str, modified_ns: int) -> tuple[dict[str, Any], ...]:
         digest = str(row.get("sha256") or "").strip().lower()
         if not category or not relative_path or len(digest) < 16:
             continue
-        media_path = _safe_path(root, f"{category}/{relative_path}")
-        if media_path is None or not media_path.is_file():
+        asset_path = _safe_relative_path(f"{category}/{relative_path}")
+        if not asset_path:
             continue
-        suffix = media_path.suffix.lower()
+        media_path = _safe_path(root, asset_path) if root is not None else None
+        if root is not None and (media_path is None or not media_path.is_file()):
+            continue
+        suffix = Path(relative_path).suffix.lower()
         media_type = (
             "image"
             if suffix in IMAGE_SUFFIXES
@@ -124,21 +167,42 @@ def _read_manifest(path: str, modified_ns: int) -> tuple[dict[str, Any], ...]:
         thumbnail_path = (
             str(row.get("thumbnail_path") or "").strip().replace("\\", "/")
         )
-        thumbnail = _safe_path(root, thumbnail_path) if thumbnail_path else None
+        thumbnail_relative = _safe_relative_path(thumbnail_path)
+        thumbnail = (
+            _safe_path(root, thumbnail_relative)
+            if root is not None and thumbnail_relative
+            else None
+        )
+        if root is not None and thumbnail_relative and not thumbnail.is_file():
+            thumbnail_relative = ""
         items.append(
             {
                 "id": digest[:24],
                 "category": category,
                 "relative_path": relative_path,
-                "title": media_path.stem,
+                "title": Path(relative_path).stem,
                 "media_type": media_type,
-                "bytes": int(row.get("bytes") or media_path.stat().st_size),
-                "thumbnail_path": (
-                    thumbnail_path if thumbnail and thumbnail.is_file() else ""
+                "bytes": int(
+                    row.get("bytes")
+                    or (media_path.stat().st_size if media_path is not None else 0)
                 ),
+                "thumbnail_path": thumbnail_relative,
+                "asset_base_url": asset_base_url,
             }
         )
     return tuple(items)
+
+
+def _safe_relative_path(relative_path: str) -> str:
+    normalized = relative_path.strip().replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part]
+    if (
+        not parts
+        or normalized.startswith("/")
+        or any(part in {".", ".."} for part in parts)
+    ):
+        return ""
+    return "/".join(parts)
 
 
 def _safe_path(root: Path, relative_path: str) -> Path | None:
@@ -151,11 +215,10 @@ def _safe_path(root: Path, relative_path: str) -> Path | None:
 
 
 def _public_item(item: dict[str, Any]) -> dict[str, Any]:
-    settings = get_settings()
-    base_url = settings.app_public_base_url.strip().rstrip("/")
+    base_url = str(item.get("asset_base_url") or "").rstrip("/")
     category = str(item["category"])
     relative_path = str(item["relative_path"])
-    url = _public_url(base_url, f"{category}/{relative_path}")
+    url = _asset_url(base_url, f"{category}/{relative_path}")
     thumbnail_path = str(item.get("thumbnail_path") or "")
     return {
         "material_ref": f"material:{MATERIAL_REF_PREFIX}{item['id']}",
@@ -164,16 +227,24 @@ def _public_item(item: dict[str, Any]) -> dict[str, Any]:
         "format": item["media_type"],
         "bytes": item["bytes"],
         "url": url,
-        "thumb_url": _public_url(base_url, thumbnail_path) if thumbnail_path else "",
+        "thumb_url": _asset_url(base_url, thumbnail_path) if thumbnail_path else "",
         "access": "customer_service_agent",
         "match_reason": f"{category}素材库匹配",
     }
 
 
-def _public_url(base_url: str, relative_path: str) -> str:
+def _local_asset_base_url() -> str:
+    base_url = get_settings().app_public_base_url.strip().rstrip("/")
+    return (
+        f"{base_url}/static/{LIBRARY_DIR_NAME}"
+        if base_url
+        else f"/static/{LIBRARY_DIR_NAME}"
+    )
+
+
+def _asset_url(base_url: str, relative_path: str) -> str:
     encoded = "/".join(quote(part) for part in relative_path.split("/") if part)
-    path = f"/static/{LIBRARY_DIR_NAME}/{encoded}"
-    return f"{base_url}{path}" if base_url else path
+    return f"{base_url}/{encoded}"
 
 
 def _normalize(value: str) -> str:
