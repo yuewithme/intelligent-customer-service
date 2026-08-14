@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class OutboundMessage(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    type: Literal["text", "image", "link_card", "mini_program", "material"]
+    type: Literal["text", "image", "video", "link_card", "mini_program", "material"]
     content: str
     material_id: int | None = None
 

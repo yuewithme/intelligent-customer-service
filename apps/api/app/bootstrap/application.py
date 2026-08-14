@@ -17,6 +17,9 @@ from app.integrations.mcp.server import mcp_asgi_app
 from app.domains.conversations.services.workbench_media_service import (
     workbench_media_storage_dir,
 )
+from app.domains.catalog.services.agent_media_library_service import (
+    agent_media_library_dir,
+)
 from app.shared.schemas.common import AppError, ErrorCode
 from app.core.logger import configure_logging
 
@@ -37,6 +40,12 @@ def create_app() -> FastAPI:
 
 
 def _mount_static_files(application: FastAPI) -> None:
+    agent_media_library_dir().mkdir(parents=True, exist_ok=True)
+    application.mount(
+        "/static/agent-material-library",
+        StaticFiles(directory=agent_media_library_dir()),
+        name="agent-material-library",
+    )
     video_storage_dir().mkdir(parents=True, exist_ok=True)
     application.mount(
         "/static/media",
