@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -188,6 +188,17 @@ class Settings(BaseSettings):
     first_order_sales_flow_v2_enabled: bool | None = Field(
         default=None, alias="FIRST_ORDER_SALES_FLOW_V2_ENABLED"
     )
+
+    @field_validator("eyun_base_url", mode="before")
+    @classmethod
+    def upgrade_legacy_eyun_base_url(cls, value):
+        if not isinstance(value, str):
+            return value
+        legacy_origin = "http://www.eyunz.com"
+        normalized = value.strip()
+        if normalized == legacy_origin or normalized.startswith(f"{legacy_origin}/"):
+            return f"https://{normalized.removeprefix('http://')}"
+        return normalized
 
     @model_validator(mode="after")
     def default_sales_flow_v2_by_environment(self):
