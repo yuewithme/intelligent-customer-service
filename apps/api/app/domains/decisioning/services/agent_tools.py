@@ -105,8 +105,8 @@ CAPABILITIES = (
     CapabilitySpec(
         "material.search",
         "tool",
-        ("资料", "教程", "指南", "手册", "学习", "视频", "福利触点"),
-        "输入 {\"query\":\"客户问题、品种或资料目的（尽量使用简短主题关键词）\",\"limit\":5}。返回图文解说类、AI类、知识类素材及其他匹配资料的 material_ref、格式和使用限制；搜索不等于发送。养兰卡片可发不代表卡内受限视频可看；若客户反馈视频无权限，先问是否在抖音购买过萧岚苑商品，确认买过后请他发送能看到店铺与订单状态的购买截图。截图经系统核验后使用 video_access.request 通过现有通知链联系同事处理，不调用 human.handoff；AI 继续回复，也不能承诺权限已经开通。",
+        ("资料", "教程", "指南", "手册", "学习", "视频", "图文", "福利触点"),
+        "输入 {\"query\":\"客户问题、品种或资料目的（尽量使用简短主题关键词）\",\"category\":\"可选：图文解说类、AI类、知识类\",\"limit\":5}。这是 Agent 的真实素材库 Tool，返回可供 material.send 使用的 material_ref、图片或视频格式和分类；搜索不等于发送。养兰卡片可发不代表卡内受限视频可看；若客户反馈视频无权限，先问是否在抖音购买过萧岚苑商品，确认买过后请他发送能看到店铺与订单状态的购买截图。截图经系统核验后使用 video_access.request 通过现有通知链联系同事处理，不调用 human.handoff；AI 继续回复，也不能承诺权限已经开通。",
     ),
     CapabilitySpec(
         "video_access.request",
@@ -622,8 +622,20 @@ async def _material_search(*, call_id, arguments, context) -> AgentToolResult:
     query = _text(arguments.get("query"), maximum=200)
     if not query:
         return _result(call_id, "material.search", "invalid_arguments", error="query_required")
+    category = _text(arguments.get("category"), maximum=20)
+    if category and category not in {"图文解说类", "AI类", "知识类"}:
+        return _result(call_id, "material.search", "invalid_arguments", error="invalid_category")
     limit = _limit(arguments.get("limit"), default=5, maximum=8)
-    materials: list[dict[str, Any]] = search_agent_media(query, limit=limit)
+    materials: list[dict[str, Any]] = search_agent_media(
+        query, category=category, limit=limit
+    )
+    if category:
+        return _result(
+            call_id,
+            "material.search",
+            "found" if materials else "not_found",
+            materials=materials,
+        )
     materials.append(
         {
             "material_ref": ORCHID_MATERIAL_REF,
