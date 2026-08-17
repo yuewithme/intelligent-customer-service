@@ -4,6 +4,9 @@ set -Eeuo pipefail
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 project_name="intelligent-customer-service"
 compose_file="$repository/docker-compose.prod.yml"
+# 机器本地的未跟踪 override（如 agent-apps 上把 admin-web 改绑 127.0.0.1:8080，
+# 让宿主 nginx 做 TLS）。显式 -f 时 docker compose 不会自动叠加 override，必须手动带上。
+override_file="$repository/docker-compose.override.yml"
 
 export BACKEND_ENV_FILE="${BACKEND_ENV_FILE:-/etc/intelligent-customer-service/backend.env}"
 export APP_DATA_DIR="${APP_DATA_DIR:-/srv/intelligent-customer-service/data}"
@@ -20,11 +23,15 @@ log() {
 }
 
 compose() {
+  local -a compose_files=(-f "$compose_file")
+  if [[ -f "$override_file" ]]; then
+    compose_files+=(-f "$override_file")
+  fi
   sudo env \
     BACKEND_ENV_FILE="$BACKEND_ENV_FILE" \
     APP_DATA_DIR="$APP_DATA_DIR" \
     HF_CACHE_DIR="$HF_CACHE_DIR" \
-    docker compose -p "$project_name" -f "$compose_file" "$@"
+    docker compose -p "$project_name" "${compose_files[@]}" "$@"
 }
 
 exec 9>"$lock_file"
