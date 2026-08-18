@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.auth import require_admin_access
 from app.domains.conversations.schemas.chat import APIResponse
-from app.shared.schemas.common import AppError, ErrorCode
+from app.integrations.youzan.client import YouzanError
 from app.integrations.youzan.schemas.credentials import YouzanCredentialsUpdateRequest
 from app.integrations.youzan.services.youzan_credential_service import (
     YouzanCredentialStoreError,
@@ -14,9 +14,11 @@ from app.integrations.youzan.services.youzan_order_sync_service import (
     sync_youzan_orders,
 )
 from app.integrations.youzan.services.youzan_token_service import (
+    YouzanTokenConfigurationError,
     get_youzan_token_manager,
     reset_youzan_token_manager,
 )
+from app.shared.schemas.common import AppError, ErrorCode
 
 
 router = APIRouter(
@@ -73,5 +75,20 @@ async def update_credentials(
 
 @router.post("/orders/sync", response_model=APIResponse)
 async def sync_orders() -> APIResponse:
-    result = await sync_youzan_orders(trigger="admin")
+    try:
+        result = await sync_youzan_orders(trigger="admin")
+    except (YouzanError, YouzanTokenConfigurationError) as exc:
+        code = str(getattr(exc, "code", "") or "")
+        detail = str(exc).strip()[:200] or type(exc).__name__
+        raise AppError(
+            ErrorCode.INTERNAL_ERROR,
+            f"有赞订单同步失败：{type(exc).__name__}，{detail}，错误码：{code or '无'}",
+            status_code=502,
+        ) from exc
+    except Exception as exc:
+        raise AppError(
+            ErrorCode.INTERNAL_ERROR,
+            f"有赞订单同步失败：{type(exc).__name__}",
+            status_code=500,
+        ) from exc
     return APIResponse(code=0, message="success", data=result)
