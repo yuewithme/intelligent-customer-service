@@ -22,7 +22,7 @@ from app.domains.sales.api import (
 )
 from app.integrations.eyun.api import admin_eyun_materials, eyun
 from app.integrations.wechat.api import wechat
-from app.integrations.youzan.api import youzan
+from app.integrations.youzan.api import admin_youzan, youzan
 
 
 ROUTERS = (
@@ -46,6 +46,7 @@ ROUTERS = (
     admin_products.router,
     wechat.router,
     eyun.router,
+    admin_youzan.router,
     youzan.router,
 )
 

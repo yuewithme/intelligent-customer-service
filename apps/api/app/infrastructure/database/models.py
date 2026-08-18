@@ -20,6 +20,14 @@ class Base(DeclarativeBase):
     pass
 
 
+class YouzanCredentialModel(Base):
+    __tablename__ = "youzan_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    encrypted_payload: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class YouzanProductModel(Base):
     __tablename__ = "youzan_products"
 

@@ -264,6 +264,9 @@ class Settings(BaseSettings):
     youzan_callback_enabled: bool = False
     youzan_client_id: str = ""
     youzan_client_secret: str = ""
+    youzan_credential_encryption_key: str = Field(
+        default="", alias="YOUZAN_CREDENTIAL_ENCRYPTION_KEY"
+    )
     youzan_token_refresh_skew_seconds: int = Field(
         default=86400, ge=300, le=259200, alias="YOUZAN_TOKEN_REFRESH_SKEW_SECONDS"
     )

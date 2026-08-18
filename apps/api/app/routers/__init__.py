@@ -32,7 +32,7 @@ _DOMAIN_GROUPS = {
 _INTEGRATION_GROUPS = {
     "eyun": ("admin_eyun_materials", "eyun"),
     "wechat": ("wechat",),
-    "youzan": ("youzan",),
+    "youzan": ("admin_youzan", "youzan"),
 }
 _MODULE_PATHS = {
     name: f"app.domains.{domain}.api.{name}"
