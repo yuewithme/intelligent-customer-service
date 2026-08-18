@@ -118,6 +118,24 @@ class Settings(BaseSettings):
     daily_touch_batch_size: int = Field(
         default=20, ge=1, le=200, alias="DAILY_TOUCH_BATCH_SIZE"
     )
+    service_material_touch_enabled: bool = Field(
+        default=True, alias="SERVICE_MATERIAL_TOUCH_ENABLED"
+    )
+    service_material_story_time: str = Field(
+        default="07:00", alias="SERVICE_MATERIAL_STORY_TIME"
+    )
+    service_material_knowledge_time: str = Field(
+        default="10:00", alias="SERVICE_MATERIAL_KNOWLEDGE_TIME"
+    )
+    service_material_topic_time: str = Field(
+        default="14:00", alias="SERVICE_MATERIAL_TOPIC_TIME"
+    )
+    service_material_touch_grace_minutes: int = Field(
+        default=20,
+        ge=0,
+        le=120,
+        alias="SERVICE_MATERIAL_TOUCH_GRACE_MINUTES",
+    )
     eyun_contact_missing_threshold: int = Field(
         default=3, ge=1, alias="EYUN_CONTACT_MISSING_THRESHOLD"
     )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,22 @@ def get_agent_media(material_id: str) -> dict[str, Any] | None:
         if str(item.get("id") or "").lower() == wanted:
             return _public_item(item)
     return None
+
+
+def select_scheduled_agent_media(
+    *, local_date: date, category: str, copy_type: str
+) -> dict[str, Any] | None:
+    candidates = [
+        _public_item(item)
+        for item in _load_items()
+        if item.get("category") == category
+        and item.get("copy_type") == copy_type
+        and item.get("copy_status") == "ready"
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: str(item["material_ref"]))
+    return candidates[local_date.toordinal() % len(candidates)]
 
 
 def reset_agent_media_library_cache() -> None:

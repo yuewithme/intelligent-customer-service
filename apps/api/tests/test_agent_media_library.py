@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import date
 
 import pytest
 
@@ -138,6 +139,25 @@ def test_search_agent_media_returns_stable_public_reference(tmp_path, monkeypatc
     assert result[0]["format"] == "image"
     assert result[0]["material_ref"].startswith("material:agent-media:")
     assert "%E5%85%B0%E8%8A%B1" in result[0]["url"]
+
+
+def test_scheduled_media_selection_is_stable_for_date(tmp_path, monkeypatch):
+    _write_library(tmp_path, monkeypatch)
+
+    first = library.select_scheduled_agent_media(
+        local_date=date(2026, 8, 5),
+        category="知识类",
+        copy_type="养护科普",
+    )
+    second = library.select_scheduled_agent_media(
+        local_date=date(2026, 8, 5),
+        category="知识类",
+        copy_type="养护科普",
+    )
+
+    assert first == second
+    assert first is not None
+    assert first["copy_status"] == "ready"
 
 
 @pytest.mark.asyncio

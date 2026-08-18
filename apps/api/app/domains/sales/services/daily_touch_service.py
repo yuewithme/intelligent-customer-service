@@ -13,11 +13,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+from app.domains.catalog.services.agent_media_library_service import (
+    select_scheduled_agent_media,
+)
 from app.domains.conversations.schemas.chat import ChatRequest
 from app.domains.conversations.services.conversation_service import (
     AI_BLOCKED_STATUSES,
     HUMAN_ACTIVE,
 )
+from app.domains.sales.services.tag_catalog import get_tag_categories
 from app.infrastructure.database.models import (
     AgentCustomerStateModel,
     AgentWakeupModel,
@@ -25,6 +29,8 @@ from app.infrastructure.database.models import (
     ConversationMessageModel,
     ConversationModel,
     EyunContactModel,
+    EyunOutboundMessageModel,
+    UserProfileModel,
 )
 
 
@@ -32,6 +38,9 @@ logger = logging.getLogger("wechat_rag_bot.daily_touch")
 _WAKEUP_MAX_ATTEMPTS = 3
 _WAKEUP_RETRY_DELAY = timedelta(minutes=15)
 _PROCESSING_LEASE = timedelta(minutes=10)
+_SERVICE_MATERIAL_KIND = "service_material_touch"
+_SERVICE_TAG_CATEGORY_IDS = {"service_status", "service_tag"}
+_INACTIVE_SERVICE_TAG_MARKERS = ("暂停", "停止", "结束", "退订", "禁用")
 _database_factories: dict[str, sessionmaker] = {}
 _chat_factories: dict[str, sessionmaker] = {}
 _last_contact_sync_at: datetime | None = None
@@ -220,7 +229,9 @@ def ensure_daily_touch_wakeups(*, now: datetime | None = None) -> int:
     local_date = current.date().isoformat()
     created = 0
     utc_now = (now or _utcnow()).astimezone(timezone.utc)
+    service_tag_values = _active_service_tag_values()
     with _database_session() as session:
+        service_customer_ids = _service_customer_ids(session, service_tag_values)
         contacts = list(
             session.scalars(
                 select(EyunContactModel)
@@ -229,6 +240,8 @@ def ensure_daily_touch_wakeups(*, now: datetime | None = None) -> int:
             )
         )
         for contact in contacts:
+            if contact.wc_id in service_customer_ids:
+                continue
             snapshot = get_daily_touch_snapshot(contact.wc_id, now=utc_now)
             if snapshot["completed_today"]:
                 continue
@@ -267,6 +280,79 @@ def ensure_daily_touch_wakeups(*, now: datetime | None = None) -> int:
                 )
             )
             created += 1
+        session.commit()
+    return created
+
+
+def ensure_service_material_touch_wakeups(*, now: datetime | None = None) -> int:
+    settings = get_settings()
+    if not settings.service_material_touch_enabled:
+        return 0
+    zone = _timezone(settings.daily_touch_timezone)
+    utc_now = (now or _utcnow()).astimezone(timezone.utc)
+    current = utc_now.astimezone(zone)
+    local_date = current.date().isoformat()
+    grace = timedelta(minutes=settings.service_material_touch_grace_minutes)
+    service_tag_values = _active_service_tag_values()
+    if not service_tag_values:
+        return 0
+    created = 0
+    with _database_session() as session:
+        service_customer_ids = _service_customer_ids(session, service_tag_values)
+        if not service_customer_ids:
+            return 0
+        contacts = list(
+            session.scalars(
+                select(EyunContactModel)
+                .where(
+                    EyunContactModel.status == "active",
+                    EyunContactModel.wc_id.in_(service_customer_ids),
+                )
+                .order_by(EyunContactModel.id.asc())
+            )
+        )
+        for contact in contacts:
+            for slot_id, slot_time, _, _ in _service_material_slots():
+                due_local = datetime.combine(current.date(), slot_time, tzinfo=zone)
+                if due_local < current - grace:
+                    continue
+                due_at = max(due_local.astimezone(timezone.utc), utc_now)
+                dedup_key = (
+                    f"service_material:{contact.tenant_id}:{contact.id}:"
+                    f"{local_date}:{slot_id}"
+                )
+                if session.scalar(
+                    select(AgentWakeupModel.id).where(
+                        AgentWakeupModel.dedup_key == dedup_key
+                    )
+                ):
+                    continue
+                technical_status = (
+                    "pending" if contact.current_w_id else "technical_skip"
+                )
+                session.add(
+                    AgentWakeupModel(
+                        dedup_key=dedup_key,
+                        tenant_id=contact.tenant_id,
+                        customer_id=contact.wc_id,
+                        contact_id=contact.id,
+                        kind=_SERVICE_MATERIAL_KIND,
+                        local_date=local_date,
+                        reason=f"service_material:{slot_id}",
+                        checklist_json="[]",
+                        status=technical_status,
+                        due_at=due_at,
+                        attempts=0,
+                        last_error=(
+                            "联系人缺少可用微信账号"
+                            if not contact.current_w_id
+                            else None
+                        ),
+                        created_at=utc_now,
+                        updated_at=utc_now,
+                    )
+                )
+                created += 1
         session.commit()
     return created
 
@@ -329,6 +415,11 @@ async def process_due_agent_wakeups(
 
 
 async def _process_wakeup(wakeup_id: int, *, now: datetime) -> bool:
+    with _database_session() as session:
+        row = session.get(AgentWakeupModel, wakeup_id)
+        if row is not None and row.kind == _SERVICE_MATERIAL_KIND:
+            return await _process_service_material_wakeup(wakeup_id, now=now)
+
     local_now = now.astimezone(_timezone(get_settings().daily_touch_timezone))
     if not _within_send_window(local_now):
         with _database_session() as session:
@@ -455,6 +546,152 @@ async def _process_wakeup(wakeup_id: int, *, now: datetime) -> bool:
     return True
 
 
+async def _process_service_material_wakeup(
+    wakeup_id: int, *, now: datetime
+) -> bool:
+    with _database_session() as session:
+        row = session.get(AgentWakeupModel, wakeup_id)
+        if row is None or row.status != "processing":
+            return False
+        contact = (
+            session.get(EyunContactModel, row.contact_id)
+            if row.contact_id
+            else session.scalar(
+                select(EyunContactModel)
+                .where(
+                    EyunContactModel.wc_id == row.customer_id,
+                    EyunContactModel.status == "active",
+                )
+                .order_by(EyunContactModel.updated_at.desc())
+                .limit(1)
+            )
+        )
+        if contact is None or contact.status != "active" or not contact.current_w_id:
+            row.status = "technical_skip"
+            row.last_error = "联系人或发送账号当前不可用"
+            row.updated_at = now
+            session.commit()
+            return False
+        if not _profile_has_active_service_tag(
+            session, row.customer_id, _active_service_tag_values()
+        ):
+            row.status = "cancelled"
+            row.last_error = "客户已无有效服务标签"
+            row.updated_at = now
+            session.commit()
+            return False
+        snapshot = get_daily_touch_snapshot(row.customer_id, now=now)
+        if snapshot["explicit_refusal"] or snapshot["human_active"]:
+            row.status = "cancelled"
+            row.last_error = (
+                "客户已明确拒绝自动触达"
+                if snapshot["explicit_refusal"]
+                else "客户当前由人工接待"
+            )
+            row.updated_at = now
+            session.commit()
+            return False
+        slot_id = row.reason.removeprefix("service_material:")
+        slot = next(
+            (item for item in _service_material_slots() if item[0] == slot_id),
+            None,
+        )
+        if slot is None:
+            row.status = "failed"
+            row.last_error = "定时素材时段配置无效"
+            row.updated_at = now
+            session.commit()
+            return False
+        try:
+            scheduled_date = datetime.strptime(
+                row.local_date or "", "%Y-%m-%d"
+            ).date()
+        except ValueError:
+            scheduled_date = now.astimezone(
+                _timezone(get_settings().daily_touch_timezone)
+            ).date()
+        material = select_scheduled_agent_media(
+            local_date=scheduled_date,
+            category=slot[2],
+            copy_type=slot[3],
+        )
+        if material is None:
+            row.status = "failed"
+            row.last_error = f"素材库无可用的{slot[3]}内容"
+            row.updated_at = now
+            session.commit()
+            return False
+        batch_key = f"agent_wakeup:{row.id}"
+        w_id = contact.current_w_id
+        customer_id = contact.wc_id
+        tenant_id = contact.tenant_id
+
+    media_type = str(material.get("format") or "")
+    media_url = str(material.get("url") or "").strip()
+    if media_type == "video":
+        thumb_url = str(material.get("thumb_url") or "").strip()
+        if not media_url or not thumb_url:
+            _mark_wakeup(wakeup_id, "failed", "定时视频缺少地址或封面")
+            return False
+        media_content = json.dumps(
+            {"path": media_url, "thumb_path": thumb_url},
+            ensure_ascii=False,
+        )
+    elif media_type == "image" and media_url:
+        media_content = media_url
+    else:
+        _mark_wakeup(wakeup_id, "failed", "定时素材类型或地址无效")
+        return False
+    messages = (
+        ("text", str(material.get("copy_text") or "").strip()),
+        (media_type, media_content),
+    )
+    if not messages[0][1]:
+        _mark_wakeup(wakeup_id, "failed", "定时素材缺少已审核文案")
+        return False
+
+    from app.integrations.eyun.services.message_risk_control_service import (
+        enqueue_wechat_outbound,
+    )
+
+    dependency_id: int | None = None
+    due_at = now
+    try:
+        for message_type, content in messages:
+            queued = await enqueue_wechat_outbound(
+                w_id=w_id,
+                wc_id=customer_id,
+                content=content,
+                source_batch_key=batch_key,
+                message_type=message_type,
+                depends_on_outbound_id=dependency_id,
+                due_at=due_at,
+                channel="wechat",
+                user_id=customer_id,
+                session_id="default",
+                tenant_id=tenant_id,
+                source_type=_SERVICE_MATERIAL_KIND,
+                source_id=str(wakeup_id),
+            )
+            dependency_id = int(queued["id"])
+            due_at += timedelta(seconds=3)
+    except Exception as exc:  # noqa: BLE001
+        _mark_wakeup(
+            wakeup_id,
+            "failed",
+            f"定时素材入队失败：{type(exc).__name__}",
+        )
+        return False
+    with _database_session() as session:
+        row = session.get(AgentWakeupModel, wakeup_id)
+        if row is not None:
+            row.status = "queued"
+            row.outbound_batch_key = batch_key
+            row.updated_at = now
+            session.commit()
+    return True
+
+
 def validate_agent_wakeup_before_send(source_batch_key: str | None) -> bool:
     wakeup_id = _wakeup_id(source_batch_key)
     if wakeup_id is None:
@@ -475,8 +712,25 @@ def validate_agent_wakeup_before_send(source_batch_key: str | None) -> bool:
             row.updated_at = _utcnow()
             session.commit()
             return False
+        if row.kind == _SERVICE_MATERIAL_KIND:
+            service_tagged = _profile_has_active_service_tag(
+                session, row.customer_id, _active_service_tag_values()
+            )
+            customer_id = row.customer_id
+            if not service_tagged:
+                row.status = "cancelled"
+                row.last_error = "发送前检查发现服务标签已移除"
+                row.updated_at = _utcnow()
+                session.commit()
+                return False
+            special_touch = True
+        else:
+            special_touch = False
         created_at = row.created_at
         customer_id = row.customer_id
+    if special_touch:
+        snapshot = get_daily_touch_snapshot(customer_id)
+        return not snapshot["explicit_refusal"] and not snapshot["human_active"]
     with _chat_session() as session:
         changed = session.scalar(
             select(ConversationMessageModel.id)
@@ -509,6 +763,19 @@ def sync_agent_wakeup_from_outbound(
         if row is None:
             return
         if status == "sent":
+            if row.kind == _SERVICE_MATERIAL_KIND:
+                outbound_statuses = list(
+                    session.scalars(
+                        select(EyunOutboundMessageModel.status).where(
+                            EyunOutboundMessageModel.source_batch_key
+                            == source_batch_key
+                        )
+                    )
+                )
+                if not outbound_statuses or any(
+                    value != "sent" for value in outbound_statuses
+                ):
+                    return
             row.status = "completed"
             row.completed_at = now
             row.last_error = None
@@ -528,9 +795,16 @@ def sync_agent_wakeup_from_outbound(
 async def daily_touch_worker(stop_event: asyncio.Event) -> None:
     while not stop_event.is_set():
         try:
-            if get_settings().daily_touch_enabled:
+            settings = get_settings()
+            daily_enabled = settings.daily_touch_enabled
+            service_enabled = settings.service_material_touch_enabled
+            if daily_enabled or service_enabled:
                 await _refresh_contacts_if_due()
+            if daily_enabled:
                 ensure_daily_touch_wakeups()
+            if service_enabled:
+                ensure_service_material_touch_wakeups()
+            if daily_enabled or service_enabled:
                 await process_due_agent_wakeups()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Daily touch worker tick failed: %s", type(exc).__name__)
@@ -612,6 +886,8 @@ def _database_session() -> Session:
                 EyunContactModel.__table__,
                 AgentCustomerStateModel.__table__,
                 AgentWakeupModel.__table__,
+                EyunOutboundMessageModel.__table__,
+                UserProfileModel.__table__,
             ],
         )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -659,6 +935,91 @@ def _parse_time(value: str, fallback: time) -> time:
         return time(int(hour), int(minute))
     except (TypeError, ValueError):
         return fallback
+
+
+def _service_material_slots() -> tuple[tuple[str, time, str, str], ...]:
+    settings = get_settings()
+    return (
+        (
+            "story",
+            _parse_time(settings.service_material_story_time, time(7, 0)),
+            "AI类",
+            "名品故事",
+        ),
+        (
+            "knowledge",
+            _parse_time(settings.service_material_knowledge_time, time(10, 0)),
+            "知识类",
+            "养护科普",
+        ),
+        (
+            "topic",
+            _parse_time(settings.service_material_topic_time, time(14, 0)),
+            "图文解说类",
+            "话题种草",
+        ),
+    )
+
+
+def _active_service_tag_values() -> set[str]:
+    values: set[str] = set()
+    for category_id, category in get_tag_categories().items():
+        if (
+            category_id not in _SERVICE_TAG_CATEGORY_IDS
+            and category.name != "服务标签"
+        ):
+            continue
+        for value in category.values:
+            name = str(value.name or "").strip()
+            if name and not any(
+                marker in name for marker in _INACTIVE_SERVICE_TAG_MARKERS
+            ):
+                values.add(name)
+    return values
+
+
+def _service_customer_ids(session: Session, tag_values: set[str]) -> set[str]:
+    if not tag_values:
+        return set()
+    refused_ids = set(
+        session.scalars(
+            select(AgentCustomerStateModel.customer_id).where(
+                AgentCustomerStateModel.explicit_refusal.is_(True)
+            )
+        )
+    )
+    return {
+        profile.user_id
+        for profile in session.scalars(select(UserProfileModel))
+        if profile.user_id not in refused_ids
+        and bool(_profile_tag_values(profile) & tag_values)
+    }
+
+
+def _profile_has_active_service_tag(
+    session: Session, customer_id: str, tag_values: set[str]
+) -> bool:
+    if not tag_values:
+        return False
+    profile = session.get(UserProfileModel, customer_id)
+    return profile is not None and bool(_profile_tag_values(profile) & tag_values)
+
+
+def _profile_tag_values(profile: UserProfileModel) -> set[str]:
+    try:
+        parsed = json.loads(profile.customer_tags_json or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return set()
+    if not isinstance(parsed, list):
+        return set()
+    values: set[str] = set()
+    for item in parsed:
+        if not isinstance(item, str):
+            continue
+        value = item.strip()
+        if value:
+            values.add(value.rpartition(":")[2] or value)
+    return values
 
 
 def _timezone(value: str) -> ZoneInfo:
