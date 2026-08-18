@@ -3,8 +3,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import create_engine, select
@@ -134,12 +136,37 @@ def _session():
 def _fernet() -> Fernet:
     settings = get_settings()
     secret = settings.youzan_credential_encryption_key.strip() or settings.api_key.strip()
-    if not secret or secret == "change_me":
-        raise YouzanCredentialStoreError(
-            "未配置安全的 API_KEY 或 YOUZAN_CREDENTIAL_ENCRYPTION_KEY"
+    if secret and secret != "change_me":
+        digest = hashlib.sha256(secret.encode("utf-8")).digest()
+        return Fernet(base64.urlsafe_b64encode(digest))
+    return Fernet(_load_or_create_file_key())
+
+
+def _load_or_create_file_key() -> bytes:
+    key_path = (
+        Path(get_settings().upload_dir).resolve().parent / ".youzan-credential.key"
+    )
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        file_descriptor = os.open(
+            key_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
         )
-    digest = hashlib.sha256(secret.encode("utf-8")).digest()
-    return Fernet(base64.urlsafe_b64encode(digest))
+    except FileExistsError:
+        pass
+    else:
+        with os.fdopen(file_descriptor, "wb") as key_file:
+            key_file.write(Fernet.generate_key())
+            key_file.flush()
+            os.fsync(key_file.fileno())
+    try:
+        os.chmod(key_path, 0o600)
+        key = key_path.read_bytes().strip()
+        Fernet(key)
+    except (OSError, ValueError) as exc:
+        raise YouzanCredentialStoreError("有赞凭据加密密钥文件不可用") from exc
+    return key
 
 
 def _apply_to_settings(credentials: YouzanCredentials) -> None:

@@ -122,3 +122,29 @@ def test_admin_endpoint_requires_key_and_never_returns_secret(monkeypatch, tmp_p
     assert data["configured"] is True
     assert data["token_verified"] is True
     assert "must-not-be-returned" not in response.text
+
+
+def test_default_api_key_uses_persistent_private_key_file(monkeypatch, tmp_path):
+    database_url = _configure(monkeypatch, tmp_path)
+    upload_dir = tmp_path / "data" / "uploads"
+    monkeypatch.setenv("API_KEY", "change_me")
+    monkeypatch.setenv("UPLOAD_DIR", str(upload_dir))
+    get_settings.cache_clear()
+    youzan_credential_service.reset_youzan_credential_store_for_tests()
+
+    credentials = YouzanCredentials(
+        client_id="file-key-client",
+        client_secret="file-key-secret",
+        kdt_id="7001",
+    )
+    save_youzan_credentials(credentials)
+
+    key_path = upload_dir.parent / ".youzan-credential.key"
+    assert key_path.is_file()
+    assert "file-key-secret" not in key_path.read_text(encoding="utf-8")
+    get_settings.cache_clear()
+    assert effective_youzan_credentials() == credentials
+    with Session(create_engine(database_url)) as session:
+        stored = session.scalar(select(YouzanCredentialModel))
+        assert stored is not None
+        assert "file-key-secret" not in stored.encrypted_payload
