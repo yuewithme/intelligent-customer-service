@@ -11,6 +11,9 @@ from app.integrations.feishu.services.webhook_alert_service import (
     send_feishu_webhook_alert,
 )
 from app.integrations.youzan.client import YouzanClient, YouzanError
+from app.integrations.youzan.services.youzan_credential_service import (
+    effective_youzan_credentials,
+)
 
 
 class YouzanTokenConfigurationError(RuntimeError):
@@ -51,19 +54,17 @@ class YouzanTokenManager:
 
     async def _refresh(self) -> None:
         settings = get_settings()
-        client_id = settings.youzan_client_id.strip()
-        client_secret = settings.youzan_client_secret.strip()
-        grant_id = settings.youzan_kdt_id.strip()
-        if not client_id or not client_secret or not grant_id:
+        credentials = effective_youzan_credentials()
+        if credentials is None:
             raise YouzanTokenConfigurationError(
                 "有赞Token已失效，但未配置CLIENT_ID、CLIENT_SECRET或KDT_ID"
             )
         url = f"{settings.youzan_base_url.rstrip('/')}/auth/token"
         payload = {
             "authorize_type": "silent",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "grant_id": grant_id,
+            "client_id": credentials.client_id,
+            "client_secret": credentials.client_secret,
+            "grant_id": credentials.kdt_id,
         }
         try:
             if self._http_client is not None:
@@ -106,6 +107,11 @@ def get_youzan_token_manager() -> YouzanTokenManager:
     return _manager
 
 
+def reset_youzan_token_manager() -> None:
+    global _manager
+    _manager = None
+
+
 def create_managed_youzan_client(*, timeout: float = 15) -> YouzanClient:
     settings = get_settings()
     return YouzanClient(
@@ -118,13 +124,10 @@ def create_managed_youzan_client(*, timeout: float = 15) -> YouzanClient:
 
 def youzan_credentials_available() -> bool:
     settings = get_settings()
+    credentials = effective_youzan_credentials()
     return bool(
         settings.youzan_access_token.strip()
-        or (
-            settings.youzan_client_id.strip()
-            and settings.youzan_client_secret.strip()
-            and settings.youzan_kdt_id.strip()
-        )
+        or credentials is not None
     )
 
 
@@ -163,8 +166,8 @@ async def notify_youzan_recovery(component: str) -> None:
 
 
 def reset_youzan_token_state_for_tests() -> None:
-    global _manager, _outage_alerted
-    _manager = None
+    global _outage_alerted
+    reset_youzan_token_manager()
     _outage_alerted = False
 
 
