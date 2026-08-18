@@ -140,7 +140,32 @@ def test_explicit_refusal_excludes_three_service_touches(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_due_service_touch_queues_copy_then_video(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("media", "expected_type"),
+    (
+        (
+            {
+                "format": "video",
+                "url": "https://media.example.com/story.mp4",
+                "thumb_url": "https://media.example.com/story.jpg",
+                "copy_text": "今天分享一个兰花名品故事。",
+            },
+            "video",
+        ),
+        (
+            {
+                "format": "image",
+                "url": "https://media.example.com/story.jpg",
+                "thumb_url": "",
+                "copy_text": "今天分享一个兰花名品故事。",
+            },
+            "image",
+        ),
+    ),
+)
+async def test_due_service_touch_queues_copy_before_media(
+    monkeypatch, tmp_path, media, expected_type
+):
     _configure(monkeypatch, tmp_path)
     _insert_contact()
     _tag_service_customer()
@@ -150,12 +175,7 @@ async def test_due_service_touch_queues_copy_then_video(monkeypatch, tmp_path):
     monkeypatch.setattr(
         service,
         "select_scheduled_agent_media",
-        lambda **_: {
-            "format": "video",
-            "url": "https://media.example.com/story.mp4",
-            "thumb_url": "https://media.example.com/story.jpg",
-            "copy_text": "今天分享一个兰花名品故事。",
-        },
+        lambda **_: media,
     )
     queued = []
 
@@ -174,13 +194,16 @@ async def test_due_service_touch_queues_copy_then_video(monkeypatch, tmp_path):
         now=datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
     ) == 1
 
-    assert [item["message_type"] for item in queued] == ["text", "video"]
+    assert [item["message_type"] for item in queued] == ["text", expected_type]
     assert queued[0]["depends_on_outbound_id"] is None
     assert queued[1]["depends_on_outbound_id"] == 1
-    assert json.loads(queued[1]["content"]) == {
-        "path": "https://media.example.com/story.mp4",
-        "thumb_path": "https://media.example.com/story.jpg",
-    }
+    if expected_type == "video":
+        assert json.loads(queued[1]["content"]) == {
+            "path": "https://media.example.com/story.mp4",
+            "thumb_path": "https://media.example.com/story.jpg",
+        }
+    else:
+        assert queued[1]["content"] == "https://media.example.com/story.jpg"
 
 
 def test_service_touch_completes_after_copy_and_media_are_sent(monkeypatch, tmp_path):

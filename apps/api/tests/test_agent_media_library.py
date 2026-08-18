@@ -160,6 +160,66 @@ def test_scheduled_media_selection_is_stable_for_date(tmp_path, monkeypatch):
     assert first["copy_status"] == "ready"
 
 
+def test_scheduled_media_randomly_traverses_full_copy_type_without_repeat(
+    monkeypatch,
+):
+    categories = (
+        "知识类",
+        "图文解说类",
+        "AI类",
+        "知识类",
+        "图文解说类",
+    )
+    items = tuple(
+        {
+            "id": f"{index:024d}",
+            "category": category,
+            "relative_path": f"material-{index}.jpg",
+            "title": f"素材 {index}",
+            "media_type": "image",
+            "bytes": 100,
+            "thumbnail_path": "",
+            "asset_base_url": "https://media.example.com",
+            "copy_ref": f"copy:test:{index}",
+            "copy_topic": f"素材 {index}",
+            "copy_type": "养护科普",
+            "copy_text": f"养护文案 {index}",
+            "copy_source": "test",
+            "copy_version": 1,
+            "copy_status": "ready",
+        }
+        for index, category in enumerate(categories)
+    )
+    monkeypatch.setattr(library, "_load_items", lambda: items)
+    size = len(items)
+    anchor = date(2026, 8, 5).toordinal()
+    cycle_start = anchor - anchor % size
+
+    first_cycle = [
+        library.select_scheduled_agent_media(
+            local_date=date.fromordinal(cycle_start + offset),
+            copy_type="养护科普",
+        )["material_ref"]
+        for offset in range(size)
+    ]
+    second_cycle = [
+        library.select_scheduled_agent_media(
+            local_date=date.fromordinal(cycle_start + size + offset),
+            copy_type="养护科普",
+        )["material_ref"]
+        for offset in range(size)
+    ]
+
+    expected = {f"material:agent-media:{index:024d}" for index in range(size)}
+    assert set(first_cycle) == expected
+    assert set(second_cycle) == expected
+    assert len(first_cycle) == len(set(first_cycle))
+    assert len(second_cycle) == len(set(second_cycle))
+    assert first_cycle[-1] != second_cycle[0]
+    assert first_cycle != sorted(first_cycle)
+    assert second_cycle != first_cycle
+
+
 @pytest.mark.asyncio
 async def test_material_send_prepares_library_video(tmp_path, monkeypatch):
     _write_library(tmp_path, monkeypatch)
