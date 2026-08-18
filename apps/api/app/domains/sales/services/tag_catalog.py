@@ -121,6 +121,14 @@ TAG_CATEGORIES: dict[str, TagCategory] = {
         ai_assignable=False,
         exclusive=False,
     ),
+    "service_status": TagCategory(
+        id="service_status",
+        name="服务标签",
+        prompt_rule="由运营人工标记正在接受固定内容服务的客户，AI 不得自行分配。",
+        values=(TagValue("服务中"),),
+        ai_assignable=False,
+        exclusive=True,
+    ),
 }
 
 
@@ -179,7 +187,7 @@ SYSTEM_TAG_PREFIXES = {
     "pain_point": "pain_point:",
     "product_interest": "product_interest:",
 }
-_CATALOG_VERSION = "5"
+_CATALOG_VERSION = "6"
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -246,7 +254,14 @@ def _ensure_seeded() -> None:
         marker = session.get(TagCatalogMetaModel, "seed_version")
         if count and marker and marker.value == _CATALOG_VERSION:
             return
-        categories = TAG_CATEGORIES if not count else SYSTEM_TAG_CATEGORIES
+        categories = (
+            TAG_CATEGORIES
+            if not count
+            else {
+                **SYSTEM_TAG_CATEGORIES,
+                "service_status": TAG_CATEGORIES["service_status"],
+            }
+        )
         max_position = session.scalar(select(func.max(TagCategoryModel.position))) or 0
         for category_position, category in enumerate(categories.values(), start=1):
             if session.get(TagCategoryModel, category.id):

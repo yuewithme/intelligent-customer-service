@@ -1,11 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.config import get_settings
 from app.infrastructure.database.models import (
     PromptBlockModel,
     TagCatalogMetaModel,
+    TagCategoryModel,
     TagDefinitionModel,
     TagPromptBindingModel,
 )
@@ -46,10 +47,11 @@ def test_tag_admin_lists_all_categories_and_prompt_configuration():
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["total_categories"] == 10
+    assert data["total_categories"] == 11
     assert data["total_tags"] > 60
     categories = {item["id"]: item for item in data["items"]}
     assert categories["purchase_status"]["ai_assignable"] is False
+    assert categories["service_status"]["ai_assignable"] is False
     assert {"customer_sentiment", "risk_level", "pain_point"} <= set(categories)
     assert "intent" not in categories
     assert "sales_stage" not in categories
@@ -190,6 +192,29 @@ def test_catalog_upgrade_removes_obsolete_stage_bindings_and_orphan_blocks():
             )
         ) is None
         assert session.get(PromptBlockModel, "legacy.sales_stage.greeting") is None
+
+
+def test_catalog_upgrade_adds_manual_service_status_category():
+    client = TestClient(app)
+    assert client.get("/api/v1/admin/tags").status_code == 200
+    with tag_catalog._get_session() as session:
+        session.execute(
+            delete(TagDefinitionModel).where(
+                TagDefinitionModel.category_id == "service_status"
+            )
+        )
+        session.execute(
+            delete(TagCategoryModel).where(TagCategoryModel.id == "service_status")
+        )
+        session.get(TagCatalogMetaModel, "seed_version").value = "5"
+        session.commit()
+
+    tag_catalog.invalidate_cache()
+    categories = tag_catalog.get_tag_categories()
+
+    assert categories["service_status"].name == "服务标签"
+    assert [value.name for value in categories["service_status"].values] == ["服务中"]
+    assert categories["service_status"].ai_assignable is False
 
 
 def test_tag_admin_requires_api_authorization(monkeypatch):

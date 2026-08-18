@@ -10,6 +10,8 @@ from app.infrastructure.database.models import (
     ConversationMessageModel,
     ConversationModel,
     EyunContactModel,
+    EyunOutboundMessageModel,
+    UserProfileModel,
 )
 
 
@@ -18,6 +20,11 @@ def _configure(monkeypatch, tmp_path):
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{tmp_path / 'chat.db'}")
     monkeypatch.setenv("DAILY_TOUCH_ENABLED", "true")
     monkeypatch.setenv("DAILY_TOUCH_TIMEZONE", "Asia/Shanghai")
+    monkeypatch.setenv("SERVICE_MATERIAL_TOUCH_ENABLED", "true")
+    monkeypatch.setenv("SERVICE_MATERIAL_STORY_TIME", "07:00")
+    monkeypatch.setenv("SERVICE_MATERIAL_KNOWLEDGE_TIME", "10:00")
+    monkeypatch.setenv("SERVICE_MATERIAL_TOPIC_TIME", "14:00")
+    monkeypatch.setenv("SERVICE_MATERIAL_TOUCH_GRACE_MINUTES", "20")
     get_settings.cache_clear()
     service._database_factories.clear()
     service._chat_factories.clear()
@@ -45,6 +52,22 @@ def _insert_contact():
         session.commit()
 
 
+def _tag_service_customer():
+    now = datetime(2026, 8, 5, 4, 0, tzinfo=timezone.utc)
+    with service._database_session() as session:
+        session.add(
+            UserProfileModel(
+                user_id="customer-1",
+                tenant_id="tenant_default",
+                channel="wechat",
+                customer_tags_json='["服务中"]',
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+
 def test_daily_wakeup_is_durable_and_idempotent(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
     _insert_contact()
@@ -57,6 +80,164 @@ def test_daily_wakeup_is_durable_and_idempotent(monkeypatch, tmp_path):
     assert len(rows) == 1
     assert rows[0].kind == "daily_touch"
     assert rows[0].local_date == "2026-08-05"
+
+
+def test_service_tag_schedules_three_fixed_daily_slots(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 8, 4, 22, 30, tzinfo=timezone.utc)
+
+    assert service.ensure_service_material_touch_wakeups(now=now) == 3
+    assert service.ensure_service_material_touch_wakeups(now=now) == 0
+    with service._database_session() as session:
+        rows = list(
+            session.query(AgentWakeupModel)
+            .order_by(AgentWakeupModel.due_at.asc())
+            .all()
+        )
+    assert [row.kind for row in rows] == ["service_material_touch"] * 3
+    assert [row.reason for row in rows] == [
+        "service_material:story",
+        "service_material:knowledge",
+        "service_material:topic",
+    ]
+    assert [row.due_at.hour for row in rows] == [23, 2, 6]
+    assert service.ensure_daily_touch_wakeups(
+        now=datetime(2026, 8, 5, 0, 0, tzinfo=timezone.utc)
+    ) == 0
+
+
+def test_late_service_tag_only_schedules_remaining_slot(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+
+    assert service.ensure_service_material_touch_wakeups(
+        now=datetime(2026, 8, 5, 3, 0, tzinfo=timezone.utc)
+    ) == 1
+    with service._database_session() as session:
+        row = session.query(AgentWakeupModel).one()
+    assert row.reason == "service_material:topic"
+
+
+def test_explicit_refusal_excludes_three_service_touches(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 8, 5, 4, 0, tzinfo=timezone.utc)
+    service.record_agent_relationship_state(
+        customer_id="customer-1",
+        tenant_id="tenant_default",
+        customer_signal="explicit_refusal",
+        commercial_judgment="客户明确拒绝",
+        relationship_purpose="保持服务关系",
+        source_trace_id="trace-refusal-service",
+    )
+
+    assert service.ensure_service_material_touch_wakeups(now=now) == 0
+    assert service.ensure_daily_touch_wakeups(now=now) == 1
+
+
+@pytest.mark.asyncio
+async def test_due_service_touch_queues_copy_then_video(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    before_slot = datetime(2026, 8, 4, 22, 59, tzinfo=timezone.utc)
+    assert service.ensure_service_material_touch_wakeups(now=before_slot) == 3
+
+    monkeypatch.setattr(
+        service,
+        "select_scheduled_agent_media",
+        lambda **_: {
+            "format": "video",
+            "url": "https://media.example.com/story.mp4",
+            "thumb_url": "https://media.example.com/story.jpg",
+            "copy_text": "今天分享一个兰花名品故事。",
+        },
+    )
+    queued = []
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+
+    from app.integrations.eyun.services import message_risk_control_service
+
+    monkeypatch.setattr(
+        message_risk_control_service,
+        "enqueue_wechat_outbound",
+        fake_enqueue,
+    )
+    assert await service.process_due_agent_wakeups(
+        now=datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    ) == 1
+
+    assert [item["message_type"] for item in queued] == ["text", "video"]
+    assert queued[0]["depends_on_outbound_id"] is None
+    assert queued[1]["depends_on_outbound_id"] == 1
+    assert json.loads(queued[1]["content"]) == {
+        "path": "https://media.example.com/story.mp4",
+        "thumb_path": "https://media.example.com/story.jpg",
+    }
+
+
+def test_service_touch_completes_after_copy_and_media_are_sent(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    now = datetime.now(timezone.utc)
+    batch_key = "agent_wakeup:1"
+    with service._database_session() as session:
+        session.add(
+            AgentWakeupModel(
+                id=1,
+                dedup_key="service-material:test:bundle",
+                tenant_id="tenant_default",
+                customer_id="customer-1",
+                kind="service_material_touch",
+                local_date="2026-08-05",
+                reason="service_material:story",
+                checklist_json="[]",
+                status="queued",
+                due_at=now,
+                attempts=1,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add_all(
+            [
+                EyunOutboundMessageModel(
+                    w_id="wid-1",
+                    wc_id="customer-1",
+                    content=content,
+                    source_batch_key=batch_key,
+                    status=status,
+                    priority=50,
+                    due_at=now,
+                    attempts=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+                for content, status in (("文案", "sent"), ("视频", "queued"))
+            ]
+        )
+        session.commit()
+
+    service.sync_agent_wakeup_from_outbound(batch_key, "sent")
+    with service._database_session() as session:
+        assert session.get(AgentWakeupModel, 1).status == "queued"
+        media = session.scalar(
+            service.select(EyunOutboundMessageModel).where(
+                EyunOutboundMessageModel.content == "视频"
+            )
+        )
+        media.status = "sent"
+        session.commit()
+
+    service.sync_agent_wakeup_from_outbound(batch_key, "sent")
+    with service._database_session() as session:
+        assert session.get(AgentWakeupModel, 1).status == "completed"
 
 
 def test_only_real_sent_message_completes_daily_touch(monkeypatch, tmp_path):
