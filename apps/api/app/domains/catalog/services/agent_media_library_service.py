@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -94,19 +95,50 @@ def get_agent_media(material_id: str) -> dict[str, Any] | None:
 
 
 def select_scheduled_agent_media(
-    *, local_date: date, category: str, copy_type: str
+    *, local_date: date, copy_type: str, category: str = ""
 ) -> dict[str, Any] | None:
     candidates = [
         _public_item(item)
         for item in _load_items()
-        if item.get("category") == category
+        if (not category or item.get("category") == category)
         and item.get("copy_type") == copy_type
         and item.get("copy_status") == "ready"
     ]
     if not candidates:
         return None
-    candidates.sort(key=lambda item: str(item["material_ref"]))
-    return candidates[local_date.toordinal() % len(candidates)]
+    cycle, position = divmod(local_date.toordinal(), len(candidates))
+    ordered = _scheduled_cycle_order(
+        candidates,
+        cycle=cycle,
+        category=category,
+        copy_type=copy_type,
+    )
+    if len(ordered) > 2:
+        previous = _scheduled_cycle_order(
+            candidates,
+            cycle=cycle - 1,
+            category=category,
+            copy_type=copy_type,
+        )
+        if ordered[0]["material_ref"] == previous[-1]["material_ref"]:
+            ordered[0], ordered[1] = ordered[1], ordered[0]
+    return ordered[position]
+
+
+def _scheduled_cycle_order(
+    candidates: list[dict[str, Any]],
+    *,
+    cycle: int,
+    category: str,
+    copy_type: str,
+) -> list[dict[str, Any]]:
+    seed = f"{category}\0{copy_type}\0{cycle}\0"
+    return sorted(
+        candidates,
+        key=lambda item: hashlib.sha256(
+            f"{seed}{item['material_ref']}".encode("utf-8")
+        ).digest(),
+    )
 
 
 def reset_agent_media_library_cache() -> None:

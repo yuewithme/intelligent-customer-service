@@ -943,19 +943,19 @@ def _service_material_slots() -> tuple[tuple[str, time, str, str], ...]:
         (
             "story",
             _parse_time(settings.service_material_story_time, time(7, 0)),
-            "AI类",
+            "",
             "名品故事",
         ),
         (
             "knowledge",
             _parse_time(settings.service_material_knowledge_time, time(10, 0)),
-            "知识类",
+            "",
             "养护科普",
         ),
         (
             "topic",
             _parse_time(settings.service_material_topic_time, time(14, 0)),
-            "图文解说类",
+            "",
             "话题种草",
         ),
     )
