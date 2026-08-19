@@ -64,3 +64,12 @@ export const getUserProfileBundle = (userId: string) =>
   request.get<UserProfileBundle>({
     url: `${userProfileBase()}/${userPath(userId)}/profile`
   })
+
+export const updateUserTags = (userId: string, customerTags: string[]) =>
+  request.patch<{ profile: UserProfile }>({
+    url: `${userProfileBase()}/${userPath(userId)}/profile`,
+    data: {
+      customer_tags: customerTags,
+      metadata: { reason: 'operator_tag_update' }
+    }
+  })
