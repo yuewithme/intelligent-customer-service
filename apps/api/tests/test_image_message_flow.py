@@ -116,7 +116,7 @@ async def test_prepare_content_combines_orchid_health_result_and_text(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_verified_store_order_adds_purchase_tag_and_enters_chat(monkeypatch):
+async def test_verified_store_order_does_not_add_disabled_purchase_tag(monkeypatch):
     from app.services import message_risk_control_service as service
     from app.services import user_profile_service, vision_service
 
@@ -186,10 +186,11 @@ async def test_verified_store_order_adds_purchase_tag_and_enters_chat(monkeypatc
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
 
     profile = (await user_profile_service.get_profile_bundle("customer"))["profile"]
-    assert profile["customer_tags"] == ["浙江省", "抖音已购"]
-    assert "已验证店铺订单截图" in chat_requests[0].message
+    assert profile["customer_tags"] == ["浙江省"]
+    assert "支持店铺订单截图" in chat_requests[0].message
+    assert "已验证抖音已付款" not in chat_requests[0].message
     assert "***************9059" in chat_requests[0].message
-    assert chat_requests[0].metadata["verified_order_count"] == 1
+    assert chat_requests[0].metadata["verified_order_count"] == 0
     assert [item["content"] for item in queued] == ["订单已经看到了亲"]
 
 

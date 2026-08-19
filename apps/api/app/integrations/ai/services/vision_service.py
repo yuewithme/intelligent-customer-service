@@ -13,6 +13,26 @@ logger = logging.getLogger("wechat_rag_bot.vision")
 
 SUPPORTED_ORDER_STORES = frozenset({"萧岚苑", "萧兰苑"})
 PURCHASE_TAG = "抖音已购"
+UNPAID_OR_CLOSED_ORDER_MARKERS = (
+    "待付款",
+    "未付款",
+    "未支付",
+    "已关闭",
+    "交易关闭",
+    "已取消",
+    "退款",
+)
+PAID_ORDER_MARKERS = (
+    "已付款",
+    "已支付",
+    "待发货",
+    "已发货",
+    "待收货",
+    "已签收",
+    "交易完成",
+    "交易成功",
+    "已完成",
+)
 
 
 class VisionError(RuntimeError):
@@ -153,7 +173,7 @@ async def analyze_image(image_source: str) -> VisionAnalysis:
     if analysis.confidence < settings.vision_min_confidence:
         raise VisionRecognitionError("image recognition confidence is insufficient")
     if analysis.category == "order":
-        if not is_verified_store_order(analysis):
+        if not is_supported_store_order(analysis):
             order = analysis.order
             if (
                 order
@@ -273,7 +293,7 @@ def normalized_supported_store_name(value: str) -> str:
     return ""
 
 
-def is_verified_store_order(analysis: VisionAnalysis) -> bool:
+def is_supported_store_order(analysis: VisionAnalysis) -> bool:
     return bool(
         analysis.category == "order"
         and analysis.order
@@ -282,15 +302,35 @@ def is_verified_store_order(analysis: VisionAnalysis) -> bool:
     )
 
 
+def is_verified_store_order(analysis: VisionAnalysis) -> bool:
+    if not is_supported_store_order(analysis) or analysis.order is None:
+        return False
+    platform = re.sub(r"\s+", "", analysis.order.platform).lower()
+    status = re.sub(
+        r"\s+", "", f"{analysis.order.status} {analysis.order.page_type}"
+    )
+    return bool(
+        "抖音" in platform
+        and not any(marker in status for marker in UNPAID_OR_CLOSED_ORDER_MARKERS)
+        and any(marker in status for marker in PAID_ORDER_MARKERS)
+    )
+
+
 def purchase_tag_for_analysis(analysis: VisionAnalysis) -> str | None:
+    if not get_settings().purchase_tags_enabled:
+        return None
     return PURCHASE_TAG if is_verified_store_order(analysis) else None
 
 
 def format_analysis_for_chat(analysis: VisionAnalysis, *, index: int = 1) -> str:
     if analysis.category == "order" and analysis.order:
         order = analysis.order
+        verified_purchase = is_verified_store_order(analysis)
         lines = [
-            f"[用户发送的第{index}张图片：已验证店铺订单截图]",
+            (
+                f"[用户发送的第{index}张图片："
+                f"{'已验证抖音已付款订单截图' if verified_purchase else '支持店铺订单截图'}]"
+            ),
             f"店铺：{_redact_sensitive(order.store_name)}",
         ]
         for label, value in (
@@ -304,7 +344,10 @@ def format_analysis_for_chat(analysis: VisionAnalysis, *, index: int = 1) -> str
                 lines.append(f"{label}：{_redact_sensitive(value)}")
         if order.order_number:
             lines.append(f"订单号：{_mask_identifier(order.order_number)}")
-        lines.append("系统动作：已将客户标记为抖音已购")
+        if verified_purchase and get_settings().purchase_tags_enabled:
+            lines.append("系统动作：已将客户标记为抖音已购")
+        elif verified_purchase:
+            lines.append("系统核验：抖音已付款订单已通过核验")
         return "\n".join(lines)
 
     health = analysis.orchid_health

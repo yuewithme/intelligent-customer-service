@@ -8,6 +8,8 @@ from app.domains.decisioning.schemas.intent import IntentResult
 from app.domains.decisioning.schemas.reply import FinalReply
 from app.domains.customers.services.user_profile_service import (
     add_ai_customer_tag,
+    add_system_customer_tag,
+    add_verified_customer_tag,
     append_conversation_memory,
     get_profile_bundle,
     update_profile_after_chat,
@@ -78,6 +80,52 @@ def test_patch_profile_updates_allowed_fields_and_writes_event(monkeypatch, tmp_
     assert event["before"]["customer_tags"] == []
     assert event["after"]["customer_tags"] == ["浙江省", "建兰"]
     assert event["reason"] == "operator_update"
+
+
+@pytest.mark.asyncio
+async def test_system_service_tag_is_idempotent(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+
+    await add_system_customer_tag(
+        "new-friend",
+        "服务中",
+        reason="eyun_new_friend_added",
+        trace_id="friend-event-1",
+    )
+    await add_system_customer_tag(
+        "new-friend",
+        "服务中",
+        reason="eyun_new_friend_added",
+        trace_id="friend-event-1",
+    )
+
+    bundle = await get_profile_bundle("new-friend")
+    assert bundle["profile"]["customer_tags"] == ["服务中"]
+    assert [event["event_type"] for event in bundle["events"]] == [
+        "system_customer_tag_added"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_verified_purchase_writers_are_noops_while_tags_are_disabled(
+    monkeypatch, tmp_path
+):
+    _reset_settings(monkeypatch, tmp_path)
+
+    await add_verified_customer_tag(
+        "purchase-disabled",
+        "抖音已购",
+        reason="vision_verified_store_order",
+    )
+    await add_verified_customer_tag(
+        "purchase-disabled",
+        "微信已购",
+        reason="youzan_order_tool_verified_paid_order",
+    )
+
+    bundle = await get_profile_bundle("purchase-disabled")
+    assert bundle["profile"]["customer_tags"] == []
+    assert bundle["events"] == []
 
 
 @pytest.mark.asyncio
@@ -729,7 +777,7 @@ async def test_profile_ai_cannot_assign_verified_purchase_tags(monkeypatch, tmp_
     assert profile["customer_tags"] == []
 
 
-def test_operator_can_save_ai_and_manual_only_tags_together(monkeypatch, tmp_path):
+def test_disabled_purchase_tags_are_filtered_from_operator_updates(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
 
@@ -744,8 +792,6 @@ def test_operator_can_save_ai_and_manual_only_tags_together(monkeypatch, tmp_pat
     assert response.status_code == 200
     assert response.json()["data"]["profile"]["customer_tags"] == [
         "L3 黄金期",
-        "抖音已购",
-        "微信已购",
         "服务中",
     ]
 

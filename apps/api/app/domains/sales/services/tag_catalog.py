@@ -187,6 +187,7 @@ SYSTEM_TAG_PREFIXES = {
     "pain_point": "pain_point:",
     "product_interest": "product_interest:",
 }
+PURCHASE_TAG_VALUES = frozenset({"抖音已购", "微信已购"})
 _CATALOG_VERSION = "6"
 
 
@@ -419,6 +420,14 @@ def get_profile_tag_categories() -> dict[str, TagCategory]:
     }
 
 
+def is_profile_tag_category_enabled(category_id: str) -> bool:
+    return category_id != "purchase_status" or get_settings().purchase_tags_enabled
+
+
+def is_profile_tag_enabled(value: str) -> bool:
+    return value not in PURCHASE_TAG_VALUES or get_settings().purchase_tags_enabled
+
+
 def system_tag_token(category_id: str, value: str | None) -> str:
     if not isinstance(value, str):
         return ""
@@ -479,7 +488,11 @@ def filter_profile_tags(values: list[str]) -> list[str]:
             continue
         normalized = value.split(":", 1)[1] if value.startswith("customer_tag:") else value
         normalized = normalized.strip()
-        if is_allowed_profile_tag(normalized) and normalized not in result:
+        if (
+            is_allowed_profile_tag(normalized)
+            and is_profile_tag_enabled(normalized)
+            and normalized not in result
+        ):
             result.append(normalized)
     return result
 
@@ -493,7 +506,11 @@ def filter_runtime_labels(labels: list[str]) -> list[str]:
         label = label.strip()
         if label.startswith("customer_tag:"):
             value = label.split(":", 1)[1].strip()
-            normalized = f"customer_tag:{value}" if is_allowed_profile_tag(value) else ""
+            normalized = (
+                f"customer_tag:{value}"
+                if is_allowed_profile_tag(value) and is_profile_tag_enabled(value)
+                else ""
+            )
         else:
             normalized = label if is_allowed_system_tag(label) else ""
         if normalized and normalized not in result:

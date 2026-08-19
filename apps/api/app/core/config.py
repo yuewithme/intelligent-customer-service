@@ -121,6 +121,9 @@ class Settings(BaseSettings):
     service_material_touch_enabled: bool = Field(
         default=True, alias="SERVICE_MATERIAL_TOUCH_ENABLED"
     )
+    purchase_tags_enabled: bool = Field(
+        default=False, alias="PURCHASE_TAGS_ENABLED"
+    )
     service_material_story_time: str = Field(
         default="07:00", alias="SERVICE_MATERIAL_STORY_TIME"
     )

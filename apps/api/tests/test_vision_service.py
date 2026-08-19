@@ -66,6 +66,7 @@ async def test_verified_store_order_uses_dashscope_and_returns_purchase_tag(monk
     from app.services import vision_service
 
     monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("PURCHASE_TAGS_ENABLED", "true")
     monkeypatch.setenv("VISION_API_KEY", "test-key")
     monkeypatch.setenv("VISION_OCR_ENABLED", "false")
     responses = [_order_response(store_name="萧兰苑")]
@@ -85,6 +86,37 @@ async def test_verified_store_order_uses_dashscope_and_returns_purchase_tag(monk
     prompt = requests[0]["json"]["messages"][0]["content"][1]["text"]
     assert "只允许处理以下两个场景" in prompt
     assert "兰花病虫害或健康问题" in prompt
+
+
+def test_purchase_tag_is_disabled_by_default():
+    from app.services import vision_service
+
+    analysis = vision_service.VisionAnalysis.model_validate(_order_response())
+
+    assert vision_service.purchase_tag_for_analysis(analysis) is None
+    assert "已将客户标记为抖音已购" not in vision_service.format_analysis_for_chat(analysis)
+
+
+@pytest.mark.parametrize(
+    ("platform", "status"),
+    (
+        ("淘宝/天猫", "交易完成"),
+        ("抖音电商", "待付款"),
+        ("抖音电商", "交易关闭"),
+        ("抖音电商", "退款成功"),
+    ),
+)
+def test_purchase_tag_requires_douyin_and_paid_status(monkeypatch, platform, status):
+    from app.services import vision_service
+
+    monkeypatch.setenv("PURCHASE_TAGS_ENABLED", "true")
+    payload = _order_response()
+    payload["order"]["platform"] = platform
+    payload["order"]["status"] = status
+    payload["order"]["page_type"] = status
+    analysis = vision_service.VisionAnalysis.model_validate(payload)
+
+    assert vision_service.purchase_tag_for_analysis(analysis) is None
 
 
 @pytest.mark.asyncio
