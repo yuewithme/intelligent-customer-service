@@ -35,6 +35,7 @@ from app.domains.sales.services.tag_catalog import (
     SYSTEM_TAG_PREFIXES,
     get_tag_categories,
     invalidate_cache,
+    is_profile_tag_category_enabled,
 )
 
 
@@ -117,7 +118,10 @@ def list_tag_categories() -> dict:
             "name": category.name,
             "prompt_rule": category.prompt_rule,
             "ai_assignable": category.ai_assignable,
-            "profile_assignable": category.id not in SYSTEM_CATEGORY_IDS,
+            "profile_assignable": (
+                category.id not in SYSTEM_CATEGORY_IDS
+                and is_profile_tag_category_enabled(category.id)
+            ),
             "exclusive": category.exclusive,
             "tags": tags_by_category.get(category.id, []),
         }

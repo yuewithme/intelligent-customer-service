@@ -17,6 +17,7 @@ from app.domains.sales.services.tag_catalog import (
     get_profile_tag_categories,
     get_tag_categories,
     is_allowed_system_tag,
+    is_profile_tag_enabled,
     normalize_system_value,
 )
 
@@ -156,6 +157,22 @@ async def add_verified_customer_tag(
     )
 
 
+async def add_system_customer_tag(
+    user_id: str,
+    tag: str,
+    *,
+    reason: str,
+    trace_id: str | None = None,
+) -> dict:
+    return _add_customer_tag(
+        user_id,
+        tag,
+        reason=reason,
+        trace_id=trace_id,
+        event_type="system_customer_tag_added",
+    )
+
+
 async def add_ai_customer_tag(
     user_id: str,
     tag: str,
@@ -194,9 +211,12 @@ def _add_customer_tag(
         profile = _get_or_create_profile(session, user_id)
         before = _profile_to_dict(profile)
         current_tags = _json_loads(profile.customer_tags_json, [])
-        profile.customer_tags_json = _json_dumps(
-            _merge_customer_tags(current_tags, [normalized_tag])
-        )
+        existing_tags = _merge_customer_tags(current_tags, [])
+        updated_tags = _merge_customer_tags(current_tags, [normalized_tag])
+        if updated_tags == existing_tags:
+            session.commit()
+            return _profile_to_dict(profile)
+        profile.customer_tags_json = _json_dumps(updated_tags)
         profile.updated_at = _now()
         after = _profile_to_dict(profile)
         changed_before, changed_after = _changed_fields(before, after)
@@ -721,6 +741,7 @@ def _merge_customer_tags(existing: list[str], incoming: list[str]) -> list[str]:
         for normalized_tag in [_normalize_customer_tag(tag)]
         if isinstance(tag, str) and tag.strip()
         if normalized_tag
+        if is_profile_tag_enabled(normalized_tag)
     ]
     latest_by_key: dict[str, tuple[int, str]] = {}
     for index, tag in enumerate(candidates):

@@ -27,7 +27,10 @@ from app.integrations.eyun.services.eyun_login_monitor_service import (
     EYUN_OFFLINE_NOTIFICATION,
     schedule_eyun_offline_notification,
 )
-from app.domains.customers.services.user_profile_service import ensure_user_profile
+from app.domains.customers.services.user_profile_service import (
+    add_system_customer_tag,
+    ensure_user_profile,
+)
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_callback")
@@ -164,6 +167,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     metadata = await _eyun_workbench_metadata(payload, data)
     _capture_material_group_message(payload, metadata)
     user_id = _eyun_conversation_user_id(data)
+    is_opening_event = is_eyun_new_friend_opening_event(payload)
     if not str(data.get("fromGroup") or "").strip():
         await ensure_user_profile(
             user_id,
@@ -184,8 +188,14 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
                 },
             },
         )
+        if is_opening_event:
+            await add_system_customer_tag(
+                user_id,
+                "服务中",
+                reason="eyun_new_friend_added",
+                trace_id=_eyun_message_id(data),
+            )
     is_private_image = is_eyun_private_image_message(payload)
-    is_opening_event = is_eyun_new_friend_opening_event(payload)
     if is_private_image:
         logger.info(
             "Eyun image callback accepted messageType=%s originalMessageType=%s "

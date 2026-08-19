@@ -144,6 +144,7 @@ def test_new_friend_event_enters_opening_flow_instead_of_handoff(
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
     queued = []
+    tagged = []
 
     async def fake_ensure(user_id, **kwargs):
         return {"user_id": user_id}
@@ -158,12 +159,17 @@ def test_new_friend_event_enters_opening_flow_instead_of_handoff(
         queued.append(payload)
         return {"batch_key": "wid:wxid_customer"}
 
+    async def fake_add_tag(user_id, tag, **kwargs):
+        tagged.append((user_id, tag, kwargs))
+        return {"user_id": user_id, "customer_tags": [tag]}
+
     monkeypatch.setattr(
         eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
     )
     monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
     monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
     monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
+    monkeypatch.setattr(eyun_callback_service, "add_system_customer_tag", fake_add_tag)
 
     response = TestClient(app).post(
         "/wechat/callback",
@@ -188,6 +194,13 @@ def test_new_friend_event_enters_opening_flow_instead_of_handoff(
     assert recorded[0]["primary_intent"] == "opening_trigger"
     assert recorded[0]["handoff_reason"] is None
     assert queued[0]["_eyun_opening_trigger"] is True
+    assert tagged == [
+        (
+            "wxid_customer",
+            "服务中",
+            {"reason": "eyun_new_friend_added", "trace_id": "105"},
+        )
+    ]
 
 
 def test_internal_workbench_title_callback_is_ignored(monkeypatch, tmp_path):
