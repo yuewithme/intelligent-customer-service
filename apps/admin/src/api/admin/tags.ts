@@ -18,6 +18,7 @@ export interface TagCategory {
   name: string
   prompt_rule: string
   ai_assignable: boolean
+  profile_assignable: boolean
   exclusive: boolean
   tags: ManagedTag[]
 }

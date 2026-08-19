@@ -729,19 +729,24 @@ async def test_profile_ai_cannot_assign_verified_purchase_tags(monkeypatch, tmp_
     assert profile["customer_tags"] == []
 
 
-def test_verified_purchase_tags_can_be_saved_together(monkeypatch, tmp_path):
+def test_operator_can_save_ai_and_manual_only_tags_together(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
 
     response = client.patch(
         "/api/v1/users/user_verified_purchase/profile",
-        json={"customer_tags": ["抖音已购", "微信已购"]},
+        json={
+            "customer_tags": ["L3 黄金期", "抖音已购", "微信已购", "服务中"],
+            "metadata": {"reason": "operator_tag_update"},
+        },
     )
 
     assert response.status_code == 200
     assert response.json()["data"]["profile"]["customer_tags"] == [
+        "L3 黄金期",
         "抖音已购",
         "微信已购",
+        "服务中",
     ]
 
 

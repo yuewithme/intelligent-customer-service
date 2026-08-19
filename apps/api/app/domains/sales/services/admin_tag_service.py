@@ -31,6 +31,7 @@ from app.domains.conversations.services import state_service
 from app.domains.sales.services import business_tag_prompt_service
 from app.domains.sales.services.tag_catalog import (
     FROZEN_CATEGORY_IDS,
+    SYSTEM_CATEGORY_IDS,
     SYSTEM_TAG_PREFIXES,
     get_tag_categories,
     invalidate_cache,
@@ -116,6 +117,7 @@ def list_tag_categories() -> dict:
             "name": category.name,
             "prompt_rule": category.prompt_rule,
             "ai_assignable": category.ai_assignable,
+            "profile_assignable": category.id not in SYSTEM_CATEGORY_IDS,
             "exclusive": category.exclusive,
             "tags": tags_by_category.get(category.id, []),
         }

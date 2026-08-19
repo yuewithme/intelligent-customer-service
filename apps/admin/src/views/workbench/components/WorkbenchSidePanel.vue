@@ -25,10 +25,17 @@
       @changed="$emit('changed')"
     />
     <CareManualPanel
-      v-else
+      v-else-if="activeTab === 'care-manuals'"
       :conversation-id="conversationId"
       :conversation="conversation"
       @changed="$emit('changed')"
+    />
+    <UserTagPanel
+      v-else
+      :user-id="conversation?.user_id || ''"
+      :profile="profile"
+      :profile-loading="profileLoading"
+      @profile-changed="$emit('profile-changed', $event)"
     />
   </aside>
 </template>
@@ -43,6 +50,7 @@ import type {
 import type { UserProfile } from '@/api/user-profile'
 import CareManualPanel from './CareManualPanel.vue'
 import SupervisionPanel from './SupervisionPanel.vue'
+import UserTagPanel from './UserTagPanel.vue'
 
 defineProps<{
   conversationId: string
@@ -52,11 +60,12 @@ defineProps<{
   profile?: UserProfile
   profileLoading?: boolean
 }>()
-defineEmits<{ changed: [] }>()
+defineEmits<{ changed: []; 'profile-changed': [profile: UserProfile] }>()
 
 const tabs = [
   { label: '监督面板', value: 'supervision' },
-  { label: '养护手册', value: 'care-manuals' }
+  { label: '养护手册', value: 'care-manuals' },
+  { label: '客户标签', value: 'customer-tags' }
 ] as const
 const activeTab = ref<(typeof tabs)[number]['value']>('supervision')
 </script>
@@ -71,7 +80,7 @@ const activeTab = ref<(typeof tabs)[number]['value']>('supervision')
 .side-switch {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   padding: 8px 12px 0;
   border-bottom: 1px solid #e5e7eb;
 }
@@ -93,7 +102,8 @@ const activeTab = ref<(typeof tabs)[number]['value']>('supervision')
 }
 
 .workbench-side-panel > :deep(.supervision),
-.workbench-side-panel > :deep(.care-manual-panel) {
+.workbench-side-panel > :deep(.care-manual-panel),
+.workbench-side-panel > :deep(.user-tag-panel) {
   min-height: 0;
 }
 </style>

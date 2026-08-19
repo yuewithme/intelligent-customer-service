@@ -25,6 +25,7 @@
       :profile="profile"
       :profile-loading="profileLoading"
       @changed="handleChanged"
+      @profile-changed="handleProfileChanged"
     />
   </div>
 </template>
@@ -79,6 +80,10 @@ const selectConversation = (item: ConversationGroupItem) => {
 
 const handleChanged = async () => {
   await syncWorkbench()
+}
+
+const handleProfileChanged = (updatedProfile: UserProfile) => {
+  profile.value = updatedProfile
 }
 
 const handleHidden = (conversationIds: string[]) => {

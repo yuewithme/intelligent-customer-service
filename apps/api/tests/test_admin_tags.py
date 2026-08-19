@@ -52,6 +52,8 @@ def test_tag_admin_lists_all_categories_and_prompt_configuration():
     categories = {item["id"]: item for item in data["items"]}
     assert categories["purchase_status"]["ai_assignable"] is False
     assert categories["service_status"]["ai_assignable"] is False
+    assert categories["purchase_status"]["profile_assignable"] is True
+    assert categories["customer_sentiment"]["profile_assignable"] is False
     assert {"customer_sentiment", "risk_level", "pain_point"} <= set(categories)
     assert "intent" not in categories
     assert "sales_stage" not in categories
