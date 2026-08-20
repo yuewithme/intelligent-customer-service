@@ -611,6 +611,7 @@ async def _process_service_material_wakeup(
             local_date=scheduled_date,
             category=slot[2],
             copy_type=slot[3],
+            max_video_bytes=get_settings().service_material_max_video_bytes,
         )
         if material is None:
             row.status = "failed"
@@ -639,28 +640,45 @@ async def _process_service_material_wakeup(
     else:
         _mark_wakeup(wakeup_id, "failed", "定时素材类型或地址无效")
         return False
-    messages = (
-        ("text", str(material.get("copy_text") or "").strip()),
-        (media_type, media_content),
-    )
-    if not messages[0][1]:
+    copy_text = str(material.get("copy_text") or "").strip()
+    messages = (("text", copy_text, None),)
+    if not copy_text:
         _mark_wakeup(wakeup_id, "failed", "定时素材缺少已审核文案")
         return False
 
+    from app.integrations.eyun.services.eyun_material_service import (
+        materialize_eyun_outbound_media,
+    )
     from app.integrations.eyun.services.message_risk_control_service import (
         enqueue_wechat_outbound,
     )
 
+    try:
+        prepared_material = await materialize_eyun_outbound_media(
+            w_id=w_id,
+            message_type=media_type,
+            content=media_content,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _retry_service_material_wakeup(
+            wakeup_id,
+            now=now,
+            error=f"定时素材转换失败：{type(exc).__name__}",
+        )
+        return False
+    messages += ((media_type, media_content, int(prepared_material["id"])),)
+
     dependency_id: int | None = None
     due_at = now
     try:
-        for message_type, content in messages:
+        for message_type, content, material_id in messages:
             queued = await enqueue_wechat_outbound(
                 w_id=w_id,
                 wc_id=customer_id,
                 content=content,
                 source_batch_key=batch_key,
                 message_type=message_type,
+                material_id=material_id,
                 depends_on_outbound_id=dependency_id,
                 due_at=due_at,
                 channel="wechat",
@@ -687,6 +705,24 @@ async def _process_service_material_wakeup(
             row.updated_at = now
             session.commit()
     return True
+
+
+def _retry_service_material_wakeup(
+    wakeup_id: int, *, now: datetime, error: str
+) -> None:
+    with _database_session() as session:
+        row = session.get(AgentWakeupModel, wakeup_id)
+        if row is None:
+            return
+        if row.attempts < _WAKEUP_MAX_ATTEMPTS:
+            row.status = "pending"
+            row.due_at = now + _WAKEUP_RETRY_DELAY
+            row.last_error = f"{error}，已安排重试"
+        else:
+            row.status = "failed"
+            row.last_error = error
+        row.updated_at = now
+        session.commit()
 
 
 def validate_agent_wakeup_before_send(source_batch_key: str | None) -> bool:

@@ -95,7 +95,11 @@ def get_agent_media(material_id: str) -> dict[str, Any] | None:
 
 
 def select_scheduled_agent_media(
-    *, local_date: date, copy_type: str, category: str = ""
+    *,
+    local_date: date,
+    copy_type: str,
+    category: str = "",
+    max_video_bytes: int | None = None,
 ) -> dict[str, Any] | None:
     candidates = [
         _public_item(item)
@@ -103,6 +107,11 @@ def select_scheduled_agent_media(
         if (not category or item.get("category") == category)
         and item.get("copy_type") == copy_type
         and item.get("copy_status") == "ready"
+        and (
+            not max_video_bytes
+            or item.get("media_type") != "video"
+            or int(item.get("bytes") or 0) <= max_video_bytes
+        )
     ]
     if not candidates:
         return None
