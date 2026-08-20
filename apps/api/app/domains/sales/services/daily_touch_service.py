@@ -19,7 +19,6 @@ from app.domains.catalog.services.agent_media_library_service import (
 from app.domains.conversations.schemas.chat import ChatRequest
 from app.domains.conversations.services.conversation_service import (
     AI_BLOCKED_STATUSES,
-    HUMAN_ACTIVE,
 )
 from app.domains.sales.services.tag_catalog import get_tag_categories
 from app.infrastructure.database.models import (
@@ -38,12 +37,14 @@ logger = logging.getLogger("wechat_rag_bot.daily_touch")
 _WAKEUP_MAX_ATTEMPTS = 3
 _WAKEUP_RETRY_DELAY = timedelta(minutes=15)
 _PROCESSING_LEASE = timedelta(minutes=10)
+_CONTACT_SYNC_RETRY_DELAY = timedelta(minutes=10)
 _SERVICE_MATERIAL_KIND = "service_material_touch"
 _SERVICE_TAG_CATEGORY_IDS = {"service_status", "service_tag"}
 _INACTIVE_SERVICE_TAG_MARKERS = ("暂停", "停止", "结束", "退订", "禁用")
 _database_factories: dict[str, sessionmaker] = {}
 _chat_factories: dict[str, sessionmaker] = {}
 _last_contact_sync_at: datetime | None = None
+_last_contact_sync_attempt_at: datetime | None = None
 
 
 def record_agent_relationship_state(
@@ -581,13 +582,9 @@ async def _process_service_material_wakeup(
             session.commit()
             return False
         snapshot = get_daily_touch_snapshot(row.customer_id, now=now)
-        if snapshot["explicit_refusal"] or snapshot["human_active"]:
+        if snapshot["explicit_refusal"]:
             row.status = "cancelled"
-            row.last_error = (
-                "客户已明确拒绝自动触达"
-                if snapshot["explicit_refusal"]
-                else "客户当前由人工接待"
-            )
+            row.last_error = "客户已明确拒绝自动触达"
             row.updated_at = now
             session.commit()
             return False
@@ -730,7 +727,7 @@ def validate_agent_wakeup_before_send(source_batch_key: str | None) -> bool:
         customer_id = row.customer_id
     if special_touch:
         snapshot = get_daily_touch_snapshot(customer_id)
-        return not snapshot["explicit_refusal"] and not snapshot["human_active"]
+        return not snapshot["explicit_refusal"]
     with _chat_session() as session:
         changed = session.scalar(
             select(ConversationMessageModel.id)
@@ -795,19 +792,9 @@ def sync_agent_wakeup_from_outbound(
 async def daily_touch_worker(stop_event: asyncio.Event) -> None:
     while not stop_event.is_set():
         try:
-            settings = get_settings()
-            daily_enabled = settings.daily_touch_enabled
-            service_enabled = settings.service_material_touch_enabled
-            if daily_enabled or service_enabled:
-                await _refresh_contacts_if_due()
-            if daily_enabled:
-                ensure_daily_touch_wakeups()
-            if service_enabled:
-                ensure_service_material_touch_wakeups()
-            if daily_enabled or service_enabled:
-                await process_due_agent_wakeups()
+            await _daily_touch_worker_tick()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Daily touch worker tick failed: %s", type(exc).__name__)
+            logger.warning("Daily touch worker tick failed: %s", exc)
         try:
             await asyncio.wait_for(
                 stop_event.wait(),
@@ -817,16 +804,47 @@ async def daily_touch_worker(stop_event: asyncio.Event) -> None:
             pass
 
 
+async def _daily_touch_worker_tick() -> None:
+    settings = get_settings()
+    daily_enabled = settings.daily_touch_enabled
+    service_enabled = settings.service_material_touch_enabled
+    if daily_enabled:
+        try:
+            ensure_daily_touch_wakeups()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Daily touch wakeup creation failed: %s", exc)
+    if service_enabled:
+        try:
+            ensure_service_material_touch_wakeups()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Service material wakeup creation failed: %s", exc)
+    if daily_enabled or service_enabled:
+        try:
+            await process_due_agent_wakeups()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Daily touch wakeup processing failed: %s", exc)
+        try:
+            await _refresh_contacts_if_due()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Daily touch contact refresh failed: %s", exc)
+
+
 async def _refresh_contacts_if_due() -> None:
-    global _last_contact_sync_at
+    global _last_contact_sync_at, _last_contact_sync_attempt_at
     settings = get_settings()
     now = _utcnow()
     if not (settings.eyun_base_url and settings.eyun_authorization and settings.eyun_wid):
         return
     if _last_contact_sync_at and now - _last_contact_sync_at < timedelta(hours=2):
         return
+    if (
+        _last_contact_sync_attempt_at
+        and now - _last_contact_sync_attempt_at < _CONTACT_SYNC_RETRY_DELAY
+    ):
+        return
     from app.domains.sales.services.contact_sync_service import sync_eyun_contacts
 
+    _last_contact_sync_attempt_at = now
     await sync_eyun_contacts()
     _last_contact_sync_at = now
 

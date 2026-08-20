@@ -28,6 +28,8 @@ def _configure(monkeypatch, tmp_path):
     get_settings.cache_clear()
     service._database_factories.clear()
     service._chat_factories.clear()
+    service._last_contact_sync_at = None
+    service._last_contact_sync_attempt_at = None
 
 
 def _insert_contact():
@@ -204,6 +206,97 @@ async def test_due_service_touch_queues_copy_before_media(
         }
     else:
         assert queued[1]["content"] == "https://media.example.com/story.jpg"
+
+
+@pytest.mark.asyncio
+async def test_service_touch_continues_during_handoff_pending(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 8, 4, 22, 59, tzinfo=timezone.utc)
+    with service._chat_session() as session:
+        session.add(
+            ConversationModel(
+                conversation_id="wechat:customer-1:default",
+                channel="wechat",
+                user_id="customer-1",
+                session_id="default",
+                tenant_id="tenant_default",
+                status="handoff_pending",
+                unread_count=0,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+    assert service.ensure_service_material_touch_wakeups(now=now) == 3
+    monkeypatch.setattr(
+        service,
+        "select_scheduled_agent_media",
+        lambda **_: {
+            "format": "image",
+            "url": "https://media.example.com/story.jpg",
+            "thumb_url": "",
+            "copy_text": "今天分享一个兰花名品故事。",
+        },
+    )
+    queued = []
+
+    async def fake_enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+
+    from app.integrations.eyun.services import message_risk_control_service
+
+    monkeypatch.setattr(
+        message_risk_control_service,
+        "enqueue_wechat_outbound",
+        fake_enqueue,
+    )
+
+    assert await service.process_due_agent_wakeups(
+        now=datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    ) == 1
+    assert [item["message_type"] for item in queued] == ["text", "image"]
+    with service._database_session() as session:
+        row = session.scalar(
+            service.select(AgentWakeupModel).where(
+                AgentWakeupModel.reason == "service_material:story"
+            )
+        )
+    assert row.status == "queued"
+    assert service.validate_agent_wakeup_before_send(f"agent_wakeup:{row.id}") is True
+
+
+@pytest.mark.asyncio
+async def test_contact_refresh_failure_does_not_block_scheduled_work(
+    monkeypatch, tmp_path
+):
+    _configure(monkeypatch, tmp_path)
+    calls = []
+
+    async def failed_refresh():
+        calls.append("refresh")
+        raise RuntimeError("provider unavailable")
+
+    async def process_due():
+        calls.append("process")
+        return 0
+
+    monkeypatch.setattr(service, "_refresh_contacts_if_due", failed_refresh)
+    monkeypatch.setattr(
+        service, "ensure_daily_touch_wakeups", lambda: calls.append("daily")
+    )
+    monkeypatch.setattr(
+        service,
+        "ensure_service_material_touch_wakeups",
+        lambda: calls.append("service"),
+    )
+    monkeypatch.setattr(service, "process_due_agent_wakeups", process_due)
+
+    await service._daily_touch_worker_tick()
+
+    assert calls == ["daily", "service", "process", "refresh"]
 
 
 def test_service_touch_completes_after_copy_and_media_are_sent(monkeypatch, tmp_path):
