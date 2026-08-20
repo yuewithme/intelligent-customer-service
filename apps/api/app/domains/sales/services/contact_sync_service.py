@@ -9,11 +9,15 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
 from app.infrastructure.database.models import Base, EyunContactModel
+from app.integrations.eyun.services.eyun_contact_service import (
+    initialize_eyun_contacts,
+)
 from app.shared.schemas.common import AppError, ErrorCode
 
 
 _OWNER_ACCOUNT_ID = "default"
 _sessionmakers: dict[str, sessionmaker] = {}
+_initialized_wids: set[str] = set()
 
 
 async def query_eyun_friend_ids(w_id: str) -> list[str]:
@@ -54,6 +58,9 @@ async def sync_eyun_contacts(
 ) -> dict[str, Any]:
     settings = get_settings()
     w_id = settings.eyun_wid.strip()
+    if friend_ids is None and w_id and w_id not in _initialized_wids:
+        if await initialize_eyun_contacts(w_id=w_id):
+            _initialized_wids.add(w_id)
     current_ids = set(
         friend_ids if friend_ids is not None else await query_eyun_friend_ids(w_id)
     )
