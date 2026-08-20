@@ -220,6 +220,39 @@ def test_scheduled_media_randomly_traverses_full_copy_type_without_repeat(
     assert second_cycle != first_cycle
 
 
+def test_scheduled_media_excludes_oversized_video(monkeypatch):
+    items = tuple(
+        {
+            "id": f"{index:024d}",
+            "category": "AI类",
+            "relative_path": f"story-{index}.mp4",
+            "title": f"名品故事 {index}",
+            "media_type": "video",
+            "bytes": size,
+            "thumbnail_path": f"story-{index}.jpg",
+            "asset_base_url": "https://media.example.com",
+            "copy_ref": f"copy:story:{index}",
+            "copy_topic": f"名品故事 {index}",
+            "copy_type": "名品故事",
+            "copy_text": f"名品故事文案 {index}",
+            "copy_source": "test",
+            "copy_version": 1,
+            "copy_status": "ready",
+        }
+        for index, size in enumerate((5 * 1024 * 1024, 60 * 1024 * 1024))
+    )
+    monkeypatch.setattr(library, "_load_items", lambda: items)
+
+    selected = library.select_scheduled_agent_media(
+        local_date=date(2026, 8, 20),
+        copy_type="名品故事",
+        max_video_bytes=10 * 1024 * 1024,
+    )
+
+    assert selected is not None
+    assert selected["bytes"] == 5 * 1024 * 1024
+
+
 @pytest.mark.asyncio
 async def test_material_send_prepares_library_video(tmp_path, monkeypatch):
     _write_library(tmp_path, monkeypatch)

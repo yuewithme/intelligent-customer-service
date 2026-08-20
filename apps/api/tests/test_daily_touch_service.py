@@ -185,8 +185,20 @@ async def test_due_service_touch_queues_copy_before_media(
         queued.append(kwargs)
         return {"id": len(queued)}
 
-    from app.integrations.eyun.services import message_risk_control_service
+    from app.integrations.eyun.services import (
+        eyun_material_service,
+        message_risk_control_service,
+    )
 
+    async def fake_materialize(**kwargs):
+        assert kwargs["message_type"] == expected_type
+        return {"id": 99}
+
+    monkeypatch.setattr(
+        eyun_material_service,
+        "materialize_eyun_outbound_media",
+        fake_materialize,
+    )
     monkeypatch.setattr(
         message_risk_control_service,
         "enqueue_wechat_outbound",
@@ -199,6 +211,7 @@ async def test_due_service_touch_queues_copy_before_media(
     assert [item["message_type"] for item in queued] == ["text", expected_type]
     assert queued[0]["depends_on_outbound_id"] is None
     assert queued[1]["depends_on_outbound_id"] == 1
+    assert [item["material_id"] for item in queued] == [None, 99]
     if expected_type == "video":
         assert json.loads(queued[1]["content"]) == {
             "path": "https://media.example.com/story.mp4",
@@ -246,8 +259,20 @@ async def test_service_touch_continues_during_handoff_pending(monkeypatch, tmp_p
         queued.append(kwargs)
         return {"id": len(queued)}
 
-    from app.integrations.eyun.services import message_risk_control_service
+    from app.integrations.eyun.services import (
+        eyun_material_service,
+        message_risk_control_service,
+    )
 
+    async def fake_materialize(**kwargs):
+        assert kwargs["message_type"] == "image"
+        return {"id": 99}
+
+    monkeypatch.setattr(
+        eyun_material_service,
+        "materialize_eyun_outbound_media",
+        fake_materialize,
+    )
     monkeypatch.setattr(
         message_risk_control_service,
         "enqueue_wechat_outbound",
@@ -266,6 +291,60 @@ async def test_service_touch_continues_during_handoff_pending(monkeypatch, tmp_p
         )
     assert row.status == "queued"
     assert service.validate_agent_wakeup_before_send(f"agent_wakeup:{row.id}") is True
+
+
+@pytest.mark.asyncio
+async def test_service_media_conversion_failure_retries_without_enqueuing_text(
+    monkeypatch, tmp_path
+):
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    before_slot = datetime(2026, 8, 4, 22, 59, tzinfo=timezone.utc)
+    assert service.ensure_service_material_touch_wakeups(now=before_slot) == 3
+    monkeypatch.setattr(
+        service,
+        "select_scheduled_agent_media",
+        lambda **_: {
+            "format": "video",
+            "url": "https://media.example.com/story.mp4",
+            "thumb_url": "https://media.example.com/story.jpg",
+            "copy_text": "今天分享一个兰花名品故事。",
+        },
+    )
+    from app.integrations.eyun.services import (
+        eyun_material_service,
+        message_risk_control_service,
+    )
+
+    async def failed_materialize(**kwargs):
+        raise TimeoutError("provider timeout")
+
+    async def unexpected_enqueue(**kwargs):
+        raise AssertionError("text must not enqueue before media is ready")
+
+    monkeypatch.setattr(
+        eyun_material_service,
+        "materialize_eyun_outbound_media",
+        failed_materialize,
+    )
+    monkeypatch.setattr(
+        message_risk_control_service,
+        "enqueue_wechat_outbound",
+        unexpected_enqueue,
+    )
+    due = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+
+    assert await service.process_due_agent_wakeups(now=due) == 0
+    with service._database_session() as session:
+        row = session.scalar(
+            service.select(AgentWakeupModel).where(
+                AgentWakeupModel.reason == "service_material:story"
+            )
+        )
+    assert row.status == "pending"
+    assert row.due_at.replace(tzinfo=timezone.utc) == due + timedelta(minutes=15)
+    assert "已安排重试" in row.last_error
 
 
 @pytest.mark.asyncio

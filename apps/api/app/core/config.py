@@ -139,6 +139,12 @@ class Settings(BaseSettings):
         le=120,
         alias="SERVICE_MATERIAL_TOUCH_GRACE_MINUTES",
     )
+    service_material_max_video_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1024 * 1024,
+        le=200 * 1024 * 1024,
+        alias="SERVICE_MATERIAL_MAX_VIDEO_BYTES",
+    )
     eyun_contact_missing_threshold: int = Field(
         default=3, ge=1, alias="EYUN_CONTACT_MISSING_THRESHOLD"
     )
