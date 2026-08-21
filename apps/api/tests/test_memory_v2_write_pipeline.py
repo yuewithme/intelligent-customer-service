@@ -30,6 +30,7 @@ from app.domains.customers.services.memory_job_service import (
 )
 from app.domains.customers.services.memory_validation_service import MemoryValidationError
 from app.domains.customers.workers.memory_worker import process_memory_job
+from app.shared.schemas.common import AppError, ErrorCode
 
 
 @pytest.fixture
@@ -632,6 +633,60 @@ async def test_worker_keeps_old_trigger_inside_long_session_context(memory_db):
     assert await process_memory_job(
         job, use_llm=False, min_confidence=0.85
     ) == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_keeps_sql_episode_when_vector_projection_is_unavailable(
+    memory_db, monkeypatch
+):
+    from app.domains.customers.workers import memory_worker
+
+    subject = _subject()
+    event = _append(
+        subject,
+        uid="message:worker:vector-fallback",
+        text="我喜欢白色兰花",
+    )
+    job = enqueue_memory_job(
+        tenant_id=subject.tenant_id,
+        subject_id=subject.id,
+        trigger_event_id=event.id,
+    )
+
+    async def fake_extract_memory_candidates(**kwargs):
+        del kwargs
+        return [
+            MemoryOperationCandidate(
+                operation="ADD",
+                memory_kind="episode",
+                evidence_event_ids=[event.id],
+                source_type="customer_explicit",
+                confidence=0.95,
+                reason="vector_fallback_test",
+                episode_type="product_consultation",
+                title="白色兰花偏好",
+                summary="客户明确喜欢白色兰花",
+                importance=0.8,
+                started_at=event.occurred_at,
+            )
+        ]
+
+    async def unavailable_index(**kwargs):
+        del kwargs
+        raise AppError(ErrorCode.QDRANT_FAILED, status_code=502)
+
+    monkeypatch.setattr(
+        memory_worker,
+        "extract_memory_candidates",
+        fake_extract_memory_candidates,
+    )
+    monkeypatch.setattr(memory_worker, "index_memory_episode", unavailable_index)
+
+    assert await process_memory_job(
+        job, use_llm=False, min_confidence=0.85
+    ) == 1
+    with memory_repository.get_memory_session() as session:
+        assert session.scalar(select(func.count(MemoryEpisodeModel.id))) == 1
 
 
 @pytest.mark.asyncio
