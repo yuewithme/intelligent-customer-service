@@ -76,7 +76,7 @@ Agent 自主决定每轮商业判断、关系目的、表达方式、工具组�
 - 现有每日调度和发送基础设施仍在代码中，本次没有删除。
 - Service SOP 的经验不再把“每天发干货”解释为每天必须私聊，也不因沉默自动进入逼单。
 - 主动消息优先围绕最近问题、已购品种、订单节点、问题回访、季节养护和会员内容，每次只保留一个服务目的。
-- 后续是否调整或关闭现有 `DAILY_TOUCH_ENABLED` 调度属于独立运营决策，本次保持配置不变。
+- 旧的普通每日触达与 Agent 专项唤醒已通过 `DAILY_TOUCH_ENABLED=false` 隔离；当前只保留“服务中”客户的固定服务素材触达。旧任务和代码暂不删除，待运行验证后再清理。
 
 ## 配置交接
 
@@ -90,7 +90,7 @@ BUSINESS_LLM_MODEL=qwen3.7-plus
 每日触达主要配置：
 
 ```env
-DAILY_TOUCH_ENABLED=true
+DAILY_TOUCH_ENABLED=false
 DAILY_TOUCH_POLL_SECONDS=60
 DAILY_TOUCH_TIMEZONE=Asia/Shanghai
 DAILY_TOUCH_WINDOW_START=08:00

@@ -84,6 +84,28 @@ def test_daily_wakeup_is_durable_and_idempotent(monkeypatch, tmp_path):
     assert rows[0].local_date == "2026-08-05"
 
 
+def test_legacy_wakeup_creation_is_blocked_when_disabled(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setenv("DAILY_TOUCH_ENABLED", "false")
+    get_settings.cache_clear()
+    _insert_contact()
+    now = datetime(2026, 8, 5, 4, 0, tzinfo=timezone.utc)
+
+    assert service.ensure_daily_touch_wakeups(now=now) == 0
+    with pytest.raises(RuntimeError, match="legacy_touch_disabled"):
+        service.schedule_agent_wakeup(
+            customer_id="customer-1",
+            tenant_id="tenant_default",
+            due_in_hours=1,
+            reason="旧专项跟进",
+            checklist=[],
+            source_trace_id="trace-disabled",
+        )
+
+    with service._database_session() as session:
+        assert session.query(AgentWakeupModel).count() == 0
+
+
 def test_service_tag_schedules_three_fixed_daily_slots(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
     _insert_contact()
@@ -611,3 +633,86 @@ async def test_stale_processing_wakeup_recovers_its_lease(monkeypatch, tmp_path)
         row = session.get(AgentWakeupModel, wakeup_id)
         assert row.status == "processing"
         assert row.attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_worker_only_processes_enabled_service_wakeups(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setenv("DAILY_TOUCH_ENABLED", "false")
+    get_settings.cache_clear()
+    now = datetime(2026, 8, 5, 4, 0, tzinfo=timezone.utc)
+    with service._database_session() as session:
+        for kind in ("daily_touch", "follow_up", "service_material_touch"):
+            session.add(
+                AgentWakeupModel(
+                    dedup_key=f"isolation:{kind}",
+                    tenant_id="tenant_default",
+                    customer_id="customer-1",
+                    kind=kind,
+                    local_date="2026-08-05",
+                    reason="隔离测试",
+                    checklist_json="[]",
+                    status="pending",
+                    due_at=now,
+                    attempts=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        session.commit()
+        ids_by_kind = {
+            row.kind: row.id for row in session.query(AgentWakeupModel).all()
+        }
+
+    processed = []
+
+    async def fake_process(candidate_id, *, now):
+        processed.append(candidate_id)
+        return True
+
+    monkeypatch.setattr(service, "_process_wakeup", fake_process)
+
+    assert await service.process_due_agent_wakeups(now=now) == 1
+    assert processed == [ids_by_kind["service_material_touch"]]
+    with service._database_session() as session:
+        statuses = {
+            row.kind: row.status for row in session.query(AgentWakeupModel).all()
+        }
+    assert statuses == {
+        "daily_touch": "pending",
+        "follow_up": "pending",
+        "service_material_touch": "processing",
+    }
+
+
+def test_queued_legacy_wakeup_is_blocked_before_send(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setenv("DAILY_TOUCH_ENABLED", "false")
+    get_settings.cache_clear()
+    now = datetime(2026, 8, 5, 4, 0, tzinfo=timezone.utc)
+    with service._database_session() as session:
+        row = AgentWakeupModel(
+            dedup_key="isolation:queued-legacy",
+            tenant_id="tenant_default",
+            customer_id="customer-1",
+            kind="daily_touch",
+            local_date="2026-08-05",
+            reason="隔离测试",
+            checklist_json="[]",
+            status="queued",
+            due_at=now,
+            attempts=1,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(row)
+        session.commit()
+        wakeup_id = row.id
+
+    assert service.validate_agent_wakeup_before_send(
+        f"agent_wakeup:{wakeup_id}"
+    ) is False
+    with service._database_session() as session:
+        row = session.get(AgentWakeupModel, wakeup_id)
+        assert row.status == "cancelled"
+        assert row.last_error == "旧触达逻辑已隔离"

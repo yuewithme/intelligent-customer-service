@@ -39,6 +39,7 @@ _WAKEUP_RETRY_DELAY = timedelta(minutes=15)
 _PROCESSING_LEASE = timedelta(minutes=10)
 _CONTACT_SYNC_RETRY_DELAY = timedelta(minutes=10)
 _SERVICE_MATERIAL_KIND = "service_material_touch"
+_LEGACY_WAKEUP_KINDS = ("daily_touch", "follow_up")
 _SERVICE_TAG_CATEGORY_IDS = {"service_status", "service_tag"}
 _INACTIVE_SERVICE_TAG_MARKERS = ("暂停", "停止", "结束", "退订", "禁用")
 _database_factories: dict[str, sessionmaker] = {}
@@ -153,6 +154,7 @@ def get_daily_touch_snapshot(
         owner_id = conversation.owner_id if conversation is not None else None
     relationship = get_agent_relationship_state(customer_id)
     return {
+        "enabled": settings.daily_touch_enabled,
         "local_date": current.date().isoformat(),
         "timezone": str(zone),
         "sent_message_count": len(touch_keys),
@@ -180,6 +182,8 @@ def schedule_agent_wakeup(
     checklist: list[str],
     source_trace_id: str,
 ) -> dict[str, Any]:
+    if not get_settings().daily_touch_enabled:
+        raise RuntimeError("legacy_touch_disabled")
     now = _utcnow()
     due_at = now + timedelta(hours=due_in_hours)
     raw_key = f"{tenant_id}\0{customer_id}\0{source_trace_id}\0{reason}\0{due_at.isoformat()}"
@@ -364,6 +368,9 @@ async def process_due_agent_wakeups(
     now: datetime | None = None,
 ) -> int:
     settings = get_settings()
+    enabled_kinds = _enabled_wakeup_kinds()
+    if not enabled_kinds:
+        return 0
     limit = limit or settings.daily_touch_batch_size
     utc_now = (now or _utcnow()).astimezone(timezone.utc)
     candidates: list[int] = []
@@ -371,6 +378,7 @@ async def process_due_agent_wakeups(
         stale_rows = list(
             session.scalars(
                 select(AgentWakeupModel).where(
+                    AgentWakeupModel.kind.in_(enabled_kinds),
                     AgentWakeupModel.status == "processing",
                     AgentWakeupModel.updated_at < utc_now - _PROCESSING_LEASE,
                 )
@@ -387,6 +395,7 @@ async def process_due_agent_wakeups(
             session.scalars(
                 select(AgentWakeupModel)
                 .where(
+                    AgentWakeupModel.kind.in_(enabled_kinds),
                     AgentWakeupModel.status.in_(("pending", "waiting_human")),
                     AgentWakeupModel.due_at <= utc_now,
                 )
@@ -733,6 +742,12 @@ def validate_agent_wakeup_before_send(source_batch_key: str | None) -> bool:
         row = session.get(AgentWakeupModel, wakeup_id)
         if row is None or row.status not in {"queued", "completed"}:
             return False
+        if row.kind in _LEGACY_WAKEUP_KINDS and not get_settings().daily_touch_enabled:
+            row.status = "cancelled"
+            row.last_error = "旧触达逻辑已隔离"
+            row.updated_at = _utcnow()
+            session.commit()
+            return False
         contact = session.get(EyunContactModel, row.contact_id) if row.contact_id else session.scalar(
             select(EyunContactModel).where(
                 EyunContactModel.wc_id == row.customer_id,
@@ -863,6 +878,16 @@ async def _daily_touch_worker_tick() -> None:
             await _refresh_contacts_if_due()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Daily touch contact refresh failed: %s", exc)
+
+
+def _enabled_wakeup_kinds() -> tuple[str, ...]:
+    settings = get_settings()
+    kinds: list[str] = []
+    if settings.daily_touch_enabled:
+        kinds.extend(_LEGACY_WAKEUP_KINDS)
+    if settings.service_material_touch_enabled:
+        kinds.append(_SERVICE_MATERIAL_KIND)
+    return tuple(kinds)
 
 
 async def _refresh_contacts_if_due() -> None:

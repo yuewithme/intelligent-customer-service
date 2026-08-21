@@ -58,7 +58,7 @@ CAPABILITIES = (
         "customer.get_context",
         "tool",
         ("客户", "历史", "记忆", "偏好", "承诺", "待办", "触达", "上下文"),
-        "输入 {}。返回当前客户画像、最近对话、证据化记忆和今日触达状态；不能替代动态商品或订单查询。",
+        "输入 {}。返回当前客户画像、最近对话和证据化记忆；不能替代动态商品或订单查询。",
     ),
     CapabilitySpec(
         "customer.tag",
@@ -210,7 +210,7 @@ CAPABILITIES = (
         "experience.objection",
         "experience",
         ("贵", "考虑", "犹豫", "拒绝", "沉默", "顾虑", "谢谢", "先看看"),
-        "先理解价格、价值、信任、适配还是时机顾虑，只回应真正阻碍。‘好的’‘谢谢’‘我先看看’必须放回紧邻上下文：它可能是在确认提议、转换话题，也可能是礼貌性软收口，不能仅凭短语决定。只有确实是软收口时才降低压力，并在关键需求仍不清楚时换一个更容易回答的角度继续了解，不用被动客服式结尾。明确拒绝时当下收住压力，后续每日触达重新选择服务、价值或成交角度。",
+        "先理解价格、价值、信任、适配还是时机顾虑，只回应真正阻碍。‘好的’‘谢谢’‘我先看看’必须放回紧邻上下文：它可能是在确认提议、转换话题，也可能是礼貌性软收口，不能仅凭短语决定。只有确实是软收口时才降低压力，并在关键需求仍不清楚时换一个更容易回答的角度继续了解，不用被动客服式结尾。明确拒绝时当下收住压力，不自行安排后续自动触达。",
         ("first_order",),
     ),
     CapabilitySpec(
@@ -369,9 +369,15 @@ async def _capability_search(*, call_id, arguments, context) -> AgentToolResult:
     available = [
         item
         for item in CAPABILITIES
-        if item.kind == "tool"
-        or "shared" in item.scopes
-        or sop_scope in item.scopes
+        if (
+            item.kind == "tool"
+            or "shared" in item.scopes
+            or sop_scope in item.scopes
+        )
+        and (
+            get_settings().daily_touch_enabled
+            or item.name not in {"wakeup.schedule", "experience.daily_touch"}
+        )
     ]
     ranked = sorted(
         available,
@@ -921,6 +927,13 @@ async def _memory_record(*, call_id, arguments, context) -> AgentToolResult:
 
 
 async def _wakeup_schedule(*, call_id, arguments, context) -> AgentToolResult:
+    if not get_settings().daily_touch_enabled:
+        return _result(
+            call_id,
+            "wakeup.schedule",
+            "temporarily_unavailable",
+            reason="legacy_touch_disabled",
+        )
     try:
         due_in_hours = float(arguments.get("due_in_hours"))
     except (TypeError, ValueError):
