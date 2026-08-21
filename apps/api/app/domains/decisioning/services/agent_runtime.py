@@ -32,11 +32,13 @@ MAX_TOOL_ROUNDS = 5
 MAX_TOOL_CALLS = 10
 MAX_SCHEMA_REPAIRS = 1
 MAX_HARD_REWRITES = 1
+MAX_QUALITY_REWRITES = 1
 MAX_TRAJECTORY_REWRITES = 3
 MAX_AGENT_MODEL_CALLS = (
     MAX_TOOL_ROUNDS
     + MAX_SCHEMA_REPAIRS
     + MAX_HARD_REWRITES
+    + MAX_QUALITY_REWRITES
     + MAX_TRAJECTORY_REWRITES
     + 2
 )
@@ -222,6 +224,7 @@ async def run_sales_agent(
     attempt_trace: list[dict[str, Any]] = []
     schema_repairs = 0
     hard_rewrites = 0
+    quality_rewrites = 0
     trajectory_rewrites = 0
     tool_rounds = 0
     tool_budget_exhausted = False
@@ -412,7 +415,7 @@ async def run_sales_agent(
         if decision.final_response is None:
             continue
         hard_violations = _guard_violations(decision, context)
-        quality_flags = _quality_flags(decision)
+        quality_flags = _quality_flags(decision, context)
         trajectory_violations = _sales_trajectory_violations(decision, context)
         diagnostic["hard_violations"] = hard_violations
         diagnostic["quality_flags"] = quality_flags
@@ -451,6 +454,16 @@ async def run_sales_agent(
                     "content": _sales_flow_rewrite_instruction(
                         trajectory_violations
                     ),
+                }
+            )
+            continue
+        if quality_flags and quality_rewrites < MAX_QUALITY_REWRITES:
+            diagnostic["outcome"] = "quality_rewrite_requested"
+            quality_rewrites += 1
+            conversation.append(
+                {
+                    "role": "system",
+                    "content": _quality_rewrite_instruction(quality_flags),
                 }
             )
             continue
@@ -959,14 +972,26 @@ def _guard_violations(
     return list(dict.fromkeys(violations))
 
 
-def _quality_flags(decision: AgentTurnDecision) -> list[str]:
+def _quality_flags(
+    decision: AgentTurnDecision,
+    context: AgentExecutionContext,
+) -> list[str]:
     final = decision.final_response
     if final is None:
         return []
-    text = "\n".join(
-        str(item.content or "") for item in final.messages if item.type == "text"
-    )
+    text_messages = [
+        str(item.content or "").strip()
+        for item in final.messages
+        if item.type == "text" and str(item.content or "").strip()
+    ]
+    text = "\n".join(text_messages)
     flags: list[str] = []
+    customer_text = re.sub(r"\s+", "", str(context.message.message or ""))
+    visible_chars = len(re.sub(r"\s+", "", text))
+    if len(text_messages) > 2:
+        flags.append("too_many_text_messages")
+    if len(customer_text) <= 20 and visible_chars > 180:
+        flags.append("overexplained_short_turn")
     if _customer_question_count(text) > 1:
         flags.append("too_many_customer_questions")
     if _LIST_STYLE_PATTERN.search(text) or _MARKDOWN_HEADING_PATTERN.search(text):
@@ -974,6 +999,18 @@ def _quality_flags(decision: AgentTurnDecision) -> list[str]:
     if any(marker in text for marker in _CUSTOMER_QUOTE_MARKERS):
         flags.append("unnecessary_customer_quotes")
     return flags
+
+
+def _quality_rewrite_instruction(flags: list[str]) -> str:
+    return (
+        "当前客户可见回复虽然事实边界安全，但聊天质量不合格。"
+        "请保留本轮商业判断和已经取得的工具事实，重新生成 final_response，不要重新调用已经完成的工具。"
+        "只回应客户这一轮新增的信息；不要重启完整知识问答，也不要一次讲完判断、修剪、消毒、植料、浇水和后续养护等全部阶段。"
+        "普通咨询只发一到两条自然微信消息：先给客户现在最需要执行的一个关键动作；"
+        "只有确实会改变下一步处理时才补一个容易回答的问题。删除重复解释、隐形清单、客服腔和说明书式收尾。"
+        "若客户明确要求完整步骤，才允许在不重复、不堆砌的前提下适度展开。"
+        f"本次质量问题：{', '.join(flags)}"
+    )
 
 
 def _tool_sales_trajectory_violations(
