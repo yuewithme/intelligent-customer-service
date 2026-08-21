@@ -24,7 +24,10 @@ from app.domains.customers.schemas.memory import (
 from app.domains.customers.services.memory_consolidation_service import (
     apply_memory_candidate,
 )
-from app.domains.customers.services.memory_event_service import append_memory_event
+from app.domains.customers.services.memory_event_service import (
+    MemoryEventConflictError,
+    append_memory_event,
+)
 from app.domains.customers.services.memory_identity_service import (
     resolve_or_create_subject,
 )
@@ -91,8 +94,9 @@ def run_legacy_memory_backfill(
             subject_ids.add(subject.id)
             if not facts:
                 continue
-            event = append_memory_event(
-                _profile_snapshot_event(profile, subject.id, facts)
+            event = _append_backfill_event(
+                _profile_snapshot_event(profile, subject.id, facts),
+                allow_same_subject_revision=True,
             )
             stats[
                 "profile_events_created"
@@ -145,7 +149,7 @@ def run_legacy_memory_backfill(
                 occurred_at=conversation["created_at"],
             )
             if event_id is None:
-                event = append_memory_event(
+                event = _append_backfill_event(
                     MemoryEventCreate(
                         event_uid=_event_uid(
                             "legacy_conversation",
@@ -163,7 +167,8 @@ def run_legacy_memory_backfill(
                         trace_id=conversation["trace_id"],
                         occurred_at=_as_utc(conversation["created_at"]),
                         sensitivity="internal",
-                    )
+                    ),
+                    allow_same_subject_revision=False,
                 )
                 event_id = event.event.id
                 stats[
@@ -406,6 +411,48 @@ def _memory_job_exists(tenant_id: str, event_id: int) -> bool:
             )
             is not None
         )
+
+
+def _append_backfill_event(
+    event: MemoryEventCreate,
+    *,
+    allow_same_subject_revision: bool,
+):
+    try:
+        return append_memory_event(event)
+    except MemoryEventConflictError:
+        with get_memory_session() as session:
+            existing_subject_id = session.scalar(
+                select(MemoryEventModel.subject_id).where(
+                    MemoryEventModel.event_uid == event.event_uid,
+                    MemoryEventModel.deleted_at.is_(None),
+                )
+            )
+        if (
+            existing_subject_id is None
+            or (
+                existing_subject_id == event.subject_id
+                and not allow_same_subject_revision
+            )
+        ):
+            raise
+        scoped_uid = _event_uid(
+            "legacy_scoped",
+            BACKFILL_VERSION,
+            event.tenant_id,
+            event.subject_id,
+            event.source_id,
+            _as_utc(event.occurred_at).isoformat(),
+            hashlib.sha256(
+                json.dumps(
+                    event.content,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest(),
+        )
+        return append_memory_event(event.model_copy(update={"event_uid": scoped_uid}))
 
 
 def _text(value: Any, limit: int) -> str:

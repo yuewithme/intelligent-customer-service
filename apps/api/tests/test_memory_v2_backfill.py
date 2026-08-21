@@ -18,6 +18,7 @@ from app.infrastructure.database.models import (
     UserProfileModel,
 )
 from app.domains.customers.services.memory_backfill_service import (
+    _event_uid,
     run_legacy_memory_backfill,
 )
 from app.domains.customers.schemas.memory import MemoryEventCreate
@@ -186,3 +187,81 @@ def test_backfill_is_idempotent_and_excludes_sensitive_contact_fields(backfill_d
         assert "13800000000" not in snapshot.content_json
         assert "不应迁移的详细地址" not in snapshot.content_json
     engine.dispose()
+
+
+def test_backfill_rehomes_legacy_events_after_owner_identity_changes(backfill_db):
+    old_subject = resolve_or_create_subject(
+        tenant_id="tenant_alpha",
+        channel="eyun",
+        owner_external_id="",
+        external_user_id="customer_1",
+        identity_source="legacy_ownerless_identity",
+    )
+    now = datetime(2026, 7, 24, 5, 0, tzinfo=timezone.utc)
+    append_memory_event(
+        MemoryEventCreate(
+            event_uid=_event_uid(
+                "legacy_profile", "tenant_alpha", "eyun", "customer_1"
+            ),
+            tenant_id="tenant_alpha",
+            subject_id=old_subject.id,
+            event_type="contact_snapshot",
+            actor_type="system",
+            content={"migration_version": "legacy_memory_v1", "facts": []},
+            source_type="legacy_profile",
+            source_id="legacy_user_profile:customer_1",
+            occurred_at=now,
+            sensitivity="internal",
+        )
+    )
+    append_memory_event(
+        MemoryEventCreate(
+            event_uid=_event_uid("legacy_conversation", "tenant_alpha", "2"),
+            tenant_id="tenant_alpha",
+            subject_id=old_subject.id,
+            session_id="session_1",
+            event_type="assistant_message",
+            actor_type="assistant",
+            content={"text": "我先帮您判断一下。"},
+            source_type="conversation_message",
+            source_id="legacy_conversation_memory:2",
+            trace_id="trace_1",
+            occurred_at=now,
+            sensitivity="internal",
+        )
+    )
+
+    first = run_legacy_memory_backfill(apply=True)
+    second = run_legacy_memory_backfill(apply=True)
+
+    assert first["errors"] == 0
+    assert first["profile_events_created"] == 1
+    assert first["conversation_events_created"] == 1
+    assert second["errors"] == 0
+    assert second["profile_events_existing"] == 1
+    assert second["conversation_events_existing"] == 2
+
+    engine = create_engine(get_settings().database_url)
+    with Session(engine) as session:
+        current_subject_id = session.scalar(
+            select(MemoryIdentityModel.subject_id).where(
+                MemoryIdentityModel.tenant_id == "tenant_alpha",
+                MemoryIdentityModel.channel == "eyun",
+                MemoryIdentityModel.owner_external_id == "owner_1",
+                MemoryIdentityModel.external_user_id == "customer_1",
+            )
+        )
+        current_events = session.scalar(
+            select(func.count())
+            .select_from(MemoryEventModel)
+            .where(MemoryEventModel.subject_id == current_subject_id)
+        )
+        old_events = session.scalar(
+            select(func.count())
+            .select_from(MemoryEventModel)
+            .where(MemoryEventModel.subject_id == old_subject.id)
+        )
+    engine.dispose()
+
+    assert current_events == 3
+    assert old_events == 2
