@@ -115,17 +115,13 @@ def ensure_service_material_touch_tasks(*, now: datetime | None = None) -> int:
         service_customer_ids = _service_customer_ids(session, service_tag_values)
         if not service_customer_ids:
             return 0
-        contact_filters = [
-            EyunContactModel.status == "active",
-            EyunContactModel.wc_id.in_(service_customer_ids),
-        ]
-        configured_w_id = settings.eyun_wid.strip()
-        if configured_w_id:
-            contact_filters.append(EyunContactModel.current_w_id == configured_w_id)
         contacts = list(
             session.scalars(
                 select(EyunContactModel)
-                .where(*contact_filters)
+                .where(
+                    EyunContactModel.status == "active",
+                    EyunContactModel.wc_id.in_(service_customer_ids),
+                )
                 .order_by(EyunContactModel.id.asc())
             )
         )
@@ -252,13 +248,6 @@ async def _process_service_material_touch(
         if contact is None or contact.status != "active" or not contact.current_w_id:
             row.status = "technical_skip"
             row.last_error = "联系人或发送账号当前不可用"
-            row.updated_at = now
-            session.commit()
-            return False
-        configured_w_id = get_settings().eyun_wid.strip()
-        if configured_w_id and contact.current_w_id != configured_w_id:
-            row.status = "technical_skip"
-            row.last_error = "联系人仍绑定旧发送实例，等待联系人同步"
             row.updated_at = now
             session.commit()
             return False
@@ -462,13 +451,6 @@ def validate_service_material_touch_before_send(source_batch_key: str | None) ->
         if contact is None or contact.status != "active" or not contact.current_w_id:
             row.status = "technical_skip"
             row.last_error = "发送前通道不可用"
-            row.updated_at = _utcnow()
-            session.commit()
-            return False
-        configured_w_id = get_settings().eyun_wid.strip()
-        if configured_w_id and contact.current_w_id != configured_w_id:
-            row.status = "technical_skip"
-            row.last_error = "发送前发现联系人仍绑定旧发送实例"
             row.updated_at = _utcnow()
             session.commit()
             return False
