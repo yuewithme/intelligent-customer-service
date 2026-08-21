@@ -20,6 +20,9 @@ from app.domains.conversations.services.state_service import (
     get_user_state,
     update_user_state,
 )
+from app.domains.customers.services.memory_rollout_service import (
+    prepare_memory_context_for_request,
+)
 from app.domains.customers.services.user_profile_service import (
     append_conversation_memory,
     get_profile_bundle,
@@ -132,7 +135,21 @@ async def handle_chat(request: ChatRequest) -> dict:
 
         stage_started = time.perf_counter()
         user_state = await get_user_state(message.user_id, message.session_id)
+        user_state.metadata.pop("memory_v2_context", None)
+        user_state.metadata.pop("memory_v2_trace", None)
         _apply_evaluation_context(message, user_state)
+        if not is_evaluation:
+            memory_context, memory_trace = await prepare_memory_context_for_request(
+                message
+            )
+            user_state.metadata["memory_v2_trace"] = memory_trace
+            if memory_context is not None:
+                user_state.metadata["memory_v2_context"] = memory_context.model_dump(
+                    mode="json"
+                )
+            stage_latencies["memory_v2_ms"] = int(
+                memory_trace.get("latency_ms") or 0
+            )
         profile_bundle = await get_profile_bundle(
             message.user_id,
             conversation_char_budget=FULL_CONVERSATION_CHAR_BUDGET,
