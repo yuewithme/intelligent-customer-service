@@ -6,7 +6,9 @@ from fastapi import FastAPI
 
 from app.core.config import get_settings
 from app.domains.customers.workers.memory_worker import memory_worker
-from app.domains.sales.services.daily_touch_service import daily_touch_worker
+from app.domains.sales.services.service_material_touch_service import (
+    service_material_touch_worker,
+)
 from app.integrations.eyun.services.message_risk_control_service import (
     eyun_risk_control_worker,
 )
@@ -39,8 +41,8 @@ async def lifespan(app: FastAPI):
     app.state.eyun_login_monitor_task = asyncio.create_task(
         eyun_login_monitor_worker(stop_event)
     )
-    app.state.daily_touch_task = asyncio.create_task(
-        daily_touch_worker(stop_event)
+    app.state.service_material_touch_task = asyncio.create_task(
+        service_material_touch_worker(stop_event)
     )
     app.state.youzan_product_sync_task = asyncio.create_task(
         youzan_product_sync_worker(stop_event)
@@ -59,7 +61,7 @@ async def lifespan(app: FastAPI):
             stop_event.set()
             await app.state.eyun_risk_control_task
             await app.state.eyun_login_monitor_task
-            await app.state.daily_touch_task
+            await app.state.service_material_touch_task
             await app.state.youzan_product_sync_task
             await app.state.youzan_order_sync_task
             if app.state.memory_v2_task is not None:

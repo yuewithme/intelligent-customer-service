@@ -67,30 +67,10 @@ export interface AgentRelationshipState {
   updated_at?: string
 }
 
-export interface DailyTouchSnapshot {
-  enabled: boolean
-  local_date: string
-  timezone: string
-  sent_message_count: number
-  sent_unit_count: number
-  completed_today: boolean
-  last_sender?: string | null
-  last_sent_at?: string | null
-  last_topic?: string | null
-  conversation_status: string
-  human_active: boolean
-  human_owner_id?: string | null
-  customer_signal: string
-  explicit_refusal: boolean
-  daily_minimum: number
-  daily_maximum: number
-}
-
 export interface ConversationDetail {
   conversation: ConversationItem
   messages: ConversationMessage[]
   agent_relationship: AgentRelationshipState
-  daily_touch: DailyTouchSnapshot
 }
 
 export interface YouzanOrderItem {

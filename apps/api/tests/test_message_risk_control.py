@@ -526,12 +526,12 @@ async def test_enqueue_outbound_always_creates_workbench_message(monkeypatch):
     outbound = await enqueue_wechat_outbound(
         w_id="wid",
         wc_id="customer",
-        content="SOP message",
-        source_batch_key="agent_wakeup:42",
-        source_type="agent_wakeup",
+        content="服务中素材",
+        source_batch_key="service_material_touch:42",
+        source_type="service_material_touch",
         source_id="42",
         sender_type="system",
-        sender_id="agent_wakeup",
+        sender_id="service_material_touch",
         due_at=now,
     )
 
@@ -544,10 +544,10 @@ async def test_enqueue_outbound_always_creates_workbench_message(monkeypatch):
 
     assert queue_row.conversation_message_id == message.id
     assert message.conversation_id == "wechat:customer:default"
-    assert message.content == "SOP message"
+    assert message.content == "服务中素材"
     assert message.sender_type == "system"
     assert message.delivery_status == "queued"
-    assert json.loads(message.metadata_json)["source_type"] == "agent_wakeup"
+    assert json.loads(message.metadata_json)["source_type"] == "service_material_touch"
 
 
 @pytest.mark.asyncio

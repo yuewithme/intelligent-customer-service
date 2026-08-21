@@ -47,7 +47,7 @@ _DOMAIN_GROUPS = {
         "shipping_contact_service",
         "tag_catalog",
         "contact_sync_service",
-        "daily_touch_service",
+        "service_material_touch_service",
     ),
     "catalog": (
         "orchid_material_service",

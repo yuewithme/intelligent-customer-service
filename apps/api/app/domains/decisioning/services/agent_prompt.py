@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.core.config import get_settings
-
 
 HARNESS_VERSION = "service-agent-harness-v1"
 FULL_CONVERSATION_CHAR_BUDGET = 20_000
@@ -155,7 +153,6 @@ SHARED_TOOL_SHORT_DESCRIPTIONS = {
     "order.search": "客户询问订单、付款、发货或物流时，按当前客户身份或客户主动提供的手机号查近期订单；查到已付款真实订单后自动记录微信已购。",
     "order.get": "已有当前客户的真实 order_ref，需要核实一笔订单详情时使用；查到已付款真实订单后自动记录微信已购，只读且不能修改退款。",
     "memory.record": "产生了值得跨轮使用、且有当前客户原话证据的稳定事实、偏好、承诺或纠正时提交记忆候选。",
-    "wakeup.schedule": "未来需要重新读取最新上下文再判断跟进时机时创建唤醒；只写原因和检查项，不预写话术。",
     "human.handoff": "客户要求人工、申请优惠、需要授权写操作、重大售后或证据不足以安全处理时转人工。",
 }
 
@@ -176,12 +173,6 @@ def build_system_prompt(sop_scope: str = "first_order") -> str:
         if sop_scope == "first_order"
         else SHARED_TOOL_SHORT_DESCRIPTIONS
     )
-    if not get_settings().daily_touch_enabled:
-        descriptions = {
-            name: description
-            for name, description in descriptions.items()
-            if name != "wakeup.schedule"
-        }
     catalog = "\n".join(
         f"- {name}: {description}"
         for name, description in descriptions.items()

@@ -1492,7 +1492,6 @@ def _event_context(message) -> dict[str, Any]:
         key: metadata.get(key)
         for key in (
             "system_event",
-            "daily_touch",
             "is_first_contact",
             "message_type",
             "media",
@@ -1503,12 +1502,7 @@ def _event_context(message) -> dict[str, Any]:
         )
         if metadata.get(key) not in (None, "", [], {})
     }
-    if allowed.get("system_event") == "daily_touch":
-        allowed["instruction"] = (
-            "这是系统每日触达唤醒，不是客户原话。必须根据最新工作区生成一条有商业判断和关系目的的自然消息；"
-            "不要提到系统、任务、计数或唤醒。"
-        )
-    elif allowed.get("system_event") == "first_contact":
+    if allowed.get("system_event") == "first_contact":
         allowed["instruction"] = (
             "这是新好友建立事件，不是客户原话。只生成两条短文字：第一条自然介绍自己是萧岚苑的小兰，"
             "并自然带出团队长期做兰花、后面愿意继续帮客户看养护问题；第二条先从客户视角简短说明回答后能得到什么，"

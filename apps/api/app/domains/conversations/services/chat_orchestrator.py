@@ -34,9 +34,8 @@ from app.domains.decisioning.services.customer_reply_formatter import (
     plain_customer_text,
     split_customer_messages,
 )
-from app.domains.sales.services.daily_touch_service import (
+from app.domains.sales.services.service_material_touch_service import (
     get_agent_relationship_state,
-    get_daily_touch_snapshot,
     record_agent_relationship_state,
 )
 from app.shared.schemas.common import AppError, ErrorCode
@@ -305,7 +304,6 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
             }
     memory_context = user_state.metadata.get("memory_v2_context")
     relationship = get_agent_relationship_state(message.user_id)
-    daily_touch = get_daily_touch_snapshot(message.user_id)
     workspace = {
         "profile": profile_view,
         "recent_turns": [
@@ -326,8 +324,6 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
             "动态商品、价格、库存、订单和权益必须在当前轮通过工具核实"
         ],
     }
-    if daily_touch["enabled"]:
-        workspace["daily_touch"] = daily_touch
     return workspace
 
 

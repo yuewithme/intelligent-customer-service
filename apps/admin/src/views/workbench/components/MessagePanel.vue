@@ -249,7 +249,6 @@ const load = async (options: { silent?: boolean } = {}) => {
             left.id - right.id
         ),
       agent_relationship: currentDetail.agent_relationship,
-      daily_touch: currentDetail.daily_touch
     }
     emit('loaded', detail.value)
     await nextTick()

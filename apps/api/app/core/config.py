@@ -102,24 +102,17 @@ class Settings(BaseSettings):
     eyun_reply_jitter_min_seconds: int = Field(default=0, alias="EYUN_REPLY_JITTER_MIN_SECONDS")
     eyun_reply_jitter_max_seconds: int = Field(default=2, alias="EYUN_REPLY_JITTER_MAX_SECONDS")
     eyun_worker_poll_seconds: float = Field(default=1.0, alias="EYUN_WORKER_POLL_SECONDS")
-    daily_touch_enabled: bool = Field(default=False, alias="DAILY_TOUCH_ENABLED")
-    daily_touch_poll_seconds: float = Field(
-        default=60.0, ge=5.0, alias="DAILY_TOUCH_POLL_SECONDS"
-    )
-    daily_touch_timezone: str = Field(
-        default="Asia/Shanghai", alias="DAILY_TOUCH_TIMEZONE"
-    )
-    daily_touch_window_start: str = Field(
-        default="08:00", alias="DAILY_TOUCH_WINDOW_START"
-    )
-    daily_touch_window_end: str = Field(
-        default="23:00", alias="DAILY_TOUCH_WINDOW_END"
-    )
-    daily_touch_batch_size: int = Field(
-        default=20, ge=1, le=200, alias="DAILY_TOUCH_BATCH_SIZE"
-    )
     service_material_touch_enabled: bool = Field(
         default=True, alias="SERVICE_MATERIAL_TOUCH_ENABLED"
+    )
+    service_material_touch_poll_seconds: float = Field(
+        default=60.0, ge=5.0, alias="SERVICE_MATERIAL_TOUCH_POLL_SECONDS"
+    )
+    service_material_touch_timezone: str = Field(
+        default="Asia/Shanghai", alias="SERVICE_MATERIAL_TOUCH_TIMEZONE"
+    )
+    service_material_touch_batch_size: int = Field(
+        default=20, ge=1, le=200, alias="SERVICE_MATERIAL_TOUCH_BATCH_SIZE"
     )
     purchase_tags_enabled: bool = Field(
         default=False, alias="PURCHASE_TAGS_ENABLED"

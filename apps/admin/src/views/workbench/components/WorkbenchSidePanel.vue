@@ -19,7 +19,6 @@
       :conversation-id="conversationId"
       :conversation="conversation"
       :agent-relationship="agentRelationship"
-      :daily-touch="dailyTouch"
       :profile="profile"
       :profile-loading="profileLoading"
       @changed="$emit('changed')"
@@ -44,8 +43,7 @@
 import { ref } from 'vue'
 import type {
   AgentRelationshipState,
-  ConversationItem,
-  DailyTouchSnapshot
+  ConversationItem
 } from '@/api/admin/conversations'
 import type { UserProfile } from '@/api/user-profile'
 import CareManualPanel from './CareManualPanel.vue'
@@ -56,7 +54,6 @@ defineProps<{
   conversationId: string
   conversation?: ConversationItem
   agentRelationship?: AgentRelationshipState
-  dailyTouch?: DailyTouchSnapshot
   profile?: UserProfile
   profileLoading?: boolean
 }>()

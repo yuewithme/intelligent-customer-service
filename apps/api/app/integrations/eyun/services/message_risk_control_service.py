@@ -703,7 +703,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     row.last_error = "前一条组合消息发送失败"
                     row.updated_at = now
                     session.commit()
-                    _sync_agent_wakeup_outbound(
+                    _sync_service_material_touch_outbound(
                         row.source_batch_key, row.status, row.last_error
                     )
                     if row.conversation_message_id:
@@ -747,7 +747,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                             row.due_at = utcnow() + timedelta(seconds=30)
                         row.updated_at = utcnow()
                         session.commit()
-                        _sync_agent_wakeup_outbound(
+                        _sync_service_material_touch_outbound(
                             row.source_batch_key, row.status, row.last_error
                         )
                         if row.conversation_message_id:
@@ -878,7 +878,9 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         status=row.status,
                     )
                 logger.warning("Eyun outbound send failed: %s", exc)
-                _sync_agent_wakeup_outbound(row.source_batch_key, row.status, row.last_error)
+                _sync_service_material_touch_outbound(
+                    row.source_batch_key, row.status, row.last_error
+                )
                 await _handle_opening_send_failure(row.id, exc)
                 continue
 
@@ -901,7 +903,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 rate.last_sent_at = sent_at
                 rate.updated_at = sent_at
             session.commit()
-            _sync_agent_wakeup_outbound(row.source_batch_key, "sent")
+            _sync_service_material_touch_outbound(row.source_batch_key, "sent")
             if row.conversation_message_id:
                 update_outbound_message_delivery(
                     row.conversation_message_id,
@@ -1988,7 +1990,7 @@ def _outbound_priority(
 ) -> int:
     if bulk_job_id is not None or (source_batch_key or "").startswith("bulk:"):
         return 10
-    if (source_batch_key or "").startswith("agent_wakeup:"):
+    if _is_service_material_touch_batch_key(source_batch_key):
         return 20
     return 100
 
@@ -2002,19 +2004,29 @@ def _ensure_aware(value: datetime) -> datetime:
 def _validate_outbound_before_send(
     session: Session, row: EyunOutboundMessageModel
 ) -> bool:
-    if (row.source_batch_key or "").startswith("agent_wakeup:"):
-        from app.domains.sales.services.daily_touch_service import validate_agent_wakeup_before_send
+    if _is_service_material_touch_batch_key(row.source_batch_key):
+        from app.domains.sales.services.service_material_touch_service import (
+            validate_service_material_touch_before_send,
+        )
 
-        if not validate_agent_wakeup_before_send(row.source_batch_key):
+        if not validate_service_material_touch_before_send(row.source_batch_key):
             return False
     return True
 
 
-def _sync_agent_wakeup_outbound(
+def _sync_service_material_touch_outbound(
     source_batch_key: str | None, status: str, error: str | None = None
 ) -> None:
-    if source_batch_key and source_batch_key.startswith("agent_wakeup:"):
-        from app.domains.sales.services.daily_touch_service import sync_agent_wakeup_from_outbound
+    if _is_service_material_touch_batch_key(source_batch_key):
+        from app.domains.sales.services.service_material_touch_service import (
+            sync_service_material_touch_from_outbound,
+        )
 
-        sync_agent_wakeup_from_outbound(source_batch_key, status, error)
+        sync_service_material_touch_from_outbound(source_batch_key, status, error)
         return
+
+
+def _is_service_material_touch_batch_key(source_batch_key: str | None) -> bool:
+    return str(source_batch_key or "").startswith(
+        ("service_material_touch:", "agent_wakeup:")
+    )

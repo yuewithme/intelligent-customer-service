@@ -30,7 +30,7 @@ Sales Agent Harness V2 已完成全量开发并直接替换原主决策架构。
 - `apps/api/app/domains/decisioning/services/agent_runtime.py`
 - `apps/api/app/domains/decisioning/services/agent_tools.py`
 - `apps/api/app/domains/conversations/services/chat_orchestrator.py`
-- `apps/api/app/domains/sales/services/daily_touch_service.py`
+- `apps/api/app/domains/sales/services/service_material_touch_service.py`
 - `apps/api/app/integrations/eyun/services/message_risk_control_service.py`
 
 当前 SOP 作用域：
@@ -52,7 +52,7 @@ Sales Agent Harness V2 已完成全量开发并直接替换原主决策架构。
 
 ## Agent 自主权与系统硬边界
 
-Agent 自主决定每轮商业判断、关系目的、表达方式、工具组合、资料时机、商品卡片时机和专项唤醒。系统只硬控以下内容：
+Agent 自主决定每轮商业判断、关系目的、表达方式、工具组合、资料时机和商品卡片时机。系统只硬控以下内容：
 
 - 商品、价格、库存、订单、物流、权益、资料引用和优惠结果必须来自真实工具。
 - `prepared`、`queued` 不得表述为 `sent`；未被 Agent 放入最终回复包的预备卡片不会发送。
@@ -73,10 +73,10 @@ Agent 自主决定每轮商业判断、关系目的、表达方式、工具组�
 
 ## 主动关系维护
 
-- 现有每日调度和发送基础设施仍在代码中，本次没有删除。
+- 普通每日触达、Agent 专项唤醒及其配置、提示词、工具和管理台计数已经删除。
 - Service SOP 的经验不再把“每天发干货”解释为每天必须私聊，也不因沉默自动进入逼单。
 - 主动消息优先围绕最近问题、已购品种、订单节点、问题回访、季节养护和会员内容，每次只保留一个服务目的。
-- 旧的普通每日触达与 Agent 专项唤醒已通过 `DAILY_TOUCH_ENABLED=false` 隔离；当前只保留“服务中”客户的固定服务素材触达。旧任务和代码暂不删除，待运行验证后再清理。
+- 当前只保留“服务中”客户的固定服务素材触达；worker 只读取 `service_material_touch` 任务，历史其他类型任务不会执行，发送前也会被阻断。
 
 ## 配置交接
 
@@ -87,15 +87,16 @@ BUSINESS_LLM_PROVIDER=dashscope
 BUSINESS_LLM_MODEL=qwen3.7-plus
 ```
 
-每日触达主要配置：
+服务中素材触达主要配置：
 
 ```env
-DAILY_TOUCH_ENABLED=false
-DAILY_TOUCH_POLL_SECONDS=60
-DAILY_TOUCH_TIMEZONE=Asia/Shanghai
-DAILY_TOUCH_WINDOW_START=08:00
-DAILY_TOUCH_WINDOW_END=23:00
-DAILY_TOUCH_BATCH_SIZE=20
+SERVICE_MATERIAL_TOUCH_ENABLED=true
+SERVICE_MATERIAL_TOUCH_POLL_SECONDS=60
+SERVICE_MATERIAL_TOUCH_TIMEZONE=Asia/Shanghai
+SERVICE_MATERIAL_TOUCH_BATCH_SIZE=20
+SERVICE_MATERIAL_STORY_TIME=07:00
+SERVICE_MATERIAL_KNOWLEDGE_TIME=10:00
+SERVICE_MATERIAL_TOPIC_TIME=14:00
 ```
 
 旧的 `INTENT_*`、`REPLY_SHADOW_*`、`TALK_SCRIPT_LLM_*`、固定开场文字和 Qdrant 意图 / 话术集合配置已从配置契约及示例环境文件移除。开场品牌图片使用 `EYUN_OPENING_IMAGE_URL` 或 `EYUN_OPENING_MATERIAL_ID` 配置。旧部署环境中即使暂时保留已退出的键，也会因 Settings 的额外字段忽略策略而不参与运行。
@@ -113,7 +114,7 @@ DAILY_TOUCH_BATCH_SIZE=20
 
 - 后端：`python -m pytest -q`，458 项通过，0 项失败；仅有 Starlette 关于测试客户端依赖的弃用警告。
 - 本次未修改管理端；最近一次 2026-08-05 验证中，TypeScript 类型检查和生产构建均通过。
-- 专项覆盖：Agent 工具循环、增量上下文、独立结构修复与硬重写预算、质量提示非阻断、单个自然复合问句、逐次原回复诊断、固定开场收集盆数与主要品种、盆数 / 痛点到持续指导缺口和陪伴服务推荐、证据化 L1-L6 与盆数 / 品种标签、受保护已购标签、已付款订单自动写入微信已购、信息不足时不释放资料、事实充分后的资料释放与主动推品、成熟购买直达、真实卡片、未核实价格 / 库存 / 发送状态拦截、语义消息单元保留、订单状态、输入过滤、微信队列、每日触达幂等 / 计数 / 重试 / 租约恢复和人工接管。
+- 专项覆盖：Agent 工具循环、增量上下文、独立结构修复与硬重写预算、质量提示非阻断、单个自然复合问句、逐次原回复诊断、固定开场收集盆数与主要品种、盆数 / 痛点到持续指导缺口和陪伴服务推荐、证据化 L1-L6 与盆数 / 品种标签、受保护已购标签、已付款订单自动写入微信已购、信息不足时不释放资料、事实充分后的资料释放与主动推品、成熟购买直达、真实卡片、未核实价格 / 库存 / 发送状态拦截、语义消息单元保留、订单状态、输入过滤、微信队列、服务中三时段触达幂等 / 重试 / 租约恢复和人工接管。
 
 生产运行态已验证：云端 Git、API 容器和 `/health` 均指向 `eed75f95`，API 容器健康，硬规则预算为工具 5 轮、结构修复 1 次、硬违规重写 1 次。后续提交是否已部署必须重新以云端 revision 和 `/health` 为准，不能只看本文。
 

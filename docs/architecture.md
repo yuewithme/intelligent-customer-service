@@ -54,7 +54,7 @@ apps/api/app/
     decisioning/        自主 Agent 决策、工具、结构化回复与兼容评测资产
     handoff/            人工接管与通知
     knowledge/          文档知识、向量检索、RAG 与重排
-    sales/              每日触达、客户标签、活动与养护手册
+    sales/              服务中素材触达、客户标签、活动与养护手册
   infrastructure/
     database/           SQLAlchemy 会话和持久化模型
   integrations/
