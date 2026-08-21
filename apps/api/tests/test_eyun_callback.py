@@ -80,7 +80,9 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
         return {"batch_key": "wid:wxid_customer"}
 
     async def fake_contact(**kwargs):
-        return {"nickname": "张姐"}
+        return {
+            "nickname": "若兰" if kwargs["wc_id"] == "wxid_bot" else "张姐"
+        }
 
     monkeypatch.setattr(
         eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
@@ -108,6 +110,7 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
 
     assert response.status_code == 200
     assert recorded[0]["user_id"] == "wxid_customer"
+    assert recorded[0]["metadata"]["owner_display_name"] == "若兰"
     assert "_profile_user_id" not in queued[0]
     assert profiles == [
         (

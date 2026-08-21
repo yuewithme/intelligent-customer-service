@@ -21,7 +21,7 @@
           <span>小兰自主销售 Agent 的实时运营与人工协作</span>
         </div>
         <div v-if="showTenantSwitcher" class="tenant-switcher">
-          <span class="tenant-label">消息租户</span>
+          <span class="tenant-label">小兰微信</span>
           <ElSelect
             :model-value="tenantStore.selectedTenantId"
             :loading="tenantStore.loading"
@@ -35,7 +35,7 @@
               :value="tenant.tenant_id"
             >
               <div class="tenant-option">
-                <span>{{ tenant.account || '微信账号' }}</span>
+                <span>{{ tenant.display_name || '微信账号' }}</span>
                 <small>{{ tenant.wc_id }} · {{ tenant.conversation_count }} 个会话</small>
               </div>
             </ElOption>
@@ -70,7 +70,7 @@ const tenantStore = useMessageTenantStore()
 const showTenantSwitcher = computed(() => !testMode && route.path === '/workbench')
 
 const tenantOptionLabel = (tenant: ConversationTenant) =>
-  tenant.account ? `${tenant.account}（${tenant.wc_id}）` : tenant.wc_id
+  tenant.display_name ? `${tenant.display_name}（${tenant.wc_id}）` : tenant.wc_id
 
 const switchTenant = (tenantId: string) => {
   tenantStore.selectTenant(tenantId)
