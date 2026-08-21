@@ -115,6 +115,45 @@ def _record_outbound_delivery_event(
     )
 
 
+def _sync_conversation_delivery_from_bundle(
+    outbound_message_id: int,
+    *,
+    provider_message_id: str | None = None,
+    sent_at: datetime | None = None,
+) -> None:
+    with _get_session() as session:
+        row = session.get(EyunOutboundMessageModel, outbound_message_id)
+        if row is None or not row.conversation_message_id:
+            return
+        statuses = list(
+            session.scalars(
+                select(EyunOutboundMessageModel.status).where(
+                    EyunOutboundMessageModel.conversation_message_id
+                    == row.conversation_message_id
+                )
+            )
+        )
+        conversation_message_id = row.conversation_message_id
+    if statuses and all(status == "sent" for status in statuses):
+        aggregate = "sent"
+    elif "failed" in statuses:
+        aggregate = "failed"
+    elif "cancelled" in statuses:
+        aggregate = "cancelled"
+    elif "waiting_material" in statuses:
+        aggregate = "waiting_material"
+    elif any(status in {"sending", "sent"} for status in statuses):
+        aggregate = "sending"
+    else:
+        aggregate = "queued"
+    update_outbound_message_delivery(
+        conversation_message_id,
+        status=aggregate,
+        provider_message_id=(provider_message_id if aggregate == "sent" else None),
+        sent_at=(sent_at if aggregate == "sent" else None),
+    )
+
+
 def build_eyun_batch_key(
     *, w_id: str, target_wc_id: str, from_user: str, owner_wc_id: str = ""
 ) -> str:
@@ -782,9 +821,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         row.source_batch_key, row.status, row.last_error
                     )
                     if row.conversation_message_id:
-                        update_outbound_message_delivery(
-                            row.conversation_message_id, status="cancelled"
-                        )
+                        _sync_conversation_delivery_from_bundle(row.id)
                     continue
                 if dependency.status != "sent":
                     row.due_at = now + timedelta(seconds=5)
@@ -805,9 +842,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 )
                 session.commit()
                 if row.conversation_message_id:
-                    update_outbound_message_delivery(
-                        row.conversation_message_id, status="cancelled"
-                    )
+                    _sync_conversation_delivery_from_bundle(row.id)
                 continue
             if row.material_id is None:
                 legacy_type, legacy_content = _decode_outbound_content(row.content)
@@ -847,9 +882,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                             row.source_batch_key, row.status, row.last_error
                         )
                         if row.conversation_message_id:
-                            update_outbound_message_delivery(
-                                row.conversation_message_id, status=row.status
-                            )
+                            _sync_conversation_delivery_from_bundle(row.id)
                         await _handle_opening_send_failure(row.id, exc)
                         continue
                     row.material_id = int(material["id"])
@@ -889,9 +922,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             )
             session.commit()
             if row.conversation_message_id:
-                update_outbound_message_delivery(
-                    row.conversation_message_id, status="sending"
-                )
+                _sync_conversation_delivery_from_bundle(row.id)
             send_result = None
             material_message: tuple[str, str] | None = None
             if row.material_id is not None:
@@ -914,9 +945,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     )
                     session.commit()
                     if row.conversation_message_id:
-                        update_outbound_message_delivery(
-                            row.conversation_message_id, status="waiting_material"
-                        )
+                        _sync_conversation_delivery_from_bundle(row.id)
                     continue
                 material_message = (
                     f"received_{material['media_type']}",
@@ -1000,9 +1029,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     )
                     session.commit()
                     if row.conversation_message_id:
-                        update_outbound_message_delivery(
-                            row.conversation_message_id, status="waiting_material"
-                        )
+                        _sync_conversation_delivery_from_bundle(row.id)
                     continue
                 previous_status = row.status
                 row.attempts = (row.attempts or 0) + 1
@@ -1021,10 +1048,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 )
                 session.commit()
                 if row.conversation_message_id:
-                    update_outbound_message_delivery(
-                        row.conversation_message_id,
-                        status=row.status,
-                    )
+                    _sync_conversation_delivery_from_bundle(row.id)
                 logger.warning("Eyun outbound send failed: %s", exc)
                 _sync_service_material_touch_outbound(
                     row.source_batch_key, row.status, row.last_error
@@ -1063,9 +1087,8 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             session.commit()
             _sync_service_material_touch_outbound(row.source_batch_key, "sent")
             if row.conversation_message_id:
-                update_outbound_message_delivery(
-                    row.conversation_message_id,
-                    status="sent",
+                _sync_conversation_delivery_from_bundle(
+                    row.id,
                     provider_message_id=_eyun_provider_message_id_from_result(send_result),
                     sent_at=sent_at,
                 )

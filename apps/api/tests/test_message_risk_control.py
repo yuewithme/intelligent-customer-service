@@ -561,6 +561,61 @@ async def test_enqueue_outbound_always_creates_workbench_message(monkeypatch):
     assert json.loads(message.metadata_json)["source_type"] == "service_material_touch"
 
 
+def test_bundle_delivery_is_sent_only_after_every_part_succeeds():
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 8, 21, 4, 0, tzinfo=timezone.utc)
+    with service._get_session() as session:
+        message = ConversationMessageModel(
+            conversation_id="wechat:customer:default",
+            trace_id="service_material_touch:42",
+            delivery_status="queued",
+            sender_type="system",
+            sender_id="service_material_touch",
+            content="匹配话术",
+            metadata_json="{}",
+            created_at=now,
+        )
+        session.add(message)
+        session.flush()
+        rows = [
+            EyunOutboundMessageModel(
+                w_id="wid",
+                wc_id="customer",
+                content=content,
+                source_batch_key="service_material_touch:42",
+                conversation_message_id=message.id,
+                status=status,
+                priority=20,
+                due_at=now,
+                attempts=0,
+                created_at=now,
+                updated_at=now,
+            )
+            for content, status in (("匹配话术", "sent"), ("图片", "queued"))
+        ]
+        session.add_all(rows)
+        session.commit()
+        first_id, media_id, message_id = rows[0].id, rows[1].id, message.id
+
+    service._sync_conversation_delivery_from_bundle(first_id)
+    with service._get_session() as session:
+        assert session.get(ConversationMessageModel, message_id).delivery_status == "sending"
+        media = session.get(EyunOutboundMessageModel, media_id)
+        media.status = "sent"
+        session.commit()
+
+    service._sync_conversation_delivery_from_bundle(
+        media_id,
+        provider_message_id="provider-final",
+        sent_at=now + timedelta(seconds=3),
+    )
+    with service._get_session() as session:
+        message = session.get(ConversationMessageModel, message_id)
+        assert message.delivery_status == "sent"
+        assert message.message_id == "provider-final"
+
+
 @pytest.mark.asyncio
 async def test_process_batch_staggers_split_replies(monkeypatch):
     from app.integrations.eyun.services.message_risk_control_service import (
