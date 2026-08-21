@@ -395,11 +395,12 @@ async def _eyun_workbench_metadata(
     message_type = str(payload.get("messageType") or "")
     w_id = str(data.get("wId") or payload.get("wId") or "")
     user_id = user_id or _eyun_conversation_user_id(data)
+    owner_wc_id = _eyun_owner_wc_id(payload, data)
     metadata = {
         "provider": "eyun",
         "account": str(payload.get("account") or ""),
         "message_type": message_type,
-        "wc_id": str(payload.get("wcId") or data.get("toUser") or ""),
+        "wc_id": owner_wc_id,
         "w_id": w_id,
         "from_user": str(data.get("fromUser") or ""),
         "from_group": str(data.get("fromGroup") or ""),
@@ -416,7 +417,23 @@ async def _eyun_workbench_metadata(
         metadata["image_detection"] = str(
             payload.get("_eyun_image_detection") or ""
         )
-    metadata.update(await get_eyun_contact_snapshot(w_id=w_id, wc_id=user_id))
+    if owner_wc_id and owner_wc_id != user_id:
+        customer_snapshot, owner_snapshot = await asyncio.gather(
+            get_eyun_contact_snapshot(w_id=w_id, wc_id=user_id),
+            get_eyun_contact_snapshot(w_id=w_id, wc_id=owner_wc_id),
+        )
+    else:
+        customer_snapshot = await get_eyun_contact_snapshot(
+            w_id=w_id,
+            wc_id=user_id,
+        )
+        owner_snapshot = customer_snapshot
+    metadata.update(customer_snapshot)
+    owner_display_name = str(
+        owner_snapshot.get("nickname") or owner_snapshot.get("display_name") or ""
+    ).strip()
+    if owner_display_name:
+        metadata["owner_display_name"] = owner_display_name
     media = await _eyun_media_metadata(message_type, data, w_id=w_id)
     if media:
         metadata["media"] = media

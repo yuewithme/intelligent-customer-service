@@ -162,9 +162,9 @@ async def test_empty_callback_schedules_contact_refresh(monkeypatch):
             "w_id": "wid",
             "wc_id": "customer",
             "user_id": "customer",
-            "tenant_id": "tenant_default",
+            "tenant_id": "owner",
             "channel": "wechat",
-            "session_id": "default",
+            "session_id": "owner",
         }
     ]
 

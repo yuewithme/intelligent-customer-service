@@ -60,12 +60,25 @@ def test_admin_conversation_list_filters_by_channel(monkeypatch, tmp_path):
 
 def test_admin_conversations_are_scoped_by_eyun_wc_id(monkeypatch, tmp_path):
     import asyncio
+    from app.integrations.eyun.services import eyun_contact_service
 
     _reset_settings(monkeypatch, tmp_path)
-    for wc_id, account in (
-        ("wxid_shop_a", "兰花一店"),
-        ("wxid_shop_b", "兰花二店"),
-    ):
+    tenant_names = {
+        "wxid_shop_a": "若兰",
+        "wxid_shop_b": "小兰二号",
+    }
+
+    async def fake_contact_snapshot(*, w_id, wc_id):
+        assert w_id in {"wid_shop_a", "wid_shop_b"} or wc_id not in tenant_names
+        return {"nickname": tenant_names[wc_id]} if wc_id in tenant_names else {}
+
+    monkeypatch.setattr(
+        eyun_contact_service,
+        "get_eyun_contact_snapshot",
+        fake_contact_snapshot,
+    )
+
+    for wc_id in tenant_names:
         asyncio.run(
             record_customer_message(
                 channel="wechat",
@@ -75,16 +88,16 @@ def test_admin_conversations_are_scoped_by_eyun_wc_id(monkeypatch, tmp_path):
                 metadata={
                     "provider": "eyun",
                     "wc_id": wc_id,
-                    "account": account,
+                    "w_id": wc_id.replace("wxid_", "wid_"),
                 },
             )
         )
 
     client = TestClient(app)
     tenants = client.get("/api/v1/admin/conversations/tenants").json()["data"]["items"]
-    tenant_accounts = {item["wc_id"]: item["account"] for item in tenants}
-    assert tenant_accounts["wxid_shop_a"] == "兰花一店"
-    assert tenant_accounts["wxid_shop_b"] == "兰花二店"
+    display_names = {item["wc_id"]: item["display_name"] for item in tenants}
+    assert display_names["wxid_shop_a"] == "若兰"
+    assert display_names["wxid_shop_b"] == "小兰二号"
 
     scoped = client.get(
         "/api/v1/admin/conversations",
@@ -94,6 +107,7 @@ def test_admin_conversations_are_scoped_by_eyun_wc_id(monkeypatch, tmp_path):
     assert scoped["items"][0]["user_id"] == "shared_customer"
     assert scoped["items"][0]["session_id"] == "wxid_shop_b"
     assert scoped["items"][0]["owner_wc_id"] == "wxid_shop_b"
+    assert scoped["items"][0]["owner_display_name"] == "小兰二号"
 
 
 def test_evaluation_turn_is_recorded_as_a_labeled_workbench_conversation(

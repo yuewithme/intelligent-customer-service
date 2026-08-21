@@ -13,6 +13,7 @@ export interface ConversationItem {
   session_id?: string | null
   tenant_id: string
   owner_wc_id?: string | null
+  owner_display_name?: string | null
   status: ConversationStatus
   owner_id?: string | null
   last_message?: string | null
@@ -50,7 +51,7 @@ export interface ConversationListResponse {
 export interface ConversationTenant {
   tenant_id: string
   wc_id: string
-  account?: string | null
+  display_name?: string | null
   conversation_count: number
   unread_count: number
 }

@@ -430,6 +430,9 @@ class ConversationModel(Base):
     owner_wc_id: Mapped[str | None] = mapped_column(
         String(256), index=True, nullable=True
     )
+    owner_display_name: Mapped[str | None] = mapped_column(
+        String(256), nullable=True
+    )
     status: Mapped[str] = mapped_column(String(64), index=True, default="ai_active")
     owner_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     last_message: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -113,7 +113,7 @@ async def conversation_tenants() -> APIResponse:
     return APIResponse(
         code=0,
         message="success",
-        data=list_conversation_tenants(),
+        data=await list_conversation_tenants(),
     )
 
 

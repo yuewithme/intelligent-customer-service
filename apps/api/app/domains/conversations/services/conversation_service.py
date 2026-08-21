@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -39,6 +40,8 @@ RECOVERABLE_AUTOMATIC_HANDOFF_REASONS = frozenset(
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _initialized_urls: set[str] = set()
+_tenant_display_lookup_at: dict[tuple[str, str], float] = {}
+_TENANT_DISPLAY_RETRY_SECONDS = 300
 logger = logging.getLogger("wechat_rag_bot.conversation")
 
 
@@ -345,7 +348,7 @@ async def get_conversation_detail(conversation_id: str) -> dict:
     }
 
 
-def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
+async def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
     """List WeChat accounts that own workbench conversations.
 
     Eyun's callback ``wcId`` identifies the currently logged-in WeChat account.
@@ -358,6 +361,7 @@ def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
             select(
                 ConversationModel.tenant_id,
                 ConversationModel.owner_wc_id,
+                func.max(ConversationModel.owner_display_name),
                 func.count(ConversationModel.id),
                 func.coalesce(func.sum(ConversationModel.unread_count), 0),
                 func.max(ConversationModel.updated_at),
@@ -371,7 +375,8 @@ def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
             .order_by(func.max(ConversationModel.updated_at).desc())
         ).all()
         owner_ids = {str(row[1] or "").strip() for row in rows if row[1]}
-        accounts: dict[str, str] = {}
+        owner_w_ids: dict[str, str] = {}
+        metadata_names: dict[str, str] = {}
         if owner_ids:
             metadata_rows = session.scalars(
                 select(ConversationMessageModel.metadata_json)
@@ -384,34 +389,96 @@ def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
             for value in metadata_rows:
                 metadata = _load_metadata(value)
                 wc_id = str(metadata.get("wc_id") or "").strip()
-                account = str(metadata.get("account") or "").strip()
-                if wc_id in owner_ids and account and wc_id not in accounts:
-                    accounts[wc_id] = account
-                if len(accounts) == len(owner_ids):
+                if wc_id not in owner_ids:
+                    continue
+                w_id = str(metadata.get("w_id") or "").strip()
+                display_name = str(
+                    metadata.get("owner_display_name")
+                    or metadata.get("owner_nickname")
+                    or ""
+                ).strip()
+                if w_id and wc_id not in owner_w_ids:
+                    owner_w_ids[wc_id] = w_id
+                if display_name and wc_id not in metadata_names:
+                    metadata_names[wc_id] = display_name
+                if (
+                    len(owner_w_ids) == len(owner_ids)
+                    and len(metadata_names) == len(owner_ids)
+                ):
                     break
 
     items = [
         {
             "tenant_id": str(tenant_id),
             "wc_id": str(owner_wc_id),
-            "account": accounts.get(str(owner_wc_id)) or None,
+            "display_name": str(owner_display_name or "").strip()
+            or metadata_names.get(str(owner_wc_id))
+            or None,
             "conversation_count": int(conversation_count or 0),
             "unread_count": int(unread_count or 0),
         }
-        for tenant_id, owner_wc_id, conversation_count, unread_count, _ in rows
+        for (
+            tenant_id,
+            owner_wc_id,
+            owner_display_name,
+            conversation_count,
+            unread_count,
+            _,
+        ) in rows
     ]
-    configured_wc_id = get_settings().eyun_wc_id.strip()
+    settings = get_settings()
+    configured_wc_id = settings.eyun_wc_id.strip()
     if configured_wc_id and not any(item["wc_id"] == configured_wc_id for item in items):
         items.insert(
             0,
             {
                 "tenant_id": configured_wc_id,
                 "wc_id": configured_wc_id,
-                "account": None,
+                "display_name": metadata_names.get(configured_wc_id),
                 "conversation_count": 0,
                 "unread_count": 0,
             },
         )
+
+    if configured_wc_id and settings.eyun_wid.strip():
+        owner_w_ids.setdefault(configured_wc_id, settings.eyun_wid.strip())
+
+    discovered_names: dict[str, str] = {}
+    now = time.monotonic()
+    from app.integrations.eyun.services.eyun_contact_service import (
+        get_eyun_contact_snapshot,
+    )
+
+    for item in items:
+        if item["display_name"]:
+            continue
+        wc_id = item["wc_id"]
+        w_id = owner_w_ids.get(wc_id, "")
+        lookup_key = (w_id, wc_id)
+        last_lookup_at = _tenant_display_lookup_at.get(lookup_key)
+        if not w_id or (
+            last_lookup_at is not None
+            and now - last_lookup_at < _TENANT_DISPLAY_RETRY_SECONDS
+        ):
+            continue
+        _tenant_display_lookup_at[lookup_key] = now
+        snapshot = await get_eyun_contact_snapshot(w_id=w_id, wc_id=wc_id)
+        display_name = str(
+            snapshot.get("nickname") or snapshot.get("display_name") or ""
+        ).strip()
+        if display_name:
+            item["display_name"] = display_name
+            discovered_names[wc_id] = display_name
+
+    if discovered_names:
+        with _get_session() as session:
+            for wc_id, display_name in discovered_names.items():
+                session.execute(
+                    update(ConversationModel)
+                    .where(ConversationModel.owner_wc_id == wc_id)
+                    .values(owner_display_name=display_name)
+                )
+            session.commit()
     return {"items": items}
 
 
@@ -437,6 +504,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
         status == HANDOFF_PENDING and not suppress_handoff_notification
     )
     owner_wc_id = _owner_wc_id(message.channel, message.metadata)
+    owner_display_name = _owner_display_name(message.metadata)
     tenant_id = owner_wc_id or message.tenant_id
     with _get_session() as session:
         conversation = session.scalar(
@@ -492,6 +560,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 session_id=message.session_id,
                 tenant_id=tenant_id,
                 owner_wc_id=owner_wc_id,
+                owner_display_name=owner_display_name,
                 created_at=now,
                 updated_at=now,
             )
@@ -534,6 +603,8 @@ async def record_ai_turn(*, message, result: dict) -> None:
             if owner_wc_id:
                 conversation.owner_wc_id = owner_wc_id
                 conversation.tenant_id = owner_wc_id
+            if owner_display_name:
+                conversation.owner_display_name = owner_display_name
 
         if conversation.status in AI_BLOCKED_STATUSES:
             conversation.last_message = message.message
@@ -728,6 +799,7 @@ async def record_customer_message(
 ) -> dict:
     metadata = metadata or {}
     owner_wc_id = _owner_wc_id(channel, metadata)
+    owner_display_name = _owner_display_name(metadata)
     tenant_id = owner_wc_id or tenant_id or "tenant_default"
     conversation_id = make_conversation_id(channel, user_id, session_id)
     now = _now()
@@ -781,6 +853,7 @@ async def record_customer_message(
                 session_id=session_id,
                 tenant_id=tenant_id,
                 owner_wc_id=owner_wc_id,
+                owner_display_name=owner_display_name,
                 created_at=now,
                 updated_at=now,
             )
@@ -822,6 +895,8 @@ async def record_customer_message(
             if owner_wc_id:
                 conversation.owner_wc_id = owner_wc_id
                 conversation.tenant_id = owner_wc_id
+            if owner_display_name:
+                conversation.owner_display_name = owner_display_name
 
         preserve_ai_lock = conversation.status in AI_BLOCKED_STATUSES
         if preserve_ai_lock:
@@ -895,6 +970,7 @@ async def ensure_outbound_conversation_message(
     """Create or reconcile one outbound message shown in the workbench."""
     metadata = metadata or {}
     owner_wc_id = _owner_wc_id(channel, metadata)
+    owner_display_name = _owner_display_name(metadata)
     tenant_id = owner_wc_id or tenant_id
     conversation_id = make_conversation_id(channel, user_id, session_id)
     now = _now()
@@ -915,6 +991,7 @@ async def ensure_outbound_conversation_message(
                 session_id=session_id,
                 tenant_id=tenant_id,
                 owner_wc_id=owner_wc_id,
+                owner_display_name=owner_display_name,
                 status=AI_WAITING,
                 unread_count=0,
                 created_at=now,
@@ -925,6 +1002,8 @@ async def ensure_outbound_conversation_message(
         elif owner_wc_id:
             conversation.owner_wc_id = owner_wc_id
             conversation.tenant_id = owner_wc_id
+        if owner_display_name:
+            conversation.owner_display_name = owner_display_name
 
         message = None
         if trace_id:
@@ -1737,6 +1816,7 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
         "session_id": row.session_id,
         "tenant_id": row.tenant_id,
         "owner_wc_id": row.owner_wc_id,
+        "owner_display_name": row.owner_display_name,
         "status": row.status,
         "owner_id": row.owner_id,
         "last_message": row.last_message,
@@ -1812,6 +1892,15 @@ def _owner_wc_id(channel: str, metadata: dict[str, Any]) -> str | None:
     if channel != "wechat" or metadata.get("provider") != "eyun":
         return None
     value = str(metadata.get("wc_id") or "").strip()
+    return value or None
+
+
+def _owner_display_name(metadata: dict[str, Any]) -> str | None:
+    value = str(
+        metadata.get("owner_display_name")
+        or metadata.get("owner_nickname")
+        or ""
+    ).strip()
     return value or None
 
 
@@ -1976,6 +2065,13 @@ def _ensure_conversation_columns(factory: sessionmaker) -> None:
             session.execute(
                 text("ALTER TABLE conversations ADD COLUMN owner_wc_id VARCHAR(256)")
             )
+        if "owner_display_name" not in columns:
+            session.execute(
+                text(
+                    "ALTER TABLE conversations "
+                    "ADD COLUMN owner_display_name VARCHAR(256)"
+                )
+            )
         session.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS ix_conversations_owner_wc_id "
@@ -1999,6 +2095,7 @@ def _ensure_conversation_columns(factory: sessionmaker) -> None:
 
 def _backfill_conversation_tenants(session: Session) -> None:
     latest_owner_by_conversation: dict[str, str] = {}
+    owner_name_by_conversation: dict[str, str] = {}
     rows = session.execute(
         select(
             ConversationMessageModel.conversation_id,
@@ -2011,14 +2108,25 @@ def _backfill_conversation_tenants(session: Session) -> None:
         )
     ).all()
     for conversation_id, value in rows:
-        if conversation_id in latest_owner_by_conversation:
+        conversation_key = str(conversation_id)
+        if (
+            conversation_key in latest_owner_by_conversation
+            and conversation_key in owner_name_by_conversation
+        ):
             continue
         metadata = _load_metadata(value)
         if metadata.get("provider") != "eyun":
             continue
         wc_id = str(metadata.get("wc_id") or "").strip()
-        if wc_id:
-            latest_owner_by_conversation[str(conversation_id)] = wc_id
+        if wc_id and conversation_key not in latest_owner_by_conversation:
+            latest_owner_by_conversation[conversation_key] = wc_id
+        owner_display_name = _owner_display_name(metadata)
+        if (
+            owner_display_name
+            and wc_id == latest_owner_by_conversation.get(conversation_key)
+            and conversation_key not in owner_name_by_conversation
+        ):
+            owner_name_by_conversation[conversation_key] = owner_display_name
 
     if not latest_owner_by_conversation:
         return
@@ -2032,3 +2140,6 @@ def _backfill_conversation_tenants(session: Session) -> None:
         if conversation.owner_wc_id != wc_id or conversation.tenant_id != wc_id:
             conversation.owner_wc_id = wc_id
             conversation.tenant_id = wc_id
+        owner_display_name = owner_name_by_conversation.get(conversation.conversation_id)
+        if owner_display_name and conversation.owner_display_name != owner_display_name:
+            conversation.owner_display_name = owner_display_name

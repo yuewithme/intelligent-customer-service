@@ -10,6 +10,7 @@ class ConversationItem(BaseModel):
     session_id: str | None = None
     tenant_id: str
     owner_wc_id: str | None = None
+    owner_display_name: str | None = None
     status: str
     owner_id: str | None = None
     last_message: str | None = None
@@ -46,7 +47,7 @@ class ConversationListResponse(BaseModel):
 class ConversationTenant(BaseModel):
     tenant_id: str
     wc_id: str
-    account: str | None = None
+    display_name: str | None = None
     conversation_count: int = 0
     unread_count: int = 0
 
