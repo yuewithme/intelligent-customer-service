@@ -8,6 +8,14 @@ HARNESS_VERSION = "service-agent-harness-v1"
 FULL_CONVERSATION_CHAR_BUDGET = 20_000
 
 
+CUSTOMER_FACING_IDENTITY_PROMPT = """身份和客户可见语境：
+- 你始终是正在微信上亲自接待客户的萧岚苑养兰顾问小兰。客户不是在操作软件，也不是在和图片识别工具对话。
+- 回复只说客户此刻需要的判断、建议和自然的关系承接；不向客户暴露 AI、模型、系统、识别、接口、工具、失败、置信度或内部流程。
+- 图片观察是专业判断的软证据。能看出方向时直接用“看着是”或“看着更像”自然回答，再承接客户真正关心的问题；不把视觉结论生硬复述成检测报告。
+- 图片证据不足本身不是转人工条件，也不默认要求客户重发图片。先用已有上下文给出有用承接；确实需要更专业的实物或图片判断时，对客户只自然说“我再帮您请老师仔细确认一下”，再在后台安排。
+"""
+
+
 FIRST_ORDER_CORE_PROMPT = """你叫小兰，是萧岚苑的在线兰花销售顾问，也是这段客户关系的负责人。
 
 首要任务：以长期信任为前提推进成交。先理解客户真正的问题并建立专业价值，再推荐合适的商品或服务；成交机会成熟时直接推进，不要为了多聊而拖延。每轮都必须有明确的商业判断和关系目的，但不必在客户可见回复里强行推荐、逼单或追问。
@@ -179,7 +187,10 @@ def build_system_prompt(sop_scope: str = "first_order") -> str:
         f"- {name}: {description}"
         for name, description in descriptions.items()
     )
-    return f"{core_prompt}\n\n当前可发现能力（短说明）：\n{catalog}"
+    return (
+        f"{core_prompt}\n\n{CUSTOMER_FACING_IDENTITY_PROMPT}"
+        f"\n当前可发现能力（短说明）：\n{catalog}"
+    )
 
 
 def build_turn_payload(

@@ -84,8 +84,9 @@ async def test_verified_store_order_uses_dashscope_and_returns_purchase_tag(monk
     assert requests[0]["url"].endswith("/chat/completions")
     assert requests[0]["headers"]["Authorization"] == "Bearer test-key"
     prompt = requests[0]["json"]["messages"][0]["content"][1]["text"]
-    assert "只允许处理以下两个场景" in prompt
     assert "兰花病虫害或健康问题" in prompt
+    assert "正常兰花、开花状态或品类询问" in prompt
+    assert "软证据" in prompt
 
 
 def test_purchase_tag_is_disabled_by_default():
@@ -183,6 +184,46 @@ async def test_orchid_health_result_can_request_clarification(monkeypatch):
     assert result.category == "orchid_health"
     assert result.needs_clarification is True
     assert "干硬还是软烂" in vision_service.format_analysis_for_chat(result)
+
+
+@pytest.mark.asyncio
+async def test_healthy_orchid_identification_is_soft_evidence(monkeypatch):
+    from app.services import vision_service
+
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "test-key")
+    responses = [
+        {
+            "category": "orchid_general",
+            "summary": "一盆正在开花的兰花",
+            "order": None,
+            "orchid_health": None,
+            "orchid_general": {
+                "visible_features": ["叶片细长", "花梗从株基抽出"],
+                "likely_type": "看着更像建兰",
+                "identification_basis": ["叶姿和开花形态接近建兰"],
+                "uncertainties": ["远景无法确认具体品种"],
+                "flowering_state": "当前正在开花",
+                "care_observations": ["整株长势尚可"],
+            },
+            "needs_ocr": False,
+            "needs_clarification": True,
+            "confidence": 0.48,
+        }
+    ]
+    monkeypatch.setattr(
+        vision_service.httpx,
+        "AsyncClient",
+        lambda **kwargs: _FakeClient(responses, []),
+    )
+
+    result = await vision_service.analyze_image("https://cdn.example.com/bloom.jpg")
+    formatted = vision_service.format_analysis_for_chat(result)
+
+    assert result.category == "orchid_general"
+    assert "品类判断：看着更像建兰" in formatted
+    assert "以上是软证据" in formatted
+    assert "不向客户提及图片识别" in formatted
 
 
 @pytest.mark.asyncio
