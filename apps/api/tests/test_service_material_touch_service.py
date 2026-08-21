@@ -15,6 +15,7 @@ from app.infrastructure.database.models import (
 
 def _configure(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'business.db'}")
+    monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{tmp_path / 'chat.db'}")
     monkeypatch.setenv("SERVICE_MATERIAL_TOUCH_ENABLED", "true")
     monkeypatch.setenv("SERVICE_MATERIAL_TOUCH_TIMEZONE", "Asia/Shanghai")
     monkeypatch.setenv("SERVICE_MATERIAL_TOUCH_BATCH_SIZE", "20")
@@ -22,8 +23,10 @@ def _configure(monkeypatch, tmp_path):
     monkeypatch.setenv("SERVICE_MATERIAL_KNOWLEDGE_TIME", "10:00")
     monkeypatch.setenv("SERVICE_MATERIAL_TOPIC_TIME", "14:00")
     monkeypatch.setenv("SERVICE_MATERIAL_TOUCH_GRACE_MINUTES", "20")
+    monkeypatch.setenv("EYUN_WID", "wid-1")
     get_settings.cache_clear()
     service._database_factories.clear()
+    service._chat_factories.clear()
     service._last_contact_sync_at = None
     service._last_contact_sync_attempt_at = None
 
@@ -120,6 +123,20 @@ def test_explicit_refusal_excludes_service_touches(monkeypatch, tmp_path):
     ) == 0
 
 
+def test_contact_bound_to_old_instance_is_not_scheduled(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    with service._database_session() as session:
+        contact = session.query(EyunContactModel).one()
+        contact.current_w_id = "expired-wid"
+        session.commit()
+
+    assert service.ensure_service_material_touch_tasks(
+        now=datetime(2026, 8, 5, 4, 0, tzinfo=timezone.utc)
+    ) == 0
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("media", "expected_type"),
@@ -183,6 +200,8 @@ async def test_due_service_touch_queues_copy_before_media(
     assert queued[1]["depends_on_outbound_id"] == 1
     assert [item["material_id"] for item in queued] == [None, 99]
     assert queued[0]["source_batch_key"].startswith("service_material_touch:")
+    assert {item["sender_type"] for item in queued} == {"system"}
+    assert {item["sender_id"] for item in queued} == {"service_material_touch"}
     if expected_type == "video":
         assert json.loads(queued[1]["content"]) == {
             "path": "https://media.example.com/story.mp4",
@@ -290,6 +309,8 @@ def test_touch_completes_only_after_copy_and_media_are_sent(monkeypatch, tmp_pat
                 updated_at=now,
             )
         )
+        session.commit()
+    with service._chat_session() as session:
         session.add_all(
             [
                 EyunOutboundMessageModel(
@@ -312,6 +333,7 @@ def test_touch_completes_only_after_copy_and_media_are_sent(monkeypatch, tmp_pat
     service.sync_service_material_touch_from_outbound(batch_key, "sent")
     with service._database_session() as session:
         assert session.get(AgentWakeupModel, 1).status == "queued"
+    with service._chat_session() as session:
         media = session.scalar(
             service.select(EyunOutboundMessageModel).where(
                 EyunOutboundMessageModel.content == "视频"

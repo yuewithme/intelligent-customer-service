@@ -346,6 +346,32 @@ class EyunOutboundMessageModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class EyunOutboundDeliveryEventModel(Base):
+    __tablename__ = "eyun_outbound_delivery_events"
+    __table_args__ = (
+        Index("ix_eyun_outbound_event_message_time", "outbound_message_id", "created_at"),
+        Index("ix_eyun_outbound_event_batch_time", "source_batch_key", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    outbound_message_id: Mapped[int] = mapped_column(Integer, index=True)
+    conversation_message_id: Mapped[int | None] = mapped_column(
+        Integer, index=True, nullable=True
+    )
+    source_batch_key: Mapped[str | None] = mapped_column(
+        String(512), index=True, nullable=True
+    )
+    event: Mapped[str] = mapped_column(String(64), index=True)
+    status_from: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status_to: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+    provider_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class EyunSendRateModel(Base):
     __tablename__ = "eyun_send_rates"
 

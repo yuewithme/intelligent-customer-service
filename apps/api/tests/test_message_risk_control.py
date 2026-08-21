@@ -10,6 +10,7 @@ from app.infrastructure.database.models import (
     EyunInboundBatchModel,
     EyunInboundMessageModel,
     EyunOpeningControlModel,
+    EyunOutboundDeliveryEventModel,
     EyunOutboundMessageModel,
     EyunSendRateModel,
 )
@@ -53,6 +54,10 @@ def test_risk_control_models_have_table_names():
     assert EyunInboundBatchModel.__tablename__ == "eyun_inbound_batches"
     assert EyunInboundMessageModel.__tablename__ == "eyun_inbound_messages"
     assert EyunOutboundMessageModel.__tablename__ == "eyun_outbound_messages"
+    assert (
+        EyunOutboundDeliveryEventModel.__tablename__
+        == "eyun_outbound_delivery_events"
+    )
     assert EyunSendRateModel.__tablename__ == "eyun_send_rates"
     assert EyunOpeningControlModel.__tablename__ == "eyun_opening_controls"
     image_prompt_rate_model = getattr(models, "EyunImagePromptRateModel", None)
@@ -511,6 +516,12 @@ async def test_enqueue_outbound_adds_random_due_at(monkeypatch):
     assert row["due_at"] == now + timedelta(seconds=7)
     assert row["status"] == "queued"
     assert row["priority"] == 100
+    from app.integrations.eyun.services.message_risk_control_service import _get_session
+
+    with _get_session() as session:
+        event = session.query(EyunOutboundDeliveryEventModel).one()
+        assert event.event == "queued"
+        assert event.status_to == "queued"
 
 
 @pytest.mark.asyncio
@@ -1046,6 +1057,11 @@ async def test_send_worker_records_eyun_create_time(monkeypatch):
     with _get_session() as session:
         message = session.query(ConversationMessageModel).one()
         assert message.created_at.replace(tzinfo=timezone.utc) == provider_sent_at
+        events = session.query(EyunOutboundDeliveryEventModel).order_by(
+            EyunOutboundDeliveryEventModel.id
+        ).all()
+        assert [event.event for event in events] == ["send_started", "sent"]
+        assert events[-1].provider_code == "1000"
 
 
 @pytest.mark.asyncio

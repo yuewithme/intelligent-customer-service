@@ -21,6 +21,7 @@ from app.infrastructure.database.models import (
     EyunImagePromptRateModel,
     EyunMediaMaterialModel,
     EyunOpeningControlModel,
+    EyunOutboundDeliveryEventModel,
     EyunOutboundMessageModel,
     EyunSendRateModel,
 )
@@ -59,6 +60,59 @@ _initialized_urls: set[str] = set()
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _record_outbound_delivery_event(
+    session: Session,
+    row: EyunOutboundMessageModel,
+    *,
+    event: str,
+    status_from: str | None = None,
+    error: str | None = None,
+    provider_result: Any = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    provider_code = None
+    provider_message_id = None
+    provider_message = None
+    if isinstance(provider_result, dict):
+        provider_code = str(provider_result.get("code") or "") or None
+        provider_message = str(provider_result.get("message") or "") or None
+        data = provider_result.get("data")
+        if isinstance(data, dict):
+            provider_message_id = str(
+                data.get("newMsgId") or data.get("msgId") or ""
+            ) or None
+    event_metadata = dict(metadata or {})
+    if provider_message:
+        event_metadata["provider_message"] = provider_message[:500]
+    session.add(
+        EyunOutboundDeliveryEventModel(
+            outbound_message_id=row.id,
+            conversation_message_id=row.conversation_message_id,
+            source_batch_key=row.source_batch_key,
+            event=event,
+            status_from=status_from,
+            status_to=row.status,
+            attempt=int(row.attempts or 0),
+            provider_code=provider_code,
+            provider_message_id=provider_message_id,
+            error=(str(error)[:2000] if error else None),
+            metadata_json=json.dumps(
+                event_metadata, ensure_ascii=False, separators=(",", ":"), default=str
+            ),
+            created_at=utcnow(),
+        )
+    )
+    logger.info(
+        "Eyun outbound event id=%s event=%s status=%s->%s attempt=%s batch=%s",
+        row.id,
+        event,
+        status_from,
+        row.status,
+        int(row.attempts or 0),
+        row.source_batch_key,
+    )
 
 
 def build_eyun_batch_key(
@@ -461,6 +515,7 @@ async def enqueue_wechat_outbound(
     sender_id: str | None = "ai",
     source_type: str | None = None,
     source_id: str | None = None,
+    delivery_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     original_message_type = message_type
     original_content = content
@@ -524,6 +579,17 @@ async def enqueue_wechat_outbound(
         )
         with _get_session() as session:
             session.add(row)
+            session.flush()
+            _record_outbound_delivery_event(
+                session,
+                row,
+                event="queued",
+                metadata={
+                    "message_type": message_type,
+                    "due_at": row.due_at,
+                    **(delivery_metadata or {}),
+                },
+            )
             session.commit()
             session.refresh(row)
             return _outbound_to_dict(row)
@@ -699,9 +765,18 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     "failed",
                     "cancelled",
                 }:
+                    previous_status = row.status
                     row.status = "cancelled"
                     row.last_error = "前一条组合消息发送失败"
                     row.updated_at = now
+                    _record_outbound_delivery_event(
+                        session,
+                        row,
+                        event="dependency_cancelled",
+                        status_from=previous_status,
+                        error=row.last_error,
+                        metadata={"depends_on_outbound_id": row.depends_on_outbound_id},
+                    )
                     session.commit()
                     _sync_service_material_touch_outbound(
                         row.source_batch_key, row.status, row.last_error
@@ -717,9 +792,17 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     session.commit()
                     continue
             if not _validate_outbound_before_send(session, row):
+                previous_status = row.status
                 row.status = "cancelled"
                 row.last_error = "发送前条件已不满足"
                 row.updated_at = now
+                _record_outbound_delivery_event(
+                    session,
+                    row,
+                    event="preflight_cancelled",
+                    status_from=previous_status,
+                    error=row.last_error,
+                )
                 session.commit()
                 if row.conversation_message_id:
                     update_outbound_message_delivery(
@@ -740,12 +823,25 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                             content=legacy_content,
                         )
                     except Exception as exc:  # noqa: BLE001
+                        previous_status = row.status
                         row.attempts = (row.attempts or 0) + 1
                         row.status = "failed" if row.attempts >= 2 else "queued"
                         row.last_error = str(exc)
                         if row.status == "queued":
                             row.due_at = utcnow() + timedelta(seconds=30)
                         row.updated_at = utcnow()
+                        _record_outbound_delivery_event(
+                            session,
+                            row,
+                            event=(
+                                "material_prepare_failed"
+                                if row.status == "failed"
+                                else "material_prepare_retry_scheduled"
+                            ),
+                            status_from=previous_status,
+                            error=row.last_error,
+                            metadata={"next_due_at": row.due_at},
+                        )
                         session.commit()
                         _sync_service_material_touch_outbound(
                             row.source_batch_key, row.status, row.last_error
@@ -761,6 +857,16 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         f"received_{material['media_type']}", ""
                     )
                     row.updated_at = utcnow()
+                    _record_outbound_delivery_event(
+                        session,
+                        row,
+                        event="material_prepared",
+                        status_from=row.status,
+                        metadata={
+                            "material_id": row.material_id,
+                            "media_type": material["media_type"],
+                        },
+                    )
                     session.commit()
             rate = session.get(EyunSendRateModel, row.w_id)
             allowed_at = _next_allowed_send_at(rate.last_sent_at if rate else None)
@@ -772,8 +878,15 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 session.commit()
                 continue
 
+            previous_status = row.status
             row.status = "sending"
             row.updated_at = now
+            _record_outbound_delivery_event(
+                session,
+                row,
+                event="send_started",
+                status_from=previous_status,
+            )
             session.commit()
             if row.conversation_message_id:
                 update_outbound_message_delivery(
@@ -787,10 +900,23 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 try:
                     material = get_ready_material(row.material_id)
                 except Exception as exc:  # noqa: BLE001
+                    previous_status = row.status
                     row.status = "waiting_material"
                     row.last_error = str(exc)
                     row.updated_at = utcnow()
+                    _record_outbound_delivery_event(
+                        session,
+                        row,
+                        event="waiting_material",
+                        status_from=previous_status,
+                        error=row.last_error,
+                        metadata={"material_id": row.material_id},
+                    )
                     session.commit()
+                    if row.conversation_message_id:
+                        update_outbound_message_delivery(
+                            row.conversation_message_id, status="waiting_material"
+                        )
                     continue
                 material_message = (
                     f"received_{material['media_type']}",
@@ -860,17 +986,39 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     from app.integrations.eyun.services.eyun_material_service import mark_material_expired
 
                     mark_material_expired(row.material_id, str(exc))
+                    previous_status = row.status
                     row.status = "waiting_material"
                     row.last_error = str(exc)
                     row.updated_at = utcnow()
+                    _record_outbound_delivery_event(
+                        session,
+                        row,
+                        event="material_expired",
+                        status_from=previous_status,
+                        error=row.last_error,
+                        metadata={"material_id": row.material_id},
+                    )
                     session.commit()
+                    if row.conversation_message_id:
+                        update_outbound_message_delivery(
+                            row.conversation_message_id, status="waiting_material"
+                        )
                     continue
+                previous_status = row.status
                 row.attempts = (row.attempts or 0) + 1
                 row.status = "failed" if row.attempts >= 2 else "queued"
                 row.last_error = str(exc)
                 if row.status == "queued":
                     row.due_at = utcnow() + timedelta(seconds=30)
                 row.updated_at = utcnow()
+                _record_outbound_delivery_event(
+                    session,
+                    row,
+                    event=("send_failed" if row.status == "failed" else "retry_scheduled"),
+                    status_from=previous_status,
+                    error=row.last_error,
+                    metadata={"next_due_at": row.due_at},
+                )
                 session.commit()
                 if row.conversation_message_id:
                     update_outbound_message_delivery(
@@ -885,7 +1033,9 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 continue
 
             sent_at = _eyun_sent_at(send_result) or utcnow()
+            previous_status = row.status
             row.status = "sent"
+            row.last_error = None
             row.updated_at = sent_at
             if not row.conversation_message_id:
                 _mark_conversation_ai_message_sent(
@@ -902,6 +1052,14 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             else:
                 rate.last_sent_at = sent_at
                 rate.updated_at = sent_at
+            _record_outbound_delivery_event(
+                session,
+                row,
+                event="sent",
+                status_from=previous_status,
+                provider_result=send_result,
+                metadata={"sent_at": sent_at},
+            )
             session.commit()
             _sync_service_material_touch_outbound(row.source_batch_key, "sent")
             if row.conversation_message_id:
@@ -1856,6 +2014,7 @@ def _get_session() -> Session:
                 EyunMediaMaterialModel.__table__,
                 EyunBulkSendJobModel.__table__,
                 EyunOpeningControlModel.__table__,
+                EyunOutboundDeliveryEventModel.__table__,
                 EyunOutboundMessageModel.__table__,
                 EyunSendRateModel.__table__,
             ],

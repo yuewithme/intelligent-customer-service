@@ -557,7 +557,7 @@ async def _finalize_reply(
                 "result": (
                     "human_handoff"
                     if need_human and not outbound
-                    else "sent_with_handoff" if need_human else "sent"
+                    else "generated_with_handoff" if need_human else "generated"
                 ),
             },
             **({"handoff": context.handoff} if context.handoff else {}),
