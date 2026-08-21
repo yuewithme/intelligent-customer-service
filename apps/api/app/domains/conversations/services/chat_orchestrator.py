@@ -302,6 +302,23 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
                     if value not in (None, "", [], {})
                 },
             }
+    basic_info = profile_view.get("basic_info")
+    if isinstance(basic_info, dict):
+        excluded_name_fields = {
+            "nickname",
+            "remark_name",
+            "display_name",
+            "customer_name",
+        }
+        basic_info = {
+            key: value
+            for key, value in basic_info.items()
+            if key not in excluded_name_fields
+        }
+        if basic_info:
+            profile_view["basic_info"] = basic_info
+        else:
+            profile_view.pop("basic_info", None)
     memory_context = user_state.metadata.get("memory_v2_context")
     relationship = get_agent_relationship_state(message.user_id)
     workspace = {

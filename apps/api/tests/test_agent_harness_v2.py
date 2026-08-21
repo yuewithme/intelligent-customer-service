@@ -172,7 +172,21 @@ def test_turn_payload_prioritizes_unrelated_current_question_over_previous_flow(
     assert "先判断它是否真的在回答上一问" in payload["turn_focus"]["instruction"]
     assert "以当前消息为主先承接回答" in payload["turn_focus"]["instruction"]
     assert "不要为了完成上一轮提问或销售动作强行拉回" in payload["turn_focus"]["instruction"]
+    assert "第一条可见文字必须先给答案或可执行处理办法" in payload["turn_focus"]["instruction"]
+    assert "索要照片、补充信息或让客户检查不算回答" in payload["turn_focus"]["instruction"]
     assert "上一轮问题也不拥有续接权" in payload["context_priority"]
+
+
+def test_agent_prompts_do_not_address_customer_by_profile_name():
+    first_order_prompt = build_system_prompt(sop_scope="first_order")
+    service_prompt = build_system_prompt(sop_scope="service")
+
+    for prompt in (first_order_prompt, service_prompt):
+        assert "不使用客户的微信名、昵称、备注名或姓名称呼客户" in prompt
+        assert "直接用“您”进入正题" in prompt
+
+    assert "索要照片、询问症状或让客户自行检查都不算回答" in service_prompt
+    assert "先给安全的通用处理步骤" in service_prompt
 
 
 def test_turn_payload_keeps_latest_full_conversation_within_char_budget():
