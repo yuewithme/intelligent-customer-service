@@ -334,16 +334,14 @@ async def get_conversation_detail(conversation_id: str) -> dict:
                 ConversationMessageModel.id.asc(),
             )
         ).all()
-    from app.domains.sales.services.daily_touch_service import (
+    from app.domains.sales.services.service_material_touch_service import (
         get_agent_relationship_state,
-        get_daily_touch_snapshot,
     )
 
     return {
         "conversation": _conversation_to_dict(conversation),
         "messages": [_message_to_dict(row) for row in messages],
         "agent_relationship": get_agent_relationship_state(conversation.user_id),
-        "daily_touch": get_daily_touch_snapshot(conversation.user_id),
     }
 
 

@@ -21,7 +21,6 @@
       :conversation-id="selectedId"
       :conversation="conversation"
       :agent-relationship="agentRelationship"
-      :daily-touch="dailyTouch"
       :profile="profile"
       :profile-loading="profileLoading"
       @changed="handleChanged"
@@ -38,7 +37,6 @@ import {
   markConversationRead,
   type AgentRelationshipState,
   type ConversationDetail,
-  type DailyTouchSnapshot,
   type ConversationItem
 } from '@/api/admin/conversations'
 import { getUserProfileBundle, type UserProfile } from '@/api/user-profile'
@@ -62,7 +60,6 @@ const selectedUnreadCount = ref(0)
 const focusMessageId = ref<number>()
 const conversation = ref<ConversationItem>()
 const agentRelationship = ref<AgentRelationshipState>()
-const dailyTouch = ref<DailyTouchSnapshot>()
 const profile = ref<UserProfile>()
 const profileLoading = ref(false)
 const conversationListRef = ref<InstanceType<typeof ConversationList>>()
@@ -100,14 +97,12 @@ const clearSelection = () => {
   selectedUnreadCount.value = 0
   conversation.value = undefined
   agentRelationship.value = undefined
-  dailyTouch.value = undefined
   profile.value = undefined
 }
 
 const handleConversationLoaded = (detail: ConversationDetail | undefined) => {
   conversation.value = detail?.conversation
   agentRelationship.value = detail?.agent_relationship
-  dailyTouch.value = detail?.daily_touch
   void loadProfile(detail?.conversation.user_id)
   if (selectedUnreadCount.value > 0) {
     void markSelectedRead()

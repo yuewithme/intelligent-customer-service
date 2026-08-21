@@ -666,7 +666,9 @@ async def test_lifespan_starts_memory_worker_only_when_write_flag_enabled(monkey
         lambda stop: worker(stop, "eyun_login_monitor"),
     )
     monkeypatch.setattr(
-        lifecycle_module, "daily_touch_worker", lambda stop: worker(stop, "daily_touch")
+        lifecycle_module,
+        "service_material_touch_worker",
+        lambda stop: worker(stop, "service_material_touch"),
     )
     monkeypatch.setattr(
         lifecycle_module, "youzan_product_sync_worker", lambda stop: worker(stop, "youzan")
@@ -687,7 +689,7 @@ async def test_lifespan_starts_memory_worker_only_when_write_flag_enabled(monkey
         assert set(started) == {
             "eyun",
             "eyun_login_monitor",
-            "daily_touch",
+            "service_material_touch",
             "youzan",
             "youzan_order",
             "memory",

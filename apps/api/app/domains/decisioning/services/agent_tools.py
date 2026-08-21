@@ -139,12 +139,6 @@ CAPABILITIES = (
         "输入 {\"fact\":\"稳定事实或承诺\",\"evidence\":\"客户本轮原话中的原文证据\"}。客户回答养兰经验、环境、稳定偏好、目标或顾虑等会影响后续匹配的信息时，将其作为候选记忆提交。证据必须出现在本轮客户消息；不把模型猜测写成事实。",
     ),
     CapabilitySpec(
-        "wakeup.schedule",
-        "tool",
-        ("跟进", "唤醒", "提醒", "之后", "晚点", "明天", "沉默"),
-        "输入 {\"due_in_hours\":12,\"reason\":\"未来重新判断原因\",\"checklist\":[\"届时要核实什么\"]}。只保存重新判断任务，不保存未来话术；范围 1 到 168 小时。",
-    ),
-    CapabilitySpec(
         "human.handoff",
         "tool",
         ("人工", "退款", "赔偿", "投诉", "改价", "修改订单", "申请优惠", "品质", "权限"),
@@ -219,13 +213,6 @@ CAPABILITIES = (
         ("成交", "下单", "链接", "库存", "价格", "就要", "购买"),
         "客户问具体价格、库存、规格、链接或明确选择时，核实真实商品后直接给下一步；不要继续无关挖需，也不要把 prepared/queued 说成 sent。",
         ("service", "first_order"),
-    ),
-    CapabilitySpec(
-        "experience.daily_touch",
-        "experience",
-        ("每日", "触达", "跟进", "沉默", "不回复", "已拒绝"),
-        "每日发送是必须业务动作。先看今日 sent、购买状态、最近问题、顾虑和触达主题；每次选择新的关系目的，避免重复催单。已购以服务优先，明确拒绝降低压力但每天一次。",
-        ("first_order",),
     ),
     CapabilitySpec(
         "experience.discount",
@@ -340,7 +327,6 @@ async def execute_agent_tool(
         "order.search": _order_search,
         "order.get": _order_get,
         "memory.record": _memory_record,
-        "wakeup.schedule": _wakeup_schedule,
         "human.handoff": _human_handoff,
     }
     handler = handlers.get(name)
@@ -369,15 +355,9 @@ async def _capability_search(*, call_id, arguments, context) -> AgentToolResult:
     available = [
         item
         for item in CAPABILITIES
-        if (
-            item.kind == "tool"
-            or "shared" in item.scopes
-            or sop_scope in item.scopes
-        )
-        and (
-            get_settings().daily_touch_enabled
-            or item.name not in {"wakeup.schedule", "experience.daily_touch"}
-        )
+        if item.kind == "tool"
+        or "shared" in item.scopes
+        or sop_scope in item.scopes
     ]
     ranked = sorted(
         available,
@@ -924,39 +904,6 @@ async def _memory_record(*, call_id, arguments, context) -> AgentToolResult:
         occurred_at=datetime.now(timezone.utc),
     )
     return _result(call_id, "memory.record", "recorded", event_id=event_id, candidate_only=True)
-
-
-async def _wakeup_schedule(*, call_id, arguments, context) -> AgentToolResult:
-    if not get_settings().daily_touch_enabled:
-        return _result(
-            call_id,
-            "wakeup.schedule",
-            "temporarily_unavailable",
-            reason="legacy_touch_disabled",
-        )
-    try:
-        due_in_hours = float(arguments.get("due_in_hours"))
-    except (TypeError, ValueError):
-        return _result(call_id, "wakeup.schedule", "invalid_arguments", error="due_in_hours_required")
-    reason = _text(arguments.get("reason"), maximum=500)
-    checklist = [
-        _text(item, maximum=200)
-        for item in arguments.get("checklist", [])
-        if _text(item, maximum=200)
-    ] if isinstance(arguments.get("checklist"), list) else []
-    if not 1 <= due_in_hours <= 168 or not reason:
-        return _result(call_id, "wakeup.schedule", "invalid_arguments", error="invalid_schedule")
-    from app.domains.sales.services.daily_touch_service import schedule_agent_wakeup
-
-    wakeup = schedule_agent_wakeup(
-        customer_id=context.message.user_id,
-        tenant_id=context.message.tenant_id,
-        due_in_hours=due_in_hours,
-        reason=reason,
-        checklist=checklist,
-        source_trace_id=context.message.trace_id,
-    )
-    return _result(call_id, "wakeup.schedule", "scheduled", wakeup=wakeup)
 
 
 async def _human_handoff(*, call_id, arguments, context) -> AgentToolResult:

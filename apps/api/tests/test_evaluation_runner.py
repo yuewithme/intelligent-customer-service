@@ -516,7 +516,9 @@ async def test_lifespan_starts_and_stops_eyun_worker(monkeypatch):
     monkeypatch.setattr(
         lifecycle_module, "eyun_login_monitor_worker", fake_background_worker
     )
-    monkeypatch.setattr(lifecycle_module, "daily_touch_worker", fake_background_worker)
+    monkeypatch.setattr(
+        lifecycle_module, "service_material_touch_worker", fake_background_worker
+    )
     monkeypatch.setattr(
         lifecycle_module, "youzan_product_sync_worker", fake_background_worker
     )
