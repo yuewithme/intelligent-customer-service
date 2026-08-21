@@ -34,7 +34,6 @@ from app.domains.conversations.services.conversation_service import (
     ensure_outbound_conversation_message,
     force_handoff,
     make_conversation_id,
-    record_customer_message,
     update_outbound_message_delivery,
 )
 from app.domains.decisioning.services.customer_reply_formatter import plain_customer_text, split_customer_messages
@@ -1198,20 +1197,23 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         customer_snapshot.update(contact_snapshot)
 
-        if all_images_failed and wrong_store_order_count != image_count:
-            await _handoff_image_failure(
-                batch_id=batch_id,
-                batch=batch_data,
-                customer_snapshot=customer_snapshot,
-            )
-            _mark_batch(batch_id, "processed")
-            return
         if all_images_failed:
-            customer_snapshot["attachment_error"] = (
-                "图片识别确认这不是萧岚苑的订单截图"
-            )
-            if not batch_data["content"].strip():
-                batch_data["content"] = "[客户发送了一张订单截图]"
+            if wrong_store_order_count == image_count:
+                customer_snapshot["attachment_error"] = (
+                    "图片识别确认这不是萧岚苑的订单截图"
+                )
+                if not batch_data["content"].strip():
+                    batch_data["content"] = "[客户发送了一张订单截图]"
+            else:
+                customer_snapshot["vision_description"] = (
+                    "客户本轮发送了图片，但图片没有形成可靠的视觉结论。"
+                    "这只是软证据不足，不是转人工条件。请继续以萧岚苑养兰顾问身份"
+                    "结合客户文字和完整上下文自然承接，不向客户提及识别、模型、"
+                    "系统失败或技术故障。若确实需要更专业的图片判断，可自然表达为"
+                    "‘我再帮您请老师仔细确认一下’。"
+                )
+                if not batch_data["content"].strip():
+                    batch_data["content"] = "[客户发送了一张图片]"
 
         if is_first_inbound or needs_opening:
             # The first real customer message stays context-driven. A standalone
@@ -1560,54 +1562,6 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
             owner_external_id=str(batch.get("w_id") or ""),
             source_id=f"{batch['batch_key']}:assistant",
         )
-
-
-async def _handoff_image_failure(
-    *,
-    batch_id: int,
-    batch: dict[str, Any],
-    customer_snapshot: dict[str, Any],
-) -> None:
-    user_id = batch["from_user"] or batch["target_wc_id"]
-    conversation_id = make_conversation_id(
-        "wechat",
-        user_id,
-        _conversation_session_id(batch),
-    )
-    with _get_session() as session:
-        conversation_exists = session.scalar(
-            select(ConversationModel.id).where(
-                ConversationModel.conversation_id == conversation_id
-            )
-        ) is not None
-
-    if conversation_exists:
-        await force_handoff(
-            conversation_id,
-            operator_id="system",
-            reason="image_recognition_failure",
-        )
-        return
-
-    await record_customer_message(
-        channel="wechat",
-        user_id=user_id,
-        session_id=_conversation_session_id(batch),
-        tenant_id=_conversation_tenant_id(batch),
-        content=batch["content"] or "[图片]",
-        message_id=f"image-handoff:{batch['batch_key']}:{batch_id}",
-        route="image_recognition_handoff",
-        metadata={
-            "provider": "eyun",
-            "w_id": batch["w_id"],
-            "owner_wc_id": batch["wc_id"],
-            "contact_wc_id": user_id,
-            "wc_id": batch["wc_id"],
-            "batch_key": batch["batch_key"],
-            **customer_snapshot,
-        },
-        handoff_reason="image_recognition_failure",
-    )
 
 
 def _conversation_blocks_ai(batch: dict[str, Any]) -> bool:

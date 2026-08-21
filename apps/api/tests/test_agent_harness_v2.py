@@ -184,6 +184,9 @@ def test_agent_prompts_do_not_address_customer_by_profile_name():
     for prompt in (first_order_prompt, service_prompt):
         assert "不使用客户的微信名、昵称、备注名或姓名称呼客户" in prompt
         assert "直接用“您”进入正题" in prompt
+        assert "始终是正在微信上亲自接待客户的萧岚苑养兰顾问小兰" in prompt
+        assert "图片证据不足本身不是转人工条件" in prompt
+        assert "不向客户暴露 AI、模型、系统、识别" in prompt
 
     assert "索要照片、询问症状或让客户自行检查都不算回答" in service_prompt
     assert "先给安全的通用处理步骤" in service_prompt

@@ -73,17 +73,29 @@ class OrchidHealthAnalysis(BaseModel):
     clarifying_questions: list[str] = Field(default_factory=list)
 
 
+class OrchidGeneralAnalysis(BaseModel):
+    visible_features: list[str] = Field(default_factory=list)
+    likely_type: str = ""
+    identification_basis: list[str] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+    flowering_state: str = ""
+    care_observations: list[str] = Field(default_factory=list)
+
+
 class VisionAnalysis(BaseModel):
-    category: Literal["order", "orchid_health", "unsupported"] = "unsupported"
+    category: Literal[
+        "order", "orchid_health", "orchid_general", "unsupported"
+    ] = "unsupported"
     summary: str = ""
     order: OrderScreenshotAnalysis | None = None
     orchid_health: OrchidHealthAnalysis | None = None
+    orchid_general: OrchidGeneralAnalysis | None = None
     needs_ocr: bool = False
     needs_clarification: bool = False
     confidence: float = Field(default=0, ge=0, le=1)
 
 
-VISION_PROMPT = """你是兰花私域销售系统的一期图片识别模块。你只允许处理以下两个场景，禁止做其他通用图片描述：
+VISION_PROMPT = """你是萧岚苑养兰客服的图片观察助手。图片结论是客服判断的软证据，不是硬路由条件。处理以下场景：
 
 场景一：订单截图
 - 必须确实是电商订单详情、待收货、已发货或交易完成页面。
@@ -96,13 +108,19 @@ VISION_PROMPT = """你是兰花私域销售系统的一期图片识别模块。�
 - 图片必须展示兰花的叶、根、芦头、花或整株，并存在可见异常。
 - 输出可见症状、最可能问题、第二候选、不确定项、安全处理建议和需要追问的问题。
 - 仅凭照片不能确定病原时必须保留不确定性；不要把干硬的正常老叶鞘直接判成腐烂。
-- 不识别兰花品种或商品名称，不对健康兰花做病害诊断。
+- 不对健康兰花硬做病害诊断。
 
-其他情况：category 必须为 unsupported，不描述图片内容。
+场景三：正常兰花、开花状态或品类询问
+- category 设为 orchid_general。
+- 客观记录可见的花、叶、假鳞茎、整株状态和开花情况。
+- 客户询问“是不是建兰”等品类时，可以给出 likely_type 和判断依据；证据不足时使用“更像、可能是”，不强行精确到具体品种或商品名。
+- 可以给出与图片直接相关的养护观察，但不从单张照片夸大推断。
+
+其他非订单、非兰花图片：category 为 unsupported，不猜测与客户养兰问题无关的内容。
 
 只返回一个 JSON 对象，不要使用 Markdown。格式必须为：
 {
-  "category": "order | orchid_health | unsupported",
+  "category": "order | orchid_health | orchid_general | unsupported",
   "summary": "",
   "order": {
     "is_order_screenshot": false,
@@ -125,6 +143,14 @@ VISION_PROMPT = """你是兰花私域销售系统的一期图片识别模块。�
     "isolation_needed": false,
     "safe_actions": [],
     "clarifying_questions": []
+  },
+  "orchid_general": {
+    "visible_features": [],
+    "likely_type": "",
+    "identification_basis": [],
+    "uncertainties": [],
+    "flowering_state": "",
+    "care_observations": []
   },
   "needs_ocr": false,
   "needs_clarification": false,
@@ -170,7 +196,10 @@ async def analyze_image(image_source: str) -> VisionAnalysis:
         except VisionError as exc:
             logger.warning("Vision OCR fallback failed: %s", exc)
 
-    if analysis.confidence < settings.vision_min_confidence:
+    if (
+        analysis.category == "order"
+        and analysis.confidence < settings.vision_min_confidence
+    ):
         raise VisionRecognitionError("image recognition confidence is insufficient")
     if analysis.category == "order":
         if not is_supported_store_order(analysis):
@@ -186,6 +215,10 @@ async def analyze_image(image_source: str) -> VisionAnalysis:
         health = analysis.orchid_health
         if not health or not health.visible_symptoms or not health.primary_diagnosis:
             raise VisionRecognitionError("orchid health result is incomplete")
+    elif analysis.category == "orchid_general":
+        general = analysis.orchid_general
+        if not general or (not general.visible_features and not analysis.summary.strip()):
+            raise VisionRecognitionError("orchid general result is incomplete")
     else:
         raise VisionRecognitionError("unsupported image category")
     return analysis
@@ -369,6 +402,30 @@ def format_analysis_for_chat(analysis: VisionAnalysis, *, index: int = 1) -> str
         if health.clarifying_questions:
             lines.append("建议向用户追问：" + "；".join(health.clarifying_questions))
         lines.append("注意：图片诊断仅作初步判断，不能替代实物检查。")
+        return "\n".join(_redact_sensitive(line) for line in lines)
+
+    general = analysis.orchid_general
+    if analysis.category == "orchid_general" and general:
+        lines = [f"[用户发送的第{index}张图片：兰花日常观察]"]
+        if general.visible_features:
+            lines.append("可见情况：" + "；".join(general.visible_features))
+        elif analysis.summary:
+            lines.append(f"图片观察：{analysis.summary}")
+        if general.likely_type:
+            lines.append(f"品类判断：{general.likely_type}")
+        if general.identification_basis:
+            lines.append("判断依据：" + "；".join(general.identification_basis))
+        if general.flowering_state:
+            lines.append(f"开花状态：{general.flowering_state}")
+        if general.care_observations:
+            lines.append("养护观察：" + "；".join(general.care_observations))
+        if general.uncertainties:
+            lines.append("不确定项：" + "；".join(general.uncertainties))
+        lines.append(
+            "客服使用：以上是软证据；请以萧岚苑养兰顾问身份自然回答，"
+            "有把握就给出判断，证据不足时使用‘看着更像’等条件化表达，"
+            "不向客户提及图片识别、模型或系统。"
+        )
         return "\n".join(_redact_sensitive(line) for line in lines)
     raise VisionRecognitionError("unsupported image category")
 

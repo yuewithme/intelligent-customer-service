@@ -195,11 +195,11 @@ async def test_verified_store_order_does_not_add_disabled_purchase_tag(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_unrecognized_image_silently_hands_off(monkeypatch):
+async def test_unrecognized_image_continues_as_soft_agent_context(monkeypatch):
     from app.services import message_risk_control_service as service
 
     queued = []
-    handoffs = []
+    chat_requests = []
     now = datetime(2026, 7, 18, 12, 10, tzinfo=timezone.utc)
     monkeypatch.setattr(service, "utcnow", lambda: now - timedelta(seconds=120))
     await service.enqueue_eyun_inbound(
@@ -227,24 +227,32 @@ async def test_unrecognized_image_silently_hands_off(monkeypatch):
         queued.append(kwargs)
         return kwargs
 
-    async def fake_record_customer_message(**kwargs):
-        handoffs.append(kwargs)
-        return kwargs
+    async def fake_handle_chat(request):
+        chat_requests.append(request)
+        return {
+            "answer": "看着更像建兰，一年开两次说明这盆在您那里长得挺好。"
+        }
+
+    async def fail_if_handoff(*args, **kwargs):
+        raise AssertionError("图片证据不足不应转人工")
 
     monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(service, "handle_chat", fake_handle_chat)
+    monkeypatch.setattr(service, "force_handoff", fail_if_handoff)
     monkeypatch.setattr(
         service, "ensure_outbound_conversation_message", fake_conversation_message
     )
     monkeypatch.setattr(service, "enqueue_eyun_outbound", fake_enqueue_outbound)
-    monkeypatch.setattr(service, "record_customer_message", fake_record_customer_message)
     monkeypatch.setattr(service, "random_reply_delay_seconds", lambda: 0)
     monkeypatch.setattr(service, "utcnow", lambda: now)
 
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
-    assert queued == []
-    assert len(handoffs) == 1
-    assert handoffs[0]["route"] == "image_recognition_handoff"
-    assert handoffs[0]["handoff_reason"] == "image_recognition_failure"
+    assert len(chat_requests) == 1
+    assert chat_requests[0].message == "[客户发送了一张图片]"
+    assert "不是转人工条件" in chat_requests[0].metadata["vision_description"]
+    assert [item["content"] for item in queued] == [
+        "看着更像建兰，一年开两次说明这盆在您那里长得挺好。"
+    ]
 
 
 @pytest.mark.asyncio
@@ -305,12 +313,12 @@ async def test_order_from_other_store_is_passed_to_agent(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_second_image_failure_within_cooldown_silently_hands_off(monkeypatch):
+async def test_repeated_image_failure_still_continues_with_agent(monkeypatch):
     from app.services import message_risk_control_service as service
     from app.services import vision_service
 
     queued = []
-    handoffs = []
+    chat_requests = []
     recognition_attempts = 0
     now = datetime(2026, 7, 18, 12, 20, tzinfo=timezone.utc)
 
@@ -331,17 +339,21 @@ async def test_second_image_failure_within_cooldown_silently_hands_off(monkeypat
         queued.append(kwargs)
         return kwargs
 
-    async def fake_record_customer_message(**kwargs):
-        handoffs.append(kwargs)
-        return kwargs
+    async def fake_handle_chat(request):
+        chat_requests.append(request)
+        return {"answer": "我先结合您说的情况帮您看。"}
+
+    async def fail_if_handoff(*args, **kwargs):
+        raise AssertionError("重复图片识别失败也不应硬转人工")
 
     monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
     monkeypatch.setattr(vision_service, "analyze_image", fake_analyze)
+    monkeypatch.setattr(service, "handle_chat", fake_handle_chat)
+    monkeypatch.setattr(service, "force_handoff", fail_if_handoff)
     monkeypatch.setattr(
         service, "ensure_outbound_conversation_message", fake_conversation_message
     )
     monkeypatch.setattr(service, "enqueue_eyun_outbound", fake_enqueue_outbound)
-    monkeypatch.setattr(service, "record_customer_message", fake_record_customer_message)
     monkeypatch.setattr(service, "random_reply_delay_seconds", lambda: 0)
 
     monkeypatch.setattr(service, "utcnow", lambda: now - timedelta(seconds=120))
@@ -362,8 +374,7 @@ async def test_second_image_failure_within_cooldown_silently_hands_off(monkeypat
     monkeypatch.setattr(service, "utcnow", lambda: now)
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
     assert len(queued) == 1
-    assert "最想解决的问题" in queued[0]["content"]
-    assert handoffs == []
+    assert "attachment_error" in chat_requests[0].metadata
 
     monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=1))
     await service.enqueue_eyun_inbound(
@@ -383,7 +394,7 @@ async def test_second_image_failure_within_cooldown_silently_hands_off(monkeypat
     monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=62))
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
 
-    assert len(queued) == 1
-    assert len(handoffs) == 1
-    assert handoffs[0]["route"] == "image_recognition_handoff"
-    assert handoffs[0]["handoff_reason"] == "image_recognition_failure"
+    assert recognition_attempts == 2
+    assert len(queued) == 2
+    assert len(chat_requests) == 2
+    assert "不是转人工条件" in chat_requests[1].metadata["vision_description"]
