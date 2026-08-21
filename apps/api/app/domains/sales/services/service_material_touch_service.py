@@ -34,6 +34,7 @@ _SERVICE_MATERIAL_KIND = "service_material_touch"
 _SERVICE_TAG_CATEGORY_IDS = {"service_status", "service_tag"}
 _INACTIVE_SERVICE_TAG_MARKERS = ("暂停", "停止", "结束", "退订", "禁用")
 _database_factories: dict[str, sessionmaker] = {}
+_chat_factories: dict[str, sessionmaker] = {}
 _last_contact_sync_at: datetime | None = None
 _last_contact_sync_attempt_at: datetime | None = None
 
@@ -114,13 +115,17 @@ def ensure_service_material_touch_tasks(*, now: datetime | None = None) -> int:
         service_customer_ids = _service_customer_ids(session, service_tag_values)
         if not service_customer_ids:
             return 0
+        contact_filters = [
+            EyunContactModel.status == "active",
+            EyunContactModel.wc_id.in_(service_customer_ids),
+        ]
+        configured_w_id = settings.eyun_wid.strip()
+        if configured_w_id:
+            contact_filters.append(EyunContactModel.current_w_id == configured_w_id)
         contacts = list(
             session.scalars(
                 select(EyunContactModel)
-                .where(
-                    EyunContactModel.status == "active",
-                    EyunContactModel.wc_id.in_(service_customer_ids),
-                )
+                .where(*contact_filters)
                 .order_by(EyunContactModel.id.asc())
             )
         )
@@ -250,6 +255,13 @@ async def _process_service_material_touch(
             row.updated_at = now
             session.commit()
             return False
+        configured_w_id = get_settings().eyun_wid.strip()
+        if configured_w_id and contact.current_w_id != configured_w_id:
+            row.status = "technical_skip"
+            row.last_error = "联系人仍绑定旧发送实例，等待联系人同步"
+            row.updated_at = now
+            session.commit()
+            return False
         if not _profile_has_active_service_tag(
             session, row.customer_id, _active_service_tag_values()
         ):
@@ -318,7 +330,7 @@ async def _process_service_material_touch(
         _mark_service_material_touch(wakeup_id, "failed", "定时素材类型或地址无效")
         return False
     copy_text = str(material.get("copy_text") or "").strip()
-    messages = (("text", copy_text, None),)
+    messages = (("text", copy_text, None, "copy"),)
     if not copy_text:
         _mark_service_material_touch(wakeup_id, "failed", "定时素材缺少已审核文案")
         return False
@@ -343,12 +355,31 @@ async def _process_service_material_touch(
             error=f"定时素材转换失败：{type(exc).__name__}",
         )
         return False
-    messages += ((media_type, media_content, int(prepared_material["id"])),)
+    messages += (
+        (media_type, media_content, int(prepared_material["id"]), "media"),
+    )
+
+    delivery_metadata = {
+        "touch_kind": _SERVICE_MATERIAL_KIND,
+        "slot_id": slot_id,
+        "material_ref": material.get("material_ref"),
+        "copy_ref": material.get("copy_ref"),
+        "copy_type": material.get("copy_type"),
+        "copy_version": material.get("copy_version"),
+    }
+    logger.info(
+        "Service material touch matched task=%s slot=%s material=%s copy=%s type=%s",
+        wakeup_id,
+        slot_id,
+        material.get("material_ref"),
+        material.get("copy_ref"),
+        media_type,
+    )
 
     dependency_id: int | None = None
     due_at = now
     try:
-        for message_type, content, material_id in messages:
+        for message_type, content, material_id, message_role in messages:
             queued = await enqueue_wechat_outbound(
                 w_id=w_id,
                 wc_id=customer_id,
@@ -362,8 +393,14 @@ async def _process_service_material_touch(
                 user_id=customer_id,
                 session_id="default",
                 tenant_id=tenant_id,
+                sender_type="system",
+                sender_id=_SERVICE_MATERIAL_KIND,
                 source_type=_SERVICE_MATERIAL_KIND,
                 source_id=str(wakeup_id),
+                delivery_metadata={
+                    **delivery_metadata,
+                    "message_role": message_role,
+                },
             )
             dependency_id = int(queued["id"])
             due_at += timedelta(seconds=3)
@@ -428,6 +465,13 @@ def validate_service_material_touch_before_send(source_batch_key: str | None) ->
             row.updated_at = _utcnow()
             session.commit()
             return False
+        configured_w_id = get_settings().eyun_wid.strip()
+        if configured_w_id and contact.current_w_id != configured_w_id:
+            row.status = "technical_skip"
+            row.last_error = "发送前发现联系人仍绑定旧发送实例"
+            row.updated_at = _utcnow()
+            session.commit()
+            return False
         service_tagged = _profile_has_active_service_tag(
             session, row.customer_id, _active_service_tag_values()
         )
@@ -455,14 +499,15 @@ def sync_service_material_touch_from_outbound(
         if row is None or row.kind != _SERVICE_MATERIAL_KIND:
             return
         if status == "sent":
-            outbound_statuses = list(
-                session.scalars(
-                    select(EyunOutboundMessageModel.status).where(
-                        EyunOutboundMessageModel.source_batch_key
-                        == source_batch_key
+            with _chat_session() as chat_session:
+                outbound_statuses = list(
+                    chat_session.scalars(
+                        select(EyunOutboundMessageModel.status).where(
+                            EyunOutboundMessageModel.source_batch_key
+                            == source_batch_key
+                        )
                     )
                 )
-            )
             if not outbound_statuses or any(
                 value != "sent" for value in outbound_statuses
             ):
@@ -553,12 +598,22 @@ def _database_session() -> Session:
                 EyunContactModel.__table__,
                 AgentCustomerStateModel.__table__,
                 AgentWakeupModel.__table__,
-                EyunOutboundMessageModel.__table__,
                 UserProfileModel.__table__,
             ],
         )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _database_factories[url] = factory
+    return factory()
+
+
+def _chat_session() -> Session:
+    url = get_settings().chat_log_db_url
+    factory = _chat_factories.get(url)
+    if factory is None:
+        engine = create_engine(url)
+        Base.metadata.create_all(engine, tables=[EyunOutboundMessageModel.__table__])
+        factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        _chat_factories[url] = factory
     return factory()
 
 

@@ -2367,7 +2367,7 @@ async def test_hard_guard_rewrites_once_and_keeps_safe_agent_reply(monkeypatch):
         "hard_rewrite_requested",
         "accepted",
     ]
-    assert reply.metadata["agent_runtime"]["result"] == "sent"
+    assert reply.metadata["agent_runtime"]["result"] == "generated"
 
 
 @pytest.mark.asyncio

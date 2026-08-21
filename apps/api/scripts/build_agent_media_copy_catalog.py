@@ -29,8 +29,16 @@ def build_catalog(root: Path, *, version: int) -> dict[str, Any]:
         category = str(row.get("category") or "").strip()
         relative_path = str(row.get("relative_path") or "").replace("\\", "/")
         topic_title = _topic_title(relative_path)
-        copy = media_copy_for(title=topic_title, category=category)
-        copy_ref = copy_ref_for(category=category, topic=copy["copy_topic"])
+        copy = media_copy_for(
+            title=topic_title,
+            category=category,
+            variant_key=relative_path,
+        )
+        copy_ref = copy_ref_for(
+            category=category,
+            topic=copy["copy_topic"],
+            variant_key=relative_path,
+        )
         row.update(
             {
                 "copy_ref": copy_ref,
