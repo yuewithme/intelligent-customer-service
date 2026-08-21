@@ -16,6 +16,7 @@ from app.domains.customers.services.memory_vector_service import (
     reset_memory_vector_cache,
     search_memory_episodes,
 )
+from app.shared.schemas.common import AppError, ErrorCode
 
 
 @pytest.fixture
@@ -418,3 +419,44 @@ async def test_evidence_expansion_is_bounded_and_excludes_restricted_content(
     assert all(
         item.content.get("text") != "restricted evidence" for item in context.evidence
     )
+
+
+@pytest.mark.asyncio
+async def test_retrieval_falls_back_to_sql_when_vector_service_is_unavailable(
+    memory_db, monkeypatch
+):
+    from app.services import memory_retrieval_service
+
+    subject = _subject()
+    event = _event(subject, uid="fallback:memory", text="我喜欢白色兰花")
+    _fact(
+        subject,
+        event,
+        key="service.preference",
+        value={"topic": "flower_color", "value": "白色"},
+    )
+    episode_id = _episode(
+        subject,
+        [event],
+        title="白色兰花偏好",
+        summary="客户明确喜欢白色兰花",
+        importance=0.9,
+    )
+
+    async def unavailable_search(*args, **kwargs):
+        raise AppError(ErrorCode.QDRANT_FAILED, status_code=502)
+
+    monkeypatch.setattr(
+        memory_retrieval_service,
+        "search_memory_episodes",
+        unavailable_search,
+    )
+    context = await retrieve_memory_context(
+        tenant_id=subject.tenant_id,
+        subject_id=subject.id,
+        query="我之前喜欢什么颜色的兰花",
+    )
+
+    assert context.current_facts[0].fact_value["value"] == "白色"
+    assert context.relevant_episodes[0].episode_id == episode_id
+    assert [item.event_id for item in context.evidence] == [event.id]

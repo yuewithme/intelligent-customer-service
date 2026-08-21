@@ -16,6 +16,7 @@ from app.domains.customers.services.memory_job_service import (
 )
 from app.domains.customers.services.memory_validation_service import MemoryValidationError
 from app.domains.customers.services.memory_vector_service import index_memory_episode
+from app.shared.schemas.common import AppError
 
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,17 @@ async def process_memory_job(job, *, use_llm: bool, min_confidence: float) -> in
             )
             continue
         if result.memory_kind == "episode" and result.record_id is not None:
-            await index_memory_episode(
-                tenant_id=job.tenant_id,
-                subject_id=job.subject_id,
-                episode_id=result.record_id,
-            )
+            try:
+                await index_memory_episode(
+                    tenant_id=job.tenant_id,
+                    subject_id=job.subject_id,
+                    episode_id=result.record_id,
+                )
+            except AppError as exc:
+                logger.warning(
+                    "Memory episode vector projection unavailable; SQL episode retained: %s",
+                    type(exc).__name__,
+                )
         accepted += int(result.created)
     return accepted
 

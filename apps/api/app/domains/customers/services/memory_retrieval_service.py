@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,6 +27,9 @@ from app.domains.customers.services.memory_query_planner import plan_memory_quer
 from app.domains.customers.services.memory_repository import get_memory_session
 from app.domains.customers.services.memory_rerank_service import score_memory_episode
 from app.domains.customers.services.memory_vector_service import search_memory_episodes
+
+
+logger = logging.getLogger(__name__)
 
 
 _SOURCE_RELIABILITY = {
@@ -183,6 +187,34 @@ def _load_episode_candidates(
     return episodes, hit_scores
 
 
+def _load_sql_episode_candidates(
+    session,
+    *,
+    tenant_id: str,
+    subject_id: str,
+    as_of: datetime,
+    limit: int,
+) -> tuple[list[MemoryEpisodeModel], dict[int, float]]:
+    episodes = list(
+        session.scalars(
+            select(MemoryEpisodeModel)
+            .where(
+                MemoryEpisodeModel.tenant_id == tenant_id,
+                MemoryEpisodeModel.subject_id == subject_id,
+                MemoryEpisodeModel.status == "active",
+                MemoryEpisodeModel.started_at <= as_of,
+            )
+            .order_by(
+                MemoryEpisodeModel.importance.desc(),
+                MemoryEpisodeModel.started_at.desc(),
+                MemoryEpisodeModel.id.desc(),
+            )
+            .limit(max(50, limit * 5))
+        )
+    )
+    return episodes, {episode.id: 0.0 for episode in episodes}
+
+
 def _episode_evidence(
     session,
     *,
@@ -279,19 +311,33 @@ async def retrieve_memory_context(
 
         episode_contexts: list[MemoryEpisodeContext] = []
         if plan.include_episodes and settings.memory_v2_context_max_episodes:
-            vector = await embed_text(query)
-            vector_hits = await search_memory_episodes(
-                vector,
-                tenant_id=tenant_id,
-                subject_id=subject_id,
-                top_k=settings.memory_v2_retrieval_top_k,
-            )
-            episodes, hit_scores = _load_episode_candidates(
-                session,
-                tenant_id=tenant_id,
-                subject_id=subject_id,
-                vector_hits=vector_hits,
-            )
+            try:
+                vector = await embed_text(query)
+                vector_hits = await search_memory_episodes(
+                    vector,
+                    tenant_id=tenant_id,
+                    subject_id=subject_id,
+                    top_k=settings.memory_v2_retrieval_top_k,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Memory vector retrieval unavailable; using SQL fallback: %s",
+                    type(exc).__name__,
+                )
+                episodes, hit_scores = _load_sql_episode_candidates(
+                    session,
+                    tenant_id=tenant_id,
+                    subject_id=subject_id,
+                    as_of=as_of,
+                    limit=settings.memory_v2_retrieval_top_k,
+                )
+            else:
+                episodes, hit_scores = _load_episode_candidates(
+                    session,
+                    tenant_id=tenant_id,
+                    subject_id=subject_id,
+                    vector_hits=vector_hits,
+                )
             evidence_by_episode, reliability, restricted_episode_ids = (
                 _episode_evidence(
                     session,
