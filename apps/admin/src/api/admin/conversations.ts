@@ -55,6 +55,7 @@ export interface AgentRelationshipState {
 }
 
 export interface DailyTouchSnapshot {
+  enabled: boolean
   local_date: string
   timezone: string
   sent_message_count: number

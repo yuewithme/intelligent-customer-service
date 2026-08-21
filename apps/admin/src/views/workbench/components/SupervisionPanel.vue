@@ -25,13 +25,15 @@
           <dd>{{ routeText(conversation.last_route) }}</dd>
           <dt>客户信号</dt>
           <dd>{{ customerSignalText(agentRelationship?.customer_signal) }}</dd>
-          <dt>今日触达</dt>
-          <dd>
-            {{ dailyTouch?.sent_message_count || 0 }}/{{ dailyTouch?.daily_maximum || 2 }} 次
-            <ElTag v-if="dailyTouch?.completed_today" size="small" type="success" effect="plain">
-              已完成
-            </ElTag>
-          </dd>
+          <template v-if="dailyTouch?.enabled">
+            <dt>今日触达</dt>
+            <dd>
+              {{ dailyTouch.sent_message_count || 0 }}/{{ dailyTouch.daily_maximum || 2 }} 次
+              <ElTag v-if="dailyTouch.completed_today" size="small" type="success" effect="plain">
+                已完成
+              </ElTag>
+            </dd>
+          </template>
           <dt>接管人</dt>
           <dd>{{ conversation.owner_id || '-' }}</dd>
           <dt>转人工原因</dt>
