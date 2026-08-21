@@ -20,6 +20,27 @@
           <strong>{{ currentTitle }}</strong>
           <span>小兰自主销售 Agent 的实时运营与人工协作</span>
         </div>
+        <div v-if="showTenantSwitcher" class="tenant-switcher">
+          <span class="tenant-label">消息租户</span>
+          <ElSelect
+            :model-value="tenantStore.selectedTenantId"
+            :loading="tenantStore.loading"
+            placeholder="暂无可切换的微信账号"
+            @change="switchTenant"
+          >
+            <ElOption
+              v-for="tenant in tenantStore.tenants"
+              :key="tenant.tenant_id"
+              :label="tenantOptionLabel(tenant)"
+              :value="tenant.tenant_id"
+            >
+              <div class="tenant-option">
+                <span>{{ tenant.account || '微信账号' }}</span>
+                <small>{{ tenant.wc_id }} · {{ tenant.conversation_count }} 个会话</small>
+              </div>
+            </ElOption>
+          </ElSelect>
+        </div>
         <div class="operator">
           <span v-if="testMode" class="test-badge">测试模式</span>
           <span>{{ userStore.user.nickname }}</span>
@@ -32,17 +53,36 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/modules/user'
 import { clearAccessToken } from '@/utils/auth'
 import { clearGateRole, isTestGate } from '@/utils/gate'
+import { useMessageTenantStore } from '@/store/modules/messageTenant'
+import type { ConversationTenant } from '@/api/admin/conversations'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const currentTitle = computed(() => String(route.meta.title || '小兰工作台'))
 const testMode = isTestGate()
+const tenantStore = useMessageTenantStore()
+const showTenantSwitcher = computed(() => !testMode && route.path === '/workbench')
+
+const tenantOptionLabel = (tenant: ConversationTenant) =>
+  tenant.account ? `${tenant.account}（${tenant.wc_id}）` : tenant.wc_id
+
+const switchTenant = (tenantId: string) => {
+  tenantStore.selectTenant(tenantId)
+}
+
+onMounted(() => {
+  if (showTenantSwitcher.value) void tenantStore.loadTenants()
+})
+
+watch(showTenantSwitcher, (visible) => {
+  if (visible) void tenantStore.loadTenants()
+})
 
 const navigation = [
   {
@@ -92,10 +132,16 @@ nav a:hover, nav a.router-link-active { color: #fff; background: #23634f; }
 header { display: flex; align-items: center; justify-content: space-between; min-height: 64px; padding: 0 22px; background: #fff; border-bottom: 1px solid #e5e7eb; }
 header strong, header span { display: block; }
 header span { margin-top: 3px; color: #84918c; font-size: 12px; }
+.tenant-switcher { display: flex; align-items: center; gap: 10px; width: min(440px, 38vw); }
+.tenant-switcher .tenant-label { flex: 0 0 auto; margin: 0; color: #50645d; font-size: 13px; }
+.tenant-switcher :deep(.el-select) { flex: 1; }
+.tenant-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.tenant-option small { color: #84918c; font-size: 12px; }
 .operator { display: flex; align-items: center; gap: 12px; }
 .operator span { color: #33443e; font-size: 14px; }
 .operator .test-badge { padding: 4px 9px; color: #9a4f00; font-weight: 700; background: #fff2d8; border-radius: 999px; }
 .operator button { padding: 6px 10px; color: #50645d; cursor: pointer; background: transparent; border: 1px solid #cfdad6; border-radius: 7px; }
 main { min-width: 0; }
-@media (max-width: 820px) { .sales-layout { grid-template-columns: 1fr; } .sidebar { position: static; width: 100%; height: auto; } nav { display: none; } }
+@media (max-width: 1100px) { .tenant-switcher { width: min(340px, 34vw); } .tenant-label { display: none; } }
+@media (max-width: 820px) { .sales-layout { grid-template-columns: 1fr; } .sidebar { position: static; width: 100%; height: auto; } nav { display: none; } .tenant-switcher { width: min(300px, 44vw); } }
 </style>

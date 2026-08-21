@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import {
@@ -74,6 +74,7 @@ import {
   type ConversationGroupItem
 } from '../conversationGrouping'
 import { formatChinaTime } from '../time'
+import { useMessageTenantStore } from '@/store/modules/messageTenant'
 
 defineProps<{ activeKey: string }>()
 const emit = defineEmits<{
@@ -83,6 +84,7 @@ const emit = defineEmits<{
 }>()
 
 const testGate = isTestGate()
+const tenantStore = useMessageTenantStore()
 const loading = ref(false)
 const status = ref('')
 const keyword = ref('')
@@ -105,7 +107,11 @@ const load = async (options: { silent?: boolean } = {}) => {
       status: status.value || undefined,
       keyword: keyword.value || undefined,
       channel: testView.value ? undefined : 'wechat',
-      test_only: testGate ? undefined : testView.value
+      test_only: testGate ? undefined : testView.value,
+      tenant_id:
+        !testGate && !testView.value
+          ? tenantStore.selectedTenantId || undefined
+          : undefined
     })
     items.value = groupConversationsByCustomer(data.items, {
       collapseTestData: testGate
@@ -178,7 +184,21 @@ const getItemByKey = (groupKey: string) => items.value.find((item) => item.group
 const getItemByConversationId = (conversationId: string) =>
   items.value.find((item) => item.conversation_ids.includes(conversationId))
 
-onMounted(load)
+watch(
+  () => tenantStore.selectedTenantId,
+  async (tenantId, previousTenantId) => {
+    if (testGate || testView.value || tenantId === previousTenantId) return
+    items.value = []
+    emit('viewChange')
+    if (pendingLoad) await pendingLoad
+    await load()
+  }
+)
+
+onMounted(async () => {
+  if (!testGate) await tenantStore.loadTenants()
+  await load()
+})
 
 defineExpose({ load, getItemByKey, getItemByConversationId })
 </script>

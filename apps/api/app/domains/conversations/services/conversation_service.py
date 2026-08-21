@@ -154,6 +154,7 @@ async def list_conversations(
     excluded_user_id_prefix: str | None = None,
     wechat_group_allowlist: tuple[str, ...] | None = None,
     test_data: bool | None = None,
+    tenant_id: str | None = None,
 ) -> dict:
     page = max(page, 1)
     page_size = max(min(page_size, 200), 1)
@@ -167,6 +168,8 @@ async def list_conversations(
             filters.append(ConversationModel.last_message.like(f"%{keyword}%"))
         if channels:
             filters.append(ConversationModel.channel.in_(channels))
+        if tenant_id:
+            filters.append(ConversationModel.tenant_id == tenant_id)
         if user_id_prefix:
             filters.append(ConversationModel.user_id.like(f"{user_id_prefix}%"))
         if excluded_user_id_prefix:
@@ -344,6 +347,76 @@ async def get_conversation_detail(conversation_id: str) -> dict:
     }
 
 
+def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
+    """List WeChat accounts that own workbench conversations.
+
+    Eyun's callback ``wcId`` identifies the currently logged-in WeChat account.
+    Historical rows are backfilled from message metadata when the database is
+    initialized, so the switcher also works for conversations created before
+    tenant-aware writes were introduced.
+    """
+    with _get_session() as session:
+        rows = session.execute(
+            select(
+                ConversationModel.tenant_id,
+                ConversationModel.owner_wc_id,
+                func.count(ConversationModel.id),
+                func.coalesce(func.sum(ConversationModel.unread_count), 0),
+                func.max(ConversationModel.updated_at),
+            )
+            .where(
+                ConversationModel.channel == "wechat",
+                ConversationModel.hidden_at.is_(None),
+                ConversationModel.owner_wc_id.is_not(None),
+            )
+            .group_by(ConversationModel.tenant_id, ConversationModel.owner_wc_id)
+            .order_by(func.max(ConversationModel.updated_at).desc())
+        ).all()
+        owner_ids = {str(row[1] or "").strip() for row in rows if row[1]}
+        accounts: dict[str, str] = {}
+        if owner_ids:
+            metadata_rows = session.scalars(
+                select(ConversationMessageModel.metadata_json)
+                .where(ConversationMessageModel.metadata_json.like('%"wc_id"%'))
+                .order_by(
+                    ConversationMessageModel.created_at.desc(),
+                    ConversationMessageModel.id.desc(),
+                )
+            ).all()
+            for value in metadata_rows:
+                metadata = _load_metadata(value)
+                wc_id = str(metadata.get("wc_id") or "").strip()
+                account = str(metadata.get("account") or "").strip()
+                if wc_id in owner_ids and account and wc_id not in accounts:
+                    accounts[wc_id] = account
+                if len(accounts) == len(owner_ids):
+                    break
+
+    items = [
+        {
+            "tenant_id": str(tenant_id),
+            "wc_id": str(owner_wc_id),
+            "account": accounts.get(str(owner_wc_id)) or None,
+            "conversation_count": int(conversation_count or 0),
+            "unread_count": int(unread_count or 0),
+        }
+        for tenant_id, owner_wc_id, conversation_count, unread_count, _ in rows
+    ]
+    configured_wc_id = get_settings().eyun_wc_id.strip()
+    if configured_wc_id and not any(item["wc_id"] == configured_wc_id for item in items):
+        items.insert(
+            0,
+            {
+                "tenant_id": configured_wc_id,
+                "wc_id": configured_wc_id,
+                "account": None,
+                "conversation_count": 0,
+                "unread_count": 0,
+            },
+        )
+    return {"items": items}
+
+
 async def record_ai_turn(*, message, result: dict) -> None:
     conversation_id = make_conversation_id(
         message.channel, message.user_id, message.session_id
@@ -365,6 +438,8 @@ async def record_ai_turn(*, message, result: dict) -> None:
     should_notify_handoff = (
         status == HANDOFF_PENDING and not suppress_handoff_notification
     )
+    owner_wc_id = _owner_wc_id(message.channel, message.metadata)
+    tenant_id = owner_wc_id or message.tenant_id
     with _get_session() as session:
         conversation = session.scalar(
             select(ConversationModel).where(
@@ -417,7 +492,8 @@ async def record_ai_turn(*, message, result: dict) -> None:
                     ),
                 ),
                 session_id=message.session_id,
-                tenant_id=message.tenant_id,
+                tenant_id=tenant_id,
+                owner_wc_id=owner_wc_id,
                 created_at=now,
                 updated_at=now,
             )
@@ -457,6 +533,9 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 conversation.user_display_name = display_name
             if avatar_url:
                 conversation.user_avatar_url = avatar_url
+            if owner_wc_id:
+                conversation.owner_wc_id = owner_wc_id
+                conversation.tenant_id = owner_wc_id
 
         if conversation.status in AI_BLOCKED_STATUSES:
             conversation.last_message = message.message
@@ -473,7 +552,8 @@ async def record_ai_turn(*, message, result: dict) -> None:
                         metadata_json=json.dumps(
                             {
                                 "channel": message.channel,
-                                "tenant_id": message.tenant_id,
+                                "tenant_id": tenant_id,
+                                **({"wc_id": owner_wc_id} if owner_wc_id else {}),
                                 "ai_blocked": True,
                             },
                             ensure_ascii=False,
@@ -512,7 +592,8 @@ async def record_ai_turn(*, message, result: dict) -> None:
                     metadata_json=json.dumps(
                         {
                             "channel": message.channel,
-                            "tenant_id": message.tenant_id,
+                            "tenant_id": tenant_id,
+                            **({"wc_id": owner_wc_id} if owner_wc_id else {}),
                             **turn_metadata,
                         },
                         ensure_ascii=False,
@@ -530,6 +611,8 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 {
                     "sources": result.get("sources", []),
                     "template": result.get("template", {}),
+                    "tenant_id": tenant_id,
+                    **({"wc_id": owner_wc_id} if owner_wc_id else {}),
                     **turn_metadata,
                 },
             )
@@ -646,7 +729,8 @@ async def record_customer_message(
     handoff_reason: str | None = None,
 ) -> dict:
     metadata = metadata or {}
-    tenant_id = tenant_id or "tenant_default"
+    owner_wc_id = _owner_wc_id(channel, metadata)
+    tenant_id = owner_wc_id or tenant_id or "tenant_default"
     conversation_id = make_conversation_id(channel, user_id, session_id)
     now = _now()
     should_notify_handoff = status == HANDOFF_PENDING
@@ -698,6 +782,7 @@ async def record_customer_message(
                 ),
                 session_id=session_id,
                 tenant_id=tenant_id,
+                owner_wc_id=owner_wc_id,
                 created_at=now,
                 updated_at=now,
             )
@@ -736,6 +821,9 @@ async def record_customer_message(
                 conversation.user_display_name = display_name
             if avatar_url:
                 conversation.user_avatar_url = avatar_url
+            if owner_wc_id:
+                conversation.owner_wc_id = owner_wc_id
+                conversation.tenant_id = owner_wc_id
 
         preserve_ai_lock = conversation.status in AI_BLOCKED_STATUSES
         if preserve_ai_lock:
@@ -807,6 +895,9 @@ async def ensure_outbound_conversation_message(
     reconcile_pending: bool = True,
 ) -> dict:
     """Create or reconcile one outbound message shown in the workbench."""
+    metadata = metadata or {}
+    owner_wc_id = _owner_wc_id(channel, metadata)
+    tenant_id = owner_wc_id or tenant_id
     conversation_id = make_conversation_id(channel, user_id, session_id)
     now = _now()
     display_content = _outbound_display_content(message_type, content)
@@ -825,6 +916,7 @@ async def ensure_outbound_conversation_message(
                 user_id=user_id,
                 session_id=session_id,
                 tenant_id=tenant_id,
+                owner_wc_id=owner_wc_id,
                 status=AI_WAITING,
                 unread_count=0,
                 created_at=now,
@@ -832,6 +924,9 @@ async def ensure_outbound_conversation_message(
             )
             session.add(conversation)
             session.flush()
+        elif owner_wc_id:
+            conversation.owner_wc_id = owner_wc_id
+            conversation.tenant_id = owner_wc_id
 
         message = None
         if trace_id:
@@ -1643,6 +1738,7 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
         "user_avatar_url": row.user_avatar_url,
         "session_id": row.session_id,
         "tenant_id": row.tenant_id,
+        "owner_wc_id": row.owner_wc_id,
         "status": row.status,
         "owner_id": row.owner_id,
         "last_message": row.last_message,
@@ -1712,6 +1808,13 @@ def _load_metadata(value: str | None) -> dict[str, Any]:
     except (json.JSONDecodeError, TypeError):
         return {}
     return metadata if isinstance(metadata, dict) else {}
+
+
+def _owner_wc_id(channel: str, metadata: dict[str, Any]) -> str | None:
+    if channel != "wechat" or metadata.get("provider") != "eyun":
+        return None
+    value = str(metadata.get("wc_id") or "").strip()
+    return value or None
 
 
 def _evaluation_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -1871,6 +1974,16 @@ def _ensure_conversation_columns(factory: sessionmaker) -> None:
             session.execute(text("ALTER TABLE conversations ADD COLUMN user_avatar_url TEXT"))
         if "hidden_at" not in columns:
             session.execute(text("ALTER TABLE conversations ADD COLUMN hidden_at DATETIME"))
+        if "owner_wc_id" not in columns:
+            session.execute(
+                text("ALTER TABLE conversations ADD COLUMN owner_wc_id VARCHAR(256)")
+            )
+        session.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_conversations_owner_wc_id "
+                "ON conversations (owner_wc_id)"
+            )
+        )
         message_columns = {
             column["name"]
             for column in inspect(bind).get_columns("conversation_messages")
@@ -1882,4 +1995,42 @@ def _ensure_conversation_columns(factory: sessionmaker) -> None:
                     "ADD COLUMN delivery_status VARCHAR(32)"
                 )
             )
+        _backfill_conversation_tenants(session)
         session.commit()
+
+
+def _backfill_conversation_tenants(session: Session) -> None:
+    latest_owner_by_conversation: dict[str, str] = {}
+    rows = session.execute(
+        select(
+            ConversationMessageModel.conversation_id,
+            ConversationMessageModel.metadata_json,
+        )
+        .where(ConversationMessageModel.metadata_json.like('%"wc_id"%'))
+        .order_by(
+            ConversationMessageModel.created_at.desc(),
+            ConversationMessageModel.id.desc(),
+        )
+    ).all()
+    for conversation_id, value in rows:
+        if conversation_id in latest_owner_by_conversation:
+            continue
+        metadata = _load_metadata(value)
+        if metadata.get("provider") != "eyun":
+            continue
+        wc_id = str(metadata.get("wc_id") or "").strip()
+        if wc_id:
+            latest_owner_by_conversation[str(conversation_id)] = wc_id
+
+    if not latest_owner_by_conversation:
+        return
+    conversations = session.scalars(
+        select(ConversationModel).where(
+            ConversationModel.conversation_id.in_(latest_owner_by_conversation)
+        )
+    ).all()
+    for conversation in conversations:
+        wc_id = latest_owner_by_conversation[conversation.conversation_id]
+        if conversation.owner_wc_id != wc_id or conversation.tenant_id != wc_id:
+            conversation.owner_wc_id = wc_id
+            conversation.tenant_id = wc_id

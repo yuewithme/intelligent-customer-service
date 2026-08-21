@@ -113,7 +113,7 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
         (
             "wxid_customer",
             {
-                "tenant_id": "tenant_default",
+                "tenant_id": "wxid_bot",
                 "channel": "wechat",
                 "basic_info": {
                     "owner_wc_id": "wxid_bot",
@@ -603,7 +603,9 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     conversations = client.get("/api/v1/admin/conversations").json()["data"]
     assert conversations["total"] == 1
     item = conversations["items"][0]
-    assert item["conversation_id"] == "wechat:wxid_customer:default"
+    assert item["conversation_id"] == "wechat:wxid_customer:wxid_bot"
+    assert item["tenant_id"] == "wxid_bot"
+    assert item["owner_wc_id"] == "wxid_bot"
     assert item["status"] == "ai_waiting"
     assert item["last_message"] == "[图片]"
 

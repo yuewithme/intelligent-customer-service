@@ -12,6 +12,7 @@ export interface ConversationItem {
   user_avatar_url?: string | null
   session_id?: string | null
   tenant_id: string
+  owner_wc_id?: string | null
   status: ConversationStatus
   owner_id?: string | null
   last_message?: string | null
@@ -44,6 +45,18 @@ export interface ConversationListResponse {
   total: number
   page: number
   page_size: number
+}
+
+export interface ConversationTenant {
+  tenant_id: string
+  wc_id: string
+  account?: string | null
+  conversation_count: number
+  unread_count: number
+}
+
+export interface ConversationTenantList {
+  items: ConversationTenant[]
 }
 
 export interface AgentRelationshipState {
@@ -127,7 +140,13 @@ export const getConversations = (params: {
   keyword?: string
   channel?: string
   test_only?: boolean
+  tenant_id?: string
 }) => request.get<ConversationListResponse>({ url: conversationBase(), params })
+
+export const getConversationTenants = () =>
+  request.get<ConversationTenantList>({
+    url: '/api/v1/admin/conversations/tenants'
+  })
 
 export const getConversationDetail = (conversationId: string) =>
   request.get<ConversationDetail>({

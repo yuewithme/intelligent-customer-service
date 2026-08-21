@@ -61,8 +61,37 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def build_eyun_batch_key(*, w_id: str, target_wc_id: str, from_user: str) -> str:
-    return f"{w_id}:{target_wc_id or from_user}"
+def build_eyun_batch_key(
+    *, w_id: str, target_wc_id: str, from_user: str, owner_wc_id: str = ""
+) -> str:
+    target = target_wc_id or from_user
+    return f"{w_id}:{owner_wc_id}:{target}" if owner_wc_id else f"{w_id}:{target}"
+
+
+def _conversation_session_id(batch: Any) -> str:
+    if isinstance(batch, dict):
+        from_group = batch.get("from_group")
+        owner_wc_id = batch.get("wc_id")
+        batch_key = batch.get("batch_key")
+    else:
+        from_group = getattr(batch, "from_group", None)
+        owner_wc_id = getattr(batch, "wc_id", None)
+        batch_key = getattr(batch, "batch_key", None)
+    if from_group:
+        return str(from_group)
+    if owner_wc_id and (
+        not batch_key or f":{owner_wc_id}:" in str(batch_key)
+    ):
+        return str(owner_wc_id)
+    return "default"
+
+
+def _conversation_tenant_id(batch: Any) -> str:
+    if isinstance(batch, dict):
+        owner_wc_id = batch.get("wc_id")
+    else:
+        owner_wc_id = getattr(batch, "wc_id", None)
+    return str(owner_wc_id or "tenant_default")
 
 
 def _inbound_batch_due_at(*, now: datetime, started_at: datetime) -> datetime:
@@ -94,7 +123,10 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
     target_wc_id = from_group or from_user
     wc_id = str(payload.get("wcId") or data.get("toUser") or "")
     batch_key = build_eyun_batch_key(
-        w_id=w_id, target_wc_id=target_wc_id, from_user=from_user
+        w_id=w_id,
+        target_wc_id=target_wc_id,
+        from_user=from_user,
+        owner_wc_id=wc_id,
     )
     due_at = _inbound_batch_due_at(now=now, started_at=now)
     provider_message_id = _provider_message_id(payload, batch_key, now)
@@ -1000,7 +1032,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 ChatRequest(
                     channel="wechat",
                     user_id=batch_data["from_user"] or batch_data["target_wc_id"],
-                    session_id=batch_data["from_group"],
+                    session_id=_conversation_session_id(batch_data),
                     message=batch_data["content"],
                     kb_id=get_settings().wechat_default_kb_id,
                     metadata={
@@ -1008,6 +1040,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "account": batch_data["account"],
                         "message_type": batch_data["message_type"],
                         "wc_id": batch_data["wc_id"],
+                        "tenant_id": _conversation_tenant_id(batch_data),
                         "w_id": batch_data["w_id"],
                         "from_user": batch_data["from_user"],
                         "from_group": batch_data["from_group"],
@@ -1027,7 +1060,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 ChatRequest(
                     channel="wechat",
                     user_id=batch_data["from_user"] or batch_data["target_wc_id"],
-                    session_id=batch_data["from_group"],
+                    session_id=_conversation_session_id(batch_data),
                     message=batch_data["content"],
                     kb_id=get_settings().wechat_default_kb_id,
                     metadata={
@@ -1035,6 +1068,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "account": batch_data["account"],
                         "message_type": batch_data["message_type"],
                         "wc_id": batch_data["wc_id"],
+                        "tenant_id": _conversation_tenant_id(batch_data),
                         "w_id": batch_data["w_id"],
                         "from_user": batch_data["from_user"],
                         "from_group": batch_data["from_group"],
@@ -1056,6 +1090,9 @@ async def _process_inbound_batch(batch_id: int) -> None:
             outbound_messages = _outbound_messages(chat_result)
             sales_turn_id = str(chat_result.get("trace_id") or "").strip()
             sales_metadata = {
+                "provider": "eyun",
+                "wc_id": batch_data["wc_id"],
+                "tenant_id": _conversation_tenant_id(batch_data),
                 **({"sales_turn_id": sales_turn_id} if sales_turn_id else {}),
                 "source_batch_key": batch_data["batch_key"],
             }
@@ -1070,7 +1107,8 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 conversation_message = await ensure_outbound_conversation_message(
                     channel="wechat",
                     user_id=batch_data["from_user"] or batch_data["target_wc_id"],
-                    session_id=batch_data["from_group"],
+                    session_id=_conversation_session_id(batch_data),
+                    tenant_id=_conversation_tenant_id(batch_data),
                     content=message["content"],
                     message_type=message["type"],
                     sender_type="ai",
@@ -1109,7 +1147,9 @@ async def _finalize_eyun_handoff(
     if not chat_result.get("need_human"):
         return chat_result
     user_id = batch["from_user"] or batch["target_wc_id"]
-    conversation_id = make_conversation_id("wechat", user_id, batch["from_group"])
+    conversation_id = make_conversation_id(
+        "wechat", user_id, _conversation_session_id(batch)
+    )
     handoff = chat_result.get("handoff")
     handoff = handoff if isinstance(handoff, dict) else {}
     reason = str(handoff.get("reason") or "human_required")
@@ -1150,7 +1190,7 @@ def _source_trace_metadata(
 ) -> dict[str, Any]:
     user_id = str(batch.get("from_user") or batch.get("target_wc_id") or "")
     conversation_id = make_conversation_id(
-        "wechat", user_id, batch.get("from_group")
+        "wechat", user_id, _conversation_session_id(batch)
     )
     provider_message_ids = []
     for payload in payloads:
@@ -1293,11 +1333,11 @@ async def _prepare_inbound_content(
 
 async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
     user_id = batch["from_user"] or batch["target_wc_id"]
-    session_id = batch["from_group"] or "default"
+    session_id = _conversation_session_id(batch)
     if batch.get("content"):
         await append_conversation_memory(
             user_id=user_id,
-            tenant_id="tenant_default",
+            tenant_id=_conversation_tenant_id(batch),
             session_id=session_id,
             role="user",
             content=batch["content"],
@@ -1310,7 +1350,7 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
     if answer:
         await append_conversation_memory(
             user_id=user_id,
-            tenant_id="tenant_default",
+            tenant_id=_conversation_tenant_id(batch),
             session_id=session_id,
             role="assistant",
             content=answer,
@@ -1332,7 +1372,7 @@ async def _handoff_image_failure(
     conversation_id = make_conversation_id(
         "wechat",
         user_id,
-        batch["from_group"],
+        _conversation_session_id(batch),
     )
     with _get_session() as session:
         conversation_exists = session.scalar(
@@ -1352,7 +1392,8 @@ async def _handoff_image_failure(
     await record_customer_message(
         channel="wechat",
         user_id=user_id,
-        session_id=batch["from_group"],
+        session_id=_conversation_session_id(batch),
+        tenant_id=_conversation_tenant_id(batch),
         content=batch["content"] or "[图片]",
         message_id=f"image-handoff:{batch['batch_key']}:{batch_id}",
         route="image_recognition_handoff",
@@ -1371,7 +1412,7 @@ def _conversation_blocks_ai(batch: dict[str, Any]) -> bool:
     conversation_id = make_conversation_id(
         "wechat",
         batch["from_user"] or batch["target_wc_id"],
-        batch["from_group"],
+        _conversation_session_id(batch),
     )
     with _get_session() as session:
         conversation = session.scalar(
@@ -1525,7 +1566,7 @@ def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
     conversation_id = make_conversation_id(
         "wechat",
         batch["from_user"] or batch["target_wc_id"],
-        batch["from_group"],
+        _conversation_session_id(batch),
     )
     with _get_session() as session:
         return session.scalar(
@@ -1559,13 +1600,19 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
         conversation_message = await ensure_outbound_conversation_message(
             channel="wechat",
             user_id=batch["from_user"] or batch["target_wc_id"],
-            session_id=batch["from_group"],
+            session_id=_conversation_session_id(batch),
+            tenant_id=_conversation_tenant_id(batch),
             content=message["content"],
             message_type=message["type"],
             sender_type="ai",
             sender_id="ai",
             route="opening",
             created_after=batch["created_at"],
+            metadata={
+                "provider": "eyun",
+                "wc_id": str(batch.get("wc_id") or ""),
+                "tenant_id": _conversation_tenant_id(batch),
+            },
         )
         kwargs = {
             "w_id": batch["w_id"],
@@ -1699,7 +1746,7 @@ def _mark_conversation_ai_message_sent(
     conversation_id = make_conversation_id(
         "wechat",
         batch.from_user or batch.target_wc_id,
-        batch.from_group,
+        _conversation_session_id(batch),
     )
     message = session.scalar(
         select(ConversationMessageModel)

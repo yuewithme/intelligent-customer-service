@@ -144,7 +144,8 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         await ensure_outbound_conversation_message(
             channel="wechat",
             user_id=user_id,
-            session_id=str(data.get("fromGroup") or "default"),
+            session_id=_eyun_conversation_session_id(payload, data),
+            tenant_id=_eyun_tenant_id(payload, data),
             content=str(data.get("content") or ""),
             message_type=(
                 "text" if is_eyun_text_message(payload) else _eyun_message_kind(message_type)
@@ -171,7 +172,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     if not str(data.get("fromGroup") or "").strip():
         await ensure_user_profile(
             user_id,
-            tenant_id=str(payload.get("tenant_id") or "tenant_default"),
+            tenant_id=_eyun_tenant_id(payload, data),
             channel="wechat",
             basic_info={
                 "owner_wc_id": str(payload.get("wcId") or data.get("toUser") or ""),
@@ -210,7 +211,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     await record_customer_message(
         channel="wechat",
         user_id=user_id,
-        session_id="default",
+        session_id=_eyun_conversation_session_id(payload, data),
         content=_eyun_display_content(payload),
         message_id=_eyun_message_id(data),
         status=(
@@ -243,6 +244,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             or is_opening_event
             else "unsupported_message_type"
         ),
+        tenant_id=_eyun_tenant_id(payload, data),
         metadata=metadata,
     )
 
@@ -254,9 +256,9 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             w_id=str(data.get("wId") or payload.get("wId") or get_settings().eyun_wid or ""),
             wc_id=user_id,
             user_id=user_id,
-            tenant_id=str(payload.get("tenant_id") or "tenant_default"),
+            tenant_id=_eyun_tenant_id(payload, data),
             channel="wechat",
-            session_id="default",
+            session_id=_eyun_conversation_session_id(payload, data),
         )
 
     if is_private_image:
@@ -333,6 +335,24 @@ def _is_self_message(data: dict[str, Any]) -> bool:
 
 def _eyun_conversation_user_id(data: dict[str, Any]) -> str:
     return str(data.get("fromGroup") or data.get("fromUser") or "")
+
+
+def _eyun_owner_wc_id(payload: dict[str, Any], data: dict[str, Any]) -> str:
+    return str(payload.get("wcId") or data.get("toUser") or "").strip()
+
+
+def _eyun_tenant_id(payload: dict[str, Any], data: dict[str, Any]) -> str:
+    return _eyun_owner_wc_id(payload, data) or str(
+        payload.get("tenant_id") or "tenant_default"
+    )
+
+
+def _eyun_conversation_session_id(
+    payload: dict[str, Any], data: dict[str, Any]
+) -> str:
+    return str(
+        data.get("fromGroup") or _eyun_owner_wc_id(payload, data) or "default"
+    )
 
 
 def _eyun_message_id(data: dict[str, Any]) -> str | None:
