@@ -47,6 +47,7 @@ import ConversationList from './components/ConversationList.vue'
 import MessagePanel from './components/MessagePanel.vue'
 import WorkbenchSidePanel from './components/WorkbenchSidePanel.vue'
 import { isTestGate } from '@/utils/gate'
+import { useMessageTenantStore } from '@/store/modules/messageTenant'
 
 defineOptions({ name: 'Workbench' })
 
@@ -54,6 +55,7 @@ const FALLBACK_SYNC_INTERVAL_MS = 30_000
 
 const selectedId = ref('')
 const route = useRoute()
+const tenantStore = useMessageTenantStore()
 const selectedIds = ref<string[]>([])
 const selectedGroupKey = ref('')
 const selectedUnreadCount = ref(0)
@@ -133,7 +135,10 @@ const markSelectedRead = async () => {
 }
 
 const syncWorkbench = async (conversationId?: string) => {
-  await conversationListRef.value?.load({ silent: true })
+  await Promise.all([
+    conversationListRef.value?.load({ silent: true }),
+    isTestGate() ? Promise.resolve() : tenantStore.loadTenants({ silent: true })
+  ])
   if (selectedGroupKey.value) {
     const selectedGroup = conversationListRef.value?.getItemByKey(selectedGroupKey.value)
     if (selectedGroup) {
@@ -201,6 +206,17 @@ const restoreRouteConversation = async () => {
     selectConversation(item)
   } else {
     const detail = await getConversationDetail(conversationId)
+    if (!isTestGate() && detail.conversation.tenant_id !== tenantStore.selectedTenantId) {
+      tenantStore.selectTenant(detail.conversation.tenant_id)
+      await conversationListRef.value?.load({ silent: true })
+      const scopedItem = conversationListRef.value?.getItemByConversationId(conversationId)
+      if (scopedItem) {
+        selectConversation(scopedItem)
+        focusMessageId.value =
+          Number.isInteger(messageId) && messageId > 0 ? messageId : undefined
+        return
+      }
+    }
     selectedId.value = detail.conversation.conversation_id
     selectedIds.value = [detail.conversation.conversation_id]
     selectedGroupKey.value = ''

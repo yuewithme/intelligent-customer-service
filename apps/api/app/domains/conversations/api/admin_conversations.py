@@ -20,6 +20,7 @@ from app.domains.conversations.services.conversation_service import (
     get_conversation_detail,
     hide_conversation,
     list_conversations,
+    list_conversation_tenants,
     mark_conversation_read,
     list_conversation_emojis,
     release_to_ai,
@@ -89,6 +90,7 @@ async def conversations(
     keyword: str | None = None,
     channel: str | None = None,
     test_only: bool = False,
+    tenant_id: str | None = None,
 ) -> APIResponse:
     material_group_wc_id = get_settings().eyun_material_group_wc_id.strip()
     data = await list_conversations(
@@ -101,8 +103,18 @@ async def conversations(
         excluded_user_id_prefix=None if test_only else DEMO_USER_PREFIX,
         wechat_group_allowlist=(material_group_wc_id,) if material_group_wc_id else (),
         test_data=test_only,
+        tenant_id=tenant_id,
     )
     return APIResponse(code=0, message="success", data=data)
+
+
+@router.get("/tenants", response_model=APIResponse)
+async def conversation_tenants() -> APIResponse:
+    return APIResponse(
+        code=0,
+        message="success",
+        data=list_conversation_tenants(),
+    )
 
 
 @router.post("/{conversation_id:path}/claim", response_model=APIResponse)

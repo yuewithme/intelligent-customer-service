@@ -58,6 +58,44 @@ def test_admin_conversation_list_filters_by_channel(monkeypatch, tmp_path):
     assert data["items"][0]["user_id"] == "real_customer"
 
 
+def test_admin_conversations_are_scoped_by_eyun_wc_id(monkeypatch, tmp_path):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    for wc_id, account in (
+        ("wxid_shop_a", "兰花一店"),
+        ("wxid_shop_b", "兰花二店"),
+    ):
+        asyncio.run(
+            record_customer_message(
+                channel="wechat",
+                user_id="shared_customer",
+                session_id=wc_id,
+                content=f"hello from {wc_id}",
+                metadata={
+                    "provider": "eyun",
+                    "wc_id": wc_id,
+                    "account": account,
+                },
+            )
+        )
+
+    client = TestClient(app)
+    tenants = client.get("/api/v1/admin/conversations/tenants").json()["data"]["items"]
+    tenant_accounts = {item["wc_id"]: item["account"] for item in tenants}
+    assert tenant_accounts["wxid_shop_a"] == "兰花一店"
+    assert tenant_accounts["wxid_shop_b"] == "兰花二店"
+
+    scoped = client.get(
+        "/api/v1/admin/conversations",
+        params={"channel": "wechat", "tenant_id": "wxid_shop_b"},
+    ).json()["data"]
+    assert scoped["total"] == 1
+    assert scoped["items"][0]["user_id"] == "shared_customer"
+    assert scoped["items"][0]["session_id"] == "wxid_shop_b"
+    assert scoped["items"][0]["owner_wc_id"] == "wxid_shop_b"
+
+
 def test_evaluation_turn_is_recorded_as_a_labeled_workbench_conversation(
     monkeypatch, tmp_path
 ):
@@ -793,11 +831,11 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
         },
     )
     claim = client.post(
-        "/api/v1/admin/conversations/wechat:wxid_sender:default/claim",
+        "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot/claim",
         json={"operator_id": "op_001"},
     )
     reply = client.post(
-        "/api/v1/admin/conversations/wechat:wxid_sender:default/reply",
+        "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot/reply",
         json={"operator_id": "op_001", "content": "human reply"},
     )
 
@@ -811,7 +849,7 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
     assert sent[0]["source_batch_key"].startswith("workbench:")
     assert sent[0]["conversation_message_id"] > 0
 
-    detail = client.get("/api/v1/admin/conversations/wechat:wxid_sender:default")
+    detail = client.get("/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot")
     messages = detail.json()["data"]["messages"]
     assert messages[-1]["sender_type"] == "human"
     assert messages[-1]["content"] == "human reply"
@@ -1013,7 +1051,7 @@ def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
         },
     )
     detail = client.get(
-        "/api/v1/admin/conversations/wechat:wxid_sender:default"
+        "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot"
     ).json()["data"]
     message_id = detail["messages"][0]["id"]
 
@@ -1063,7 +1101,7 @@ def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
             },
         },
     )
-    detail_url = "/api/v1/admin/conversations/wechat:wxid_sender:default"
+    detail_url = "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot"
     message_id = client.get(detail_url).json()["data"]["messages"][0]["id"]
 
     response = client.post(
