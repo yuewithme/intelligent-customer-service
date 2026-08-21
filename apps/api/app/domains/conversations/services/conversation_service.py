@@ -352,9 +352,8 @@ async def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
     """List WeChat accounts that own workbench conversations.
 
     Eyun's callback ``wcId`` identifies the currently logged-in WeChat account.
-    Historical rows are backfilled from message metadata when the database is
-    initialized, so the switcher also works for conversations created before
-    tenant-aware writes were introduced.
+    Only verified owner ids are included.  A contact ``wc_id`` is deliberately
+    not accepted as tenant evidence.
     """
     with _get_session() as session:
         rows = session.execute(
@@ -380,7 +379,11 @@ async def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
         if owner_ids:
             metadata_rows = session.scalars(
                 select(ConversationMessageModel.metadata_json)
-                .where(ConversationMessageModel.metadata_json.like('%"wc_id"%'))
+                .where(
+                    ConversationMessageModel.metadata_json.like(
+                        '%"owner_wc_id"%'
+                    )
+                )
                 .order_by(
                     ConversationMessageModel.created_at.desc(),
                     ConversationMessageModel.id.desc(),
@@ -388,7 +391,7 @@ async def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
             ).all()
             for value in metadata_rows:
                 metadata = _load_metadata(value)
-                wc_id = str(metadata.get("wc_id") or "").strip()
+                wc_id = str(metadata.get("owner_wc_id") or "").strip()
                 if wc_id not in owner_ids:
                     continue
                 w_id = str(metadata.get("w_id") or "").strip()
@@ -622,6 +625,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                             {
                                 "channel": message.channel,
                                 "tenant_id": tenant_id,
+                                **({"owner_wc_id": owner_wc_id} if owner_wc_id else {}),
                                 **({"wc_id": owner_wc_id} if owner_wc_id else {}),
                                 "ai_blocked": True,
                             },
@@ -662,6 +666,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                         {
                             "channel": message.channel,
                             "tenant_id": tenant_id,
+                            **({"owner_wc_id": owner_wc_id} if owner_wc_id else {}),
                             **({"wc_id": owner_wc_id} if owner_wc_id else {}),
                             **turn_metadata,
                         },
@@ -681,6 +686,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                     "sources": result.get("sources", []),
                     "template": result.get("template", {}),
                     "tenant_id": tenant_id,
+                    **({"owner_wc_id": owner_wc_id} if owner_wc_id else {}),
                     **({"wc_id": owner_wc_id} if owner_wc_id else {}),
                     **turn_metadata,
                 },
@@ -1212,6 +1218,9 @@ async def reply_conversation(
                     "direction": "outbound",
                     "message_type": "text",
                     "origin": "admin_workbench",
+                    "owner_wc_id": conversation.owner_wc_id or "",
+                    "contact_wc_id": conversation.user_id,
+                    "w_id": eyun_target["w_id"],
                 }
                 if eyun_target
                 else {},
@@ -1451,6 +1460,9 @@ async def _reply_conversation_media(
                     "message_type": message_type,
                     "outbound_content": content,
                     "origin": "admin_workbench",
+                    "owner_wc_id": conversation.owner_wc_id or "",
+                    "contact_wc_id": conversation.user_id,
+                    "w_id": eyun_target["w_id"],
                     **message_metadata,
                 },
                 ensure_ascii=False,
@@ -1891,7 +1903,7 @@ def _load_metadata(value: str | None) -> dict[str, Any]:
 def _owner_wc_id(channel: str, metadata: dict[str, Any]) -> str | None:
     if channel != "wechat" or metadata.get("provider") != "eyun":
         return None
-    value = str(metadata.get("wc_id") or "").strip()
+    value = str(metadata.get("owner_wc_id") or "").strip()
     return value or None
 
 
@@ -2094,52 +2106,325 @@ def _ensure_conversation_columns(factory: sessionmaker) -> None:
 
 
 def _backfill_conversation_tenants(session: Session) -> None:
-    latest_owner_by_conversation: dict[str, str] = {}
-    owner_name_by_conversation: dict[str, str] = {}
-    rows = session.execute(
-        select(
-            ConversationMessageModel.conversation_id,
-            ConversationMessageModel.metadata_json,
+    """Repair old WeChat rows without treating a contact as a tenant.
+
+    Older messages overloaded ``wc_id``: callback rows used it for the logged-in
+    WeChat account, while manual/outbound rows used it for the recipient.  Only
+    explicit ``owner_wc_id`` or a verifiable inbound sender/owner pair is trusted.
+    Messages are then moved into ``wechat:{contact}:{owner}`` conversations.
+    """
+    conversations = session.scalars(
+        select(ConversationModel).where(ConversationModel.channel == "wechat")
+    ).all()
+    if not conversations:
+        return
+
+    conversation_by_id = {row.conversation_id: row for row in conversations}
+    messages = session.scalars(
+        select(ConversationMessageModel)
+        .where(
+            ConversationMessageModel.conversation_id.in_(conversation_by_id)
         )
-        .where(ConversationMessageModel.metadata_json.like('%"wc_id"%'))
         .order_by(
-            ConversationMessageModel.created_at.desc(),
-            ConversationMessageModel.id.desc(),
+            ConversationMessageModel.created_at.asc(),
+            ConversationMessageModel.id.asc(),
         )
     ).all()
-    for conversation_id, value in rows:
-        conversation_key = str(conversation_id)
-        if (
-            conversation_key in latest_owner_by_conversation
-            and conversation_key in owner_name_by_conversation
-        ):
-            continue
-        metadata = _load_metadata(value)
+    metadata_by_message = {
+        row.id: _load_metadata(row.metadata_json) for row in messages
+    }
+
+    trusted_owner_ids: set[str] = set()
+    owner_names: dict[str, str] = {}
+    owner_candidates_by_w_id: dict[str, set[str]] = {}
+    settings = get_settings()
+    configured_owner = settings.eyun_wc_id.strip()
+    configured_w_id = settings.eyun_wid.strip()
+    if configured_owner:
+        trusted_owner_ids.add(configured_owner)
+        if configured_w_id:
+            owner_candidates_by_w_id.setdefault(configured_w_id, set()).add(
+                configured_owner
+            )
+
+    def register_owner(owner_wc_id: str, metadata: dict[str, Any]) -> None:
+        owner_wc_id = owner_wc_id.strip()
+        if not owner_wc_id:
+            return
+        trusted_owner_ids.add(owner_wc_id)
+        w_id = str(metadata.get("w_id") or "").strip()
+        if w_id:
+            owner_candidates_by_w_id.setdefault(w_id, set()).add(owner_wc_id)
+        display_name = _owner_display_name(metadata)
+        if display_name and owner_wc_id not in owner_names:
+            owner_names[owner_wc_id] = display_name
+
+    for message in messages:
+        metadata = metadata_by_message[message.id]
         if metadata.get("provider") != "eyun":
             continue
-        wc_id = str(metadata.get("wc_id") or "").strip()
-        if wc_id and conversation_key not in latest_owner_by_conversation:
-            latest_owner_by_conversation[conversation_key] = wc_id
-        owner_display_name = _owner_display_name(metadata)
-        if (
-            owner_display_name
-            and wc_id == latest_owner_by_conversation.get(conversation_key)
-            and conversation_key not in owner_name_by_conversation
-        ):
-            owner_name_by_conversation[conversation_key] = owner_display_name
+        explicit_owner = str(metadata.get("owner_wc_id") or "").strip()
+        if explicit_owner:
+            register_owner(explicit_owner, metadata)
+            continue
+        conversation = conversation_by_id[message.conversation_id]
+        legacy_owner = _trusted_legacy_inbound_owner(
+            message=message,
+            conversation=conversation,
+            metadata=metadata,
+        )
+        if legacy_owner:
+            register_owner(legacy_owner, metadata)
 
-    if not latest_owner_by_conversation:
-        return
-    conversations = session.scalars(
-        select(ConversationModel).where(
-            ConversationModel.conversation_id.in_(latest_owner_by_conversation)
+    owner_by_w_id = {
+        w_id: next(iter(owner_ids))
+        for w_id, owner_ids in owner_candidates_by_w_id.items()
+        if len(owner_ids) == 1
+    }
+    messages_by_conversation: dict[str, list[ConversationMessageModel]] = {}
+    for message in messages:
+        messages_by_conversation.setdefault(message.conversation_id, []).append(
+            message
+        )
+
+    unread_message_ids: set[int] = set()
+    for conversation in conversations:
+        customer_messages = [
+            message
+            for message in messages_by_conversation.get(
+                conversation.conversation_id, []
+            )
+            if message.sender_type == "customer"
+        ]
+        unread_count = min(
+            max(0, int(conversation.unread_count or 0)), len(customer_messages)
+        )
+        if unread_count:
+            unread_message_ids.update(
+                message.id for message in customer_messages[-unread_count:]
+            )
+
+    affected_conversation_ids: set[str] = set(conversation_by_id)
+    destination_owner_by_id: dict[str, str] = {}
+    for source in list(conversations):
+        source_messages = messages_by_conversation.get(source.conversation_id, [])
+        if not source_messages:
+            source.owner_wc_id = None
+            source.owner_display_name = None
+            source.tenant_id = "tenant_default"
+            source.hidden_at = source.hidden_at or _now()
+            continue
+
+        direct_owners = [
+            _trusted_message_owner(
+                message=message,
+                conversation=source,
+                metadata=metadata_by_message[message.id],
+                trusted_owner_ids=trusted_owner_ids,
+                owner_by_w_id=owner_by_w_id,
+            )
+            for message in source_messages
+        ]
+        fallback_owner = None
+        for candidate in (source.session_id, source.owner_wc_id, source.tenant_id):
+            value = str(candidate or "").strip()
+            if value in trusted_owner_ids and value != source.user_id:
+                fallback_owner = value
+                break
+        assigned_owners = _fill_message_owner_context(
+            direct_owners,
+            fallback_owner=fallback_owner,
+        )
+
+        for message, owner_wc_id in zip(
+            source_messages, assigned_owners, strict=True
+        ):
+            if not owner_wc_id:
+                continue
+            destination_id = make_conversation_id(
+                "wechat", source.user_id, owner_wc_id
+            )
+            destination_owner_by_id[destination_id] = owner_wc_id
+            destination = conversation_by_id.get(destination_id)
+            if destination is None:
+                destination = _new_repaired_conversation(
+                    source=source,
+                    conversation_id=destination_id,
+                    owner_wc_id=owner_wc_id,
+                    owner_display_name=owner_names.get(owner_wc_id),
+                )
+                session.add(destination)
+                session.flush()
+                conversation_by_id[destination_id] = destination
+            metadata = metadata_by_message[message.id]
+            metadata["owner_wc_id"] = owner_wc_id
+            metadata.setdefault("contact_wc_id", source.user_id)
+            message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+            message.conversation_id = destination_id
+            affected_conversation_ids.add(destination_id)
+
+    session.flush()
+    for conversation_id in affected_conversation_ids:
+        conversation = conversation_by_id.get(conversation_id)
+        if conversation is None:
+            continue
+        owner_wc_id = destination_owner_by_id.get(conversation_id)
+        _refresh_repaired_conversation(
+            session=session,
+            conversation=conversation,
+            owner_wc_id=owner_wc_id,
+            owner_display_name=owner_names.get(owner_wc_id or ""),
+            unread_message_ids=unread_message_ids,
+        )
+
+
+def _trusted_legacy_inbound_owner(
+    *,
+    message: ConversationMessageModel,
+    conversation: ConversationModel,
+    metadata: dict[str, Any],
+) -> str | None:
+    if message.sender_type != "customer" or metadata.get("provider") != "eyun":
+        return None
+    legacy_wc_id = str(metadata.get("wc_id") or "").strip()
+    contact_wc_id = str(
+        metadata.get("contact_wc_id")
+        or metadata.get("from_group")
+        or metadata.get("from_user")
+        or conversation.user_id
+        or ""
+    ).strip()
+    if not legacy_wc_id or not contact_wc_id or legacy_wc_id == contact_wc_id:
+        return None
+    from_user = str(metadata.get("from_user") or "").strip()
+    if from_user and from_user != conversation.user_id:
+        return None
+    return legacy_wc_id
+
+
+def _trusted_message_owner(
+    *,
+    message: ConversationMessageModel,
+    conversation: ConversationModel,
+    metadata: dict[str, Any],
+    trusted_owner_ids: set[str],
+    owner_by_w_id: dict[str, str],
+) -> str | None:
+    if metadata.get("provider") != "eyun":
+        return None
+    explicit_owner = str(metadata.get("owner_wc_id") or "").strip()
+    if explicit_owner in trusted_owner_ids:
+        return explicit_owner
+    legacy_owner = _trusted_legacy_inbound_owner(
+        message=message,
+        conversation=conversation,
+        metadata=metadata,
+    )
+    if legacy_owner:
+        return legacy_owner
+    w_id = str(metadata.get("w_id") or "").strip()
+    mapped_owner = owner_by_w_id.get(w_id)
+    if mapped_owner:
+        return mapped_owner
+    legacy_wc_id = str(metadata.get("wc_id") or "").strip()
+    if legacy_wc_id in trusted_owner_ids and legacy_wc_id != conversation.user_id:
+        return legacy_wc_id
+    return None
+
+
+def _fill_message_owner_context(
+    owners: list[str | None], *, fallback_owner: str | None
+) -> list[str | None]:
+    resolved = list(owners)
+    current_owner = fallback_owner
+    for index, owner_wc_id in enumerate(resolved):
+        if owner_wc_id:
+            current_owner = owner_wc_id
+        elif current_owner:
+            resolved[index] = current_owner
+    next_owner = fallback_owner
+    for index in range(len(resolved) - 1, -1, -1):
+        owner_wc_id = resolved[index]
+        if owner_wc_id:
+            next_owner = owner_wc_id
+        elif next_owner:
+            resolved[index] = next_owner
+    return resolved
+
+
+def _new_repaired_conversation(
+    *,
+    source: ConversationModel,
+    conversation_id: str,
+    owner_wc_id: str,
+    owner_display_name: str | None,
+) -> ConversationModel:
+    return ConversationModel(
+        conversation_id=conversation_id,
+        channel="wechat",
+        user_id=source.user_id,
+        user_display_name=source.user_display_name,
+        user_avatar_url=source.user_avatar_url,
+        session_id=owner_wc_id,
+        tenant_id=owner_wc_id,
+        owner_wc_id=owner_wc_id,
+        owner_display_name=owner_display_name,
+        status=source.status,
+        owner_id=source.owner_id,
+        last_route=source.last_route,
+        last_intent=source.last_intent,
+        handoff_reason=source.handoff_reason,
+        handoff_ticket_id=source.handoff_ticket_id,
+        unread_count=0,
+        created_at=source.created_at,
+        updated_at=source.updated_at,
+    )
+
+
+def _refresh_repaired_conversation(
+    *,
+    session: Session,
+    conversation: ConversationModel,
+    owner_wc_id: str | None,
+    owner_display_name: str | None,
+    unread_message_ids: set[int],
+) -> None:
+    rows = session.scalars(
+        select(ConversationMessageModel)
+        .where(
+            ConversationMessageModel.conversation_id
+            == conversation.conversation_id
+        )
+        .order_by(
+            ConversationMessageModel.created_at.asc(),
+            ConversationMessageModel.id.asc(),
         )
     ).all()
-    for conversation in conversations:
-        wc_id = latest_owner_by_conversation[conversation.conversation_id]
-        if conversation.owner_wc_id != wc_id or conversation.tenant_id != wc_id:
-            conversation.owner_wc_id = wc_id
-            conversation.tenant_id = wc_id
-        owner_display_name = owner_name_by_conversation.get(conversation.conversation_id)
-        if owner_display_name and conversation.owner_display_name != owner_display_name:
+    if not rows:
+        conversation.owner_wc_id = None
+        conversation.owner_display_name = None
+        conversation.tenant_id = "tenant_default"
+        conversation.last_message = None
+        conversation.unread_count = 0
+        conversation.hidden_at = conversation.hidden_at or _now()
+        return
+    if owner_wc_id:
+        conversation.session_id = owner_wc_id
+        conversation.tenant_id = owner_wc_id
+        conversation.owner_wc_id = owner_wc_id
+        if owner_display_name:
             conversation.owner_display_name = owner_display_name
+        conversation.hidden_at = None
+    else:
+        conversation.owner_wc_id = None
+        conversation.owner_display_name = None
+        conversation.tenant_id = "tenant_default"
+    latest = rows[-1]
+    conversation.last_message = latest.content
+    conversation.last_route = latest.route or conversation.last_route
+    conversation.last_intent = latest.primary_intent or conversation.last_intent
+    conversation.created_at = min(row.created_at for row in rows)
+    conversation.updated_at = max(row.created_at for row in rows)
+    conversation.unread_count = sum(
+        1 for row in rows if row.id in unread_message_ids
+    )

@@ -48,7 +48,7 @@ async def test_self_callback_records_wechat_client_message(monkeypatch, tmp_path
         }
     )
 
-    detail = await get_conversation_detail("wechat:wxid_customer:default")
+    detail = await get_conversation_detail("wechat:wxid_customer:wxid_bot")
     assert len(detail["messages"]) == 1
     assert detail["messages"][0]["sender_type"] == "human"
     assert detail["messages"][0]["message_id"] == "1001"
@@ -73,8 +73,13 @@ async def test_self_callback_reconciles_queued_ai_message(monkeypatch, tmp_path)
     await ensure_outbound_conversation_message(
         channel="wechat",
         user_id="wxid_customer",
-        session_id="default",
+        session_id="wxid_bot",
         content="自动回复",
+        metadata={
+            "provider": "eyun",
+            "owner_wc_id": "wxid_bot",
+            "contact_wc_id": "wxid_customer",
+        },
     )
 
     await eyun_callback_service.handle_eyun_callback(
@@ -93,7 +98,7 @@ async def test_self_callback_reconciles_queued_ai_message(monkeypatch, tmp_path)
         }
     )
 
-    detail = await get_conversation_detail("wechat:wxid_customer:default")
+    detail = await get_conversation_detail("wechat:wxid_customer:wxid_bot")
     assert len(detail["messages"]) == 1
     assert detail["messages"][0]["sender_type"] == "ai"
     assert detail["messages"][0]["message_id"] == "1002"
@@ -135,10 +140,15 @@ async def test_agent_first_contact_is_recorded(monkeypatch, tmp_path):
     await record_customer_message(
         channel="wechat",
         user_id="wxid_customer",
-        session_id="default",
+        session_id="wxid_bot",
         content="你好",
         message_id="inbound-1",
         status=AI_WAITING,
+        metadata={
+            "provider": "eyun",
+            "owner_wc_id": "wxid_bot",
+            "contact_wc_id": "wxid_customer",
+        },
     )
     await risk_control.enqueue_eyun_inbound(
         {
@@ -156,7 +166,7 @@ async def test_agent_first_contact_is_recorded(monkeypatch, tmp_path):
     )
 
     assert await risk_control.process_due_eyun_inbound_batches(limit=1) == 1
-    detail = await get_conversation_detail("wechat:wxid_customer:default")
+    detail = await get_conversation_detail("wechat:wxid_customer:wxid_bot")
     opening = next(message for message in detail["messages"] if message["sender_type"] == "ai")
     assert opening["sender_type"] == "ai"
     assert opening["content"].startswith("您好，我是萧岚苑的小兰")

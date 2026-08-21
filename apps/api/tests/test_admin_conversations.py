@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
+import json
 
 from fastapi.testclient import TestClient
 
@@ -22,6 +24,8 @@ def _reset_settings(monkeypatch, tmp_path, *, auth: bool = False):
     monkeypatch.setenv("LLM_PROVIDER", "mock")
     monkeypatch.setenv("INTENT_LLM_PROVIDER", "mock")
     monkeypatch.setenv("STATE_PROVIDER", "memory")
+    monkeypatch.setenv("EYUN_WC_ID", "")
+    monkeypatch.setenv("EYUN_WID", "")
     get_settings.cache_clear()
 
 
@@ -87,6 +91,8 @@ def test_admin_conversations_are_scoped_by_eyun_wc_id(monkeypatch, tmp_path):
                 content=f"hello from {wc_id}",
                 metadata={
                     "provider": "eyun",
+                    "owner_wc_id": wc_id,
+                    "contact_wc_id": "shared_customer",
                     "wc_id": wc_id,
                     "w_id": wc_id.replace("wxid_", "wid_"),
                 },
@@ -108,6 +114,136 @@ def test_admin_conversations_are_scoped_by_eyun_wc_id(monkeypatch, tmp_path):
     assert scoped["items"][0]["session_id"] == "wxid_shop_b"
     assert scoped["items"][0]["owner_wc_id"] == "wxid_shop_b"
     assert scoped["items"][0]["owner_display_name"] == "小兰二号"
+
+
+def test_legacy_contact_tenants_are_removed_and_shared_history_is_split(
+    monkeypatch, tmp_path
+):
+    from app.domains.conversations.services.conversation_service import (
+        _backfill_conversation_tenants,
+        _get_session,
+    )
+    from app.infrastructure.database.models import (
+        ConversationMessageModel,
+        ConversationModel,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    source_id = "wechat:shared_customer:shared_customer"
+    started_at = datetime(2026, 8, 21, tzinfo=timezone.utc)
+    with _get_session() as session:
+        session.add(
+            ConversationModel(
+                conversation_id=source_id,
+                channel="wechat",
+                user_id="shared_customer",
+                session_id="shared_customer",
+                tenant_id="shared_customer",
+                owner_wc_id="shared_customer",
+                owner_display_name="联系人残留",
+                status="ai_waiting",
+                unread_count=2,
+                created_at=started_at,
+                updated_at=started_at + timedelta(minutes=3),
+            )
+        )
+        legacy_messages = [
+            (
+                "customer",
+                "A 客户消息",
+                {
+                    "provider": "eyun",
+                    "wc_id": "wxid_shop_a",
+                    "w_id": "wid_shop_a",
+                    "from_user": "shared_customer",
+                    "owner_display_name": "若兰",
+                },
+            ),
+            (
+                "ai",
+                "A 回复",
+                {
+                    "provider": "eyun",
+                    "wc_id": "shared_customer",
+                    "w_id": "wid_shop_a",
+                },
+            ),
+            (
+                "customer",
+                "B 客户消息",
+                {
+                    "provider": "eyun",
+                    "wc_id": "wxid_shop_b",
+                    "w_id": "wid_shop_b",
+                    "from_user": "shared_customer",
+                    "owner_display_name": "小兰二号",
+                },
+            ),
+            (
+                "human",
+                "B 回复",
+                {
+                    "provider": "eyun",
+                    "wc_id": "shared_customer",
+                    "w_id": "wid_shop_b",
+                },
+            ),
+        ]
+        for index, (sender_type, content, metadata) in enumerate(legacy_messages):
+            session.add(
+                ConversationMessageModel(
+                    conversation_id=source_id,
+                    sender_type=sender_type,
+                    sender_id=(
+                        "shared_customer"
+                        if sender_type == "customer"
+                        else sender_type
+                    ),
+                    content=content,
+                    metadata_json=json.dumps(metadata, ensure_ascii=False),
+                    created_at=started_at + timedelta(minutes=index),
+                )
+            )
+        session.commit()
+
+    with _get_session() as session:
+        _backfill_conversation_tenants(session)
+        session.commit()
+        _backfill_conversation_tenants(session)
+        session.commit()
+
+    client = TestClient(app)
+    tenants = client.get("/api/v1/admin/conversations/tenants").json()["data"][
+        "items"
+    ]
+    assert {item["wc_id"] for item in tenants} == {
+        "wxid_shop_a",
+        "wxid_shop_b",
+    }
+    assert "shared_customer" not in {item["wc_id"] for item in tenants}
+
+    for owner_wc_id, expected_contents in (
+        ("wxid_shop_a", ["A 客户消息", "A 回复"]),
+        ("wxid_shop_b", ["B 客户消息", "B 回复"]),
+    ):
+        detail = client.get(
+            f"/api/v1/admin/conversations/wechat:shared_customer:{owner_wc_id}"
+        ).json()["data"]
+        assert [message["content"] for message in detail["messages"]] == (
+            expected_contents
+        )
+        assert all(
+            message["metadata"]["owner_wc_id"] == owner_wc_id
+            and message["metadata"]["contact_wc_id"] == "shared_customer"
+            for message in detail["messages"]
+        )
+
+    source = client.get(
+        f"/api/v1/admin/conversations/{source_id}"
+    ).json()["data"]
+    assert source["conversation"]["owner_wc_id"] is None
+    assert source["conversation"]["tenant_id"] == "tenant_default"
+    assert source["messages"] == []
 
 
 def test_evaluation_turn_is_recorded_as_a_labeled_workbench_conversation(
