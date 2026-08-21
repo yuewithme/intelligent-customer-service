@@ -175,7 +175,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             tenant_id=_eyun_tenant_id(payload, data),
             channel="wechat",
             basic_info={
-                "owner_wc_id": str(payload.get("wcId") or data.get("toUser") or ""),
+                "owner_wc_id": _eyun_owner_wc_id(payload, data),
                 **{
                     key: metadata.get(key)
                     for key in (
@@ -338,7 +338,20 @@ def _eyun_conversation_user_id(data: dict[str, Any]) -> str:
 
 
 def _eyun_owner_wc_id(payload: dict[str, Any], data: dict[str, Any]) -> str:
-    return str(payload.get("wcId") or data.get("toUser") or "").strip()
+    owner_wc_id = str(payload.get("wcId") or "").strip()
+    if owner_wc_id:
+        return owner_wc_id
+    if not _is_self_message(data):
+        return str(data.get("toUser") or "").strip()
+    settings = get_settings()
+    w_id = str(data.get("wId") or payload.get("wId") or "").strip()
+    if (
+        settings.eyun_wc_id.strip()
+        and settings.eyun_wid.strip()
+        and w_id == settings.eyun_wid.strip()
+    ):
+        return settings.eyun_wc_id.strip()
+    return ""
 
 
 def _eyun_tenant_id(payload: dict[str, Any], data: dict[str, Any]) -> str:
@@ -400,6 +413,8 @@ async def _eyun_workbench_metadata(
         "provider": "eyun",
         "account": str(payload.get("account") or ""),
         "message_type": message_type,
+        "owner_wc_id": owner_wc_id,
+        "contact_wc_id": user_id,
         "wc_id": owner_wc_id,
         "w_id": w_id,
         "from_user": str(data.get("fromUser") or ""),

@@ -110,6 +110,8 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
 
     assert response.status_code == 200
     assert recorded[0]["user_id"] == "wxid_customer"
+    assert recorded[0]["metadata"]["owner_wc_id"] == "wxid_bot"
+    assert recorded[0]["metadata"]["contact_wc_id"] == "wxid_customer"
     assert recorded[0]["metadata"]["owner_display_name"] == "若兰"
     assert "_profile_user_id" not in queued[0]
     assert profiles == [
@@ -125,6 +127,27 @@ def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypa
             },
         )
     ]
+
+
+def test_self_message_never_uses_recipient_as_owner(monkeypatch, tmp_path):
+    from app.integrations.eyun.services.eyun_callback_service import (
+        _eyun_owner_wc_id,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("EYUN_WC_ID", "")
+    monkeypatch.setenv("EYUN_WID", "")
+    get_settings.cache_clear()
+
+    assert _eyun_owner_wc_id(
+        {},
+        {
+            "wId": "wid_unknown",
+            "fromUser": "wxid_owner",
+            "toUser": "wxid_contact",
+            "self": True,
+        },
+    ) == ""
 
 
 @pytest.mark.parametrize(

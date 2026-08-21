@@ -574,11 +574,16 @@ async def enqueue_wechat_outbound(
             route=origin,
             reconcile_pending=False,
             metadata={
+                "provider": "eyun",
                 "origin": origin,
                 "source_type": origin,
                 "source_id": source_id,
                 "source_batch_key": source_batch_key,
                 "w_id": w_id,
+                "owner_wc_id": (
+                    tenant_id if tenant_id != "tenant_default" else ""
+                ),
+                "contact_wc_id": wc_id,
                 "wc_id": wc_id,
             },
         )
@@ -1222,6 +1227,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "provider": "eyun",
                         "account": batch_data["account"],
                         "message_type": batch_data["message_type"],
+                        "owner_wc_id": batch_data["wc_id"],
+                        "contact_wc_id": (
+                            batch_data["from_user"] or batch_data["target_wc_id"]
+                        ),
                         "wc_id": batch_data["wc_id"],
                         "tenant_id": _conversation_tenant_id(batch_data),
                         "w_id": batch_data["w_id"],
@@ -1250,6 +1259,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "provider": "eyun",
                         "account": batch_data["account"],
                         "message_type": batch_data["message_type"],
+                        "owner_wc_id": batch_data["wc_id"],
+                        "contact_wc_id": (
+                            batch_data["from_user"] or batch_data["target_wc_id"]
+                        ),
                         "wc_id": batch_data["wc_id"],
                         "tenant_id": _conversation_tenant_id(batch_data),
                         "w_id": batch_data["w_id"],
@@ -1274,6 +1287,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
             sales_turn_id = str(chat_result.get("trace_id") or "").strip()
             sales_metadata = {
                 "provider": "eyun",
+                "owner_wc_id": batch_data["wc_id"],
+                "contact_wc_id": (
+                    batch_data["from_user"] or batch_data["target_wc_id"]
+                ),
                 "wc_id": batch_data["wc_id"],
                 "tenant_id": _conversation_tenant_id(batch_data),
                 **({"sales_turn_id": sales_turn_id} if sales_turn_id else {}),
@@ -1583,6 +1600,8 @@ async def _handoff_image_failure(
         metadata={
             "provider": "eyun",
             "w_id": batch["w_id"],
+            "owner_wc_id": batch["wc_id"],
+            "contact_wc_id": user_id,
             "wc_id": batch["wc_id"],
             "batch_key": batch["batch_key"],
             **customer_snapshot,
@@ -1793,6 +1812,10 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
             created_after=batch["created_at"],
             metadata={
                 "provider": "eyun",
+                "owner_wc_id": str(batch.get("wc_id") or ""),
+                "contact_wc_id": (
+                    batch["from_user"] or batch["target_wc_id"]
+                ),
                 "wc_id": str(batch.get("wc_id") or ""),
                 "tenant_id": _conversation_tenant_id(batch),
             },
