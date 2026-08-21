@@ -1048,6 +1048,8 @@ def _sales_trajectory_violations(
         for item in final.messages
     ):
         violations.append("premature_product_card_without_customer_interest")
+    if _missing_recommended_product_cards(visible_text, final, context):
+        violations.append("missing_recommended_product_cards")
     question_text = "\n".join(
         re.findall(r"[^。！!；;，,？?\n]*[？?]", visible_text)
     )
@@ -1142,6 +1144,13 @@ def _sales_flow_rewrite_instruction(violations: list[str]) -> str:
             "不要调用 product.send_card，也不要在 final_response 中放商品卡片。先完成服务价值塑造并自然邀请客户进一步了解；"
             "本轮商品查询只用于辅助判断，不向客户发送；等客户形成 interest 或 direct 信号后重新核实并发卡试成交。"
         )
+    if "missing_recommended_product_cards" in violations:
+        focused_instructions.append(
+            "当前回复并列介绍了多款可售商品，却只安排了其中一部分商品卡片。"
+            "如果客户已进入看卡、比较或购买阶段，请为每一款已介绍且卡片可用的商品分别调用 product.send_card，"
+            "再在 final_response 中按介绍顺序放入全部 prepared ref。"
+            "如果某款无法准备卡片，就删除对它的并列购买引导，不能让客户面对不完整的选择。"
+        )
     if focused_instructions:
         return (
             "".join(focused_instructions)
@@ -1187,6 +1196,49 @@ def _repeats_recent_assistant_content(
         for current in current_chunks
         for prior in prior_chunks
     )
+
+
+def _missing_recommended_product_cards(
+    visible_text: str,
+    final,
+    context: AgentExecutionContext,
+) -> bool:
+    included_product_refs: set[str] = set()
+    for item in final.messages:
+        if item.type != "prepared":
+            continue
+        fact = context.tool_facts.get(str(item.ref or "")) or {}
+        if fact.get("tool") != "product.send_card" or fact.get("status") != "prepared":
+            continue
+        product = fact.get("data", {}).get("product")
+        if isinstance(product, dict):
+            product_ref = str(product.get("product_ref") or "").strip()
+            if product_ref:
+                included_product_refs.add(product_ref)
+    if not included_product_refs:
+        return False
+
+    mentioned_product_refs: set[str] = set()
+    for fact in context.tool_facts.values():
+        if fact.get("status") not in {"found", "prepared"}:
+            continue
+        data = fact.get("data")
+        data = data if isinstance(data, dict) else {}
+        candidates: list[dict[str, Any]] = []
+        products = data.get("products")
+        if isinstance(products, list):
+            candidates.extend(item for item in products if isinstance(item, dict))
+        product = data.get("product")
+        if isinstance(product, dict):
+            candidates.append(product)
+        for candidate in candidates:
+            if candidate.get("card_available") is False:
+                continue
+            product_ref = str(candidate.get("product_ref") or "").strip()
+            name = str(candidate.get("name") or "").strip()
+            if product_ref and name and name in visible_text:
+                mentioned_product_refs.add(product_ref)
+    return bool(mentioned_product_refs - included_product_refs)
 
 
 def _affirmed_service_trial_close(context: AgentExecutionContext) -> bool:
