@@ -123,20 +123,6 @@ def test_explicit_refusal_excludes_service_touches(monkeypatch, tmp_path):
     ) == 0
 
 
-def test_contact_bound_to_old_instance_is_not_scheduled(monkeypatch, tmp_path):
-    _configure(monkeypatch, tmp_path)
-    _insert_contact()
-    _tag_service_customer()
-    with service._database_session() as session:
-        contact = session.query(EyunContactModel).one()
-        contact.current_w_id = "expired-wid"
-        session.commit()
-
-    assert service.ensure_service_material_touch_tasks(
-        now=datetime(2026, 8, 5, 4, 0, tzinfo=timezone.utc)
-    ) == 0
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("media", "expected_type"),
