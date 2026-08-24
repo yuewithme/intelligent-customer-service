@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class HandoffNotificationSettingsUpdateRequest(BaseModel):
+    global_handoff_enabled: bool = False
     recipient_contact_ids: list[int] = Field(min_length=1, max_length=20)
     message_text: str = Field(min_length=1, max_length=2000)
 

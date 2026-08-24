@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import create_engine, func, or_, select
+from sqlalchemy import create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -19,6 +19,7 @@ logger = logging.getLogger("wechat_rag_bot.handoff_notification")
 SETTING_ID = 1
 DEFAULT_MESSAGE_TEXT = "有客户需要转人工处理，请及时跟进。"
 HANDOFF_REASON_TEXTS = {
+    "global_handoff": "转人工总开关已开启",
     "manual_force_handoff": "人工主动转接",
     "human_required": "当前问题需要人工处理",
     "human_request": "客户明确要求人工客服",
@@ -51,6 +52,14 @@ def get_handoff_notification_settings() -> dict[str, Any]:
         return _setting_to_dict(session, setting)
 
 
+def is_global_handoff_enabled() -> bool:
+    with _get_session() as session:
+        setting = _get_or_create_setting(session)
+        enabled = bool(setting.global_handoff_enabled)
+        session.commit()
+        return enabled
+
+
 def update_handoff_notification_settings(
     request: HandoffNotificationSettingsUpdateRequest,
 ) -> dict[str, Any]:
@@ -75,6 +84,7 @@ def update_handoff_notification_settings(
             )
 
         setting = _get_or_create_setting(session)
+        setting.global_handoff_enabled = request.global_handoff_enabled
         setting.recipient_contact_ids_json = json.dumps(
             request.recipient_contact_ids, ensure_ascii=False
         )
@@ -290,6 +300,7 @@ def _get_session() -> Session:
                 HandoffNotificationSettingModel.__table__,
             ],
         )
+        _ensure_handoff_notification_columns(engine)
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[database_url] = factory
     return factory()
@@ -301,6 +312,7 @@ def _get_or_create_setting(session: Session) -> HandoffNotificationSettingModel:
         now = _utcnow()
         setting = HandoffNotificationSettingModel(
             id=SETTING_ID,
+            global_handoff_enabled=False,
             recipient_contact_ids_json="[]",
             message_text=DEFAULT_MESSAGE_TEXT,
             created_at=now,
@@ -320,6 +332,7 @@ def _setting_to_dict(
     ).all() if recipient_ids else []
     contacts_by_id = {contact.id: contact for contact in contacts}
     return {
+        "global_handoff_enabled": bool(setting.global_handoff_enabled),
         "recipient_contact_ids": recipient_ids,
         "recipients": [
             _contact_to_dict(contacts_by_id[contact_id])
@@ -329,6 +342,22 @@ def _setting_to_dict(
         "message_text": setting.message_text,
         "updated_at": setting.updated_at.isoformat(),
     }
+
+
+def _ensure_handoff_notification_columns(engine) -> None:
+    columns = {
+        column["name"]
+        for column in inspect(engine).get_columns("handoff_notification_settings")
+    }
+    if "global_handoff_enabled" in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE handoff_notification_settings "
+                "ADD COLUMN global_handoff_enabled BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        )
 
 
 def _recipient_ids(setting: HandoffNotificationSettingModel) -> list[int]:

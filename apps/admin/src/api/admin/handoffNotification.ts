@@ -11,6 +11,7 @@ export interface HandoffNotificationContact {
 }
 
 export interface HandoffNotificationSettings {
+  global_handoff_enabled: boolean
   recipient_contact_ids: number[]
   recipients: HandoffNotificationContact[]
   message_text: string
@@ -23,6 +24,7 @@ export const getHandoffNotificationSettings = () =>
   })
 
 export const updateHandoffNotificationSettings = (data: {
+  global_handoff_enabled: boolean
   recipient_contact_ids: number[]
   message_text: string
 }) =>
