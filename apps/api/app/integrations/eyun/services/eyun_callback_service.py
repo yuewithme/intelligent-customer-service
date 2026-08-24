@@ -20,6 +20,9 @@ from app.integrations.eyun.services.eyun_contact_service import (
     schedule_eyun_contact_refresh,
 )
 from app.domains.conversations.services.input_filter_service import is_platform_noise_text
+from app.domains.handoff.services.handoff_notification_service import (
+    is_global_handoff_enabled,
+)
 from app.integrations.eyun.services.message_risk_control_service import (
     enqueue_eyun_inbound,
 )
@@ -169,6 +172,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     _capture_material_group_message(payload, metadata)
     user_id = _eyun_conversation_user_id(data)
     is_opening_event = is_eyun_new_friend_opening_event(payload)
+    global_handoff = is_global_handoff_enabled() and not is_opening_event
     if not str(data.get("fromGroup") or "").strip():
         await ensure_user_profile(
             user_id,
@@ -215,14 +219,18 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         content=_eyun_display_content(payload),
         message_id=_eyun_message_id(data),
         status=(
-            AI_WAITING
+            HANDOFF_PENDING
+            if global_handoff
+            else AI_WAITING
             if is_eyun_private_text_message(payload)
             or is_private_image
             or is_opening_event
             else HANDOFF_PENDING
         ),
         route=(
-            "inbound_text"
+            "global_handoff"
+            if global_handoff
+            else "inbound_text"
             if is_eyun_text_message(payload)
             else "inbound_image"
             if is_private_image
@@ -231,14 +239,18 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             else "non_text"
         ),
         primary_intent=(
-            "message"
+            "global_handoff"
+            if global_handoff
+            else "message"
             if is_eyun_text_message(payload)
             else "opening_trigger"
             if is_opening_event
             else _eyun_message_kind(message_type)
         ),
         handoff_reason=(
-            None
+            "global_handoff"
+            if global_handoff
+            else None
             if is_eyun_private_text_message(payload)
             or is_private_image
             or is_opening_event
@@ -247,6 +259,9 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         tenant_id=_eyun_tenant_id(payload, data),
         metadata=metadata,
     )
+
+    if global_handoff:
+        return eyun_success()
 
     if (
         not str(data.get("fromGroup") or "").strip()

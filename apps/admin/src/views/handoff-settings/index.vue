@@ -6,6 +6,13 @@
         <p>配置转人工时的微信通知人和通知内容。</p>
       </div>
       <div class="head-actions">
+        <div class="global-handoff-control">
+          <div>
+            <strong>转人工总开关</strong>
+            <span>开启后，客户新消息默认转人工</span>
+          </div>
+          <ElSwitch v-model="form.global_handoff_enabled" />
+        </div>
         <ElButton :loading="syncing" @click="syncContacts">同步联系人</ElButton>
         <ElButton type="primary" :loading="saving" @click="saveSettings">保存设置</ElButton>
       </div>
@@ -94,7 +101,11 @@ const saving = ref(false)
 const syncing = ref(false)
 const contactsLoading = ref(false)
 const contactOptions = ref<HandoffNotificationContact[]>([])
-const form = reactive({ recipient_contact_ids: [] as number[], message_text: '' })
+const form = reactive({
+  global_handoff_enabled: false,
+  recipient_contact_ids: [] as number[],
+  message_text: ''
+})
 
 const selectedContacts = computed(() => {
   const byId = new Map(contactOptions.value.map((contact) => [contact.id, contact]))
@@ -134,6 +145,7 @@ const loadSettings = async () => {
       getHandoffNotificationSettings(),
       getHandoffNotificationContacts()
     ])
+    form.global_handoff_enabled = settings.global_handoff_enabled
     form.recipient_contact_ids = [...settings.recipient_contact_ids]
     form.message_text = settings.message_text
     mergeContacts([...settings.recipients, ...contacts.items])
@@ -165,6 +177,7 @@ const saveSettings = async () => {
   saving.value = true
   try {
     const settings = await updateHandoffNotificationSettings({
+      global_handoff_enabled: form.global_handoff_enabled,
       recipient_contact_ids: form.recipient_contact_ids,
       message_text: form.message_text.trim()
     })
@@ -183,7 +196,11 @@ onMounted(() => { void loadSettings() })
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .page-head h1 { margin: 0; color: #193c32; font-size: 26px; }
 .page-head p { margin: 7px 0 0; color: #718079; }
-.head-actions { display: flex; gap: 10px; }
+.head-actions { display: flex; align-items: center; gap: 10px; }
+.global-handoff-control { display: flex; min-width: 390px; align-items: center; justify-content: space-between; gap: 24px; padding: 11px 16px; background: #f5f9f7; border: 1px solid #dfe8e4; border-radius: 10px; }
+.global-handoff-control strong, .global-handoff-control span { display: block; }
+.global-handoff-control strong { color: #213e35; font-size: 14px; }
+.global-handoff-control span { margin-top: 3px; color: #7b8984; font-size: 12px; }
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
 .setting-card { min-height: 360px; padding: 24px; background: #fff; border: 1px solid #e2e9e6; border-radius: 14px; box-shadow: 0 8px 24px rgb(18 63 51 / 6%); }
 .card-title { display: flex; gap: 13px; margin-bottom: 24px; }
@@ -198,5 +215,6 @@ onMounted(() => { void loadSettings() })
 .auto-fields { display: grid; gap: 8px; margin-top: 18px; padding: 14px; background: #f5f9f7; border-radius: 10px; }
 .auto-fields span { color: #678078; font-size: 12px; }
 .auto-fields code { color: #2d5b4c; font-family: inherit; font-size: 13px; }
+@media (max-width: 1100px) { .page-head { align-items: flex-start; flex-direction: column; } .head-actions { width: 100%; flex-wrap: wrap; } .global-handoff-control { min-width: min(100%, 390px); } }
 @media (max-width: 960px) { .settings-grid { grid-template-columns: 1fr; } }
 </style>

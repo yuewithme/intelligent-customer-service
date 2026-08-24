@@ -92,6 +92,32 @@ def test_service_tag_schedules_three_fixed_daily_slots(monkeypatch, tmp_path):
     assert [row.due_at.hour for row in rows] == [23, 2, 6]
 
 
+def test_global_handoff_does_not_disable_service_touches(monkeypatch, tmp_path):
+    from app.domains.handoff.schemas.handoff_notification import (
+        HandoffNotificationSettingsUpdateRequest,
+    )
+    from app.domains.handoff.services.handoff_notification_service import (
+        update_handoff_notification_settings,
+    )
+
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    with service._database_session() as session:
+        contact_id = session.query(EyunContactModel.id).scalar()
+    update_handoff_notification_settings(
+        HandoffNotificationSettingsUpdateRequest(
+            global_handoff_enabled=True,
+            recipient_contact_ids=[contact_id],
+            message_text="请及时跟进。",
+        )
+    )
+
+    assert service.ensure_service_material_touch_tasks(
+        now=datetime(2026, 8, 4, 22, 30, tzinfo=timezone.utc)
+    ) == 3
+
+
 def test_late_service_tag_only_schedules_remaining_slot(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
     _insert_contact()

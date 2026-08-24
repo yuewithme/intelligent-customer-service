@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import create_engine, inspect, text
 
 from app.core.config import get_settings
 from app.infrastructure.database.models import EyunContactModel
@@ -6,8 +7,10 @@ from app.domains.handoff.schemas.handoff_notification import HandoffNotification
 from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
     HANDOFF_PENDING,
+    claim_conversation,
     force_handoff,
     record_customer_message,
+    resolve_conversation,
 )
 from app.domains.handoff.services.handoff_notification_service import (
     enqueue_handoff_notification,
@@ -51,14 +54,76 @@ async def test_admin_can_save_handoff_notification_settings(monkeypatch, tmp_pat
     contact_id = await _create_contact(monkeypatch, tmp_path)
     saved = update_handoff_notification_settings(
         HandoffNotificationSettingsUpdateRequest(
+            global_handoff_enabled=True,
             recipient_contact_ids=[contact_id],
             message_text="请及时接待这位客户。",
         )
     )
 
     assert saved["recipient_contact_ids"] == [contact_id]
+    assert saved["global_handoff_enabled"] is True
     assert saved["recipients"][0]["remark_name"] == "小李"
     assert get_handoff_notification_settings()["message_text"] == "请及时接待这位客户。"
+
+
+def test_existing_handoff_settings_table_adds_global_switch_column(
+    monkeypatch, tmp_path
+):
+    _settings(monkeypatch, tmp_path)
+    database_url = get_settings().database_url
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE handoff_notification_settings ("
+                "id INTEGER PRIMARY KEY, "
+                "recipient_contact_ids_json TEXT NOT NULL, "
+                "message_text TEXT NOT NULL, "
+                "created_at DATETIME NOT NULL, "
+                "updated_at DATETIME NOT NULL)"
+            )
+        )
+
+    settings = get_handoff_notification_settings()
+
+    columns = {
+        column["name"]
+        for column in inspect(engine).get_columns("handoff_notification_settings")
+    }
+    assert "global_handoff_enabled" in columns
+    assert settings["global_handoff_enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_global_handoff_reopens_resolved_conversation(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+    conversation = await record_customer_message(
+        channel="wechat",
+        user_id="returning-customer",
+        session_id="default",
+        content="上次问题已处理",
+        message_id="resolved-1",
+        status=AI_WAITING,
+    )
+    conversation_id = conversation["conversation_id"]
+    await force_handoff(conversation_id, operator_id="system", reason="人工跟进")
+    await claim_conversation(conversation_id, operator_id="operator-1")
+    await resolve_conversation(conversation_id, operator_id="operator-1", reason=None)
+
+    reopened = await record_customer_message(
+        channel="wechat",
+        user_id="returning-customer",
+        session_id="default",
+        content="我又有一个问题",
+        message_id="resolved-2",
+        status=HANDOFF_PENDING,
+        route="global_handoff",
+        primary_intent="global_handoff",
+        handoff_reason="global_handoff",
+    )
+
+    assert reopened["status"] == HANDOFF_PENDING
+    assert reopened["handoff_reason"] == "global_handoff"
 
 
 @pytest.mark.asyncio

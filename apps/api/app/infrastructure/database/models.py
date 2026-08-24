@@ -1103,6 +1103,9 @@ class HandoffNotificationSettingModel(Base):
     __tablename__ = "handoff_notification_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    global_handoff_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     recipient_contact_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     message_text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

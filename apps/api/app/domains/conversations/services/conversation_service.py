@@ -904,7 +904,15 @@ async def record_customer_message(
             if owner_display_name:
                 conversation.owner_display_name = owner_display_name
 
-        preserve_ai_lock = conversation.status in AI_BLOCKED_STATUSES
+        reopen_for_global_handoff = (
+            conversation.status == RESOLVED
+            and status == HANDOFF_PENDING
+            and handoff_reason == "global_handoff"
+        )
+        preserve_ai_lock = (
+            conversation.status in AI_BLOCKED_STATUSES
+            and not reopen_for_global_handoff
+        )
         if preserve_ai_lock:
             should_notify_handoff = False
         if not preserve_ai_lock:
