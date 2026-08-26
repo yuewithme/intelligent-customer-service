@@ -807,7 +807,7 @@ def test_mislabeled_private_callback_is_blocked_before_processing(
     }
 
 
-def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
+def test_eyun_non_image_messages_expose_media_metadata(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
@@ -830,9 +830,9 @@ def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
         (
             "60004",
             "<msg><voicemsg /></msg>",
-            {"url": "https://cdn.example.com/voice.mp3"},
+            {"bufId": "voice-buffer", "length": 3227, "voiceLength": 1800},
             "audio",
-            "https://cdn.example.com/voice.mp3",
+            None,
         ),
         (
             "60006",
@@ -893,10 +893,82 @@ def test_eyun_non_image_messages_expose_media_links(monkeypatch, tmp_path):
         ).json()["data"]
         media = detail["messages"][0]["metadata"]["media"]
         assert media["type"] == expected_type
+        if expected_type in {"video", "audio"}:
+            assert media["job_key"]
         if expected_type == "video":
             assert media["original_url"] == expected_url
             assert "url" not in media
             assert media["fallback"] is True
             assert media["resolve_status"] == "pending"
+        elif expected_type == "audio":
+            assert "url" not in media
+            assert media["buf_id"] == "voice-buffer"
+            assert media["length"] == "3227"
+            assert media["voice_length"] == "1800"
+            assert media["resolve_status"] == "pending"
         else:
             assert media["url"] == expected_url
+
+
+def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
+    monkeypatch, tmp_path
+):
+    from app.services import eyun_callback_service
+    from app.integrations.eyun.services.eyun_inbound_media_service import (
+        process_due_eyun_media_jobs,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    calls = []
+
+    async def fake_contact_snapshot(**kwargs):
+        return {}
+
+    async def fake_download_voice(**kwargs):
+        calls.append(kwargs)
+        return "/static/media/voice.wav"
+
+    monkeypatch.setattr(
+        eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
+    )
+    monkeypatch.setattr(
+        eyun_callback_service, "download_eyun_voice", fake_download_voice
+    )
+    client = TestClient(app)
+    payload = {
+        "account": "test_account",
+        "messageType": "60004",
+        "wcId": "wxid_bot",
+        "data": {
+            "wId": "wid_test",
+            "fromUser": "wxid_customer",
+            "toUser": "wxid_bot",
+            "content": (
+                '<msg><voicemsg bufid="289139440622895483" length="3227" '
+                'voicelength="1800" /></msg>'
+            ),
+            "msgId": 1114311129,
+            "newMsgId": 7208315917323315345,
+            "self": False,
+        },
+    }
+
+    assert client.post("/wechat/callback", json=payload).status_code == 200
+    assert client.post("/wechat/callback", json=payload).status_code == 200
+    assert asyncio.run(process_due_eyun_media_jobs()) == 1
+
+    assert calls == [
+        {
+            "w_id": "wid_test",
+            "msg_id": "1114311129",
+            "from_user": "wxid_customer",
+            "buf_id": "289139440622895483",
+            "length": 3227,
+        }
+    ]
+    detail = client.get(
+        "/api/v1/admin/conversations/wechat:wxid_customer:wxid_bot"
+    ).json()["data"]
+    media = detail["messages"][0]["metadata"]["media"]
+    assert media["url"] == "/static/media/voice.wav"
+    assert media["resolve_status"] == "succeeded"

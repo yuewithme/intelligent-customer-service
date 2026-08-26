@@ -112,6 +112,7 @@
               class="message-audio"
               :src="mediaSource(message)"
               controls
+              @error="markMediaFailed(message)"
             ></audio>
             <a
               v-else-if="mediaSource(message)"
@@ -122,15 +123,21 @@
             >
               {{ mediaFileName(message) || message.content }}
             </a>
-            <ElButton
-              v-else-if="canResolveVideo(message) && messageMedia(message)?.resolve_status !== 'failed'"
-              type="primary"
-              link
-              :loading="resolvingMediaIds.has(message.id)"
-              @click="resolveVideo(message)"
-            >
-              解析视频
-            </ElButton>
+            <div v-else-if="canResolveMedia(message)" class="media-placeholder">
+              <span>{{ mediaStatusText(message) }}</span>
+              <small v-if="messageMedia(message)?.resolve_error">
+                {{ messageMedia(message)?.resolve_error }}
+              </small>
+              <ElButton
+                v-if="canRetryMedia(message)"
+                type="primary"
+                link
+                :loading="resolvingMediaIds.has(message.id)"
+                @click="retryMedia(message)"
+              >
+                重新解析
+              </ElButton>
+            </div>
             <span v-else>{{ message.content }}</span>
             <a
               v-if="showOriginalLink(message)"
@@ -139,7 +146,7 @@
               target="_blank"
               rel="noreferrer"
             >
-              {{ resolvingMediaIds.has(message.id) ? '正在解析视频...' : '打开原链接' }}
+              打开媒体文件
             </a>
           </div>
           <div class="message-footer">
@@ -178,6 +185,7 @@ interface MediaMetadata {
   url?: string
   resolve_status?: 'pending' | 'processing' | 'succeeded' | 'failed'
   resolve_error?: string
+  job_key?: string
   thumb_base64?: string
   file_name?: string
   filename?: string
@@ -265,7 +273,6 @@ const load = async (options: { silent?: boolean } = {}) => {
     } else if (wasNearBottom && timelineRef.value) {
       timelineRef.value.scrollTop = timelineRef.value.scrollHeight
     }
-    autoResolvePendingVideos(detail.value.messages)
   } finally {
     requesting = false
     if (!options.silent) {
@@ -288,10 +295,33 @@ const messageMedia = (message: ConversationMessage): MediaMetadata | undefined =
 
 const mediaType = (message: ConversationMessage) => messageMedia(message)?.type || ''
 
-const canResolveVideo = (message: ConversationMessage) =>
+const canResolveMedia = (message: ConversationMessage) =>
   message.metadata.provider === 'eyun' &&
-  String(message.metadata.message_type || '') === '60003' &&
-  mediaType(message) === 'video'
+  ['60003', '60004'].includes(String(message.metadata.message_type || '')) &&
+  ['video', 'audio'].includes(mediaType(message))
+
+const canRetryMedia = (message: ConversationMessage) => {
+  const media = messageMedia(message)
+  const status = media?.resolve_status
+  return (
+    canResolveMedia(message) &&
+    (
+      status === 'failed' ||
+      failedMediaIds.value.has(message.id) ||
+      !status ||
+      (status === 'pending' && !media?.job_key)
+    )
+  )
+}
+
+const mediaStatusText = (message: ConversationMessage) => {
+  const label = mediaType(message) === 'audio' ? '语音' : '视频'
+  const status = messageMedia(message)?.resolve_status
+  if (status === 'failed' || failedMediaIds.value.has(message.id)) {
+    return `${label}解析失败`
+  }
+  return `${label}处理中…`
+}
 
 const isImageMessage = (message: ConversationMessage) =>
   ['image', 'emoji'].includes(mediaType(message))
@@ -318,9 +348,11 @@ const mediaFileName = (message: ConversationMessage) => {
 const showOriginalLink = (message: ConversationMessage) =>
   ['video', 'audio'].includes(mediaType(message)) && Boolean(mediaSource(message))
 
-const markVideoFailed = (message: ConversationMessage) => {
+const markMediaFailed = (message: ConversationMessage) => {
   failedMediaIds.value = new Set(failedMediaIds.value).add(message.id)
 }
+
+const markVideoFailed = markMediaFailed
 
 const cardMetadata = (
   message: ConversationMessage,
@@ -392,19 +424,7 @@ const clearSelection = () => {
   saveDialogVisible.value = false
 }
 
-const autoResolvePendingVideos = (messages: ConversationMessage[]) => {
-  for (const message of messages) {
-    const media = messageMedia(message)
-    if (canResolveVideo(message) && media?.resolve_status === 'pending') {
-      void resolveVideo(message, { silent: true })
-    }
-  }
-}
-
-const resolveVideo = async (
-  message: ConversationMessage,
-  options: { silent?: boolean } = {}
-) => {
+const retryMedia = async (message: ConversationMessage) => {
   if (resolvingMediaIds.value.has(message.id)) {
     return
   }
@@ -416,15 +436,9 @@ const resolveVideo = async (
     failed.delete(message.id)
     failedMediaIds.value = failed
     await nextTick()
+    ElMessage.success('已重新进入媒体处理队列')
   } catch {
-    const media = messageMedia(message)
-    if (media) {
-      media.resolve_status = 'failed'
-      media.resolve_error = 'provider_download_failed'
-    }
-    if (!options.silent) {
-      ElMessage.warning('视频解析失败，已保留原链接')
-    }
+    ElMessage.warning('重新解析请求失败，请稍后再试')
   } finally {
     const pending = new Set(resolvingMediaIds.value)
     pending.delete(message.id)
@@ -630,6 +644,19 @@ p {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.media-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.media-placeholder small {
+  max-width: 360px;
+  color: var(--el-text-color-secondary);
+  overflow-wrap: anywhere;
 }
 
 .commerce-card {

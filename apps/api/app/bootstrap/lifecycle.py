@@ -15,6 +15,9 @@ from app.integrations.eyun.services.message_risk_control_service import (
 from app.integrations.eyun.services.eyun_login_monitor_service import (
     eyun_login_monitor_worker,
 )
+from app.integrations.eyun.services.eyun_inbound_media_service import (
+    eyun_inbound_media_worker,
+)
 from app.integrations.youzan.services.youzan_product_sync_service import (
     youzan_product_sync_worker,
 )
@@ -41,6 +44,9 @@ async def lifespan(app: FastAPI):
     app.state.eyun_login_monitor_task = asyncio.create_task(
         eyun_login_monitor_worker(stop_event)
     )
+    app.state.eyun_inbound_media_task = asyncio.create_task(
+        eyun_inbound_media_worker(stop_event)
+    )
     app.state.service_material_touch_task = asyncio.create_task(
         service_material_touch_worker(stop_event)
     )
@@ -61,6 +67,7 @@ async def lifespan(app: FastAPI):
             stop_event.set()
             await app.state.eyun_risk_control_task
             await app.state.eyun_login_monitor_task
+            await app.state.eyun_inbound_media_task
             await app.state.service_material_touch_task
             await app.state.youzan_product_sync_task
             await app.state.youzan_order_sync_task

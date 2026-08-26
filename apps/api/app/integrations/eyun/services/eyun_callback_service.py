@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import wave
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -13,6 +14,7 @@ from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
     HANDOFF_PENDING,
     ensure_outbound_conversation_message,
+    make_conversation_id,
     record_customer_message,
 )
 from app.integrations.eyun.services.eyun_contact_service import (
@@ -29,6 +31,9 @@ from app.integrations.eyun.services.message_risk_control_service import (
 from app.integrations.eyun.services.eyun_login_monitor_service import (
     EYUN_OFFLINE_NOTIFICATION,
     schedule_eyun_offline_notification,
+)
+from app.integrations.eyun.services.eyun_inbound_media_service import (
+    enqueue_eyun_inbound_media,
 )
 from app.domains.customers.services.user_profile_service import (
     add_system_customer_tag,
@@ -212,12 +217,14 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             bool(str(data.get("img") or "").strip()),
             str(payload.get("_eyun_image_detection") or "message_type"),
         )
+    session_id = _eyun_conversation_session_id(payload, data)
+    provider_message_id = _eyun_message_id(data)
     await record_customer_message(
         channel="wechat",
         user_id=user_id,
-        session_id=_eyun_conversation_session_id(payload, data),
+        session_id=session_id,
         content=_eyun_display_content(payload),
-        message_id=_eyun_message_id(data),
+        message_id=provider_message_id,
         status=(
             HANDOFF_PENDING
             if global_handoff
@@ -259,6 +266,12 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         tenant_id=_eyun_tenant_id(payload, data),
         metadata=metadata,
     )
+
+    if _eyun_message_kind(message_type) in {"video", "audio"} and provider_message_id:
+        await enqueue_eyun_inbound_media(
+            conversation_id=make_conversation_id("wechat", user_id, session_id),
+            message_id=provider_message_id,
+        )
 
     if global_handoff:
         return eyun_success()
@@ -507,7 +520,10 @@ def extract_eyun_media_metadata(
 
     content = str(data.get("content") or "")
     media: dict[str, Any] = {"type": kind, **_xml_media_metadata(content)}
-    direct_url = _first_text(data, ("url", "fileUrl", "downloadUrl", "videoUrl"))
+    direct_url = _first_text(
+        data,
+        ("url", "fileUrl", "downloadUrl", "videoUrl", "voiceUrl"),
+    )
     if direct_url:
         media["url"] = direct_url
 
@@ -517,6 +533,19 @@ def extract_eyun_media_metadata(
 
     if message_type.endswith("002"):
         media["thumb_base64"] = str(data.get("img") or "")
+    elif kind == "audio":
+        media["buf_id"] = (
+            _first_text(data, ("bufId", "bufid"))
+            or str(media.get("buf_id") or "")
+        )
+        media["length"] = (
+            _first_text(data, ("length", "silkLength", "silklength"))
+            or str(media.get("length") or "")
+        )
+        media["voice_length"] = (
+            _first_text(data, ("voiceLength", "voicelength"))
+            or str(media.get("voice_length") or "")
+        )
     elif message_type.endswith("006"):
         media["md5"] = (
             _first_text(data, ("md5", "imageMd5"))
@@ -547,7 +576,18 @@ def _xml_media_metadata(content: str) -> dict[str, str]:
             candidate = unquote(value.strip())
             if candidate.startswith(("http://", "https://")):
                 result.setdefault("url", candidate)
-        if element.tag.rsplit("}", 1)[-1].lower() == "emoji":
+        local_tag = element.tag.rsplit("}", 1)[-1].lower()
+        if local_tag == "voicemsg":
+            for source, target in (
+                ("bufid", "buf_id"),
+                ("length", "length"),
+                ("silklength", "silk_length"),
+                ("voicelength", "voice_length"),
+                ("voiceformat", "voice_format"),
+            ):
+                if element.attrib.get(source):
+                    result.setdefault(target, element.attrib[source])
+        if local_tag == "emoji":
             if element.attrib.get("md5"):
                 result.setdefault("md5", element.attrib["md5"])
             if element.attrib.get("len") or element.attrib.get("length"):
@@ -591,6 +631,8 @@ def _first_text(data: dict[str, Any], keys: tuple[str, ...]) -> str | None:
         value = data.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
     return None
 
 
@@ -685,13 +727,72 @@ async def download_eyun_video(*, w_id: str, msg_id: str, content: str) -> str:
                     msg_id=msg_id,
                 )
             if status == 2:
-                break
+                description = str(poll_data.get("des") or "").strip()
+                raise RuntimeError(
+                    "Eyun video download failed"
+                    + (f": {description}" if description else "")
+                )
 
     raise RuntimeError("Eyun video download did not complete")
 
 
+async def download_eyun_voice(
+    *,
+    w_id: str,
+    msg_id: str,
+    from_user: str,
+    buf_id: str,
+    length: int,
+) -> str:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if (
+        not base_url
+        or not authorization
+        or not w_id
+        or not msg_id
+        or not from_user
+        or not buf_id
+        or length <= 0
+    ):
+        raise RuntimeError("Eyun voice download parameters are incomplete")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{base_url}/getMsgVoice",
+            headers={
+                "Authorization": authorization,
+                "Content-Type": "application/json",
+            },
+            json={
+                "wId": w_id,
+                "msgId": int(msg_id) if msg_id.isdigit() else msg_id,
+                "fromUser": from_user,
+                "bufId": buf_id,
+                "length": length,
+            },
+        )
+        response.raise_for_status()
+        result = response.json()
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        source_url = str(data.get("url") or "").strip()
+        if str(result.get("code")) != "1000" or not source_url:
+            raise RuntimeError(f"Eyun voice download failed: {result}")
+        return await persist_eyun_voice(
+            client=client,
+            source_url=source_url,
+            authorization=authorization,
+            msg_id=msg_id,
+        )
+
+
 def video_storage_dir() -> Path:
     return PROJECT_ROOT / "data" / "media"
+
+
+def media_storage_dir() -> Path:
+    return video_storage_dir()
 
 
 async def persist_eyun_video(
@@ -706,22 +807,101 @@ async def persist_eyun_video(
     storage_dir.mkdir(parents=True, exist_ok=True)
     target = storage_dir / f"{file_key}.mp4"
     temporary = target.with_suffix(".tmp")
+    maximum = get_settings().sop_video_max_bytes
+    size = 0
 
-    async with client.stream(
-        "GET",
-        source_url,
-        headers={"Authorization": authorization},
-        follow_redirects=True,
-    ) as response:
-        response.raise_for_status()
-        content_type = response.headers.get("content-type", "").lower()
-        if content_type.startswith(("text/", "application/json")):
-            raise RuntimeError("Eyun video download result is not a video")
-        with temporary.open("wb") as output:
-            async for chunk in response.aiter_bytes():
-                output.write(chunk)
-    temporary.replace(target)
+    try:
+        async with client.stream(
+            "GET",
+            source_url,
+            headers={"Authorization": authorization},
+            follow_redirects=True,
+        ) as response:
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "").lower()
+            if content_type.startswith(("text/", "application/json")):
+                raise RuntimeError("Eyun video download result is not a video")
+            with temporary.open("wb") as output:
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > maximum:
+                        raise RuntimeError("Eyun video exceeds the configured size limit")
+                    output.write(chunk)
+        if not size:
+            raise RuntimeError("Eyun video download result is empty")
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
     return f"/static/media/{target.name}"
+
+
+async def persist_eyun_voice(
+    *,
+    client: httpx.AsyncClient,
+    source_url: str,
+    authorization: str,
+    msg_id: str,
+) -> str:
+    file_key = hashlib.sha256(f"voice:{msg_id}:{source_url}".encode()).hexdigest()[:24]
+    storage_dir = media_storage_dir()
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    target = storage_dir / f"{file_key}.wav"
+    silk_path = storage_dir / f".{file_key}.silk.tmp"
+    pcm_path = storage_dir / f".{file_key}.pcm.tmp"
+    wav_path = storage_dir / f".{file_key}.wav.tmp"
+    maximum = max(get_settings().sop_image_max_bytes, 1)
+    size = 0
+
+    try:
+        async with client.stream(
+            "GET",
+            source_url,
+            headers={"Authorization": authorization},
+            follow_redirects=True,
+        ) as response:
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "").lower()
+            if content_type.startswith(("text/", "application/json")):
+                raise RuntimeError("Eyun voice download result is not audio")
+            with silk_path.open("wb") as output:
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > maximum:
+                        raise RuntimeError("Eyun voice exceeds the configured size limit")
+                    output.write(chunk)
+        if not size:
+            raise RuntimeError("Eyun voice download result is empty")
+        await asyncio.to_thread(
+            _decode_silk_to_wav,
+            silk_path,
+            pcm_path,
+            wav_path,
+        )
+        wav_path.replace(target)
+    finally:
+        silk_path.unlink(missing_ok=True)
+        pcm_path.unlink(missing_ok=True)
+        wav_path.unlink(missing_ok=True)
+    return f"/static/media/{target.name}"
+
+
+def _decode_silk_to_wav(
+    silk_path: Path,
+    pcm_path: Path,
+    wav_path: Path,
+    *,
+    sample_rate: int = 24000,
+) -> None:
+    import pilk
+
+    pilk.decode(str(silk_path), str(pcm_path), pcm_rate=sample_rate)
+    with pcm_path.open("rb") as pcm, wave.open(str(wav_path), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(sample_rate)
+        output.writeframes(pcm.read())
+    if not wav_path.stat().st_size:
+        raise RuntimeError("Eyun voice conversion produced an empty file")
 
 
 async def send_eyun_text(

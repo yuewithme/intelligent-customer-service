@@ -1634,7 +1634,7 @@ async def resolve_message_media(message_id: int) -> dict:
             metadata = {}
         if (
             metadata.get("provider") != "eyun"
-            or str(metadata.get("message_type") or "") != "60003"
+            or str(metadata.get("message_type") or "") not in {"60003", "60004"}
         ):
             raise AppError(
                 ErrorCode.REQUEST_INVALID,
@@ -1642,62 +1642,28 @@ async def resolve_message_media(message_id: int) -> dict:
                 status_code=400,
             )
 
-        media = metadata.get("media")
-        if not isinstance(media, dict):
-            media = {"type": "video"}
-        if media.get("resolve_status") in {"succeeded", "failed"}:
-            return _message_to_dict(message)
-        media.update({"type": "video", "resolve_status": "processing"})
-        media.pop("resolve_error", None)
-        metadata["media"] = media
-        message.metadata_json = json.dumps(metadata, ensure_ascii=False)
-        conversation_id = message.conversation_id
-        session.commit()
+    from app.integrations.eyun.services.eyun_inbound_media_service import (
+        retry_eyun_message_media,
+    )
 
-        from app.integrations.eyun.services.eyun_callback_service import download_eyun_video
+    try:
+        await retry_eyun_message_media(message_id)
+    except ValueError as exc:
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message=str(exc),
+            status_code=400,
+        ) from exc
 
-        try:
-            url = await download_eyun_video(
-                w_id=str(metadata.get("w_id") or ""),
-                msg_id=str(
-                    metadata.get("provider_msg_id")
-                    or metadata.get("message_id")
-                    or message.message_id
-                    or ""
-                ),
-                content=str(metadata.get("raw_content") or ""),
-            )
-        except Exception as exc:  # noqa: BLE001
-            media.update(
-                {
-                    "resolve_status": "failed",
-                    "resolve_error": "provider_download_failed",
-                }
-            )
-            message.metadata_json = json.dumps(metadata, ensure_ascii=False)
-            session.commit()
-            _publish_change(conversation_id, "media")
+    with _get_session() as session:
+        message = session.get(ConversationMessageModel, message_id)
+        if message is None:
             raise AppError(
-                ErrorCode.WECHAT_REPLY_FAILED,
-                message="视频解析失败，请稍后重试或打开原链接",
-                status_code=502,
-            ) from exc
-
-        media.update(
-            {
-                "type": "video",
-                "url": url,
-                "fallback": False,
-                "resolve_status": "succeeded",
-            }
-        )
-        media.pop("resolve_error", None)
-        metadata["media"] = media
-        message.metadata_json = json.dumps(metadata, ensure_ascii=False)
-        session.commit()
-        result = _message_to_dict(message)
-    _publish_change(conversation_id, "media")
-    return result
+                ErrorCode.REQUEST_INVALID,
+                message="消息不存在",
+                status_code=404,
+            )
+        return _message_to_dict(message)
 
 
 async def force_handoff(
@@ -1868,9 +1834,9 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
     media = metadata.get("media")
     media_is_resolvable = (
         metadata.get("provider") == "eyun"
-        and str(metadata.get("message_type") or "") == "60003"
+        and str(metadata.get("message_type") or "") in {"60003", "60004"}
         and isinstance(media, dict)
-        and media.get("type") == "video"
+        and media.get("type") in {"video", "audio"}
     )
     if (
         media_is_resolvable
