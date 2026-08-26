@@ -50,7 +50,7 @@ pnpm ts:check
 pnpm build:prod
 ```
 
-代码协作主线已切换为 Gitea `main`。生产自动部署仍需将云服务器的 Git
-`origin` 和只读凭据迁移到 Gitea；迁移完成前，Gitea 推送不会自动上线。生产
-部署继续由云服务器执行根目录的 `docker-compose.prod.yml`，Render/Vercel
-不再属于项目架构。
+代码协作主线统一为 GitLab `origin/main`：
+`https://git.hzwohu.com/wohu-apps/intelligent-customer-service.git`。生产部署由云服务器
+fast-forward 拉取已提交的 `origin/main`，再执行根目录的
+`docker-compose.prod.yml`；Render/Vercel 不属于项目架构。

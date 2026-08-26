@@ -15,6 +15,7 @@ from app.domains.decisioning.api import (
 )
 from app.domains.handoff.api import admin_handoff_notification
 from app.domains.knowledge.api import knowledge
+from app.domains.orchestration.api import admin_workbench
 from app.domains.sales.api import (
     admin_activities,
     admin_care_manuals,
@@ -43,6 +44,7 @@ ROUTERS = (
     demo_admin.profile_router,
     admin_logs.router,
     admin_memory.router,
+    admin_workbench.router,
     admin_products.router,
     wechat.router,
     eyun.router,

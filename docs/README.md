@@ -3,6 +3,7 @@
 - [项目架构与目录契约](architecture.md)：当前目录、模块依赖、配置和运行产物规则。
 - [云服务器生产部署](deployment.md)：腾讯云部署、配置、数据目录、发布与备份。
 - [Sales Agent Harness V2 现役说明](agent-harness-v2/README.md)：当前自主销售 Agent 的目标、业务原则、工具、运行边界和运维状态。
+- [可插拔能力与经验包协议](reference/orchestration-contract-v1.md)：能力封装、经验包图结构、只读能力工作台和后续数据化边界。
 - `reference/api/`：后端流程、集成和数据结构参考。
 - `reference/memory-v2/`：长期记忆的数据契约、基线与运维说明。
 - `archive/plans/`：已执行或失效的历史方案，只供追溯。

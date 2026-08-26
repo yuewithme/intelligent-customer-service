@@ -90,6 +90,12 @@ const navigation = [
     items: [{ label: '小兰工作台', to: '/workbench' }]
   },
   {
+    title: '智能编排',
+    items: [
+      { label: '能力工作台', to: '/operations/capability-workbench' }
+    ]
+  },
+  {
     title: '销售资产',
     items: [
       { label: '销售案例库', to: '/operations/conversation-cases' },
