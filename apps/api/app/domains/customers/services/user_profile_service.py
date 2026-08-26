@@ -637,19 +637,6 @@ def _fallback_profile_analysis(user_records: list[dict]) -> dict:
     }
 
 
-def _render_profile_summary(profile: UserProfileModel) -> str:
-    tags = _merge_customer_tags(_json_loads(profile.customer_tags_json, []), [])
-    interests = _json_loads(profile.product_interests_json, [])
-    pain_points = _json_loads(profile.pain_points_json, [])
-    if not tags and not interests and not pain_points:
-        return ""
-    return (
-        f"客户情况：{'、'.join(tags) or '信息待补充'}；"
-        f"产品兴趣：{'、'.join(interests) or '待确认'}。\n"
-        f"客户明确表达的问题：{'；'.join(pain_points) or '待确认'}。"
-    )
-
-
 def _pain_point_from_text(text: str) -> str:
     if not text:
         return ""
@@ -1060,7 +1047,6 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
             [],
         ),
         "product_interests": _json_loads(profile.product_interests_json, []),
-        "ai_summary": _render_profile_summary(profile),
         "preference_summary": profile.preference_summary,
         "pain_points": _json_loads(profile.pain_points_json, []),
         "basic_info": _json_loads(profile.basic_info_json, {}),

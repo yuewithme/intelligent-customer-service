@@ -8,7 +8,7 @@ from app.domains.knowledge.services.context_selector import select_context
 async def test_select_context_keeps_recent_turns_and_profile_summary():
     request = ContextSelectionInput(
         profile={
-            "ai_summary": "The user is a beginner.",
+            "preference_summary": "The user prefers concise guidance.",
             "pain_points": ["worried about keeping orchids alive"],
         },
         state={"sales_stage": "care_support", "risk_level": "normal"},
@@ -27,7 +27,9 @@ async def test_select_context_keeps_recent_turns_and_profile_summary():
 
     result = await select_context(request)
 
-    assert result.profile_summary["ai_summary"] == "The user is a beginner."
+    assert result.profile_summary["preference_summary"] == (
+        "The user prefers concise guidance."
+    )
     assert result.session_state["sales_stage"] == "care_support"
     assert [turn["content"] for turn in result.recent_turns] == [
         "second turn",
@@ -43,6 +45,7 @@ async def test_select_context_carries_persisted_basic_info_and_sales_profile():
             "basic_info": {
                 "nickname": "张" * 200,
                 "remark_name": "广西张姐",
+                "shipping_city": "南宁",
                 "owner_wc_id": "wxid_bot",
             },
             "customer_tags": ["100-200盆", "建兰"],
@@ -57,7 +60,11 @@ async def test_select_context_carries_persisted_basic_info_and_sales_profile():
     result = await select_context(request)
 
     assert result.profile_summary == {
-        "basic_info": {"nickname": "张" * 120, "remark_name": "广西张姐"},
+        "basic_info": {
+            "nickname": "张" * 120,
+            "remark_name": "广西张姐",
+            "shipping_city": "南宁",
+        },
         "customer_tags": ["100-200盆", "建兰"],
         "product_interests": ["建兰"],
         "pain_points": ["夏季容易烂根"],

@@ -296,7 +296,6 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
             "product_interests",
             "preference_summary",
             "pain_points",
-            "ai_summary",
             "is_human_handoff",
             "human_handoff_status",
             "last_active_at",
@@ -358,6 +357,13 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
             "动态商品、价格、库存、订单和权益必须在当前轮通过工具核实"
         ],
     }
+    evaluation_customer_context = user_state.metadata.get(
+        "evaluation_customer_context"
+    )
+    if _is_evaluation_request(message) and isinstance(
+        evaluation_customer_context, str
+    ) and evaluation_customer_context.strip():
+        workspace["customer_context"] = evaluation_customer_context.strip()
     return workspace
 
 
@@ -556,10 +562,7 @@ def _apply_evaluation_context(message, user_state) -> None:
         return
     customer_context = str(context.get("customer_context") or "").strip()
     if customer_context:
-        profile = user_state.metadata.get("profile")
-        profile = dict(profile) if isinstance(profile, dict) else {}
-        profile["ai_summary"] = customer_context
-        user_state.metadata["profile"] = profile
+        user_state.metadata["evaluation_customer_context"] = customer_context
     recent_turns = context.get("recent_turns")
     if isinstance(recent_turns, list):
         user_state.metadata["recent_turns"] = [

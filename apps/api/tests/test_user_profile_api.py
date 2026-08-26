@@ -327,26 +327,17 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
     assert profile["customer_tags"] == ["浙江省"]
     assert profile["product_interests"] == ["兰花养护"]
     assert profile["pain_points"] == ["兰花烂根，需要救治方案"]
-    assert profile["ai_summary"] == (
-        "客户情况：浙江省；产品兴趣：兰花养护。\n"
-        "客户明确表达的问题：兰花烂根，需要救治方案。"
-    )
 
 
 @pytest.mark.asyncio
-async def test_complaint_does_not_erase_stable_profile_summary(monkeypatch, tmp_path):
+async def test_complaint_does_not_erase_stable_profile_facts(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)
     client = TestClient(app)
-    stable_summary = (
-        "客户在浙江，养了100盆花，正在咨询建兰和大花蕙兰的品种推荐及购买链接；"
-        "客户有明确购买意向，但客服反复询问预算和喜好导致沟通效率低。"
-    )
     client.patch(
         "/api/v1/users/user_stable/profile",
         json={
             "product_interests": ["建兰", "大花蕙兰"],
             "pain_points": ["希望快速获得品种推荐和购买链接"],
-            "ai_summary": stable_summary,
         },
     )
 
@@ -357,7 +348,6 @@ async def test_complaint_does_not_erase_stable_profile_summary(monkeypatch, tmp_
             "customer_tags": [],
             "product_interests": [],
             "pain_points": [],
-            "ai_summary": "客户说客服很笨，一直问问题。",
         }
 
     monkeypatch.setattr(
@@ -391,10 +381,6 @@ async def test_complaint_does_not_erase_stable_profile_summary(monkeypatch, tmp_
     await update_profile_after_chat(message, intent, reply)
 
     profile = (await get_profile_bundle("user_stable"))["profile"]
-    assert profile["ai_summary"] == (
-        "客户情况：信息待补充；产品兴趣：建兰、大花蕙兰。\n"
-        "客户明确表达的问题：希望快速获得品种推荐和购买链接。"
-    )
     assert profile["product_interests"] == ["建兰", "大花蕙兰"]
     assert profile["pain_points"] == ["希望快速获得品种推荐和购买链接"]
     assert profile["risk_level"] == "high"
@@ -433,10 +419,6 @@ async def test_profile_update_expands_pain_points_from_chat_record(monkeypatch, 
 
     profile = (await get_profile_bundle("user_002"))["profile"]
     assert profile["pain_points"] == ["兰花烂根、黄叶，担心养死，需要救治方案"]
-    assert profile["ai_summary"] == (
-        "客户情况：信息待补充；产品兴趣：兰花养护。\n"
-        "客户明确表达的问题：兰花烂根、黄叶，担心养死，需要救治方案。"
-    )
 
 
 @pytest.mark.asyncio
@@ -453,7 +435,6 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
             "customer_tags": ["region:广西", "plant_count:100盆", "不在标签库"],
             "product_interests": ["开花类兰花"],
             "pain_points": ["广西气候下有100盆花，想获得适合当地环境的品种推荐"],
-            "ai_summary": "客户在广西，养了100盆花，正在咨询适合当地气候的开花类兰花推荐。",
         }
 
     monkeypatch.setattr(
@@ -518,10 +499,6 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
 
     profile = (await get_profile_bundle("user_003"))["profile"]
     assert profile["customer_tags"] == ["广西省", "100-200盆"]
-    assert profile["ai_summary"] == (
-        "客户情况：广西省、100-200盆；产品兴趣：开花类兰花。\n"
-        "客户明确表达的问题：广西气候下有100盆花，想获得适合当地环境的品种推荐。"
-    )
 
 
 @pytest.mark.asyncio
@@ -537,7 +514,6 @@ async def test_profile_update_includes_service_replies_as_context(monkeypatch, t
             "customer_tags": [],
             "product_interests": [],
             "pain_points": [],
-            "ai_summary": "客户在追问上一轮推荐内容。",
         }
 
     monkeypatch.setattr(
@@ -621,7 +597,6 @@ async def test_profile_update_keeps_one_customer_tag_per_type(monkeypatch, tmp_p
             ],
             "product_interests": ["建兰"],
             "pain_points": ["想找适合广西环境的兰花"],
-            "ai_summary": "客户在广西，养了20盆花，预算约200元，偏好蕙兰。",
         }
 
     monkeypatch.setattr(
@@ -683,7 +658,6 @@ async def test_profile_update_filters_customer_tags_to_catalog_values(monkeypatc
             ],
             "product_interests": ["建兰"],
             "pain_points": ["想买建兰"],
-            "ai_summary": "客户想买建兰。",
         }
 
     monkeypatch.setattr(
@@ -739,7 +713,6 @@ async def test_profile_ai_cannot_assign_verified_purchase_tags(monkeypatch, tmp_
             "customer_tags": ["抖音已购", "微信已购"],
             "product_interests": [],
             "pain_points": [],
-            "ai_summary": "客户表示自己买过。",
         }
 
     monkeypatch.setattr(

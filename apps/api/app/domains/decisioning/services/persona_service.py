@@ -293,7 +293,7 @@ def _relationship_state(profile: dict, user_state) -> dict:
 
 def _select_relevant_memories(*, profile: dict, message: str, mode: str) -> list[dict]:
     candidates = []
-    for key in ("preference_summary", "ai_summary"):
+    for key in ("preference_summary",):
         value = profile.get(key)
         if isinstance(value, str) and value.strip():
             candidates.append({"kind": key, "content": value.strip()[:500]})
@@ -305,9 +305,9 @@ def _select_relevant_memories(*, profile: dict, message: str, mode: str) -> list
     if not candidates:
         return []
     if mode in {"recommendation", "objection", "closing"}:
-        allowed = {"preference_summary", "ai_summary", "pain_points"}
+        allowed = {"preference_summary", "pain_points"}
     elif any(marker in message for marker in ("上次", "之前", "我家", "还是", "又")):
-        allowed = {"preference_summary", "ai_summary", "pain_points"}
+        allowed = {"preference_summary", "pain_points"}
     else:
         allowed = (
             {"pain_points"}

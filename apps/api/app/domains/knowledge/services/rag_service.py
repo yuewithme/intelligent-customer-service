@@ -391,7 +391,19 @@ def _has_unsupported_regional_environment_claim(
         for value in context.profile_summary.values()
         if value not in (None, "", [], {})
     )
-    locations = PROFILE_LOCATION_PATTERN.findall(profile_text)
+    locations = set(PROFILE_LOCATION_PATTERN.findall(profile_text))
+    basic_info = context.profile_summary.get("basic_info")
+    if isinstance(basic_info, dict):
+        shipping_city = str(basic_info.get("shipping_city") or "").strip()
+        if shipping_city:
+            locations.add(shipping_city)
+    customer_tags = context.profile_summary.get("customer_tags")
+    if isinstance(customer_tags, list):
+        locations.update(
+            str(tag).strip()
+            for tag in customer_tags
+            if str(tag).strip().endswith(("省", "市"))
+        )
     return any(
         any(
             re.search(

@@ -105,7 +105,7 @@ def test_rag_keeps_service_claims_backed_by_verified_membership_facts():
 
 def test_care_reply_quality_requires_evidence_and_one_verified_brand_bridge():
     context = ContextPackage(
-        profile_summary={"ai_summary": "客户在西安，刚入门。"},
+        profile_summary={"basic_info": {"shipping_city": "西安"}},
         session_state={
             "sales_action": {
                 "sales_action": "discover_pain",
@@ -162,7 +162,7 @@ def test_care_reply_quality_requires_evidence_and_one_verified_brand_bridge():
 
 def test_care_reply_finalizer_removes_live_region_claim_and_closes_brand_gap():
     context = ContextPackage(
-        profile_summary={"ai_summary": "客户在西安，刚入门。"},
+        profile_summary={"basic_info": {"shipping_city": "西安"}},
         session_state={
             "sales_action": {
                 "sales_action": "discover_pain",
