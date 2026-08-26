@@ -11,7 +11,7 @@ async def test_build_prompt_orders_blocks_context_knowledge_and_question():
         prompt_block_ids=["base.customer_service", "segment.beginner"],
         templates=["I will help you check this step by step."],
         context=ContextPackage(
-            profile_summary={"ai_summary": "The user is a beginner."},
+            profile_summary={"preference_summary": "The user is a beginner."},
             session_state={"sales_stage": "care_support"},
             recent_turns=[{"role": "user", "content": "My orchid has root rot."}],
             long_memory_summary="The user worries about keeping orchids alive.",

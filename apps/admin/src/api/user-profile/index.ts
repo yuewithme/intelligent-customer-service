@@ -12,7 +12,6 @@ export interface UserProfile {
   human_handoff_reason?: string | null
   customer_tags: string[]
   product_interests: string[]
-  ai_summary?: string | null
   preference_summary?: string | null
   pain_points: string[]
   last_route?: string | null

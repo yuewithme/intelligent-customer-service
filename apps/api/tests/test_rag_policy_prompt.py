@@ -14,7 +14,7 @@ async def test_build_rag_prompt_uses_policy_prompt_blocks_and_context():
         template_ids=["opening_beginner_care"],
     )
     context = ContextPackage(
-        profile_summary={"ai_summary": "The user is a beginner."},
+        profile_summary={"preference_summary": "The user is a beginner."},
         recent_turns=[{"role": "user", "content": "My orchid has root rot."}],
     )
     docs = [

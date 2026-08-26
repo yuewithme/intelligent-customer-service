@@ -553,7 +553,7 @@ def test_evaluation_request_is_detected_from_runner_metadata():
         ),
         state,
     )
-    assert state.metadata["profile"]["ai_summary"] == "客户在西安，刚入门。"
+    assert state.metadata["evaluation_customer_context"] == "客户在西安，刚入门。"
     assert state.metadata["recent_turns"] == [
         {"role": "user", "content": "之前烂根。"}
     ]

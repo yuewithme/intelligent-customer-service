@@ -556,7 +556,6 @@ class UserProfileModel(Base):
     human_handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     customer_tags_json: Mapped[str] = mapped_column(Text, default="[]")
     product_interests_json: Mapped[str] = mapped_column(Text, default="[]")
-    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     preference_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     pain_points_json: Mapped[str] = mapped_column(Text, default="[]")
     active_opportunity_json: Mapped[str] = mapped_column(Text, default="{}")

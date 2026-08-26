@@ -75,12 +75,11 @@ def _profile_summary(
     basic_info = profile.get("basic_info") if isinstance(profile.get("basic_info"), dict) else {}
     safe_basic_info = {
         key: str(basic_info.get(key))[:120]
-        for key in ("nickname", "remark_name")
+        for key in ("nickname", "remark_name", "shipping_city")
         if basic_info.get(key) not in (None, "", [])
     }
     values = {
         "basic_info": safe_basic_info,
-        "ai_summary": profile.get("ai_summary"),
         "preference_summary": profile.get("preference_summary"),
         "pain_points": profile.get("pain_points", []),
         "customer_tags": profile.get("customer_tags", []),
@@ -108,8 +107,6 @@ def _known_contact_fields(profile: dict) -> list[str]:
 
 def _long_memory_summary(profile: dict) -> str:
     parts = []
-    if profile.get("ai_summary"):
-        parts.append(profile["ai_summary"])
     if profile.get("preference_summary"):
         parts.append(profile["preference_summary"])
     pain_points = profile.get("pain_points") or []

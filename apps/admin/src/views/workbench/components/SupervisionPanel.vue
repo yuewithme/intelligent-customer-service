@@ -88,26 +88,6 @@
 
       <YouzanOrderPanel :conversation-id="conversationId" />
 
-      <div class="profile-section">
-        <div class="title">
-          <span>用户画像</span>
-          <ElTag v-if="profile?.updated_at" size="small" type="info" effect="plain"> 实时 </ElTag>
-        </div>
-        <ElSkeleton v-if="profileLoading" :rows="4" animated />
-        <ElEmpty v-else-if="!hasProfileDetail" description="暂无画像" :image-size="72" />
-        <dl v-else class="profile-detail">
-          <dt>风险等级</dt>
-          <dd>{{ riskLevelText(profile?.risk_level) }}</dd>
-          <dt>产品兴趣</dt>
-          <dd>{{ productInterestText }}</dd>
-          <dt>痛点</dt>
-          <dd class="profile-long-text">{{ painPointText }}</dd>
-          <dt>AI 摘要</dt>
-          <dd class="profile-long-text">{{ profileMemory || '-' }}</dd>
-          <dt>画像更新时间</dt>
-          <dd>{{ updatedAtText }}</dd>
-        </dl>
-      </div>
     </template>
   </aside>
 </template>
@@ -130,8 +110,7 @@ import {
 } from '@/api/admin/conversations'
 import type { UserProfile } from '@/api/user-profile'
 import { useUserStore } from '@/store/modules/user'
-import { riskLevelText, tagValueText } from '@/utils/tagDisplay'
-import { formatChinaTime } from '../time'
+import { tagValueText } from '@/utils/tagDisplay'
 import ReplyComposer from './ReplyComposer.vue'
 import YouzanOrderPanel from './YouzanOrderPanel.vue'
 
@@ -148,23 +127,6 @@ const userStore = useUserStore()
 const router = useRouter()
 const operatorId = computed(() => userStore.user.nickname || 'admin')
 const tags = computed(() => props.profile?.customer_tags?.filter(Boolean) || [])
-const profileMemory = computed(() => props.profile?.ai_summary?.trim() || '')
-const productInterestText = computed(() => joinProfileList(props.profile?.product_interests))
-const painPointText = computed(() => joinProfileList(props.profile?.pain_points))
-const updatedAtText = computed(() =>
-  props.profile?.updated_at ? formatChinaTime(props.profile.updated_at) : '-'
-)
-const hasProfileDetail = computed(
-  () =>
-    Boolean(props.profile) &&
-    Boolean(
-      props.profile?.risk_level ||
-        productInterestText.value !== '-' ||
-        painPointText.value !== '-' ||
-        profileMemory.value ||
-        props.profile?.updated_at
-    )
-)
 
 const claim = async () => {
   await claimConversation(props.conversationId, operatorId.value)
@@ -284,8 +246,6 @@ const displayName = (conversation: ConversationItem) =>
 
 const avatarText = (conversation: ConversationItem) =>
   displayName(conversation).slice(0, 1).toUpperCase()
-
-const joinProfileList = (values?: string[] | null) => values?.filter(Boolean).join('、') || '-'
 </script>
 
 <style scoped>
@@ -347,7 +307,6 @@ dd {
   gap: 8px;
 }
 
-.profile-section,
 .agent-section {
   padding-top: 4px;
 }
@@ -356,13 +315,6 @@ dd {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.profile-memory {
-  font-size: 13px;
-  line-height: 1.7;
-  color: #111827;
-  white-space: pre-wrap;
 }
 
 .profile-detail {

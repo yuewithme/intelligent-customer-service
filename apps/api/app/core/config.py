@@ -326,7 +326,7 @@ class Settings(BaseSettings):
     persona_reply_enabled: bool = True
     persona_reply_temperature: float = Field(default=0.3, ge=0, le=1)
     profile_llm_provider: str = ""
-    profile_llm_model: str = ""
+    profile_llm_model: str = "qwen3.7-flash"
     profile_analysis_prompt: str = ""
     review_llm_provider: str = ""
     review_llm_model: str = ""
