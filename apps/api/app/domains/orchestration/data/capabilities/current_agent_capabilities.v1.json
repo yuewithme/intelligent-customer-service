@@ -14,6 +14,19 @@
         "icon": "Search",
         "summary": "为 Agent 渐进披露当前可用能力。"
       },
+      "business": {
+        "action": "从系统能力目录中查找当前任务可以使用的工具和经验说明。",
+        "data_source": "系统能力目录",
+        "ai_mode": "automatic",
+        "ai_mode_description": "由系统在内部自动使用，业务人员无需配置或手动触发。",
+        "customer_contact": "none",
+        "customer_contact_description": "只在系统内部查找能力，不会向客户发送任何内容。",
+        "staff_notification": false,
+        "permission_description": "只能读取当前已启用能力的说明，不能直接执行业务动作。",
+        "result_description": "返回当前任务可用的能力名称及其使用说明。",
+        "risk_level": "low",
+        "risk_description": "只读取系统能力说明，不修改客户或业务数据。"
+      },
       "input_schema": {
         "type": "object",
         "required": ["query"],
@@ -53,6 +66,19 @@
         "icon": "User",
         "summary": "读取当前客户的已知事实和历史上下文。"
       },
+      "business": {
+        "action": "从客户档案、近期会话和长期记忆中读取当前客户已经确认的信息。",
+        "data_source": "当前客户档案、会话记录和长期记忆",
+        "ai_mode": "automatic",
+        "ai_mode_description": "AI 可以在需要了解客户历史时主动查询，不需要人工确认。",
+        "customer_contact": "none",
+        "customer_contact_description": "查询过程客户无感，不会自动发送消息。",
+        "staff_notification": false,
+        "permission_description": "只能读取当前会话对应客户的数据，不能读取其他客户或修改档案。",
+        "result_description": "返回客户画像、近期对话、已确认偏好、承诺和待办，帮助避免重复追问。",
+        "risk_level": "low",
+        "risk_description": "只读当前客户数据，但回复时仍需避免暴露内部标签和敏感字段。"
+      },
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false},
       "output_schema": {"type": "object", "additionalProperties": true},
       "execution": {
@@ -77,6 +103,19 @@
         "group": "客户数据",
         "icon": "PriceTag",
         "summary": "有原话证据时记录客户标签。"
+      },
+      "business": {
+        "action": "根据客户本轮明确表达的事实，为客户记录匹配的业务标签。",
+        "data_source": "当前客户消息和客户标签库",
+        "ai_mode": "conditional",
+        "ai_mode_description": "客户本轮提供了明确原话证据时，AI 可以主动记录；证据不足时不能猜测。",
+        "customer_contact": "none",
+        "customer_contact_description": "记录标签不会给客户发送消息，也不会展示内部标签名称。",
+        "staff_notification": false,
+        "permission_description": "只能写入标签库中允许 AI 使用的标签；已购等受保护标签不能由 AI 写入。",
+        "result_description": "更新客户标签，供后续服务、分层和经验包判断使用。",
+        "risk_level": "medium",
+        "risk_description": "会修改客户状态，必须保留客户原话证据并防止错误标签影响后续判断。"
       },
       "input_schema": {
         "type": "object",
@@ -115,6 +154,19 @@
         "icon": "Medal",
         "summary": "为价值塑造提供已经核实的品牌事实。"
       },
+      "business": {
+        "action": "从已核实品牌事实库中查询可以对外表达的品牌、服务、权益和风险信息。",
+        "data_source": "已核实品牌与服务事实库",
+        "ai_mode": "automatic",
+        "ai_mode_description": "AI 在需要介绍服务价值、权益或品牌差异时可以主动查询。",
+        "customer_contact": "reply_support",
+        "customer_contact_description": "查询本身不发消息，结果可以用于组织给客户的回复。",
+        "staff_notification": false,
+        "permission_description": "只能读取已经审核通过的事实，不能新增数据或把历史比例改写成结果保证。",
+        "result_description": "返回可引用的品牌规模、服务内容、权益边界和风险事实。",
+        "risk_level": "low",
+        "risk_description": "只读审核事实；主要风险是表达夸大，因此必须遵守事实边界。"
+      },
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false},
       "output_schema": {"type": "object", "additionalProperties": true},
       "execution": {
@@ -139,6 +191,19 @@
         "group": "知识与内容",
         "icon": "Collection",
         "summary": "需要核实专业知识时检索权威内容。"
+      },
+      "business": {
+        "action": "从已发布知识库中查询与客户问题相关的兰花养护或业务知识。",
+        "data_source": "已发布知识库",
+        "ai_mode": "automatic",
+        "ai_mode_description": "AI 遇到需要核实的专业问题时可以主动查询，不需要人工确认。",
+        "customer_contact": "reply_support",
+        "customer_contact_description": "查询本身不会发消息，结果用于组织有依据的客户回复。",
+        "staff_notification": false,
+        "permission_description": "只能读取已发布知识和来源，不能修改知识库或编造未找到的答案。",
+        "result_description": "返回知识答案和来源；没有可靠内容时明确返回未找到。",
+        "risk_level": "low",
+        "risk_description": "只读知识；主要风险是把不完整资料扩写成绝对结论。"
       },
       "input_schema": {
         "type": "object",
@@ -172,6 +237,19 @@
         "group": "商品与订单",
         "icon": "Goods",
         "summary": "查询与客户购买方向匹配的真实商品。"
+      },
+      "business": {
+        "action": "从当前在售商品库中查询与客户真实购买需求匹配的商品。",
+        "data_source": "有赞在售商品、规格、价格和库存数据",
+        "ai_mode": "conditional",
+        "ai_mode_description": "只有客户出现明确选购、价格、规格、库存或购买入口需求时，AI 才可以主动查询。",
+        "customer_contact": "reply_support",
+        "customer_contact_description": "查询不会发送商品卡片，结果只用于形成推荐和回答商品问题。",
+        "staff_notification": false,
+        "permission_description": "只能读取当前在售商品事实，不能修改价格、库存、上下架状态或创建订单。",
+        "result_description": "返回少量真实候选商品及商品引用，供后续读取详情或发送卡片。",
+        "risk_level": "low",
+        "risk_description": "只读商品数据；必须避免把养护问题误判成购买需求。"
       },
       "input_schema": {
         "type": "object",
@@ -209,6 +287,19 @@
         "icon": "Document",
         "summary": "读取已选中商品的完整动态事实。"
       },
+      "business": {
+        "action": "读取某个已选中真实商品的价格、规格、库存、权益和购买入口。",
+        "data_source": "有赞商品目录和当前商品详情",
+        "ai_mode": "conditional",
+        "ai_mode_description": "已经取得真实商品引用，并需要核实详情时，AI 可以主动读取。",
+        "customer_contact": "reply_support",
+        "customer_contact_description": "读取本身不会发送商品或消息，结果可用于回答客户和判断是否可以发卡。",
+        "staff_notification": false,
+        "permission_description": "只能读取系统返回的真实商品引用，不能读取不存在的商品或修改商品数据。",
+        "result_description": "返回商品完整动态事实以及商品卡片当前是否可用。",
+        "risk_level": "low",
+        "risk_description": "只读商品详情；引用必须来自真实商品查询结果。"
+      },
       "input_schema": {
         "type": "object",
         "required": ["product_ref"],
@@ -238,6 +329,19 @@
         "group": "消息触达",
         "icon": "ShoppingCart",
         "summary": "客户已有清晰正向意向时发送真实商品卡片。"
+      },
+      "business": {
+        "action": "把已经核实的真实商品小程序卡片发送到当前客户会话。",
+        "data_source": "有赞商品目录和当前商品购买入口",
+        "ai_mode": "conditional",
+        "ai_mode_description": "客户明确想了解价格、购买入口或下单时，AI 可以主动发送；普通咨询不能发送。",
+        "customer_contact": "direct_card",
+        "customer_contact_description": "会在当前会话中直接向客户发送商品卡片。",
+        "staff_notification": false,
+        "permission_description": "只能向当前客户发送已核实且可购买的真实商品卡片，不能发送虚构链接。",
+        "result_description": "准备可发送的商品卡片，并随本轮最终回复一起交付给客户。",
+        "risk_level": "medium",
+        "risk_description": "会直接触达客户，必须先确认购买意向、商品真实性和购买入口可用。"
       },
       "input_schema": {
         "type": "object",
@@ -285,6 +389,19 @@
         "icon": "Notebook",
         "summary": "查找与客户品种或商品匹配的养护手册。"
       },
+      "business": {
+        "action": "从已发布养护手册库中，按兰花品种、商品或养护主题查找最匹配的手册。",
+        "data_source": "已发布养护手册库",
+        "ai_mode": "automatic",
+        "ai_mode_description": "当前客户问题需要对应养护资料时，AI 可以主动查询。",
+        "customer_contact": "none",
+        "customer_contact_description": "查询本身不会向客户发送手册；发送时还需要使用发送素材能力。",
+        "staff_notification": false,
+        "permission_description": "只能读取已发布养护手册，不能新增、修改、删除或发送匹配不明确的内容。",
+        "result_description": "返回匹配的养护手册、匹配方式和可供后续发送的资料引用。",
+        "risk_level": "low",
+        "risk_description": "只读手册数据；需要避免把模糊候选误当成确定匹配。"
+      },
       "input_schema": {
         "type": "object",
         "required": ["query"],
@@ -320,6 +437,19 @@
         "group": "知识与内容",
         "icon": "Picture",
         "summary": "查找能够推进当前沟通的真实素材。"
+      },
+      "business": {
+        "action": "从已发布销售素材库中查找与客户问题、品种或沟通目的匹配的图文和视频。",
+        "data_source": "Agent 销售素材库",
+        "ai_mode": "automatic",
+        "ai_mode_description": "资料能够帮助当前客户且不会替代直接回答时，AI 可以主动查询。",
+        "customer_contact": "none",
+        "customer_contact_description": "查询不会直接把素材发给客户，只返回可选素材。",
+        "staff_notification": false,
+        "permission_description": "只能读取已发布且当前客户有权使用的素材，不能修改素材内容。",
+        "result_description": "返回匹配的图文或视频素材引用，供后续判断是否发送。",
+        "risk_level": "low",
+        "risk_description": "只读素材；必须避免重复发送或用素材代替解决客户当前问题。"
       },
       "input_schema": {
         "type": "object",
@@ -359,6 +489,19 @@
         "icon": "Promotion",
         "summary": "向客户发送已经匹配并通过校验的资料。"
       },
+      "business": {
+        "action": "把已经匹配并通过权限、发布状态和重复检查的图文或视频素材发送给当前客户。",
+        "data_source": "已发布 Agent 销售素材库",
+        "ai_mode": "conditional",
+        "ai_mode_description": "素材与客户当前问题明确匹配、确实有帮助且近期未重复发送时，AI 可以主动发送。",
+        "customer_contact": "direct_message",
+        "customer_contact_description": "会在当前会话中直接向客户发送文字、图片或视频素材。",
+        "staff_notification": false,
+        "permission_description": "只能向当前客户发送已发布、权益匹配且未被重复拦截的素材。",
+        "result_description": "准备连续的素材消息组合，并随本轮最终回复发送给客户。",
+        "risk_level": "medium",
+        "risk_description": "会直接触达客户，需要通过素材匹配、客户权益和近期重复检查。"
+      },
       "input_schema": {
         "type": "object",
         "required": ["material_ref"],
@@ -392,6 +535,19 @@
         "group": "人工协作",
         "icon": "VideoPlay",
         "summary": "通知同事处理已购客户的视频访问权限。"
+      },
+      "business": {
+        "action": "通知值班同事处理已购客户无法查看受限视频的问题。",
+        "data_source": "当前客户会话、已核验购买截图和抖音已购状态",
+        "ai_mode": "conditional",
+        "ai_mode_description": "只有系统已经核验购买截图并确认抖音已购后，AI 才可以主动通知同事。",
+        "customer_contact": "none",
+        "customer_contact_description": "该能力不会额外发送客户消息，也不会承诺权限已经开通。",
+        "staff_notification": true,
+        "permission_description": "只能为当前已核验的抖音已购客户发起通知，口头自述购买不能触发。",
+        "result_description": "向值班同事发送处理通知，AI 保持会话并继续承接客户当前问题。",
+        "risk_level": "medium",
+        "risk_description": "会通知工作人员，必须先完成购买证据核验，且通知不代表处理完成。"
       },
       "input_schema": {"type": "object", "properties": {}, "additionalProperties": false},
       "output_schema": {
@@ -434,6 +590,19 @@
         "icon": "Tickets",
         "summary": "安全查询当前客户的真实订单。"
       },
+      "business": {
+        "action": "通过客户已绑定身份或其主动提供的手机号，查询当前客户的近期真实订单。",
+        "data_source": "有赞和微信订单数据",
+        "ai_mode": "conditional",
+        "ai_mode_description": "客户表示已经购买、需要查单或付款状态会改变当前处理时，AI 可以主动查询。",
+        "customer_contact": "none",
+        "customer_contact_description": "查询过程不会向客户发送订单信息；AI 只会在回复中使用必要的脱敏结果。",
+        "staff_notification": false,
+        "permission_description": "只能查询当前客户绑定身份或其主动提供手机号对应的订单，不能查看他人订单。",
+        "result_description": "返回脱敏订单列表；查到真实已付款订单后可以核验客户已购状态。",
+        "risk_level": "medium",
+        "risk_description": "涉及客户订单隐私，必须限制为当前客户并保持信息脱敏。"
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -470,6 +639,19 @@
         "icon": "Memo",
         "summary": "读取已经匹配订单的完整状态。"
       },
+      "business": {
+        "action": "读取已经匹配的真实订单详情，包括订单状态、商品和必要的脱敏信息。",
+        "data_source": "有赞和微信订单系统",
+        "ai_mode": "conditional",
+        "ai_mode_description": "已经取得当前客户真实订单引用，并需要核实订单细节时，AI 可以主动读取。",
+        "customer_contact": "none",
+        "customer_contact_description": "读取本身不会给客户发送消息，必要结果会以脱敏方式用于回复。",
+        "staff_notification": false,
+        "permission_description": "只能读取当前客户有权访问的真实订单，不能修改、退款、取消或查看他人订单。",
+        "result_description": "返回当前订单状态、商品和必要信息，并可核验真实已付款状态。",
+        "risk_level": "medium",
+        "risk_description": "涉及订单隐私和购买身份，必须验证订单归属并限制对外展示字段。"
+      },
       "input_schema": {
         "type": "object",
         "required": ["order_ref"],
@@ -503,6 +685,19 @@
         "group": "客户数据",
         "icon": "Clock",
         "summary": "保存有原话证据的稳定客户事实。"
+      },
+      "business": {
+        "action": "把客户本轮明确表达、且会影响后续服务的稳定信息记录到长期记忆。",
+        "data_source": "当前客户消息和客户长期记忆",
+        "ai_mode": "conditional",
+        "ai_mode_description": "客户本轮提供稳定偏好、环境、目标或承诺等事实时，AI 可以主动记录。",
+        "customer_contact": "none",
+        "customer_contact_description": "记录过程客户无感，不会主动发送消息或暴露内部记忆。",
+        "staff_notification": false,
+        "permission_description": "只能记录客户本轮亲口提供且有原话证据的稳定事实，不能记录推测或敏感猜测。",
+        "result_description": "形成候选长期记忆，供未来服务、推荐和避免重复询问使用。",
+        "risk_level": "medium",
+        "risk_description": "会沉淀长期客户数据，必须有本轮证据并控制记录范围。"
       },
       "input_schema": {
         "type": "object",
@@ -540,6 +735,19 @@
         "group": "人工协作",
         "icon": "Service",
         "summary": "将当前会话交给人工客服继续处理。"
+      },
+      "business": {
+        "action": "把当前会话、已经核实的客户事实和未完成事项提交给人工客服接管。",
+        "data_source": "当前会话、客户上下文和本轮处理结果",
+        "ai_mode": "conditional",
+        "ai_mode_description": "遇到必须人工处理、权限不足或无法安全继续的情况时，AI 可以主动转人工。",
+        "customer_contact": "conversation_handoff",
+        "customer_contact_description": "会改变当前会话处理状态，并告知客户已请人工同事继续处理。",
+        "staff_notification": true,
+        "permission_description": "只能转交当前会话，必须提供真实原因和已核实摘要，且系统转人工功能需要启用。",
+        "result_description": "创建人工接管任务并通知工作人员；处理完成前不能向客户声称已经解决。",
+        "risk_level": "high",
+        "risk_description": "会改变会话归属并通知人工，错误触发会中断自动服务，因此必须有明确原因。"
       },
       "input_schema": {
         "type": "object",

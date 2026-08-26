@@ -2,6 +2,9 @@ import request from '@/config/axios'
 
 export type CapabilityVisibility = 'hidden' | 'configurable' | 'draggable'
 export type CapabilityKind = 'query' | 'action' | 'human' | 'internal'
+export type CapabilityAiMode = 'automatic' | 'conditional' | 'workflow_only' | 'human_confirm'
+export type CapabilityCustomerContact = 'none' | 'reply_support' | 'direct_message' | 'direct_card' | 'conversation_handoff'
+export type CapabilityRiskLevel = 'low' | 'medium' | 'high'
 
 export interface ConditionClause {
   kind: 'fact' | 'semantic'
@@ -37,6 +40,19 @@ export interface CapabilityItem {
     group: string
     icon?: string | null
     summary: string
+  }
+  business: {
+    action: string
+    data_source: string
+    ai_mode: CapabilityAiMode
+    ai_mode_description: string
+    customer_contact: CapabilityCustomerContact
+    customer_contact_description: string
+    staff_notification: boolean
+    permission_description: string
+    result_description: string
+    risk_level: CapabilityRiskLevel
+    risk_description: string
   }
   input_schema: Record<string, unknown>
   output_schema: Record<string, unknown>
