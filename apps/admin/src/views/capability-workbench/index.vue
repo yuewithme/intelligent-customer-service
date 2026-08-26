@@ -260,17 +260,18 @@
                 <span class="capability-icon">{{ capabilityIcon(item) }}</span>
                 <span>
                   <strong>{{ item.name }}</strong>
-                  <small>{{ item.capability_id }}</small>
+                  <small>{{ item.ui.group }}</small>
                 </span>
               </div>
-              <p>{{ item.ui.summary }}</p>
+              <p>{{ item.business.action }}</p>
               <div class="card-tags">
-                <ElTag size="small" effect="plain">{{ item.ui.group }}</ElTag>
-                <ElTag size="small" :type="visibilityTagType(item.ui.visibility)" effect="plain">
-                  {{ visibilityText(item.ui.visibility) }}
+                <ElTag size="small" :type="aiModeTagType(item.business.ai_mode)" effect="plain">
+                  {{ aiModeText(item.business.ai_mode) }}
                 </ElTag>
-                <ElTag v-if="item.side_effects.length" size="small" type="warning" effect="plain">有副作用</ElTag>
-                <ElTag v-else size="small" type="success" effect="plain">只读</ElTag>
+                <ElTag size="small" :type="customerContactTagType(item.business.customer_contact)" effect="plain">
+                  {{ customerContactText(item.business.customer_contact) }}
+                </ElTag>
+                <ElTag v-if="item.business.staff_notification" size="small" type="warning" effect="plain">会通知工作人员</ElTag>
               </div>
               <small class="usage-count">被 {{ item.used_by.length }} 个步骤引用</small>
             </button>
@@ -288,30 +289,47 @@
       <template v-if="selectedCapability">
         <div class="drawer-tags">
           <ElTag effect="plain">{{ selectedCapability.ui.group }}</ElTag>
-          <ElTag :type="visibilityTagType(selectedCapability.ui.visibility)" effect="plain">
-            {{ visibilityText(selectedCapability.ui.visibility) }}
+          <ElTag :type="aiModeTagType(selectedCapability.business.ai_mode)" effect="plain">
+            {{ aiModeText(selectedCapability.business.ai_mode) }}
           </ElTag>
-          <ElTag type="info" effect="plain">v{{ selectedCapability.version }}</ElTag>
+          <ElTag :type="customerContactTagType(selectedCapability.business.customer_contact)" effect="plain">
+            {{ customerContactText(selectedCapability.business.customer_contact) }}
+          </ElTag>
+          <ElTag v-if="selectedCapability.business.staff_notification" type="warning" effect="plain">会通知工作人员</ElTag>
         </div>
-        <p class="drawer-description">{{ selectedCapability.description }}</p>
-        <ElDescriptions :column="1" border>
-          <ElDescriptionsItem label="能力标识">{{ selectedCapability.capability_id }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="执行器">{{ selectedCapability.execution.handler_key }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="能力类型">{{ kindText(selectedCapability.kind) }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="超时与重试">
-            {{ selectedCapability.execution.timeout_seconds }} 秒 · 最多 {{ selectedCapability.execution.retry.max_attempts }} 次
-          </ElDescriptionsItem>
-          <ElDescriptionsItem label="幂等要求">{{ selectedCapability.execution.idempotency }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="权限">
-            {{ selectedCapability.permissions.join('、') || '无额外权限' }}
-          </ElDescriptionsItem>
-          <ElDescriptionsItem label="副作用">
-            {{ selectedCapability.side_effects.map(sideEffectText).join('、') || '无' }}
-          </ElDescriptionsItem>
-        </ElDescriptions>
+        <section class="business-action">
+          <span>具体动作</span>
+          <p>{{ selectedCapability.business.action }}</p>
+        </section>
+        <div class="business-grid">
+          <article>
+            <span>数据来源</span>
+            <p>{{ selectedCapability.business.data_source }}</p>
+          </article>
+          <article>
+            <span>AI 如何使用</span>
+            <p>{{ selectedCapability.business.ai_mode_description }}</p>
+          </article>
+          <article>
+            <span>是否触达客户</span>
+            <p>{{ selectedCapability.business.customer_contact_description }}</p>
+          </article>
+          <article>
+            <span>使用权限</span>
+            <p>{{ selectedCapability.business.permission_description }}</p>
+          </article>
+          <article>
+            <span>执行结果</span>
+            <p>{{ selectedCapability.business.result_description }}</p>
+          </article>
+          <article :class="`risk-${selectedCapability.business.risk_level}`">
+            <span>风险级别 · {{ riskLevelText(selectedCapability.business.risk_level) }}</span>
+            <p>{{ selectedCapability.business.risk_description }}</p>
+          </article>
+        </div>
 
         <section v-if="selectedCapability.preconditions" class="drawer-section">
-          <h3>使用前提</h3>
+          <h3>什么时候可以使用</h3>
           <ul>
             <li v-for="(condition, index) in selectedCapability.preconditions.conditions" :key="index">
               <strong>{{ condition.description }}</strong>
@@ -320,7 +338,7 @@
           </ul>
         </section>
         <section class="drawer-section">
-          <h3>使用边界</h3>
+          <h3>使用规则</h3>
           <ul>
             <li v-for="guidance in selectedCapability.usage_guidance" :key="guidance">{{ guidance }}</li>
           </ul>
@@ -335,21 +353,47 @@
               @click="jumpToUsage(usage)"
             >
               <strong>{{ usage.package_name }} · {{ usage.step_name }}</strong>
-              <small>{{ usage.usage }}</small>
+              <small>{{ usageTypeText(usage.usage) }}</small>
             </button>
           </div>
           <p v-else class="muted">当前经验包尚未引用。</p>
         </section>
-        <section class="drawer-section schema-grid">
-          <div>
-            <h3>输入协议</h3>
-            <pre>{{ formatJson(selectedCapability.input_schema) }}</pre>
-          </div>
-          <div>
-            <h3>输出协议</h3>
-            <pre>{{ formatJson(selectedCapability.output_schema) }}</pre>
-          </div>
-        </section>
+        <ElCollapse class="technical-collapse">
+          <ElCollapseItem name="technical">
+            <template #title>
+              <span class="technical-title">研发信息 <small>业务人员可以忽略</small></span>
+            </template>
+            <ElDescriptions :column="1" border>
+              <ElDescriptionsItem label="能力标识">{{ selectedCapability.capability_id }}</ElDescriptionsItem>
+              <ElDescriptionsItem label="执行器">{{ selectedCapability.execution.handler_key }}</ElDescriptionsItem>
+              <ElDescriptionsItem label="能力类型">{{ kindText(selectedCapability.kind) }}</ElDescriptionsItem>
+              <ElDescriptionsItem label="展示级别">{{ visibilityText(selectedCapability.ui.visibility) }}</ElDescriptionsItem>
+              <ElDescriptionsItem label="超时与重试">
+                {{ selectedCapability.execution.timeout_seconds }} 秒 · 最多 {{ selectedCapability.execution.retry.max_attempts }} 次
+              </ElDescriptionsItem>
+              <ElDescriptionsItem label="幂等要求">{{ selectedCapability.execution.idempotency }}</ElDescriptionsItem>
+              <ElDescriptionsItem label="技术权限">
+                {{ selectedCapability.permissions.join('、') || '无额外权限' }}
+              </ElDescriptionsItem>
+              <ElDescriptionsItem label="技术副作用">
+                {{ selectedCapability.side_effects.map(sideEffectText).join('、') || '无' }}
+              </ElDescriptionsItem>
+              <ElDescriptionsItem label="错误编码">
+                {{ selectedCapability.error_codes.join('、') || '无' }}
+              </ElDescriptionsItem>
+            </ElDescriptions>
+            <section class="schema-grid">
+              <div>
+                <h3>输入协议</h3>
+                <pre>{{ formatJson(selectedCapability.input_schema) }}</pre>
+              </div>
+              <div>
+                <h3>输出协议</h3>
+                <pre>{{ formatJson(selectedCapability.output_schema) }}</pre>
+              </div>
+            </section>
+          </ElCollapseItem>
+        </ElCollapse>
       </template>
     </ElDrawer>
   </ContentWrap>
@@ -359,8 +403,11 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   getCapabilityWorkbench,
+  type CapabilityAiMode,
+  type CapabilityCustomerContact,
   type CapabilityItem,
   type CapabilityKind,
+  type CapabilityRiskLevel,
   type CapabilityUsage,
   type CapabilityVisibility,
   type CapabilityWorkbenchResponse,
@@ -500,7 +547,14 @@ const filteredCapabilities = computed(() => {
     if (visibilityFilter.value === 'business' && item.ui.visibility === 'hidden') return false
     if (visibilityFilter.value !== 'all' && visibilityFilter.value !== 'business' && item.ui.visibility !== visibilityFilter.value) return false
     if (!keyword) return true
-    return [item.name, item.capability_id, item.description, item.ui.summary]
+    return [
+      item.name,
+      item.capability_id,
+      item.description,
+      item.ui.summary,
+      item.business.action,
+      item.business.data_source
+    ]
       .some((value) => value.toLowerCase().includes(keyword))
   })
 })
@@ -590,7 +644,34 @@ const timeoutText = (step: ExperienceStep) => {
   return `${base} ${step.timeout.unit}`
 }
 const visibilityText = (value: CapabilityVisibility) => ({ hidden: '系统内部', configurable: '步骤内配置', draggable: '可拖拽动作' })[value]
-const visibilityTagType = (value: CapabilityVisibility) => ({ hidden: 'info', configurable: 'success', draggable: 'warning' } as const)[value]
+const aiModeText = (value: CapabilityAiMode) => ({
+  automatic: 'AI 可主动使用',
+  conditional: '满足条件可使用',
+  workflow_only: '仅按经验包执行',
+  human_confirm: '需要人工确认'
+})[value]
+const aiModeTagType = (value: CapabilityAiMode) => ({
+  automatic: 'success',
+  conditional: 'warning',
+  workflow_only: 'primary',
+  human_confirm: 'danger'
+} as const)[value]
+const customerContactText = (value: CapabilityCustomerContact) => ({
+  none: '不会联系客户',
+  reply_support: '用于组织回复',
+  direct_message: '会发送消息',
+  direct_card: '会发送商品卡',
+  conversation_handoff: '会转人工'
+})[value]
+const customerContactTagType = (value: CapabilityCustomerContact) => ({
+  none: 'info',
+  reply_support: 'success',
+  direct_message: 'warning',
+  direct_card: 'warning',
+  conversation_handoff: 'danger'
+} as const)[value]
+const riskLevelText = (value: CapabilityRiskLevel) => ({ low: '低', medium: '中', high: '高' })[value]
+const usageTypeText = (value: CapabilityUsage['usage']) => ({ allowed: '可使用', required: '必须使用', action: '执行动作' })[value]
 const kindText = (value: CapabilityKind) => ({ query: '查询', action: '动作', human: '人工协作', internal: '系统内部' })[value]
 const sideEffectText = (value: string) => ({
   customer_state: '修改客户状态',
@@ -692,20 +773,30 @@ onMounted(load)
 .capability-card-head strong, .capability-card-head small { display: block; }
 .capability-card-head small { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 11px; }
 .capability-icon { display: grid; flex: 0 0 40px; width: 40px; height: 40px; place-items: center; color: #fff; font-weight: 800; background: #397b65; border-radius: 10px; }
-.capability-card p { min-height: 62px; color: var(--el-text-color-secondary); font-size: 13px; line-height: 1.6; }
+.capability-card p { min-height: 82px; color: var(--el-text-color-secondary); font-size: 13px; line-height: 1.6; }
 .card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .usage-count { display: block; margin-top: 12px; color: var(--el-text-color-secondary); }
 .drawer-tags { flex-wrap: wrap; }
-.drawer-description { margin: 16px 0; color: var(--el-text-color-secondary); line-height: 1.7; }
+.business-action { padding: 16px 18px; margin-top: 18px; border: 1px solid #b9dfd1; border-radius: 11px; background: #f0faf6; }
+.business-action span, .business-grid span { color: #397b65; font-size: 12px; font-weight: 800; }
+.business-action p { margin: 7px 0 0; color: #203e34; font-size: 16px; font-weight: 600; line-height: 1.65; }
+.business-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.business-grid article { padding: 13px 14px; border: 1px solid var(--el-border-color-light); border-radius: 9px; background: #fff; }
+.business-grid article p { margin: 7px 0 0; color: var(--el-text-color-secondary); font-size: 13px; line-height: 1.6; }
+.business-grid article.risk-medium { border-color: #eed5a8; background: #fffaf0; }
+.business-grid article.risk-high { border-color: #efb4b4; background: #fff5f5; }
 .drawer-section { margin-top: 24px; }
 .usage-list { display: grid; gap: 8px; }
 .usage-list button { padding: 10px 12px; border: 1px solid var(--el-border-color-light); border-radius: 8px; color: inherit; background: #fff; text-align: left; cursor: pointer; }
 .usage-list strong, .usage-list small { display: block; }
 .usage-list small { margin-top: 4px; color: var(--el-text-color-secondary); }
-.schema-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.technical-collapse { margin-top: 24px; border-top: 1px solid var(--el-border-color-light); }
+.technical-title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.technical-title small { color: var(--el-text-color-secondary); font-weight: 400; }
+.schema-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
 pre { max-height: 360px; padding: 12px; overflow: auto; color: #d8eee6; background: #173f34; border-radius: 8px; font-size: 11px; line-height: 1.55; }
 .muted { color: var(--el-text-color-secondary); }
 @media (max-width: 1480px) { .flow-workspace { grid-template-columns: 210px minmax(520px, 1fr) 290px; } .capability-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 1120px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .flow-workspace { grid-template-columns: 210px minmax(560px, 1fr); overflow: auto; } .detail-panel { display: none; } .capability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 760px) { .page-head, .capability-toolbar { align-items: flex-start; flex-direction: column; } .metrics, .capability-grid, .schema-grid { grid-template-columns: 1fr; } .capability-toolbar :deep(.el-select) { width: 100%; } .flow-workspace { grid-template-columns: 1fr; } .package-panel { border-right: 0; border-bottom: 1px solid var(--el-border-color-lighter); } .graph-panel { min-height: 620px; } }
+@media (max-width: 760px) { .page-head, .capability-toolbar { align-items: flex-start; flex-direction: column; } .metrics, .capability-grid, .business-grid, .schema-grid { grid-template-columns: 1fr; } .capability-toolbar :deep(.el-select) { width: 100%; } .flow-workspace { grid-template-columns: 1fr; } .package-panel { border-right: 0; border-bottom: 1px solid var(--el-border-color-lighter); } .graph-panel { min-height: 620px; } }
 </style>

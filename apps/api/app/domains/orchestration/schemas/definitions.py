@@ -74,6 +74,31 @@ class CapabilityUiSpec(StrictDefinition):
     summary: str = Field(min_length=1, max_length=300)
 
 
+class CapabilityBusinessSpec(StrictDefinition):
+    action: str = Field(min_length=1, max_length=1000)
+    data_source: str = Field(min_length=1, max_length=500)
+    ai_mode: Literal[
+        "automatic",
+        "conditional",
+        "workflow_only",
+        "human_confirm",
+    ]
+    ai_mode_description: str = Field(min_length=1, max_length=1000)
+    customer_contact: Literal[
+        "none",
+        "reply_support",
+        "direct_message",
+        "direct_card",
+        "conversation_handoff",
+    ]
+    customer_contact_description: str = Field(min_length=1, max_length=1000)
+    staff_notification: bool = False
+    permission_description: str = Field(min_length=1, max_length=1000)
+    result_description: str = Field(min_length=1, max_length=1000)
+    risk_level: Literal["low", "medium", "high"]
+    risk_description: str = Field(min_length=1, max_length=1000)
+
+
 class CapabilityManifest(StrictDefinition):
     schema_version: Literal["capability_manifest.v1"] = "capability_manifest.v1"
     capability_id: Identifier
@@ -83,6 +108,7 @@ class CapabilityManifest(StrictDefinition):
     kind: Literal["query", "action", "human", "internal"]
     status: Literal["draft", "published", "deprecated"] = "draft"
     ui: CapabilityUiSpec
+    business: CapabilityBusinessSpec
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
     config_schema: dict[str, Any] = Field(
