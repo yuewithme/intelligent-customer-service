@@ -1164,8 +1164,13 @@ def test_claimed_eyun_conversation_sends_care_manual_link_card(
     assert message["metadata"]["link_card"]["url"].endswith("/note/11")
 
 
-def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
+def test_queued_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
+    import asyncio
+
     from app.services import eyun_callback_service
+    from app.integrations.eyun.services.eyun_inbound_media_service import (
+        process_due_eyun_media_jobs,
+    )
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -1200,26 +1205,78 @@ def test_resolve_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
             },
         },
     )
+    assert asyncio.run(process_due_eyun_media_jobs()) == 1
+
     detail = client.get(
         "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot"
     ).json()["data"]
-    message_id = detail["messages"][0]["id"]
+    media = detail["messages"][0]["metadata"]["media"]
+    assert media["url"] == "/static/media/playable.mp4"
+    assert media["resolve_status"] == "succeeded"
 
-    response = client.post(
-        f"/api/v1/admin/conversations/messages/{message_id}/resolve-media"
+
+def test_stale_eyun_media_job_is_recovered_after_worker_restart(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    from app.services import eyun_callback_service
+    from app.infrastructure.database.models import EyunInboundMediaJobModel
+    from app.integrations.eyun.services import eyun_inbound_media_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fake_contact_snapshot(**kwargs):
+        return {}
+
+    async def fake_download_eyun_video(**kwargs):
+        return "/static/media/recovered.mp4"
+
+    monkeypatch.setattr(
+        eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
+    )
+    monkeypatch.setattr(
+        eyun_callback_service, "download_eyun_video", fake_download_eyun_video
+    )
+    client = TestClient(app)
+    client.post(
+        "/wechat/callback",
+        json={
+            "account": "test_account",
+            "messageType": "60003",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid_test",
+                "fromUser": "wxid_sender",
+                "toUser": "wxid_bot",
+                "content": "<msg><videomsg /></msg>",
+                "msgId": 789,
+                "newMsgId": 790,
+                "self": False,
+            },
+        },
     )
 
-    assert response.status_code == 200
-    assert response.json()["data"]["metadata"]["media"]["url"] == (
-        "/static/media/playable.mp4"
-    )
-    assert response.json()["data"]["metadata"]["media"]["resolve_status"] == (
-        "succeeded"
-    )
+    with eyun_inbound_media_service._get_session() as session:
+        job = session.query(EyunInboundMediaJobModel).one()
+        job.status = "processing"
+        job.locked_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        session.commit()
+
+    assert asyncio.run(eyun_inbound_media_service.process_due_eyun_media_jobs()) == 1
+    detail = client.get(
+        "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot"
+    ).json()["data"]
+    media = detail["messages"][0]["metadata"]["media"]
+    assert media["url"] == "/static/media/recovered.mp4"
+    assert media["resolve_status"] == "succeeded"
 
 
 def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
+    import asyncio
+
     from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_inbound_media_service
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -1233,6 +1290,7 @@ def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
         eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
     )
     monkeypatch.setattr(eyun_callback_service, "download_eyun_video", fail_download)
+    monkeypatch.setattr(eyun_inbound_media_service, "MAX_ATTEMPTS", 1)
     client = TestClient(app)
     client.post(
         "/wechat/callback",
@@ -1254,22 +1312,19 @@ def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
     detail_url = "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot"
     message_id = client.get(detail_url).json()["data"]["messages"][0]["id"]
 
-    response = client.post(
-        f"/api/v1/admin/conversations/messages/{message_id}/resolve-media"
-    )
+    assert asyncio.run(eyun_inbound_media_service.process_due_eyun_media_jobs()) == 1
     media = client.get(detail_url).json()["data"]["messages"][0]["metadata"][
         "media"
     ]
 
-    assert response.status_code == 502
     assert media["resolve_status"] == "failed"
-    assert media["resolve_error"] == "provider_download_failed"
+    assert media["resolve_error"] == "provider download failed"
 
     retry = client.post(
         f"/api/v1/admin/conversations/messages/{message_id}/resolve-media"
     )
     assert retry.status_code == 200
-    assert retry.json()["data"]["metadata"]["media"]["resolve_status"] == "failed"
+    assert retry.json()["data"]["metadata"]["media"]["resolve_status"] == "pending"
 
 
 def test_non_resolvable_eyun_video_is_not_marked_pending(monkeypatch, tmp_path):
@@ -1317,9 +1372,11 @@ def test_message_panel_does_not_resolve_video_on_playback_error():
 
     assert '@error="resolveVideo(message)"' not in panel
     assert '@error="markVideoFailed(message)"' in panel
-    assert "autoResolvePendingVideos" in panel
-    assert "canResolveVideo(message) && media?.resolve_status === 'pending'" in panel
-    assert "void resolveVideo(message, { silent: true })" in panel
+    assert "autoResolvePendingVideos" not in panel
+    assert "canResolveMedia(message)" in panel
+    assert "['60003', '60004']" in panel
+    assert "status === 'pending' && !media?.job_key" in panel
+    assert '@click="retryMedia(message)"' in panel
 
 
 def test_mark_conversation_read_clears_unread_count(monkeypatch, tmp_path):

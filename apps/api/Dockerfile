@@ -6,11 +6,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential cmake \
+    && pip install --no-cache-dir \
     --index-url https://mirrors.cloud.tencent.com/pypi/simple \
     --timeout 120 \
     --retries 10 \
-    -r requirements.txt
+    -r requirements.txt \
+    && apt-get purge -y --auto-remove build-essential cmake \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-mcp.txt .
 RUN pip install --no-cache-dir \
