@@ -1,0 +1,686 @@
+{
+  "schema_version": "experience_package.v1",
+  "package_id": "orchid.first_order",
+  "version": "1.0.0",
+  "name": "兰花新客首单成交",
+  "description": "面向尚未完成首单的新客户，通过需求诊断、方案推荐和成交推进形成匹配方案；付款后转入售后养护。",
+  "status": "draft",
+  "tags": ["兰花", "新客户", "首单", "销售"],
+  "goals": [
+    "理解客户当前最重要的养护或购买需求。",
+    "使用真实知识、商品和品牌事实形成有依据的匹配方案。",
+    "只在客户出现清晰正向意向时推进商品卡片和成交。"
+  ],
+  "entry": {
+    "events": ["first_contact"],
+    "start_step_id": "diagnosis",
+    "priority": 100,
+    "conditions": {
+      "mode": "all",
+      "conditions": [
+        {
+          "kind": "fact",
+          "path": "context.customer_is_verified_purchased",
+          "operator": "falsy",
+          "description": "当前客户没有已经核验的购买记录。"
+        },
+        {
+          "kind": "fact",
+          "path": "context.has_active_complaint",
+          "operator": "falsy",
+          "description": "当前没有必须优先处理的投诉或紧急售后。"
+        }
+      ]
+    }
+  },
+  "parameters_schema": {
+    "type": "object",
+    "properties": {
+      "primary_offer_direction": {
+        "type": "string",
+        "title": "默认主推方向",
+        "default": "陪伴养兰服务"
+      },
+      "followup_timeout_hours": {
+        "type": "integer",
+        "title": "未回复等待时长",
+        "minimum": 1,
+        "maximum": 720,
+        "default": 48
+      },
+      "allow_product_card": {
+        "type": "boolean",
+        "title": "允许发送商品卡片",
+        "default": true
+      }
+    },
+    "required": ["primary_offer_direction", "followup_timeout_hours", "allow_product_card"],
+    "additionalProperties": false
+  },
+  "context_schema": {
+    "type": "object",
+    "properties": {
+      "customer_is_verified_purchased": {"type": "boolean"},
+      "has_active_complaint": {"type": "boolean"},
+      "demand_type": {
+        "type": "string",
+        "enum": ["service", "product", "product_and_service", "unclear"]
+      },
+      "recommendation_basis": {"type": "string"},
+      "recommended_product_ref": {"type": "string"},
+      "customer_signal": {
+        "type": "string",
+        "enum": ["none", "soft_refusal", "explicit_refusal"]
+      },
+      "purchase_signal": {
+        "type": "string",
+        "enum": ["none", "interest", "direct"]
+      },
+      "payment_status": {
+        "type": "string",
+        "enum": ["unknown", "unpaid", "paid"]
+      },
+      "needs_human": {"type": "boolean"},
+      "handoff_reason": {"type": "string"},
+      "handoff_summary": {"type": "string"},
+      "runtime_resume_event": {
+        "type": "string",
+        "enum": ["customer_message", "order_paid", "timeout"]
+      }
+    },
+    "additionalProperties": true
+  },
+  "global_rules": [
+    "先回答客户当前问题，再推进销售关系；不能用销售步骤覆盖客户当前诉求。",
+    "一次通常只了解一个真正会改变判断的信息，不重复询问客户已经提供的事实。",
+    "普通养护问题、服务缺口和完整画像都不自动等于购买意向。",
+    "只有 purchase_signal 为 interest 或 direct 时，才允许发送商品卡片。",
+    "商品、价格、库存、权益、案例和品牌数据必须来自当前已核实能力结果。",
+    "不承诺保证养活、一定开花，不制造虚假库存、虚假优惠或虚假倒计时。",
+    "出现投诉、紧急售后、权限不足或无法安全处理的情况时，优先转人工或切换对应经验包。"
+  ],
+  "capability_dependencies": [
+    {"capability_id": "customer.get_context", "version_constraint": ">=1.0.0,<2.0.0"},
+    {"capability_id": "customer.tag", "version_constraint": ">=1.0.0,<2.0.0"},
+    {"capability_id": "brand.service_facts", "version_constraint": ">=1.0.0,<2.0.0"},
+    {"capability_id": "knowledge.search", "version_constraint": ">=1.0.0,<2.0.0"},
+    {"capability_id": "product.search", "version_constraint": ">=1.0.0,<2.0.0"},
+    {"capability_id": "product.get", "version_constraint": ">=1.0.0,<2.0.0"},
+    {"capability_id": "product.send_card", "version_constraint": ">=1.0.0,<2.0.0"},
+    {"capability_id": "care_manual.search", "version_constraint": ">=1.0.0,<2.0.0", "required": false},
+    {"capability_id": "material.search", "version_constraint": ">=1.0.0,<2.0.0", "required": false},
+    {"capability_id": "order.search", "version_constraint": ">=1.0.0,<2.0.0"},
+    {"capability_id": "order.get", "version_constraint": ">=1.0.0,<2.0.0", "required": false},
+    {"capability_id": "memory.record", "version_constraint": ">=1.0.0,<2.0.0"},
+    {"capability_id": "human.handoff", "version_constraint": ">=1.0.0,<2.0.0"}
+  ],
+  "steps": [
+    {
+      "step_id": "diagnosis",
+      "name": "需求诊断",
+      "type": "agent_stage",
+      "description": "合并原 SOP 的破冰、挖需求和找痛点。",
+      "goal": "判断客户主要属于养护服务需求、兰花购买需求还是产品加服务需求，并获得至少一个能够支撑推荐的客户事实。",
+      "directions": [
+        "围绕客户当前消息自然开场，不背固定问卷。",
+        "优先从养兰经验、当前问题、环境、品种偏好和购买目的中选择一个最影响判断的信息。",
+        "客户提出具体养护问题时先给简洁专业判断，再继续了解需求。",
+        "反复养不好、无人指导或缺少系统方法时，识别陪伴养兰服务需求，但不自动推断客户要买兰花。",
+        "客户已经明确要选花、比较价格、规格或库存时，识别真实商品需求。"
+      ],
+      "collect": [
+        {
+          "key": "demand_type",
+          "description": "服务需求、商品需求、产品加服务需求或仍不清楚。",
+          "required_for_completion": true
+        },
+        {
+          "key": "recommendation_basis",
+          "description": "客户亲口提供的经验、问题、环境、偏好或购买目的。",
+          "required_for_completion": true
+        }
+      ],
+      "capabilities": [
+        {
+          "capability_id": "customer.get_context",
+          "usage": "allowed",
+          "purpose": "需要历史事实、偏好或既有承诺时读取。"
+        },
+        {
+          "capability_id": "knowledge.search",
+          "usage": "allowed",
+          "purpose": "需要核实养护判断时读取权威知识。"
+        },
+        {
+          "capability_id": "customer.tag",
+          "usage": "allowed",
+          "purpose": "客户本轮提供可映射到标签库的准确证据时记录。"
+        },
+        {
+          "capability_id": "memory.record",
+          "usage": "allowed",
+          "purpose": "记录会影响后续服务的稳定事实和客户原话证据。"
+        }
+      ],
+      "completion": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.demand_type",
+            "operator": "in",
+            "value": ["service", "product", "product_and_service"],
+            "description": "已经可以判断客户的主要需求方向。"
+          },
+          {
+            "kind": "fact",
+            "path": "context.recommendation_basis",
+            "operator": "exists",
+            "description": "已经掌握至少一个来自客户的推荐依据。"
+          }
+        ]
+      }
+    },
+    {
+      "step_id": "recommendation",
+      "name": "方案推荐",
+      "type": "agent_stage",
+      "description": "合并原 SOP 的推品和塑品。",
+      "goal": "形成有事实依据的服务或商品方案，让客户理解为什么适合自己，并识别是否出现购买信号。",
+      "directions": [
+        "经验包配置的默认主推方向为 {{ parameters.primary_offer_direction }}，但客户明确的购买需求优先。",
+        "服务型需求说明单次建议的局限，以及教程、系统课程和一对一指导如何减少重复试错。",
+        "商品型需求查询真实商品后，只推荐与客户环境、经验、偏好或预算匹配的少量方案。",
+        "价值塑造一次只补当前缺失的一两个答案，不堆砌所有案例、数据和权益。",
+        "客户尚未表达想进一步了解、看价格或购买入口时，不发送商品卡片。"
+      ],
+      "collect": [
+        {
+          "key": "recommended_product_ref",
+          "description": "存在明确商品方向时记录真实商品引用。",
+          "required_for_completion": false
+        },
+        {
+          "key": "purchase_signal",
+          "description": "无购买信号、愿意进一步了解或明确下单。",
+          "required_for_completion": true
+        },
+        {
+          "key": "customer_signal",
+          "description": "客户是否出现明确拒绝。",
+          "required_for_completion": true
+        }
+      ],
+      "capabilities": [
+        {
+          "capability_id": "brand.service_facts",
+          "usage": "allowed",
+          "purpose": "使用已核实品牌、服务和权益事实建立价值。"
+        },
+        {
+          "capability_id": "knowledge.search",
+          "usage": "allowed",
+          "purpose": "核实与推荐相关的养护知识。"
+        },
+        {
+          "capability_id": "product.search",
+          "usage": "allowed",
+          "purpose": "客户存在真实选购需求时查询当前商品。"
+        },
+        {
+          "capability_id": "product.get",
+          "usage": "allowed",
+          "purpose": "读取候选商品的完整事实。"
+        },
+        {
+          "capability_id": "care_manual.search",
+          "usage": "allowed",
+          "purpose": "需要说明匹配的买后养护资料时查询。"
+        },
+        {
+          "capability_id": "material.search",
+          "usage": "allowed",
+          "purpose": "资料能够推进当前关系且不替代直接回答时查询。"
+        }
+      ],
+      "completion": {
+        "mode": "any",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.purchase_signal",
+            "operator": "in",
+            "value": ["interest", "direct"],
+            "description": "客户已经出现清晰正向购买信号。"
+          },
+          {
+            "kind": "fact",
+            "path": "context.customer_signal",
+            "operator": "eq",
+            "value": "explicit_refusal",
+            "description": "客户已经明确拒绝当前方案。"
+          },
+          {
+            "kind": "fact",
+            "path": "context.needs_human",
+            "operator": "truthy",
+            "description": "当前情况需要人工处理。"
+          },
+          {
+            "kind": "semantic",
+            "description": "方案价值已经解释清楚，适合进行一次低压力的试成交。"
+          }
+        ]
+      }
+    },
+    {
+      "step_id": "purchase_signal",
+      "name": "购买信号判断",
+      "type": "decision",
+      "description": "决定直接发卡、进入试成交、结束或转人工。",
+      "goal": "把客户当前信号路由到最合适的成交动作。",
+      "strategy": "hybrid"
+    },
+    {
+      "step_id": "send_product_card",
+      "name": "发送商品卡片",
+      "type": "action",
+      "description": "只在客户已有 interest 或 direct 信号时发送真实卡片。",
+      "capability_id": "product.send_card",
+      "arguments": {
+        "product_ref": "{{ context.recommended_product_ref }}"
+      },
+      "on_error_outcome": "capability_failed"
+    },
+    {
+      "step_id": "closing",
+      "name": "成交推进",
+      "type": "agent_stage",
+      "description": "合并原 SOP 的试成交和逼单，只解决当前最后一个卡点。",
+      "goal": "给出清晰下一步，处理客户最后一个顾虑，并识别付款、拒绝、等待或人工接管结果。",
+      "directions": [
+        "价值已经建立但购买信号不足时，用低门槛行动测试意愿，不直接发卡。",
+        "价格顾虑使用价值拆解和真实试错成本；养护风险使用原因重构和真实服务承接。",
+        "选择困难时基于客户核心需求给出明确主张，不继续无限增加选项。",
+        "客户已经明确要价格、链接或下单时停止铺垫，直接查询真实事实并给出下一步。",
+        "客户表示再考虑时，只识别一个最关键顾虑；不反复逼问。"
+      ],
+      "collect": [
+        {
+          "key": "payment_status",
+          "description": "订单是否已经通过真实订单查询核验为已付款。",
+          "required_for_completion": false
+        },
+        {
+          "key": "customer_signal",
+          "description": "客户是否明确拒绝。",
+          "required_for_completion": false
+        },
+        {
+          "key": "needs_human",
+          "description": "是否需要人工处理。",
+          "required_for_completion": false
+        }
+      ],
+      "capabilities": [
+        {
+          "capability_id": "brand.service_facts",
+          "usage": "allowed",
+          "purpose": "处理价值、信任和风险顾虑时使用真实事实。"
+        },
+        {
+          "capability_id": "product.get",
+          "usage": "allowed",
+          "purpose": "重新核实价格、库存、规格和权益。"
+        },
+        {
+          "capability_id": "order.search",
+          "usage": "allowed",
+          "purpose": "客户表示已经购买或需要核实付款时查询。"
+        },
+        {
+          "capability_id": "order.get",
+          "usage": "allowed",
+          "purpose": "读取已经匹配的订单详情。"
+        },
+        {
+          "capability_id": "customer.get_context",
+          "usage": "allowed",
+          "purpose": "避免重复已经处理过的顾虑和承诺。"
+        }
+      ],
+      "completion": {
+        "mode": "any",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.payment_status",
+            "operator": "eq",
+            "value": "paid",
+            "description": "已通过真实订单事实确认付款。"
+          },
+          {
+            "kind": "fact",
+            "path": "context.customer_signal",
+            "operator": "eq",
+            "value": "explicit_refusal",
+            "description": "客户明确拒绝。"
+          },
+          {
+            "kind": "fact",
+            "path": "context.needs_human",
+            "operator": "truthy",
+            "description": "需要人工继续处理。"
+          },
+          {
+            "kind": "semantic",
+            "description": "本轮已给出清晰下一步，当前需要等待客户回复或订单事件。"
+          }
+        ]
+      }
+    },
+    {
+      "step_id": "closing_result",
+      "name": "成交结果判断",
+      "type": "decision",
+      "description": "将成交阶段结果路由到付款、拒绝、等待或人工接管。",
+      "goal": "形成明确、可追踪的首单 SOP 结果。",
+      "strategy": "hybrid"
+    },
+    {
+      "step_id": "wait_followup",
+      "name": "等待客户或订单",
+      "type": "wait",
+      "description": "暂停当前运行实例，收到客户消息或付款事件后恢复。",
+      "resume_events": ["customer_message", "order_paid"],
+      "timeout": {
+        "parameter": "followup_timeout_hours",
+        "unit": "hours"
+      }
+    },
+    {
+      "step_id": "human_handoff",
+      "name": "转人工接管",
+      "type": "action",
+      "description": "提交当前已核实事实和未完成事项。",
+      "capability_id": "human.handoff",
+      "arguments": {
+        "reason": "{{ context.handoff_reason }}",
+        "summary": "{{ context.handoff_summary }}"
+      },
+      "on_error_outcome": "capability_failed"
+    }
+  ],
+  "transitions": [
+    {
+      "transition_id": "diagnosis_to_recommendation",
+      "from_step": "diagnosis",
+      "to_step": "recommendation",
+      "label": "需求与依据已明确"
+    },
+    {
+      "transition_id": "recommendation_to_signal",
+      "from_step": "recommendation",
+      "to_step": "purchase_signal",
+      "label": "评估下一步"
+    },
+    {
+      "transition_id": "signal_to_handoff",
+      "from_step": "purchase_signal",
+      "to_step": "human_handoff",
+      "label": "需要人工",
+      "priority": 10,
+      "condition": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.needs_human",
+            "operator": "truthy",
+            "description": "当前情况需要人工处理。"
+          }
+        ]
+      }
+    },
+    {
+      "transition_id": "signal_to_rejected",
+      "from_step": "purchase_signal",
+      "outcome": "rejected",
+      "label": "明确拒绝",
+      "priority": 20,
+      "condition": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.customer_signal",
+            "operator": "eq",
+            "value": "explicit_refusal",
+            "description": "客户已经明确拒绝当前方案。"
+          }
+        ]
+      }
+    },
+    {
+      "transition_id": "signal_to_card",
+      "from_step": "purchase_signal",
+      "to_step": "send_product_card",
+      "label": "发送真实商品卡片",
+      "priority": 30,
+      "condition": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.purchase_signal",
+            "operator": "in",
+            "value": ["interest", "direct"],
+            "description": "客户已经出现清晰正向意向。"
+          },
+          {
+            "kind": "fact",
+            "path": "context.recommended_product_ref",
+            "operator": "exists",
+            "description": "已经有真实商品引用。"
+          },
+          {
+            "kind": "fact",
+            "path": "parameters.allow_product_card",
+            "operator": "truthy",
+            "description": "当前经验包实例允许发送商品卡片。"
+          }
+        ]
+      }
+    },
+    {
+      "transition_id": "signal_to_closing",
+      "from_step": "purchase_signal",
+      "to_step": "closing",
+      "label": "低压力试成交",
+      "priority": 100
+    },
+    {
+      "transition_id": "card_to_closing",
+      "from_step": "send_product_card",
+      "to_step": "closing",
+      "label": "继续承接成交"
+    },
+    {
+      "transition_id": "closing_to_result",
+      "from_step": "closing",
+      "to_step": "closing_result",
+      "label": "评估成交结果"
+    },
+    {
+      "transition_id": "result_to_paid",
+      "from_step": "closing_result",
+      "outcome": "paid",
+      "label": "已付款",
+      "priority": 10,
+      "condition": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.payment_status",
+            "operator": "eq",
+            "value": "paid",
+            "description": "订单已经核验为已付款。"
+          }
+        ]
+      }
+    },
+    {
+      "transition_id": "result_to_handoff",
+      "from_step": "closing_result",
+      "to_step": "human_handoff",
+      "label": "需要人工",
+      "priority": 20,
+      "condition": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.needs_human",
+            "operator": "truthy",
+            "description": "需要人工继续处理。"
+          }
+        ]
+      }
+    },
+    {
+      "transition_id": "result_to_rejected",
+      "from_step": "closing_result",
+      "outcome": "rejected",
+      "label": "明确拒绝",
+      "priority": 30,
+      "condition": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.customer_signal",
+            "operator": "eq",
+            "value": "explicit_refusal",
+            "description": "客户已经明确拒绝。"
+          }
+        ]
+      }
+    },
+    {
+      "transition_id": "result_to_wait",
+      "from_step": "closing_result",
+      "to_step": "wait_followup",
+      "label": "等待回复或付款",
+      "priority": 100
+    },
+    {
+      "transition_id": "wait_to_paid",
+      "from_step": "wait_followup",
+      "outcome": "paid",
+      "label": "收到付款事件",
+      "priority": 10,
+      "condition": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.runtime_resume_event",
+            "operator": "eq",
+            "value": "order_paid",
+            "description": "等待期间收到订单付款事件。"
+          }
+        ]
+      }
+    },
+    {
+      "transition_id": "wait_to_closing",
+      "from_step": "wait_followup",
+      "to_step": "closing",
+      "label": "客户继续回复",
+      "priority": 20,
+      "condition": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.runtime_resume_event",
+            "operator": "eq",
+            "value": "customer_message",
+            "description": "客户在等待期间继续回复。"
+          }
+        ]
+      }
+    },
+    {
+      "transition_id": "wait_to_no_response",
+      "from_step": "wait_followup",
+      "outcome": "no_response",
+      "label": "等待超时",
+      "priority": 30,
+      "condition": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.runtime_resume_event",
+            "operator": "eq",
+            "value": "timeout",
+            "description": "等待超过经验包配置的跟进时长。"
+          }
+        ]
+      }
+    },
+    {
+      "transition_id": "handoff_to_human",
+      "from_step": "human_handoff",
+      "outcome": "human",
+      "label": "人工接管已创建"
+    }
+  ],
+  "outcomes": [
+    {
+      "outcome_id": "paid",
+      "name": "首单已付款",
+      "next_package_id": "orchid.after_sales",
+      "result_tags": ["首单成交"]
+    },
+    {
+      "outcome_id": "rejected",
+      "name": "客户明确拒绝",
+      "result_tags": ["暂不成交"]
+    },
+    {
+      "outcome_id": "no_response",
+      "name": "等待超时未回复",
+      "result_tags": ["待后续触达"]
+    },
+    {
+      "outcome_id": "human",
+      "name": "转人工接管",
+      "result_tags": ["人工处理中"]
+    },
+    {
+      "outcome_id": "capability_failed",
+      "name": "关键能力执行失败",
+      "result_tags": ["运行异常"]
+    }
+  ],
+  "success_metrics": [
+    "进入经验包的新客户中完成需求诊断的比例。",
+    "推荐方案后产生 interest 或 direct 购买信号的比例。",
+    "发送商品卡片后的真实付款转化率。",
+    "因能力失败、异常规则或人工接管退出的比例。",
+    "从首次进入到付款或正常结束的平均耗时。"
+  ],
+  "layout": {
+    "diagnosis": {"x": 80, "y": 180},
+    "recommendation": {"x": 340, "y": 180},
+    "purchase_signal": {"x": 620, "y": 180},
+    "send_product_card": {"x": 880, "y": 80},
+    "closing": {"x": 1120, "y": 180},
+    "closing_result": {"x": 1380, "y": 180},
+    "wait_followup": {"x": 1640, "y": 260},
+    "human_handoff": {"x": 880, "y": 380}
+  }
+}

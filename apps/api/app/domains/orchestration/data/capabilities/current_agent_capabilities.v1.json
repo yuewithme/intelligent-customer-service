@@ -1,0 +1,569 @@
+{
+  "schema_version": "capability_catalog.v1",
+  "capabilities": [
+    {
+      "capability_id": "capability.search",
+      "version": "1.0.0",
+      "name": "搜索可用能力",
+      "description": "根据当前任务检索可用工具和经验说明；后续由能力注册中心替代其硬编码目录。",
+      "kind": "internal",
+      "status": "published",
+      "ui": {
+        "visibility": "hidden",
+        "group": "系统内部",
+        "icon": "Search",
+        "summary": "为 Agent 渐进披露当前可用能力。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {"type": "string", "minLength": 1, "maxLength": 300},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5}
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "capabilities": {"type": "array"},
+          "sop_scope": {"type": "string"}
+        }
+      },
+      "execution": {
+        "handler_key": "capability.search",
+        "timeout_seconds": 5,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 1, "backoff_seconds": 0}
+      },
+      "permissions": [],
+      "usage_guidance": ["仅供 Agent 内部发现能力，不展示为业务流程节点。"],
+      "error_codes": ["query_required"]
+    },
+    {
+      "capability_id": "customer.get_context",
+      "version": "1.0.0",
+      "name": "读取客户上下文",
+      "description": "读取当前客户画像、最近对话、证据化记忆、承诺和待办。",
+      "kind": "query",
+      "status": "published",
+      "ui": {
+        "visibility": "hidden",
+        "group": "客户数据",
+        "icon": "User",
+        "summary": "读取当前客户的已知事实和历史上下文。"
+      },
+      "input_schema": {"type": "object", "properties": {}, "additionalProperties": false},
+      "output_schema": {"type": "object", "additionalProperties": true},
+      "execution": {
+        "handler_key": "customer.get_context",
+        "timeout_seconds": 5,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 2, "backoff_seconds": 0.2}
+      },
+      "permissions": ["customer:read"],
+      "usage_guidance": ["客户历史可能影响本轮判断时读取，不把推测当作客户事实。"],
+      "error_codes": []
+    },
+    {
+      "capability_id": "customer.tag",
+      "version": "1.0.0",
+      "name": "记录客户标签",
+      "description": "根据客户本轮亲口提供的证据记录标签库中的准确标签。",
+      "kind": "action",
+      "status": "published",
+      "ui": {
+        "visibility": "configurable",
+        "group": "客户数据",
+        "icon": "PriceTag",
+        "summary": "有原话证据时记录客户标签。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["tag", "evidence"],
+        "properties": {
+          "tag": {"type": "string", "minLength": 1},
+          "evidence": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"tag": {"type": "string"}, "recorded": {"type": "boolean"}}
+      },
+      "execution": {
+        "handler_key": "customer.tag",
+        "timeout_seconds": 5,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 1, "backoff_seconds": 0}
+      },
+      "permissions": ["customer:tag:write"],
+      "side_effects": ["customer_state"],
+      "usage_guidance": ["证据必须来自客户本轮原话；受保护的已购标签不能由模型写入。"],
+      "error_codes": ["tag_not_allowed", "evidence_required"]
+    },
+    {
+      "capability_id": "brand.service_facts",
+      "version": "1.0.0",
+      "name": "查询品牌服务事实",
+      "description": "返回可以对外表达的已核实品牌、服务、权益和风险事实。",
+      "kind": "query",
+      "status": "published",
+      "ui": {
+        "visibility": "configurable",
+        "group": "知识与内容",
+        "icon": "Medal",
+        "summary": "为价值塑造提供已经核实的品牌事实。"
+      },
+      "input_schema": {"type": "object", "properties": {}, "additionalProperties": false},
+      "output_schema": {"type": "object", "additionalProperties": true},
+      "execution": {
+        "handler_key": "brand.service_facts",
+        "timeout_seconds": 5,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 2, "backoff_seconds": 0.2}
+      },
+      "permissions": ["brand_fact:read"],
+      "usage_guidance": ["历史数据不能扩写成对单个客户的结果保证。"],
+      "error_codes": ["facts_unavailable"]
+    },
+    {
+      "capability_id": "knowledge.search",
+      "version": "1.0.0",
+      "name": "查询知识库",
+      "description": "查询已发布的兰花养护与业务知识并返回来源。",
+      "kind": "query",
+      "status": "published",
+      "ui": {
+        "visibility": "configurable",
+        "group": "知识与内容",
+        "icon": "Collection",
+        "summary": "需要核实专业知识时检索权威内容。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {"query": {"type": "string", "minLength": 1}},
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}, "sources": {"type": "array"}}
+      },
+      "execution": {
+        "handler_key": "knowledge.search",
+        "timeout_seconds": 20,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 2, "backoff_seconds": 0.5}
+      },
+      "permissions": ["knowledge:read"],
+      "usage_guidance": ["资料不足时返回未找到，不自行扩写疗效或养活承诺。"],
+      "error_codes": ["not_found", "temporarily_unavailable"]
+    },
+    {
+      "capability_id": "product.search",
+      "version": "1.0.0",
+      "name": "查询商品",
+      "description": "根据客户真实选购需求查询当前在售商品。",
+      "kind": "query",
+      "status": "published",
+      "ui": {
+        "visibility": "configurable",
+        "group": "商品与订单",
+        "icon": "Goods",
+        "summary": "查询与客户购买方向匹配的真实商品。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {"type": "string", "minLength": 1},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 3, "default": 3}
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"products": {"type": "array"}}
+      },
+      "execution": {
+        "handler_key": "product.search",
+        "timeout_seconds": 15,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 2, "backoff_seconds": 0.5}
+      },
+      "permissions": ["product:read"],
+      "usage_guidance": ["养护问题本身不构成购买需求；查询不会自动发送商品卡片。"],
+      "error_codes": ["not_found", "temporarily_unavailable"]
+    },
+    {
+      "capability_id": "product.get",
+      "version": "1.0.0",
+      "name": "读取商品详情",
+      "description": "根据真实商品引用读取价格、规格、权益、库存和卡片可用性。",
+      "kind": "query",
+      "status": "published",
+      "ui": {
+        "visibility": "hidden",
+        "group": "商品与订单",
+        "icon": "Document",
+        "summary": "读取已选中商品的完整动态事实。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["product_ref"],
+        "properties": {"product_ref": {"type": "string", "pattern": "^product:"}},
+        "additionalProperties": false
+      },
+      "output_schema": {"type": "object", "additionalProperties": true},
+      "execution": {
+        "handler_key": "product.get",
+        "timeout_seconds": 10,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 2, "backoff_seconds": 0.2}
+      },
+      "permissions": ["product:read"],
+      "usage_guidance": ["只接受商品目录产生的真实 product_ref。"],
+      "error_codes": ["invalid_product_ref", "not_found"]
+    },
+    {
+      "capability_id": "product.send_card",
+      "version": "1.0.0",
+      "name": "发送商品卡片",
+      "description": "核实商品和购买入口后，为最终回复准备商品卡片。",
+      "kind": "action",
+      "status": "published",
+      "ui": {
+        "visibility": "draggable",
+        "group": "消息触达",
+        "icon": "ShoppingCart",
+        "summary": "客户已有清晰正向意向时发送真实商品卡片。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["product_ref"],
+        "properties": {"product_ref": {"type": "string", "pattern": "^product:"}},
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"prepared_ref": {"type": "string"}}
+      },
+      "execution": {
+        "handler_key": "product.send_card",
+        "timeout_seconds": 10,
+        "idempotency": "required_key",
+        "retry": {"max_attempts": 1, "backoff_seconds": 0}
+      },
+      "permissions": ["product:read", "message:prepare"],
+      "side_effects": ["prepared_customer_message"],
+      "preconditions": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.purchase_signal",
+            "operator": "in",
+            "value": ["interest", "direct"],
+            "description": "客户已表达想了解价格、购买入口或明确下单。"
+          }
+        ]
+      },
+      "usage_guidance": ["prepared 不等于已发送，最终回复必须引用 prepared_ref。"],
+      "error_codes": ["invalid_product_ref", "forbidden", "not_found"]
+    },
+    {
+      "capability_id": "care_manual.search",
+      "version": "1.0.0",
+      "name": "查询养护手册",
+      "description": "按品种、商品或养护主题匹配已发布的养护手册。",
+      "kind": "query",
+      "status": "published",
+      "ui": {
+        "visibility": "configurable",
+        "group": "知识与内容",
+        "icon": "Notebook",
+        "summary": "查找与客户品种或商品匹配的养护手册。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {"type": "string", "minLength": 1},
+          "product_ref": {"type": "string", "pattern": "^product:"}
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"material_ref": {"type": "string"}, "match_type": {"type": "string"}}
+      },
+      "execution": {
+        "handler_key": "care_manual.search",
+        "timeout_seconds": 10,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 2, "backoff_seconds": 0.2}
+      },
+      "permissions": ["care_manual:read"],
+      "usage_guidance": ["匹配不明确时不能随意发送。"],
+      "error_codes": ["not_found"]
+    },
+    {
+      "capability_id": "material.search",
+      "version": "1.0.0",
+      "name": "查询销售素材",
+      "description": "从 Agent 素材库查询与客户问题或沟通目的匹配的图文和视频。",
+      "kind": "query",
+      "status": "published",
+      "ui": {
+        "visibility": "configurable",
+        "group": "知识与内容",
+        "icon": "Picture",
+        "summary": "查找能够推进当前沟通的真实素材。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {"type": "string", "minLength": 1},
+          "category": {"type": "string"},
+          "copy_type": {"type": "string"},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 5, "default": 5}
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"materials": {"type": "array"}}
+      },
+      "execution": {
+        "handler_key": "material.search",
+        "timeout_seconds": 10,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 2, "backoff_seconds": 0.2}
+      },
+      "permissions": ["material:read"],
+      "usage_guidance": ["搜索只是获得真实素材引用，不代表允许发送。"],
+      "error_codes": ["not_found"]
+    },
+    {
+      "capability_id": "material.send",
+      "version": "1.0.0",
+      "name": "发送销售素材",
+      "description": "校验素材、权益和近期重复后，为最终回复准备素材消息。",
+      "kind": "action",
+      "status": "published",
+      "ui": {
+        "visibility": "draggable",
+        "group": "消息触达",
+        "icon": "Promotion",
+        "summary": "向客户发送已经匹配并通过校验的资料。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["material_ref"],
+        "properties": {"material_ref": {"type": "string", "pattern": "^material:"}},
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"prepared_ref": {"type": "string"}}
+      },
+      "execution": {
+        "handler_key": "material.send",
+        "timeout_seconds": 10,
+        "idempotency": "required_key",
+        "retry": {"max_attempts": 1, "backoff_seconds": 0}
+      },
+      "permissions": ["material:read", "message:prepare"],
+      "side_effects": ["prepared_customer_message"],
+      "usage_guidance": ["资料不能代替回答客户当前问题，相同资料默认不重复发送。"],
+      "error_codes": ["invalid_material_ref", "forbidden", "recent_duplicate"]
+    },
+    {
+      "capability_id": "video_access.request",
+      "version": "1.0.0",
+      "name": "通知处理视频权限",
+      "description": "在抖音购买截图已经核验后通知值班同事处理视频权限。",
+      "kind": "human",
+      "status": "published",
+      "ui": {
+        "visibility": "draggable",
+        "group": "人工协作",
+        "icon": "VideoPlay",
+        "summary": "通知同事处理已购客户的视频访问权限。"
+      },
+      "input_schema": {"type": "object", "properties": {}, "additionalProperties": false},
+      "output_schema": {
+        "type": "object",
+        "properties": {"notified": {"type": "boolean"}}
+      },
+      "execution": {
+        "handler_key": "video_access.request",
+        "timeout_seconds": 10,
+        "idempotency": "required_key",
+        "retry": {"max_attempts": 1, "backoff_seconds": 0}
+      },
+      "permissions": ["video_access:request"],
+      "side_effects": ["human_notification"],
+      "preconditions": {
+        "mode": "all",
+        "conditions": [
+          {
+            "kind": "fact",
+            "path": "context.customer_tags",
+            "operator": "contains",
+            "value": "抖音已购",
+            "description": "系统已经核验客户的抖音购买截图。"
+          }
+        ]
+      },
+      "usage_guidance": ["通知送达不代表权限已经开通，也不创建人工接管。"],
+      "error_codes": ["forbidden", "notification_failed"]
+    },
+    {
+      "capability_id": "order.search",
+      "version": "1.0.0",
+      "name": "查询客户订单",
+      "description": "查询当前客户绑定身份或其主动提供手机号对应的订单。",
+      "kind": "query",
+      "status": "published",
+      "ui": {
+        "visibility": "configurable",
+        "group": "商品与订单",
+        "icon": "Tickets",
+        "summary": "安全查询当前客户的真实订单。"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mobile": {"type": "string"},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 3, "default": 3}
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"orders": {"type": "array"}}
+      },
+      "execution": {
+        "handler_key": "order.search",
+        "timeout_seconds": 15,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 2, "backoff_seconds": 0.5}
+      },
+      "permissions": ["order:read"],
+      "side_effects": ["customer_state"],
+      "usage_guidance": ["查到真实已付款微信订单后，系统可以记录受保护的已购状态。"],
+      "error_codes": ["identity_required", "not_found", "temporarily_unavailable"]
+    },
+    {
+      "capability_id": "order.get",
+      "version": "1.0.0",
+      "name": "读取订单详情",
+      "description": "根据真实订单引用读取当前客户可访问的脱敏订单详情。",
+      "kind": "query",
+      "status": "published",
+      "ui": {
+        "visibility": "hidden",
+        "group": "商品与订单",
+        "icon": "Memo",
+        "summary": "读取已经匹配订单的完整状态。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["order_ref"],
+        "properties": {
+          "order_ref": {"type": "string", "pattern": "^order:"},
+          "mobile": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {"type": "object", "additionalProperties": true},
+      "execution": {
+        "handler_key": "order.get",
+        "timeout_seconds": 15,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 2, "backoff_seconds": 0.5}
+      },
+      "permissions": ["order:read"],
+      "side_effects": ["customer_state"],
+      "usage_guidance": ["只能读取当前客户有权访问的订单。"],
+      "error_codes": ["invalid_order_ref", "forbidden", "not_found"]
+    },
+    {
+      "capability_id": "memory.record",
+      "version": "1.0.0",
+      "name": "记录客户长期记忆",
+      "description": "把客户本轮提供、且会影响后续服务的稳定事实提交为候选记忆。",
+      "kind": "action",
+      "status": "published",
+      "ui": {
+        "visibility": "hidden",
+        "group": "客户数据",
+        "icon": "Clock",
+        "summary": "保存有原话证据的稳定客户事实。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["fact", "evidence"],
+        "properties": {
+          "fact": {"type": "string", "minLength": 1},
+          "evidence": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"recorded": {"type": "boolean"}}
+      },
+      "execution": {
+        "handler_key": "memory.record",
+        "timeout_seconds": 10,
+        "idempotency": "safe",
+        "retry": {"max_attempts": 1, "backoff_seconds": 0}
+      },
+      "permissions": ["customer_memory:write"],
+      "side_effects": ["customer_state"],
+      "usage_guidance": ["证据必须出现在客户本轮消息中，不能把模型推测写成事实。"],
+      "error_codes": ["evidence_required", "invalid_fact"]
+    },
+    {
+      "capability_id": "human.handoff",
+      "version": "1.0.0",
+      "name": "转人工接管",
+      "description": "创建人工接管请求，并携带已核实事实和未完成事项。",
+      "kind": "human",
+      "status": "published",
+      "ui": {
+        "visibility": "draggable",
+        "group": "人工协作",
+        "icon": "Service",
+        "summary": "将当前会话交给人工客服继续处理。"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": ["reason", "summary"],
+        "properties": {
+          "reason": {"type": "string", "minLength": 1},
+          "summary": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {"status": {"type": "string"}}
+      },
+      "execution": {
+        "handler_key": "human.handoff",
+        "timeout_seconds": 10,
+        "idempotency": "required_key",
+        "retry": {"max_attempts": 1, "backoff_seconds": 0}
+      },
+      "permissions": ["conversation:handoff"],
+      "side_effects": ["human_notification", "conversation_handoff"],
+      "usage_guidance": ["pending 时只能说明已经提交或请同事继续核实，不能声称处理完成。"],
+      "error_codes": ["handoff_disabled", "notification_failed"]
+    }
+  ]
+}
