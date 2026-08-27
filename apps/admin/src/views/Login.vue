@@ -41,4 +41,5 @@ const submit = () => {
 .eyebrow { margin: 0; color: #2c8064; font-size: 11px; font-weight: 800; letter-spacing: .13em; }
 h1 { margin: -8px 0 0; font-size: 27px; } .intro { margin: -8px 0 4px; color: #66756f; line-height: 1.6; }
 label { display: grid; gap: 7px; color: #344740; font-size: 14px; }
+@media (max-width: 640px) { .login-page { min-height: 100dvh; padding: 14px; } .login-card { gap: 16px; padding: 24px; border-radius: 14px; } h1 { font-size: 23px; } }
 </style>

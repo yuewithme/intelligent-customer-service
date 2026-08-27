@@ -1,6 +1,15 @@
 <template>
   <section class="message-panel">
     <div class="header">
+      <button
+        v-if="showMobileBack"
+        class="mobile-back"
+        type="button"
+        aria-label="返回会话列表"
+        @click="emit('mobile-back')"
+      >
+        ‹
+      </button>
       <div class="customer-title">
         <ElAvatar v-if="detail" :size="36" :src="detail.conversation.user_avatar_url || undefined">
           {{ avatarText(detail.conversation) }}
@@ -204,9 +213,13 @@ const props = defineProps<{
   conversationId: string
   conversationIds: string[]
   focusMessageId?: number
+  showMobileBack?: boolean
 }>()
 const readOnly = isTestGate()
-const emit = defineEmits<{ loaded: [detail: ConversationDetail | undefined] }>()
+const emit = defineEmits<{
+  loaded: [detail: ConversationDetail | undefined]
+  'mobile-back': []
+}>()
 
 const loading = ref(false)
 const detail = ref<ConversationDetail>()
@@ -523,6 +536,8 @@ p {
   background: #f9fafb;
 }
 
+.mobile-back { display: none; }
+
 .selection-toolbar {
   position: sticky;
   top: 0;
@@ -710,5 +725,34 @@ p {
   font-size: 12px;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+@media (max-width: 820px) {
+  .header { min-height: 56px; padding: 10px 12px; }
+  .mobile-back {
+    display: grid;
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    margin-right: 6px;
+    place-items: center;
+    color: #36534a;
+    font-size: 30px;
+    line-height: 1;
+    background: #f2f6f4;
+    border: 0;
+    border-radius: 8px;
+  }
+  .customer-title { flex: 1; }
+  .timeline { padding: 12px 10px; }
+  .bubble { max-width: 88%; padding: 9px 10px; }
+  .message-image,
+  .message-video,
+  .message-audio,
+  .commerce-card { width: min(100%, 78vw); }
+  .selection-toolbar { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .selection-toolbar > div { display: flex; flex-wrap: wrap; gap: 6px; }
+  .selection-toolbar :deep(.el-button + .el-button) { margin-left: 0; }
 }
 </style>

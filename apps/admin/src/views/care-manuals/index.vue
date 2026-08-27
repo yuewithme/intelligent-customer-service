@@ -334,4 +334,13 @@ onMounted(async () => { await Promise.all([loadManuals(), loadProductOptions()])
 .match-result .el-table { grid-column: 1 / -1; }
 .match-result small { margin-top: 4px; color: #80908a; }
 @media (max-width: 1050px) { .stats-grid { grid-template-columns: 1fr 1fr; } .toolbar { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 640px) {
+  .page-head { align-items: flex-start; flex-direction: column; }
+  .page-head h1 { font-size: 22px; }
+  .stats-grid, .toolbar, .form-row, .match-form { grid-template-columns: 1fr; }
+  .stats-grid article { padding: 14px; }
+  .match-result { align-items: flex-start; grid-template-columns: 1fr; }
+  .match-result .el-table { grid-column: 1; }
+  .pagination { justify-content: center; overflow-x: auto; }
+}
 </style>

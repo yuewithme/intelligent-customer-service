@@ -249,4 +249,11 @@ onMounted(loadProducts)
 .sku-panel > strong { display: block; margin-bottom: 10px; color: #31584c; }
 .pagination { display: flex; justify-content: flex-end; padding-top: 18px; }
 @media (max-width: 980px) { .toolbar { grid-template-columns: 1fr 1fr; } .sync-state { align-items: flex-start; flex-direction: column; gap: 8px; } }
+@media (max-width: 640px) {
+  .page-head { align-items: flex-start; flex-direction: column; }
+  .page-head h1 { font-size: 22px; }
+  .toolbar { grid-template-columns: 1fr; }
+  .sku-panel { padding: 12px; }
+  .pagination { justify-content: center; overflow-x: auto; }
+}
 </style>

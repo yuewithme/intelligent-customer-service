@@ -3,6 +3,7 @@
     <ConversationList
       ref="conversationListRef"
       class="panel list"
+      :class="{ 'mobile-active': mobileView === 'conversations' }"
       :active-key="selectedGroupKey"
       @select="selectConversation"
       @hidden="handleHidden"
@@ -11,21 +12,54 @@
     <MessagePanel
       ref="messagePanelRef"
       class="panel messages"
+      :class="{ 'mobile-active': mobileView === 'messages' }"
       :conversation-id="selectedId"
       :conversation-ids="selectedIds"
       :focus-message-id="focusMessageId"
+      show-mobile-back
+      @mobile-back="mobileView = 'conversations'"
       @loaded="handleConversationLoaded"
     />
     <WorkbenchSidePanel
       class="panel side"
+      :class="{
+        'mobile-active': mobileView === 'details',
+        'mobile-reply-active': mobileView === 'messages' && Boolean(selectedId)
+      }"
       :conversation-id="selectedId"
       :conversation="conversation"
       :agent-relationship="agentRelationship"
       :profile="profile"
       :profile-loading="profileLoading"
+      :reply-mode="isMobile && mobileView === 'messages'"
       @changed="handleChanged"
       @profile-changed="handleProfileChanged"
     />
+    <nav class="mobile-workbench-nav" aria-label="工作台视图">
+      <button
+        type="button"
+        :class="{ active: mobileView === 'conversations' }"
+        @click="mobileView = 'conversations'"
+      >
+        <span>☰</span>会话
+      </button>
+      <button
+        type="button"
+        :disabled="!selectedId"
+        :class="{ active: mobileView === 'messages' }"
+        @click="mobileView = 'messages'"
+      >
+        <span>▣</span>聊天回复
+      </button>
+      <button
+        type="button"
+        :disabled="!selectedId"
+        :class="{ active: mobileView === 'details' }"
+        @click="mobileView = 'details'"
+      >
+        <span>◇</span>客户资料
+      </button>
+    </nav>
   </div>
 </template>
 
@@ -52,6 +86,8 @@ defineOptions({ name: 'Workbench' })
 const FALLBACK_SYNC_INTERVAL_MS = 30_000
 
 const selectedId = ref('')
+const mobileView = ref<'conversations' | 'messages' | 'details'>('conversations')
+const isMobile = ref(false)
 const route = useRoute()
 const tenantStore = useMessageTenantStore()
 const selectedIds = ref<string[]>([])
@@ -66,6 +102,7 @@ const conversationListRef = ref<InstanceType<typeof ConversationList>>()
 const messagePanelRef = ref<InstanceType<typeof MessagePanel>>()
 let eventSource: EventSource | undefined
 let fallbackTimer: number | undefined
+let mobileMediaQuery: MediaQueryList | undefined
 let markingReadKey = ''
 let profileRequestKey = 0
 
@@ -75,6 +112,7 @@ const selectConversation = (item: ConversationGroupItem) => {
   selectedIds.value = item.conversation_ids
   selectedGroupKey.value = item.group_key
   selectedUnreadCount.value = item.unread_count
+  mobileView.value = 'messages'
 }
 
 const handleChanged = async () => {
@@ -98,6 +136,7 @@ const clearSelection = () => {
   conversation.value = undefined
   agentRelationship.value = undefined
   profile.value = undefined
+  mobileView.value = 'conversations'
 }
 
 const handleConversationLoaded = (detail: ConversationDetail | undefined) => {
@@ -218,6 +257,7 @@ const restoreRouteConversation = async () => {
     selectedUnreadCount.value = detail.conversation.unread_count
   }
   focusMessageId.value = Number.isInteger(messageId) && messageId > 0 ? messageId : undefined
+  mobileView.value = 'messages'
 }
 
 const handleVisibilityChange = () => {
@@ -229,7 +269,14 @@ const handleVisibilityChange = () => {
   }
 }
 
+const syncMobileViewport = () => {
+  isMobile.value = mobileMediaQuery?.matches || false
+}
+
 onMounted(() => {
+  mobileMediaQuery = window.matchMedia('(max-width: 820px)')
+  syncMobileViewport()
+  mobileMediaQuery.addEventListener('change', syncMobileViewport)
   void restoreRouteConversation()
   connectEvents()
   fallbackTimer = window.setInterval(() => {
@@ -241,6 +288,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  mobileMediaQuery?.removeEventListener('change', syncMobileViewport)
   eventSource?.close()
   if (fallbackTimer) {
     window.clearInterval(fallbackTimer)
@@ -284,5 +332,84 @@ onBeforeUnmount(() => {
     grid-column: 1 / -1;
     min-height: 360px;
   }
+}
+
+@media (max-width: 820px) {
+  .workbench {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: calc(100dvh - 56px);
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom));
+  }
+
+  .panel {
+    display: none;
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+  }
+
+  .panel.mobile-active,
+  .side.mobile-reply-active {
+    display: flex;
+  }
+
+  .side.mobile-reply-active {
+    flex: 0 0 auto;
+    height: auto;
+    max-height: 44dvh;
+    overflow: auto;
+    border: 0;
+  }
+
+  .side.mobile-reply-active :deep(.side-switch),
+  .side.mobile-reply-active :deep(.supervision > :not(.composer)) {
+    display: none;
+  }
+
+  .side.mobile-reply-active :deep(.supervision) {
+    height: auto;
+    padding: 10px;
+    overflow: visible;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+  }
+
+  .mobile-workbench-nav {
+    display: grid;
+    flex: 0 0 auto;
+    grid-template-columns: repeat(3, 1fr);
+    min-height: 56px;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: #fff;
+    border: 1px solid #dfe6e3;
+    border-radius: 10px;
+    box-shadow: 0 -4px 18px rgb(15 23 42 / 7%);
+  }
+
+  .mobile-workbench-nav button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    min-height: 54px;
+    padding: 5px 4px;
+    color: #6b7d76;
+    font-size: 11px;
+    background: transparent;
+    border: 0;
+  }
+
+  .mobile-workbench-nav button span { font-size: 17px; line-height: 1; }
+  .mobile-workbench-nav button.active { color: #1f7559; font-weight: 700; }
+  .mobile-workbench-nav button:disabled { color: #b9c3bf; }
+}
+
+@media (min-width: 821px) {
+  .mobile-workbench-nav { display: none; }
 }
 </style>

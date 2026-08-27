@@ -195,5 +195,5 @@ onMounted(load)
 .turn.customer { margin-left: auto; background: var(--el-color-primary-light-9); }
 .turn-label { color: var(--el-text-color-secondary); font-size: 12px; font-weight: 700; }
 .turn p { margin: 7px 0 0; line-height: 1.65; white-space: pre-wrap; }
-@media (max-width: 760px) { .page-head { align-items: flex-start; flex-direction: column; } .metrics { grid-template-columns: 1fr; } .turn { width: 90%; } }
+@media (max-width: 760px) { .page-head { align-items: flex-start; flex-direction: column; } .head-actions { width: 100%; flex-wrap: wrap; } .head-actions :deep(.el-button) { margin-left: 0; } .metrics { grid-template-columns: 1fr; } .drawer-meta { align-items: flex-start; flex-direction: column; } .turn { width: 94%; padding: 11px 12px; } }
 </style>
