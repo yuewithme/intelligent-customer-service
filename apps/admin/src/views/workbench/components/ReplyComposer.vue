@@ -12,7 +12,11 @@
     <template v-else-if="status === 'human_active'">
       <ElInput v-model="content" type="textarea" :rows="4" placeholder="输入人工回复" />
       <div class="composer-tools">
-        <ElPopover placement="top-start" :width="344" trigger="click">
+        <ElPopover
+          placement="top-start"
+          :width="'min(344px, calc(100vw - 24px))'"
+          trigger="click"
+        >
           <template #reference>
             <ElButton>全部小表情</ElButton>
           </template>
@@ -125,6 +129,7 @@ watch(
 
 .emoji-picker {
   width: 320px;
+  max-width: 100%;
   height: 360px;
 }
 
@@ -163,5 +168,17 @@ watch(
 
 .received-emojis button span {
   font-size: 11px;
+}
+
+@media (max-width: 820px) {
+  .composer { gap: 8px; }
+  .composer :deep(.el-textarea__inner) {
+    min-height: 76px !important;
+    max-height: 18dvh;
+  }
+  .composer-tools { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
+  .composer-tools :deep(.el-button) { width: 100%; margin-left: 0; }
+  .composer-tools .el-button:last-child { min-width: 68px; margin-left: 0; }
+  .emoji-picker { height: min(360px, 56dvh); }
 }
 </style>

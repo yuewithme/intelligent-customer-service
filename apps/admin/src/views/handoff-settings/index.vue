@@ -217,4 +217,11 @@ onMounted(() => { void loadSettings() })
 .auto-fields code { color: #2d5b4c; font-family: inherit; font-size: 13px; }
 @media (max-width: 1100px) { .page-head { align-items: flex-start; flex-direction: column; } .head-actions { width: 100%; flex-wrap: wrap; } .global-handoff-control { min-width: min(100%, 390px); } }
 @media (max-width: 960px) { .settings-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  .page-head h1 { font-size: 22px; }
+  .head-actions { align-items: stretch; flex-direction: column; }
+  .global-handoff-control { width: 100%; min-width: 0; }
+  .head-actions > :deep(.el-button) { width: 100%; margin-left: 0; }
+  .setting-card { min-height: 0; padding: 16px; }
+}
 </style>

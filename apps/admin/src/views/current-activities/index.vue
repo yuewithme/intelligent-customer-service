@@ -565,4 +565,11 @@ dd {
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 640px) {
+  .page-head { align-items: flex-start; flex-direction: column; }
+  .activity-grid { grid-template-columns: 1fr; }
+  .activity-card { padding: 14px; }
+  .card-actions :deep(.el-button) { margin-left: 0; }
+}
 </style>

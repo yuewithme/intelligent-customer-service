@@ -47,4 +47,5 @@ const unlock = async () => {
 .brand { display: flex; align-items: center; gap: 11px; }
 .brand span { display: grid; width: 40px; height: 40px; place-items: center; color: #fff; font-weight: 800; background: #207457; border-radius: 11px; }
 h1 { margin: 8px 0 -10px; } p { margin: 0; color: #6d7d77; }
+@media (max-width: 640px) { .gate-page { min-height: 100dvh; padding: 14px; } .gate-card { gap: 16px; padding: 24px; border-radius: 14px; } }
 </style>

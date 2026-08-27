@@ -15,7 +15,7 @@
     </div>
 
     <SupervisionPanel
-      v-if="activeTab === 'supervision'"
+      v-if="replyMode || activeTab === 'supervision'"
       :conversation-id="conversationId"
       :conversation="conversation"
       :agent-relationship="agentRelationship"
@@ -56,6 +56,7 @@ defineProps<{
   agentRelationship?: AgentRelationshipState
   profile?: UserProfile
   profileLoading?: boolean
+  replyMode?: boolean
 }>()
 defineEmits<{ changed: []; 'profile-changed': [profile: UserProfile] }>()
 
@@ -102,5 +103,10 @@ const activeTab = ref<(typeof tabs)[number]['value']>('supervision')
 .workbench-side-panel > :deep(.care-manual-panel),
 .workbench-side-panel > :deep(.user-tag-panel) {
   min-height: 0;
+}
+
+@media (max-width: 820px) {
+  .side-switch { position: sticky; top: 0; z-index: 2; padding: 6px 6px 0; background: #fff; }
+  .side-switch button { min-width: 0; padding: 10px 4px; font-size: 13px; }
 }
 </style>

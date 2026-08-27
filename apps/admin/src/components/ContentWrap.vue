@@ -13,4 +13,13 @@
   border: 1px solid #e5e7eb;
   border-radius: 12px;
 }
+
+@media (max-width: 820px) {
+  .content-wrap {
+    min-height: calc(100dvh - 72px);
+    padding: 12px;
+    margin: 8px;
+    border-radius: 9px;
+  }
+}
 </style>

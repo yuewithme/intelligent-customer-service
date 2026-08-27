@@ -117,4 +117,8 @@ watch(
 .time-fields :deep(.el-date-editor) {
   width: 100%;
 }
+
+@media (max-width: 820px) {
+  .time-fields { grid-template-columns: 1fr; }
+}
 </style>
