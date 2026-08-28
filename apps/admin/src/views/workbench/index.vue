@@ -115,7 +115,10 @@ const selectConversation = (item: ConversationGroupItem) => {
   mobileView.value = 'messages'
 }
 
-const handleChanged = async () => {
+const handleChanged = async (updatedConversation?: ConversationItem) => {
+  if (updatedConversation?.conversation_id === selectedId.value) {
+    conversation.value = updatedConversation
+  }
   await syncWorkbench()
 }
 

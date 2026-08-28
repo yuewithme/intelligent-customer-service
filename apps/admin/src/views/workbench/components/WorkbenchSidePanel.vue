@@ -21,7 +21,7 @@
       :agent-relationship="agentRelationship"
       :profile="profile"
       :profile-loading="profileLoading"
-      @changed="$emit('changed')"
+      @changed="forwardChanged"
     />
     <CareManualPanel
       v-else-if="activeTab === 'care-manuals'"
@@ -58,7 +58,12 @@ defineProps<{
   profileLoading?: boolean
   replyMode?: boolean
 }>()
-defineEmits<{ changed: []; 'profile-changed': [profile: UserProfile] }>()
+const emit = defineEmits<{
+  changed: [conversation?: ConversationItem]
+  'profile-changed': [profile: UserProfile]
+}>()
+
+const forwardChanged = (conversation?: ConversationItem) => emit('changed', conversation)
 
 const tabs = [
   { label: '监督面板', value: 'supervision' },
