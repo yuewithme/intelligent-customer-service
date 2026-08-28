@@ -21,6 +21,7 @@
       :agent-relationship="agentRelationship"
       :profile="profile"
       :profile-loading="profileLoading"
+      :reply-mode="replyMode"
       @changed="forwardChanged"
     />
     <CareManualPanel
