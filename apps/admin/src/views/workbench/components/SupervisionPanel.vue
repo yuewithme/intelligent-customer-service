@@ -1,5 +1,5 @@
 <template>
-  <aside class="supervision">
+  <aside class="supervision" :class="{ 'mobile-details-mode': !replyMode }">
     <ElEmpty v-if="!conversationId || !conversation" description="请选择会话" />
     <template v-else>
       <div class="section">
@@ -53,17 +53,29 @@
       </div>
 
       <div class="actions">
-        <ElButton v-if="conversation.status === 'handoff_pending'" type="primary" @click="claim">
+        <ElButton
+          v-if="conversation.status === 'handoff_pending'"
+          class="handoff-action"
+          type="primary"
+          @click="claim"
+        >
           领取接管
         </ElButton>
         <ElButton
           v-if="conversation.status === 'ai_active' || conversation.status === 'ai_waiting'"
+          class="handoff-action"
           type="warning"
           @click="force"
         >
           强制转人工
         </ElButton>
-        <ElButton v-if="conversation.status === 'human_active'" @click="release">交回 AI</ElButton>
+        <ElButton
+          v-if="conversation.status === 'human_active'"
+          class="handoff-action"
+          @click="release"
+        >
+          交回 AI
+        </ElButton>
         <ElButton
           v-if="conversation.status === 'human_active'"
           type="primary"
@@ -81,6 +93,8 @@
         :status="conversation.status"
         :conversation-id="conversationId"
         @claim="claim"
+        @switch-human="switchToHuman"
+        @switch-ai="switchToAi"
         @send="reply"
         @send-image="replyImage"
         @send-emoji="replyEmoji"
@@ -120,6 +134,7 @@ const props = defineProps<{
   agentRelationship?: AgentRelationshipState
   profile?: UserProfile
   profileLoading?: boolean
+  replyMode?: boolean
 }>()
 const emit = defineEmits<{ changed: [conversation?: ConversationItem] }>()
 
@@ -128,25 +143,33 @@ const router = useRouter()
 const operatorId = computed(() => userStore.user.nickname || 'admin')
 const tags = computed(() => props.profile?.customer_tags?.filter(Boolean) || [])
 
-const claim = async () => {
+const claimIfPending = async () => {
+  if (props.conversation?.status !== 'handoff_pending') return
   await claimConversation(props.conversationId, operatorId.value)
+}
+
+const claim = async () => {
+  const updatedConversation = await claimConversation(props.conversationId, operatorId.value)
   ElMessage.success('已领取接管')
-  emit('changed')
+  emit('changed', updatedConversation)
 }
 
 const reply = async (content: string) => {
+  await claimIfPending()
   await replyConversation(props.conversationId, operatorId.value, content)
   ElMessage.success('已发送人工回复')
   emit('changed')
 }
 
 const replyImage = async (file: File) => {
+  await claimIfPending()
   await replyConversationImage(props.conversationId, operatorId.value, file)
   ElMessage.success('图片已进入发送队列')
   emit('changed')
 }
 
 const replyEmoji = async (sourceMessageId: number) => {
+  await claimIfPending()
   await replyConversationEmoji(
     props.conversationId,
     operatorId.value,
@@ -164,14 +187,38 @@ const openCurrentActivities = () => {
 }
 
 const force = async () => {
-  await forceHandoff(props.conversationId, operatorId.value, 'manual_force_handoff')
+  const updatedConversation = await forceHandoff(
+    props.conversationId,
+    operatorId.value,
+    'manual_force_handoff'
+  )
   ElMessage.success('已转为等待人工接管')
-  emit('changed')
+  emit('changed', updatedConversation)
 }
 
 const release = async () => {
   const updatedConversation = await releaseToAi(props.conversationId, operatorId.value)
   ElMessage.success('已交回 AI')
+  emit('changed', updatedConversation)
+}
+
+const switchToHuman = async () => {
+  if (!props.conversation || props.conversation.status === 'human_active') return
+  if (props.conversation.status !== 'handoff_pending') {
+    await forceHandoff(props.conversationId, operatorId.value, 'manual_force_handoff')
+  }
+  const updatedConversation = await claimConversation(props.conversationId, operatorId.value)
+  ElMessage.success('已切换为人工回复')
+  emit('changed', updatedConversation)
+}
+
+const switchToAi = async () => {
+  if (!props.conversation || ['ai_active', 'ai_waiting'].includes(props.conversation.status)) return
+  if (props.conversation.status === 'handoff_pending') {
+    await claimConversation(props.conversationId, operatorId.value)
+  }
+  const updatedConversation = await releaseToAi(props.conversationId, operatorId.value)
+  ElMessage.success('已切换为 AI 回复')
   emit('changed', updatedConversation)
 }
 
@@ -328,5 +375,10 @@ dd {
 
 .muted {
   color: #9ca3af;
+}
+
+@media (max-width: 820px) {
+  .actions .handoff-action { display: none; }
+  .supervision.mobile-details-mode :deep(.composer) { display: none; }
 }
 </style>
