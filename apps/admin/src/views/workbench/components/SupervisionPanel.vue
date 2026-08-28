@@ -121,7 +121,7 @@ const props = defineProps<{
   profile?: UserProfile
   profileLoading?: boolean
 }>()
-const emit = defineEmits<{ changed: [] }>()
+const emit = defineEmits<{ changed: [conversation?: ConversationItem] }>()
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -170,9 +170,9 @@ const force = async () => {
 }
 
 const release = async () => {
-  await releaseToAi(props.conversationId, operatorId.value)
+  const updatedConversation = await releaseToAi(props.conversationId, operatorId.value)
   ElMessage.success('已交回 AI')
-  emit('changed')
+  emit('changed', updatedConversation)
 }
 
 const resolve = async () => {

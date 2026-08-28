@@ -1,7 +1,13 @@
 <template>
   <div class="composer">
+    <div class="mobile-reception-status" :class="`is-${status}`">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span>当前接待：</span>
+      <strong>{{ receptionStatusText }}</strong>
+    </div>
     <ElAlert
       v-if="status === 'ai_active' || status === 'ai_waiting'"
+      class="ai-monitor-alert"
       title="当前由 AI 自动回复，人工仅可监控"
       type="info"
       :closable="false"
@@ -51,7 +57,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import 'emoji-picker-element'
 import {
   getConversationEmojis,
@@ -68,6 +74,16 @@ const emit = defineEmits<{
 const content = ref('')
 const imageInput = ref<HTMLInputElement>()
 const receivedEmojis = ref<ConversationEmoji[]>([])
+const receptionStatusText = computed(
+  () =>
+    ({
+      ai_active: 'AI 接待',
+      ai_waiting: 'AI 接待',
+      handoff_pending: '等待人工接管',
+      human_active: '人工接管',
+      resolved: '会话已结束'
+    })[props.status] || props.status
+)
 
 const send = () => {
   const value = content.value.trim()
@@ -111,6 +127,10 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.mobile-reception-status {
+  display: none;
 }
 
 .composer-tools {
@@ -172,9 +192,38 @@ watch(
 
 @media (max-width: 820px) {
   .composer { gap: 8px; }
+  .mobile-reception-status {
+    display: flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 9px;
+    color: #56645f;
+    border: 1px solid #dfe8e4;
+    border-radius: 6px;
+    background: #f7faf9;
+    font-size: 13px;
+  }
+  .mobile-reception-status strong { color: #167452; }
+  .mobile-reception-status .status-dot {
+    width: 7px;
+    height: 7px;
+    margin-right: 7px;
+    border-radius: 50%;
+    background: #20a06b;
+  }
+  .mobile-reception-status.is-ai_active strong,
+  .mobile-reception-status.is-ai_waiting strong { color: #2563a5; }
+  .mobile-reception-status.is-ai_active .status-dot,
+  .mobile-reception-status.is-ai_waiting .status-dot { background: #409eff; }
+  .mobile-reception-status.is-handoff_pending strong { color: #b66a13; }
+  .mobile-reception-status.is-handoff_pending .status-dot { background: #e6a23c; }
+  .mobile-reception-status.is-resolved strong { color: #7b8581; }
+  .mobile-reception-status.is-resolved .status-dot { background: #909399; }
+  .ai-monitor-alert { display: none; }
   .composer :deep(.el-textarea__inner) {
-    min-height: 76px !important;
-    max-height: 18dvh;
+    height: 56px !important;
+    min-height: 56px !important;
+    max-height: 96px;
   }
   .composer-tools { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
   .composer-tools :deep(.el-button) { width: 100%; margin-left: 0; }
