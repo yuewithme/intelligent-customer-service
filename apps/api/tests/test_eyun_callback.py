@@ -365,6 +365,145 @@ def test_private_non_text_callback_uses_external_user_id(monkeypatch, tmp_path):
     assert recorded[0]["user_id"] == "wxid_customer"
 
 
+def test_private_system_event_is_classified_and_ignored(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fail(**kwargs):
+        pytest.fail(f"system event must not enter the conversation: {kwargs}")
+
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fail)
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "messageType": "60999",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": '<sysmsg type="gamecenter"><gamecenter /></sysmsg>',
+                "newMsgId": 107,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+
+
+def test_private_emoji_is_recorded_as_reaction_without_handoff(
+    monkeypatch, tmp_path
+):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    recorded = []
+    queued = []
+
+    async def fake_ensure(user_id, **kwargs):
+        return {"user_id": user_id}
+
+    async def fake_record(**kwargs):
+        recorded.append(kwargs)
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_enqueue(payload):
+        queued.append(payload)
+
+    monkeypatch.setattr(
+        eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
+    )
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
+    monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "messageType": "60006",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": '<msg><emoji md5="abc" len="123" /></msg>',
+                "newMsgId": 108,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert recorded[0]["status"] == "ai_active"
+    assert recorded[0]["route"] == "inbound_emoji"
+    assert recorded[0]["primary_intent"] == "emoji"
+    assert recorded[0]["handoff_reason"] is None
+    assert recorded[0]["metadata"]["inbound_classification"]["disposition"] == "reaction"
+    assert queued == []
+
+
+def test_private_app_card_is_normalized_for_agent(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    recorded = []
+    queued = []
+
+    async def fake_ensure(user_id, **kwargs):
+        return {"user_id": user_id}
+
+    async def fake_record(**kwargs):
+        recorded.append(kwargs)
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_enqueue(payload):
+        queued.append(payload)
+
+    monkeypatch.setattr(
+        eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
+    )
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
+    monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "messageType": "60999",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_customer",
+                "toUser": "wxid_bot",
+                "content": (
+                    "<msg><appmsg><title>七仙女</title><type>109</type>"
+                    "<url>https://example.com/product</url></appmsg></msg>"
+                ),
+                "newMsgId": 109,
+                "self": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert recorded[0]["status"] == "ai_waiting"
+    assert recorded[0]["route"] == "inbound_app_card"
+    assert recorded[0]["handoff_reason"] is None
+    assert queued[0]["messageType"] == "60001"
+    assert queued[0]["_eyun_original_message_type"] == "60999"
+    assert queued[0]["data"]["content"] == (
+        "[应用卡片] 标题：七仙女；链接：https://example.com/product"
+    )
+
+
 def test_private_image_callback_enters_recognition_batch(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
 

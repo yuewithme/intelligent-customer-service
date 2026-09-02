@@ -11,6 +11,7 @@ import httpx
 
 from app.core.config import PROJECT_ROOT, get_settings
 from app.domains.conversations.services.conversation_service import (
+    AI_ACTIVE,
     AI_WAITING,
     HANDOFF_PENDING,
     ensure_outbound_conversation_message,
@@ -35,6 +36,10 @@ from app.integrations.eyun.services.eyun_login_monitor_service import (
 from app.integrations.eyun.services.eyun_inbound_media_service import (
     enqueue_eyun_inbound_media,
 )
+from app.integrations.eyun.services.eyun_inbound_classifier import (
+    classify_eyun_inbound,
+    payload_for_agent,
+)
 from app.domains.customers.services.user_profile_service import (
     add_system_customer_tag,
     ensure_user_profile,
@@ -51,14 +56,7 @@ EYUN_GROUP_TEXT = "80001"
 
 
 def is_eyun_new_friend_opening_event(payload: dict[str, Any]) -> bool:
-    if str(payload.get("messageType", "")) != EYUN_PRIVATE_OTHER:
-        return False
-    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-    content = str(data.get("content") or "").strip()
-    return (
-        "你已添加了" in content
-        and "以上是打招呼的消息" in content
-    ) or "NewXmlOpenIMFriReqAcceptedInWxWork" in content
+    return classify_eyun_inbound(payload).disposition == "opening"
 
 
 def is_eyun_text_message(payload: dict[str, Any]) -> bool:
@@ -167,6 +165,16 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         )
         return eyun_success()
 
+    classification = classify_eyun_inbound(payload)
+    if classification.disposition == "ignore":
+        logger.info(
+            "Eyun system event ignored messageType=%s subtype=%s messageId=%s",
+            message_type,
+            classification.subtype,
+            _eyun_message_id(data),
+        )
+        return eyun_success()
+
     if (
         is_eyun_private_text_message(payload)
         and is_platform_noise_text(str(data.get("content") or ""))
@@ -174,9 +182,14 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         return eyun_success()
 
     metadata = await _eyun_workbench_metadata(payload, data)
+    metadata["inbound_classification"] = classification.to_metadata()
     _capture_material_group_message(payload, metadata)
     user_id = _eyun_conversation_user_id(data)
-    is_opening_event = is_eyun_new_friend_opening_event(payload)
+    is_opening_event = classification.disposition == "opening"
+    is_agent_message = classification.disposition == "agent"
+    is_reaction = classification.disposition == "reaction"
+    is_unknown = classification.disposition == "unknown"
+    is_media = classification.disposition == "media"
     global_handoff = is_global_handoff_enabled() and not is_opening_event
     if not str(data.get("fromGroup") or "").strip():
         await ensure_user_profile(
@@ -223,51 +236,39 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         channel="wechat",
         user_id=user_id,
         session_id=session_id,
-        content=_eyun_display_content(payload),
+        content=classification.display_content,
         message_id=provider_message_id,
         status=(
             HANDOFF_PENDING
             if global_handoff
             else AI_WAITING
-            if is_eyun_private_text_message(payload)
-            or is_private_image
-            or is_opening_event
-            else HANDOFF_PENDING
+            if is_agent_message or is_opening_event or is_media
+            else AI_ACTIVE
         ),
         route=(
             "global_handoff"
             if global_handoff
-            else "inbound_text"
-            if is_eyun_text_message(payload)
-            else "inbound_image"
-            if is_private_image
             else "opening_trigger"
             if is_opening_event
-            else "non_text"
+            else f"inbound_{classification.category}"
         ),
         primary_intent=(
             "global_handoff"
             if global_handoff
-            else "message"
-            if is_eyun_text_message(payload)
             else "opening_trigger"
             if is_opening_event
-            else _eyun_message_kind(message_type)
+            else classification.category
         ),
         handoff_reason=(
             "global_handoff"
             if global_handoff
             else None
-            if is_eyun_private_text_message(payload)
-            or is_private_image
-            or is_opening_event
-            else "unsupported_message_type"
         ),
         tenant_id=_eyun_tenant_id(payload, data),
         metadata=metadata,
     )
 
-    if _eyun_message_kind(message_type) in {"video", "audio"} and provider_message_id:
+    if classification.category in {"video", "audio"} and provider_message_id:
         await enqueue_eyun_inbound_media(
             conversation_id=make_conversation_id("wechat", user_id, session_id),
             message_id=provider_message_id,
@@ -301,14 +302,29 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         await enqueue_eyun_inbound({**payload, "_eyun_opening_trigger": True})
         return eyun_success()
 
-    if not is_eyun_private_text_message(payload):
+    if is_reaction or is_unknown or is_media:
+        if is_unknown:
+            logger.warning(
+                "Eyun customer message classified as unknown messageType=%s messageId=%s",
+                message_type,
+                provider_message_id,
+            )
         return eyun_success()
 
-    content = str(data.get("content") or "").strip()
-    if not content:
+    if not is_agent_message:
         return eyun_success()
 
-    await enqueue_eyun_inbound(payload)
+    queued_payload = payload_for_agent(payload, classification)
+    queued_data = (
+        queued_payload.get("data")
+        if isinstance(queued_payload.get("data"), dict)
+        else {}
+    )
+    content = str(queued_data.get("content") or "").strip()
+    if not content and classification.category != "image":
+        return eyun_success()
+
+    await enqueue_eyun_inbound(queued_payload)
     return eyun_success()
 
 
@@ -441,6 +457,7 @@ async def _eyun_workbench_metadata(
         "provider": "eyun",
         "account": str(payload.get("account") or ""),
         "message_type": message_type,
+        "provider_subtype": str(data.get("msgType") or ""),
         "owner_wc_id": owner_wc_id,
         "contact_wc_id": user_id,
         "wc_id": owner_wc_id,
