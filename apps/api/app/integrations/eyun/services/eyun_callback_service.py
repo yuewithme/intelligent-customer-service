@@ -15,6 +15,7 @@ from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
     HANDOFF_PENDING,
     ensure_outbound_conversation_message,
+    merge_recent_customer_file_message,
     make_conversation_id,
     recover_automatic_handoff,
     record_customer_message,
@@ -233,6 +234,14 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         )
     session_id = _eyun_conversation_session_id(payload, data)
     provider_message_id = _eyun_message_id(data)
+    if classification.category == "file" and merge_recent_customer_file_message(
+        channel="wechat",
+        user_id=user_id,
+        session_id=session_id,
+        message_id=provider_message_id,
+        metadata=metadata,
+    ):
+        return eyun_success()
     if not global_handoff:
         await recover_automatic_handoff(
             channel="wechat",
@@ -601,6 +610,8 @@ def _xml_media_metadata(content: str) -> dict[str, str]:
             if candidate.startswith(("http://", "https://")):
                 result.setdefault("url", candidate)
         local_tag = element.tag.rsplit("}", 1)[-1].lower()
+        if local_tag == "totallen" and element.text and element.text.strip():
+            result.setdefault("file_size", element.text.strip())
         if local_tag == "voicemsg":
             for source, target in (
                 ("bufid", "buf_id"),

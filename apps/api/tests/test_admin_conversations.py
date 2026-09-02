@@ -39,6 +39,55 @@ def test_conversation_list_starts_empty(monkeypatch, tmp_path):
     assert response.json()["data"] == {"items": [], "total": 0, "page": 1, "page_size": 50}
 
 
+def test_paired_file_callbacks_merge_metadata(monkeypatch, tmp_path):
+    import asyncio
+    from app.domains.conversations.services.conversation_service import (
+        get_conversation_detail,
+        merge_recent_customer_file_message,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="file_customer",
+            session_id="owner",
+            content="[文件]",
+            message_id="first",
+            status="ai_waiting",
+            route="inbound_file",
+            primary_intent="file",
+            metadata={
+                "media": {
+                    "type": "file",
+                    "file_name": "养兰资料.docx",
+                    "file_size": "9558250",
+                }
+            },
+        )
+    )
+
+    assert merge_recent_customer_file_message(
+        channel="wechat",
+        user_id="file_customer",
+        session_id="owner",
+        message_id="second",
+        metadata={
+            "media": {
+                "type": "file",
+                "file_name": "养兰资料.docx",
+                "file_size": "9558250",
+                "url": "https://media.example.com/file.docx",
+            }
+        },
+    )
+    detail = asyncio.run(get_conversation_detail("wechat:file_customer:owner"))
+    assert len(detail["messages"]) == 1
+    message = detail["messages"][0]
+    assert message["metadata"]["media"]["url"].endswith("file.docx")
+    assert message["metadata"]["provider_message_ids"] == ["first", "second"]
+
+
 def test_message_recognition_stats_report_categories_and_results(
     monkeypatch, tmp_path
 ):

@@ -561,6 +561,46 @@ async def test_enqueue_outbound_always_creates_workbench_message(monkeypatch):
     assert json.loads(message.metadata_json)["source_type"] == "service_material_touch"
 
 
+@pytest.mark.asyncio
+async def test_service_touch_copy_and_media_use_distinct_workbench_messages():
+    from app.integrations.eyun.services.message_risk_control_service import (
+        _get_session,
+        enqueue_wechat_outbound,
+    )
+
+    common = {
+        "w_id": "wid",
+        "wc_id": "customer",
+        "source_batch_key": "service_material_touch:77",
+        "source_type": "service_material_touch",
+        "source_id": "77",
+        "sender_type": "system",
+        "sender_id": "service_material_touch",
+    }
+    copy = await enqueue_wechat_outbound(
+        **common,
+        content="触达文案",
+        delivery_metadata={"message_role": "copy"},
+    )
+    media = await enqueue_wechat_outbound(
+        **common,
+        content="媒体占位",
+        delivery_metadata={"message_role": "media"},
+    )
+
+    assert copy["conversation_message_id"] != media["conversation_message_id"]
+    with _get_session() as session:
+        copy_message = session.get(
+            ConversationMessageModel, copy["conversation_message_id"]
+        )
+        media_message = session.get(
+            ConversationMessageModel, media["conversation_message_id"]
+        )
+    assert copy_message.trace_id == "service_material_touch:77:copy"
+    assert media_message.trace_id == "service_material_touch:77:media"
+    assert json.loads(media_message.metadata_json)["message_role"] == "media"
+
+
 def test_bundle_delivery_is_sent_only_after_every_part_succeeds():
     from app.integrations.eyun.services import message_risk_control_service as service
 

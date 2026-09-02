@@ -2,7 +2,8 @@ import asyncio
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+import httpx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
@@ -20,6 +21,7 @@ from app.domains.conversations.services.conversation_service import (
     force_handoff,
     get_conversation_detail,
     get_message_recognition_stats,
+    get_message_media_proxy_source,
     hide_conversation,
     list_conversations,
     list_conversation_tenants,
@@ -131,6 +133,46 @@ async def message_recognition_stats(
             start_time=start_time,
             end_time=end_time,
         ),
+    )
+
+
+@router.get("/message-media/{message_id}")
+async def message_media(message_id: int, request: Request) -> StreamingResponse:
+    source = get_message_media_proxy_source(message_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="message media not found")
+    client = httpx.AsyncClient(timeout=60, follow_redirects=True)
+    headers = {}
+    if request.headers.get("range"):
+        headers["Range"] = request.headers["range"]
+    try:
+        response = await client.send(
+            client.build_request("GET", source, headers=headers),
+            stream=True,
+        )
+        response.raise_for_status()
+    except Exception:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail="message media unavailable")
+
+    async def body():
+        try:
+            async for chunk in response.aiter_bytes():
+                yield chunk
+        finally:
+            await response.aclose()
+            await client.aclose()
+
+    passthrough = {
+        key: value
+        for key in ("content-type", "content-length", "content-range", "accept-ranges")
+        if (value := response.headers.get(key))
+    }
+    passthrough["Cache-Control"] = "private, max-age=300"
+    return StreamingResponse(
+        body(),
+        status_code=response.status_code,
+        headers=passthrough,
     )
 
 

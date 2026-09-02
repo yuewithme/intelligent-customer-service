@@ -1248,8 +1248,7 @@ async def ensure_outbound_conversation_message(
             existing_metadata.update(message_metadata)
             message.metadata_json = json.dumps(existing_metadata, ensure_ascii=False)
 
-        if sender_type == "human":
-            conversation.last_message = display_content
+        conversation.last_message = display_content
         conversation.updated_at = now
         session.commit()
         result = _message_to_dict(message)
@@ -1451,6 +1450,74 @@ async def reply_conversation(
     )
     _publish_change(conversation_id, "reply")
     return result
+
+
+def merge_recent_customer_file_message(
+    *,
+    channel: str,
+    user_id: str,
+    session_id: str | None,
+    message_id: str | None,
+    metadata: dict[str, Any],
+    window_seconds: int = 5,
+) -> bool:
+    """Merge the paired 60008/60009 callbacks emitted for one WeChat file."""
+    incoming_media = metadata.get("media")
+    if not isinstance(incoming_media, dict):
+        return False
+    file_name = str(incoming_media.get("file_name") or "").strip()
+    if not file_name:
+        return False
+    conversation_id = make_conversation_id(channel, user_id, session_id)
+    now = _now()
+    merged = False
+    with _get_session() as session:
+        rows = session.scalars(
+            select(ConversationMessageModel)
+            .where(
+                ConversationMessageModel.conversation_id == conversation_id,
+                ConversationMessageModel.sender_type == "customer",
+                ConversationMessageModel.content == "[文件]",
+                ConversationMessageModel.created_at
+                >= now - timedelta(seconds=window_seconds),
+            )
+            .order_by(ConversationMessageModel.created_at.desc())
+        ).all()
+        for row in rows:
+            existing = _load_metadata(row.metadata_json)
+            existing_media = existing.get("media")
+            if not isinstance(existing_media, dict):
+                continue
+            if str(existing_media.get("file_name") or "").strip() != file_name:
+                continue
+            incoming_size = str(incoming_media.get("file_size") or "").strip()
+            existing_size = str(existing_media.get("file_size") or "").strip()
+            if incoming_size and existing_size and incoming_size != existing_size:
+                continue
+            for key, value in incoming_media.items():
+                if value not in (None, "", False) and not existing_media.get(key):
+                    existing_media[key] = value
+            provider_ids = existing.get("provider_message_ids")
+            if not isinstance(provider_ids, list):
+                provider_ids = [row.message_id] if row.message_id else []
+            if message_id and message_id not in provider_ids:
+                provider_ids.append(message_id)
+            existing["provider_message_ids"] = provider_ids
+            existing["media"] = existing_media
+            row.metadata_json = json.dumps(existing, ensure_ascii=False)
+            conversation = session.scalar(
+                select(ConversationModel).where(
+                    ConversationModel.conversation_id == conversation_id
+                )
+            )
+            if conversation is not None:
+                conversation.updated_at = now
+            session.commit()
+            merged = True
+            break
+    if merged:
+        _publish_change(conversation_id, "file_callback_merged")
+    return merged
 
 
 def list_conversation_emojis(conversation_id: str, limit: int = 40) -> dict[str, Any]:
@@ -2001,6 +2068,19 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         if media:
             metadata["media"] = media
     media = metadata.get("media")
+    if (
+        metadata.get("direction") == "outbound"
+        and str(metadata.get("message_type") or "") == "video"
+        and isinstance(media, dict)
+    ):
+        try:
+            video = json.loads(str(metadata.get("outbound_content") or ""))
+        except (json.JSONDecodeError, TypeError):
+            video = {}
+        if isinstance(video, dict) and video.get("path"):
+            media["url"] = str(video["path"])
+            media["thumb_url"] = str(video.get("thumb_path") or "")
+            media["fallback"] = False
     media_is_resolvable = (
         metadata.get("provider") == "eyun"
         and str(metadata.get("message_type") or "") in {"60003", "60004"}
@@ -2041,6 +2121,29 @@ def _load_metadata(value: str | None) -> dict[str, Any]:
     except (json.JSONDecodeError, TypeError):
         return {}
     return metadata if isinstance(metadata, dict) else {}
+
+
+def get_message_media_proxy_source(message_id: int) -> str | None:
+    with _get_session() as session:
+        message = session.get(ConversationMessageModel, message_id)
+        if message is None:
+            return None
+        metadata = _load_metadata(message.metadata_json)
+    if (
+        metadata.get("direction") != "outbound"
+        or metadata.get("source_type") != "service_material_touch"
+    ):
+        return None
+    media = metadata.get("media")
+    url = str(media.get("url") or "").strip() if isinstance(media, dict) else ""
+    if str(metadata.get("message_type") or "") == "video":
+        try:
+            video = json.loads(str(metadata.get("outbound_content") or ""))
+        except (json.JSONDecodeError, TypeError):
+            video = {}
+        if isinstance(video, dict):
+            url = str(video.get("path") or url).strip()
+    return url if url.startswith(("http://", "https://")) else None
 
 
 def _owner_wc_id(channel: str, metadata: dict[str, Any]) -> str | None:
@@ -2124,7 +2227,20 @@ def _outbound_metadata(
     if message_type in {"image", "received_image"}:
         result["media"] = {"type": "image", "url": content, "fallback": False}
     elif message_type in {"video", "received_video"}:
-        result["media"] = {"type": "video", "url": content, "fallback": False}
+        try:
+            video = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            video = {}
+        video_url = str(video.get("path") or "") if isinstance(video, dict) else ""
+        thumb_url = (
+            str(video.get("thumb_path") or "") if isinstance(video, dict) else ""
+        )
+        result["media"] = {
+            "type": "video",
+            "url": video_url or content,
+            "thumb_url": thumb_url,
+            "fallback": not bool(video_url or content),
+        }
     elif message_type == "emoji":
         try:
             emoji = json.loads(content)
