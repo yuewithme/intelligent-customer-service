@@ -1,6 +1,6 @@
 # sales-agent.hzwohu.com production release
 # Shared Runner: #4 hz-build-01 (tag: linux)
-# Target: ubuntu@43.143.83.26
+# Target: ubuntu@10.200.5.12 (VPC address for public 43.143.83.26)
 
 workflow:
   rules:
@@ -19,7 +19,7 @@ default:
 
 variables:
   GIT_DEPTH: "20"
-  PROD_HOST: "ubuntu@43.143.83.26"
+  PROD_HOST: "ubuntu@10.200.5.12"
   PROD_DIR: "/home/ubuntu/intelligent-customer-service"
   SSHOPT: "-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
 
@@ -32,6 +32,11 @@ preflight:production:
       SSH="ssh $SSHOPT"
       $SSH "$PROD_HOST" "
         set -eu
+        public_ip=\$(curl -fsS --max-time 5 http://metadata.tencentyun.com/latest/meta-data/public-ipv4 || true)
+        if [ \"\$public_ip\" != '43.143.83.26' ]; then
+          echo \"ERROR: VPC target identity mismatch (public IP: \${public_ip:-unavailable})\"
+          exit 1
+        fi
         test -d '$PROD_DIR/.git'
         cd '$PROD_DIR'
         remote_url=\$(git remote get-url origin)
