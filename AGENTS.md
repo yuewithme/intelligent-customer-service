@@ -23,7 +23,8 @@
 
 - All code development, editing, debugging, and testing must be performed on the local development machine. Do not develop or modify source code on the cloud server.
 - The cloud server is for deployment and runtime operations only. For project code, only pull the latest committed code from the GitLab `origin/main` branch; do not create, edit, patch, or commit source files on the server.
-- Connect from Windows PowerShell with `ssh -i "$env:USERPROFILE\.ssh\guijie.pem" ubuntu@150.158.52.233`.
+- The production host is `43.143.83.26` (VPC `10.200.5.17`, hostname `VM-5-17-ubuntu`). `150.158.52.233` is only the restricted SSH jump host and must never be treated as the deployment target.
+- Production releases use the GitLab pipeline documented in `docs/deployment.md`: shared Runner `hz-build-01` connects through the restricted jump host, and the production host fast-forwards from GitLab `origin/main` before rebuilding the services.
 - The SSH private key must remain local and must never be copied into the repository or committed to Git.
 
 ## External API Integrations
