@@ -124,13 +124,24 @@ def _sync_conversation_delivery_from_bundle(
         row = session.get(EyunOutboundMessageModel, outbound_message_id)
         if row is None or not row.conversation_message_id:
             return
-        statuses = list(
+        bundle_rows = list(
             session.scalars(
-                select(EyunOutboundMessageModel.status).where(
+                select(EyunOutboundMessageModel).where(
                     EyunOutboundMessageModel.conversation_message_id
                     == row.conversation_message_id
                 )
             )
+        )
+        statuses = [bundle_row.status for bundle_row in bundle_rows]
+        delivery_error = next(
+            (
+                str(bundle_row.last_error)
+                for bundle_row in bundle_rows
+                if bundle_row.last_error
+                and bundle_row.status
+                in {"failed", "cancelled", "waiting_material"}
+            ),
+            None,
         )
         conversation_message_id = row.conversation_message_id
     if statuses and all(status in {"confirmed", "sent"} for status in statuses):
@@ -157,6 +168,7 @@ def _sync_conversation_delivery_from_bundle(
             provider_message_id if aggregate in {"accepted", "confirmed"} else None
         ),
         sent_at=(sent_at if aggregate == "confirmed" else None),
+        error=delivery_error,
     )
 
 
@@ -902,6 +914,48 @@ def recover_stale_eyun_outbound_deliveries(
         _sync_conversation_delivery_from_bundle(outbound_id)
         _sync_service_material_touch_outbound(batch_key, status, error)
     return len(recovered)
+
+
+def retry_eyun_conversation_message_delivery(
+    conversation_message_id: int,
+) -> dict[str, Any] | None:
+    now = utcnow()
+    with _get_session() as session:
+        row = session.scalar(
+            select(EyunOutboundMessageModel)
+            .where(
+                EyunOutboundMessageModel.conversation_message_id
+                == conversation_message_id
+            )
+            .order_by(EyunOutboundMessageModel.id.desc())
+            .limit(1)
+        )
+        if row is None or row.status in {"confirmed", "sent", "sending"}:
+            return None
+        previous_status = row.status
+        row.status = "queued"
+        row.attempts = 0
+        row.due_at = now
+        row.last_error = "已由消息后台安排人工补发"
+        row.updated_at = now
+        _record_outbound_delivery_event(
+            session,
+            row,
+            event="manual_retry_scheduled",
+            status_from=previous_status,
+            metadata={"due_at": now},
+        )
+        session.commit()
+        outbound_id = row.id
+        batch_key = row.source_batch_key
+    if _is_service_material_touch_batch_key(batch_key):
+        from app.domains.sales.services.service_material_touch_service import (
+            reopen_service_material_touch_for_manual_retry,
+        )
+
+        reopen_service_material_touch_for_manual_retry(batch_key)
+    _sync_conversation_delivery_from_bundle(outbound_id)
+    return {"outbound_id": outbound_id, "status": "queued"}
 
 
 async def process_due_eyun_outbound_messages(limit: int = 5) -> int:

@@ -37,6 +37,7 @@ export interface ConversationMessage {
     | 'waiting_material'
     | 'accepted'
     | 'confirmed'
+    | 'sent'
     | 'failed'
     | 'cancelled'
     | null
@@ -211,6 +212,11 @@ export const hideConversation = (conversationId: string) =>
 export const resolveConversationMessageMedia = (messageId: number) =>
   request.post<ConversationMessage>({
     url: `/api/v1/admin/conversations/messages/${messageId}/resolve-media`
+  })
+
+export const retryConversationMessageDelivery = (messageId: number) =>
+  request.post<ConversationMessage>({
+    url: `/api/v1/admin/conversations/messages/${messageId}/retry-delivery`
   })
 
 export const forceHandoff = (conversationId: string, operator_id: string, reason: string) =>

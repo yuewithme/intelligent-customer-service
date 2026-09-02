@@ -28,6 +28,7 @@ from app.domains.conversations.services.conversation_service import (
     mark_conversation_read,
     list_conversation_emojis,
     release_to_ai,
+    retry_conversation_message_delivery,
     reply_conversation,
     reply_conversation_care_manual,
     reply_conversation_emoji,
@@ -40,6 +41,9 @@ from app.core.auth import require_admin_access
 from app.domains.customers.services.user_profile_service import get_profile_bundle
 from app.integrations.youzan.services.youzan_order_sync_service import (
     list_conversation_orders,
+)
+from app.domains.sales.services.service_material_touch_service import (
+    get_service_material_touch_delivery_stats,
 )
 from app.shared.schemas.common import AppError, ErrorCode
 from app.domains.conversations.services.workbench_media_service import (
@@ -173,6 +177,32 @@ async def message_media(message_id: int, request: Request) -> StreamingResponse:
         body(),
         status_code=response.status_code,
         headers=passthrough,
+    )
+
+
+@router.get("/touch-delivery-stats", response_model=APIResponse)
+async def touch_delivery_stats(
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    item_limit: int = Query(default=100, ge=1, le=500),
+) -> APIResponse:
+    try:
+        data = get_service_material_touch_delivery_stats(
+            start_time=start_time,
+            end_time=end_time,
+            item_limit=item_limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/messages/{message_id}/retry-delivery", response_model=APIResponse)
+async def retry_message_delivery(message_id: int) -> APIResponse:
+    return APIResponse(
+        code=0,
+        message="success",
+        data=retry_conversation_message_delivery(message_id),
     )
 
 

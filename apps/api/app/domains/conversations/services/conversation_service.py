@@ -164,7 +164,13 @@ async def list_conversations(
     page = max(page, 1)
     page_size = max(min(page_size, 200), 1)
     with _get_session() as session:
-        filters = [ConversationModel.hidden_at.is_(None)]
+        filters = [
+            ConversationModel.hidden_at.is_(None),
+            or_(
+                ConversationModel.channel != "wechat",
+                ConversationModel.user_id != "weixin",
+            ),
+        ]
         if status:
             filters.append(ConversationModel.status == status)
         if owner_id:
@@ -389,9 +395,51 @@ async def get_conversation_detail(conversation_id: str) -> dict:
 
     return {
         "conversation": _conversation_to_dict(conversation),
-        "messages": [_message_to_dict(row) for row in messages],
+        "messages": _visible_message_dicts(messages),
         "agent_relationship": get_agent_relationship_state(conversation.user_id),
     }
+
+
+def retry_conversation_message_delivery(message_id: int) -> dict[str, Any]:
+    with _get_session() as session:
+        message = session.get(ConversationMessageModel, message_id)
+        if message is None:
+            raise AppError(
+                ErrorCode.REQUEST_INVALID,
+                message="消息不存在",
+                status_code=404,
+            )
+        metadata = _load_metadata(message.metadata_json)
+        source_batch_key = str(metadata.get("source_batch_key") or "")
+        delivery_status = str(message.delivery_status or "")
+    from app.integrations.eyun.services.message_risk_control_service import (
+        retry_eyun_conversation_message_delivery,
+    )
+
+    result = retry_eyun_conversation_message_delivery(message_id)
+    if result is None and delivery_status in {
+        "failed",
+        "cancelled",
+        "waiting_material",
+    }:
+        from app.domains.sales.services.service_material_touch_service import (
+            retry_service_material_touch_task_now,
+        )
+
+        if retry_service_material_touch_task_now(source_batch_key):
+            update_outbound_message_delivery(message_id, status="queued")
+            result = {"status": "queued"}
+    if result is None:
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message="该消息当前不允许补发",
+            status_code=409,
+        )
+    with _get_session() as session:
+        message = session.get(ConversationMessageModel, message_id)
+        if message is None:
+            raise AppError(ErrorCode.REQUEST_INVALID, status_code=404)
+        return _message_to_dict(message)
 
 
 async def get_message_recognition_stats(
@@ -536,6 +584,7 @@ async def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
             )
             .where(
                 ConversationModel.channel == "wechat",
+                ConversationModel.user_id != "weixin",
                 ConversationModel.hidden_at.is_(None),
                 ConversationModel.owner_wc_id.is_not(None),
             )
@@ -1280,6 +1329,7 @@ def update_outbound_message_delivery(
     status: str,
     provider_message_id: str | None = None,
     sent_at: datetime | None = None,
+    error: str | None = None,
 ) -> None:
     with _get_session() as session:
         message = session.get(ConversationMessageModel, conversation_message_id)
@@ -1310,6 +1360,10 @@ def update_outbound_message_delivery(
         else:
             timestamps[f"{status}_at"] = timestamp
         metadata["delivery_timestamps"] = timestamps
+        if error:
+            metadata["delivery_error"] = str(error)[:2000]
+        elif status in {"queued", "sending", "accepted", "confirmed"}:
+            metadata.pop("delivery_error", None)
         message.metadata_json = json.dumps(metadata, ensure_ascii=False)
         session.commit()
         conversation_id = message.conversation_id
@@ -2142,6 +2196,43 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         "metadata": metadata,
         "created_at": _utc_isoformat(row.created_at),
     }
+
+
+def _visible_message_dicts(
+    rows: list[ConversationMessageModel],
+) -> list[dict[str, Any]]:
+    visible: list[dict[str, Any]] = []
+    recent_files: dict[str, tuple[datetime, int]] = {}
+    for row in rows:
+        message = _message_to_dict(row)
+        metadata = message["metadata"]
+        raw_content = str(metadata.get("raw_content") or "").lstrip()
+        if (
+            message["sender_type"] == "customer"
+            and str(metadata.get("message_type") or "") == "60999"
+            and raw_content.startswith("<sysmsg")
+        ):
+            continue
+        media = metadata.get("media")
+        if not isinstance(media, dict) or media.get("type") != "file":
+            visible.append(message)
+            continue
+        file_name = str(media.get("file_name") or "").strip()
+        if not file_name:
+            visible.append(message)
+            continue
+        previous = recent_files.get(file_name)
+        if previous and abs((row.created_at - previous[0]).total_seconds()) <= 5:
+            target = visible[previous[1]]
+            target_media = target["metadata"].get("media")
+            if isinstance(target_media, dict):
+                for key, value in media.items():
+                    if value not in (None, "", False) and not target_media.get(key):
+                        target_media[key] = value
+            continue
+        recent_files[file_name] = (row.created_at, len(visible))
+        visible.append(message)
+    return visible
 
 
 def _load_metadata(value: str | None) -> dict[str, Any]:

@@ -68,8 +68,18 @@
             <ElTag v-if="message.metadata.is_evaluation" size="small" type="warning">
               测试 · {{ message.metadata.evaluation_id }}
             </ElTag>
+            <ElTag
+              v-if="message.delivery_status"
+              size="small"
+              :type="deliveryStatusType(message.delivery_status)"
+            >
+              {{ deliveryStatusText(message.delivery_status) }}
+            </ElTag>
           </div>
           <div class="content">
+            <small v-if="message.metadata.delivery_error" class="delivery-error">
+              {{ message.metadata.delivery_error }}
+            </small>
             <a
               v-if="linkCard(message)"
               class="commerce-card"
@@ -107,7 +117,11 @@
               :preview-src-list="[mediaSource(message)]"
               fit="cover"
               preview-teleported
-            />
+            >
+              <template #error>
+                <div class="image-load-error">图片加载失败</div>
+              </template>
+            </ElImage>
             <video
               v-else-if="mediaType(message) === 'video' && mediaSource(message)"
               :key="mediaSource(message)"
@@ -159,6 +173,16 @@
             </a>
           </div>
           <div class="message-footer">
+            <ElButton
+              v-if="!readOnly && canRetryDelivery(message)"
+              type="primary"
+              link
+              size="small"
+              :loading="retryingDeliveryIds.has(message.id)"
+              @click.stop="retryDelivery(message)"
+            >
+              立即补发
+            </ElButton>
             <span class="time">{{ formatTime(message.created_at) }}</span>
           </div>
         </div>
@@ -179,6 +203,7 @@ import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
   getConversationDetail,
+  retryConversationMessageDelivery,
   resolveConversationMessageMedia,
   type ConversationDetail,
   type ConversationItem,
@@ -226,6 +251,7 @@ const detail = ref<ConversationDetail>()
 const timelineRef = ref<HTMLElement>()
 const resolvingMediaIds = ref(new Set<number>())
 const failedMediaIds = ref(new Set<number>())
+const retryingDeliveryIds = ref(new Set<number>())
 const selectedMessageIds = ref(new Set<number>())
 const selectionMode = ref(false)
 const saveDialogVisible = ref(false)
@@ -300,6 +326,43 @@ const load = async (options: { silent?: boolean } = {}) => {
 
 const senderText = (value: string) =>
   ({ customer: '客户', ai: 'AI', human: '人工', system: '系统' })[value] || value
+
+const deliveryStatusText = (status: NonNullable<ConversationMessage['delivery_status']>) =>
+  ({
+    queued: '排队中',
+    sending: '发送中',
+    waiting_material: '等待素材',
+    accepted: '已受理待确认',
+    confirmed: '已确认',
+    sent: '已确认',
+    failed: '发送失败',
+    cancelled: '已取消'
+  })[status] || status
+
+const deliveryStatusType = (status: NonNullable<ConversationMessage['delivery_status']>) => {
+  if (['confirmed', 'sent'].includes(status)) return 'success'
+  if (['failed', 'cancelled'].includes(status)) return 'danger'
+  if (status === 'accepted') return 'warning'
+  return 'info'
+}
+
+const canRetryDelivery = (message: ConversationMessage) =>
+  ['failed', 'cancelled', 'waiting_material'].includes(message.delivery_status || '')
+
+const retryDelivery = async (message: ConversationMessage) => {
+  retryingDeliveryIds.value = new Set(retryingDeliveryIds.value).add(message.id)
+  try {
+    await retryConversationMessageDelivery(message.id)
+    ElMessage.success('已安排补发')
+    await load({ silent: true })
+  } catch {
+    ElMessage.error('补发失败，请稍后重试')
+  } finally {
+    const next = new Set(retryingDeliveryIds.value)
+    next.delete(message.id)
+    retryingDeliveryIds.value = next
+  }
+}
 
 const messageMedia = (message: ConversationMessage): MediaMetadata | undefined => {
   const media = message.metadata.media
@@ -632,6 +695,12 @@ p {
   opacity: 0.75;
 }
 
+.sender {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .message-footer {
   display: flex;
   align-items: center;
@@ -655,6 +724,21 @@ p {
   max-height: 320px;
   overflow: hidden;
   border-radius: 6px;
+}
+
+.delivery-error {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--el-color-danger);
+  overflow-wrap: anywhere;
+}
+
+.image-load-error {
+  display: grid;
+  min-height: 96px;
+  color: var(--el-color-danger);
+  background: var(--el-fill-color-light);
+  place-items: center;
 }
 
 .message-video {
