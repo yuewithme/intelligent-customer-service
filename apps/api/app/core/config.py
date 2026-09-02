@@ -373,6 +373,18 @@ class Settings(BaseSettings):
     speech_recognition_max_retries: int = Field(
         default=1, ge=0, le=3, alias="SPEECH_RECOGNITION_MAX_RETRIES"
     )
+    video_understanding_enabled: bool = Field(
+        default=True, alias="VIDEO_UNDERSTANDING_ENABLED"
+    )
+    video_understanding_max_seconds: int = Field(
+        default=120, ge=1, le=600, alias="VIDEO_UNDERSTANDING_MAX_SECONDS"
+    )
+    video_understanding_frame_count: int = Field(
+        default=4, ge=1, le=8, alias="VIDEO_UNDERSTANDING_FRAME_COUNT"
+    )
+    video_understanding_timeout_seconds: float = Field(
+        default=180, ge=1, alias="VIDEO_UNDERSTANDING_TIMEOUT_SECONDS"
+    )
     embedding_provider: str = "mock"
     embedding_model: str = "BAAI/bge-m3"
     embedding_api_key: str = ""

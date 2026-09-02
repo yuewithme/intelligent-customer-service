@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -18,6 +19,7 @@ from app.domains.conversations.services.conversation_service import (
     claim_conversation,
     force_handoff,
     get_conversation_detail,
+    get_message_recognition_stats,
     hide_conversation,
     list_conversations,
     list_conversation_tenants,
@@ -114,6 +116,21 @@ async def conversation_tenants() -> APIResponse:
         code=0,
         message="success",
         data=await list_conversation_tenants(),
+    )
+
+
+@router.get("/message-recognition-stats", response_model=APIResponse)
+async def message_recognition_stats(
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> APIResponse:
+    return APIResponse(
+        code=0,
+        message="success",
+        data=await get_message_recognition_stats(
+            start_time=start_time,
+            end_time=end_time,
+        ),
     )
 
 

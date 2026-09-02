@@ -39,6 +39,66 @@ def test_conversation_list_starts_empty(monkeypatch, tmp_path):
     assert response.json()["data"] == {"items": [], "total": 0, "page": 1, "page_size": 50}
 
 
+def test_message_recognition_stats_report_categories_and_results(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="reaction_customer",
+            session_id="default",
+            content="[表情]",
+            status="ai_active",
+            route="inbound_emoji",
+            metadata={
+                "message_type": "60006",
+                "inbound_classification": {
+                    "category": "emoji",
+                    "subtype": "emoji",
+                    "disposition": "reaction",
+                },
+            },
+        )
+    )
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="video_customer",
+            session_id="default",
+            content="[视频]",
+            status="ai_waiting",
+            route="inbound_video",
+            metadata={
+                "message_type": "60003",
+                "inbound_classification": {
+                    "category": "video",
+                    "subtype": "video",
+                    "disposition": "media",
+                },
+                "media": {
+                    "type": "video",
+                    "recognition": {"status": "succeeded"},
+                },
+            },
+        )
+    )
+
+    response = TestClient(app).get(
+        "/api/v1/admin/conversations/message-recognition-stats"
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["total_customer_messages"] == 2
+    assert data["classified_messages"] == 2
+    assert data["categories"] == {"emoji": 1, "video": 1}
+    assert data["dispositions"] == {"reaction": 1, "media": 1}
+    assert data["recognition_statuses"] == {"succeeded": 1}
+
+
 def test_admin_conversation_list_filters_by_channel(monkeypatch, tmp_path):
     import asyncio
 
@@ -1222,11 +1282,17 @@ def test_queued_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
     import asyncio
 
     from app.services import eyun_callback_service
+    from app.integrations.ai.services import video_understanding_service
+    from app.integrations.ai.services.video_understanding_service import (
+        VideoUnderstanding,
+    )
+    from app.integrations.eyun.services import message_risk_control_service
     from app.integrations.eyun.services.eyun_inbound_media_service import (
         process_due_eyun_media_jobs,
     )
 
     _reset_settings(monkeypatch, tmp_path)
+    queued = []
 
     async def fake_contact_snapshot(**kwargs):
         return {}
@@ -1235,11 +1301,30 @@ def test_queued_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
         assert kwargs["msg_id"] == "789"
         return "/static/media/playable.mp4"
 
+    async def fake_understand(path):
+        assert path.name == "playable.mp4"
+        return VideoUnderstanding(
+            summary="视频展示兰花叶片上的黑色病斑。",
+            visible_content=["兰花叶片", "黑色病斑"],
+            frame_count=3,
+            confidence=0.86,
+        )
+
+    async def fake_enqueue(payload):
+        queued.append(payload)
+        return {"batch_key": "wid_test:wxid_sender"}
+
     monkeypatch.setattr(
         eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
     )
     monkeypatch.setattr(
         eyun_callback_service, "download_eyun_video", fake_download_eyun_video
+    )
+    monkeypatch.setattr(
+        video_understanding_service, "understand_video_file", fake_understand
+    )
+    monkeypatch.setattr(
+        message_risk_control_service, "enqueue_eyun_inbound", fake_enqueue
     )
     client = TestClient(app)
     client.post(
@@ -1267,6 +1352,11 @@ def test_queued_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
     media = detail["messages"][0]["metadata"]["media"]
     assert media["url"] == "/static/media/playable.mp4"
     assert media["resolve_status"] == "succeeded"
+    assert media["recognition"]["status"] == "succeeded"
+    assert media["recognition"]["frame_count"] == 3
+    assert queued[0]["messageType"] == "60001"
+    assert queued[0]["_eyun_original_message_type"] == "60003"
+    assert "视频展示兰花叶片上的黑色病斑" in queued[0]["data"]["content"]
 
 
 def test_stale_eyun_media_job_is_recovered_after_worker_restart(
@@ -1324,6 +1414,9 @@ def test_stale_eyun_media_job_is_recovered_after_worker_restart(
     media = detail["messages"][0]["metadata"]["media"]
     assert media["url"] == "/static/media/recovered.mp4"
     assert media["resolve_status"] == "succeeded"
+    assert media["recognition"]["status"] == "failed"
+    assert detail["conversation"]["status"] == "ai_waiting"
+    assert detail["conversation"]["handoff_reason"] is None
 
 
 def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):

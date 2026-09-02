@@ -45,6 +45,9 @@
 - 应用启动时会幂等清理超过 24 小时、无接管人的历史 `unsupported_message_type` 会话，同时清除对应画像锁定；人工强制转接及其他真实人工原因保持不变。
 - 阶段三已完成：新增基于百炼 OpenAI 兼容接口的语音转写服务，复用现有 DashScope/视觉密钥与地址，默认使用 `qwen3-asr-flash`，通过 Base64 Data URL 发送本地 WAV。
 - 语音下载成功后保存转写文本、语言、情绪和时长，并将转写后的客户话语重新投递给 Agent；转写失败会保存可观察错误并投递自然补问指令，不转人工。
+- 阶段四已完成：API 镜像加入 FFmpeg；视频下载后在受控时长内抽取最多 4 张关键帧和单声道音轨，组合视觉摘要与语音转写后重新投递给 Agent。
+- 视频处理保存摘要、画面内容、兰花观察、音频转写、帧数、置信度和补问标志；抽帧或模型失败时保存失败原因并让 Agent 自然询问重点，不直接转人工。
+- 新增消息识别统计接口 `/api/v1/admin/conversations/message-recognition-stats`，按时间范围统计原始客户消息、标准类别、处理动作、媒体识别状态、失败原因、未知类型和当前转人工原因。
 
 ## 验证情况
 
@@ -53,3 +56,5 @@
 - 阶段一：`python -m pytest tests/test_eyun_callback.py -q`，23 项通过。
 - 阶段二：回调与会话测试共执行 57 项，发现并修正一项旧测试对“视频必然待人工”的过期假设；随后针对状态恢复、人工保护、人工回复和表情恢复执行 4 项，全部通过。
 - 阶段三：语音接口请求与 E 云语音下载/转写/重投递链路共 24 项测试通过；目标文件 Python 编译通过。
+- 阶段四：视频关键帧与音轨组合、视频回调重投递、失败不转人工和识别统计测试通过；会话后台相关 36 项测试通过，目标文件 Python 编译通过。
+- 四阶段最终定向回归：`python -m pytest tests/test_eyun_callback.py tests/test_admin_conversations.py tests/test_speech_recognition.py tests/test_video_understanding.py -q`，60 项全部通过，仅保留两项既有依赖弃用/类型注解警告。
