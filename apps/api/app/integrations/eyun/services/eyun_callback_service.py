@@ -38,6 +38,9 @@ from app.integrations.eyun.services.eyun_login_monitor_service import (
 from app.integrations.eyun.services.eyun_inbound_media_service import (
     enqueue_eyun_inbound_media,
 )
+from app.integrations.eyun.services.message_risk_control_service import (
+    confirm_eyun_outbound_delivery,
+)
 from app.integrations.eyun.services.eyun_inbound_classifier import (
     classify_eyun_inbound,
     payload_for_agent,
@@ -146,6 +149,8 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     if _is_self_message(data):
         user_id = str(data.get("fromGroup") or data.get("toUser") or "").strip()
         if not user_id:
+            return eyun_success()
+        if confirm_eyun_outbound_delivery(_eyun_message_id(data)):
             return eyun_success()
         metadata = await _eyun_workbench_metadata(payload, data, user_id=user_id)
         _capture_material_group_message(payload, metadata)
@@ -946,8 +951,7 @@ async def send_eyun_text(
     base_url = settings.eyun_base_url.rstrip("/")
     authorization = settings.eyun_authorization.strip()
     if not base_url or not authorization or not w_id:
-        logger.warning("Skip Eyun sendText because EYUN_BASE_URL/EYUN_AUTHORIZATION/EYUN_WID is incomplete")
-        return
+        raise RuntimeError("Eyun sendText configuration is incomplete")
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
@@ -973,8 +977,7 @@ async def send_eyun_image(
     base_url = settings.eyun_base_url.rstrip("/")
     authorization = settings.eyun_authorization.strip()
     if not base_url or not authorization or not w_id:
-        logger.warning("Skip Eyun sendImage2 because Eyun configuration is incomplete")
-        return
+        raise RuntimeError("Eyun sendImage2 configuration is incomplete")
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
@@ -1096,8 +1099,7 @@ async def send_eyun_mini_program(
     base_url = settings.eyun_base_url.rstrip("/")
     authorization = settings.eyun_authorization.strip()
     if not base_url or not authorization or not w_id:
-        logger.warning("Skip Eyun sendApplets because Eyun configuration is incomplete")
-        return
+        raise RuntimeError("Eyun sendApplets configuration is incomplete")
 
     payload = {
         "wId": w_id,

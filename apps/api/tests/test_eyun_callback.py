@@ -395,6 +395,46 @@ def test_private_system_event_is_classified_and_ignored(monkeypatch, tmp_path):
     assert response.status_code == 200
 
 
+def test_self_callback_confirms_queued_outbound_without_duplicate(
+    monkeypatch, tmp_path
+):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    confirmed = []
+
+    def fake_confirm(message_id):
+        confirmed.append(message_id)
+        return {"status": "confirmed"}
+
+    async def fail_metadata(*args, **kwargs):
+        pytest.fail(f"confirmed callback must not create another message: {args} {kwargs}")
+
+    monkeypatch.setattr(
+        eyun_callback_service, "confirm_eyun_outbound_delivery", fake_confirm
+    )
+    monkeypatch.setattr(
+        eyun_callback_service, "_eyun_workbench_metadata", fail_metadata
+    )
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "messageType": "60002",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "toUser": "wxid_customer",
+                "fromUser": "wxid_bot",
+                "content": "<msg><img /></msg>",
+                "newMsgId": "provider-accepted-1",
+                "self": True,
+            },
+        },
+    )
+    assert response.status_code == 200
+    assert confirmed == ["provider-accepted-1"]
+
+
 def test_private_emoji_is_recorded_as_reaction_without_handoff(
     monkeypatch, tmp_path
 ):

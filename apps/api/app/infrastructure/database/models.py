@@ -399,7 +399,9 @@ class EyunOutboundDeliveryEventModel(Base):
     status_to: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, default=0)
     provider_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    provider_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    provider_message_id: Mapped[str | None] = mapped_column(
+        String(256), index=True, nullable=True
+    )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

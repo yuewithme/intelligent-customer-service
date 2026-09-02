@@ -81,6 +81,15 @@ class Settings(BaseSettings):
     eyun_send_max_interval_seconds: float = Field(
         default=3.0, ge=0, alias="EYUN_SEND_MAX_INTERVAL_SECONDS"
     )
+    eyun_send_max_attempts: int = Field(
+        default=4, ge=1, le=10, alias="EYUN_SEND_MAX_ATTEMPTS"
+    )
+    eyun_delivery_confirmation_timeout_seconds: int = Field(
+        default=120,
+        ge=30,
+        le=3600,
+        alias="EYUN_DELIVERY_CONFIRMATION_TIMEOUT_SECONDS",
+    )
     eyun_opening_min_interval_seconds: float = Field(
         default=6.0, ge=1.0, alias="EYUN_OPENING_MIN_INTERVAL_SECONDS"
     )
