@@ -480,7 +480,7 @@ def sync_service_material_touch_from_outbound(
         row = session.get(AgentWakeupModel, task_id)
         if row is None or row.kind != _SERVICE_MATERIAL_KIND:
             return
-        if status == "sent":
+        if status == "confirmed":
             with _chat_session() as chat_session:
                 outbound_statuses = list(
                     chat_session.scalars(
@@ -491,7 +491,7 @@ def sync_service_material_touch_from_outbound(
                     )
                 )
             if not outbound_statuses or any(
-                value != "sent" for value in outbound_statuses
+                value not in {"confirmed", "sent"} for value in outbound_statuses
             ):
                 return
             row.status = "completed"

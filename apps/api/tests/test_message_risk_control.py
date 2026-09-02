@@ -38,6 +38,8 @@ def test_risk_control_defaults():
     assert settings.eyun_send_max_per_minute == 30
     assert settings.eyun_send_min_interval_seconds == 2.1
     assert settings.eyun_send_max_interval_seconds == 3.0
+    assert settings.eyun_send_max_attempts == 4
+    assert settings.eyun_delivery_confirmation_timeout_seconds == 120
     assert settings.eyun_opening_min_interval_seconds == 6.0
     assert settings.eyun_opening_max_interval_seconds == 10.0
     assert settings.eyun_opening_followup_min_seconds == 8.0
@@ -601,7 +603,7 @@ async def test_service_touch_copy_and_media_use_distinct_workbench_messages():
     assert json.loads(media_message.metadata_json)["message_role"] == "media"
 
 
-def test_bundle_delivery_is_sent_only_after_every_part_succeeds():
+def test_bundle_delivery_is_confirmed_only_after_every_part_succeeds():
     from app.integrations.eyun.services import message_risk_control_service as service
 
     now = datetime(2026, 8, 21, 4, 0, tzinfo=timezone.utc)
@@ -652,7 +654,7 @@ def test_bundle_delivery_is_sent_only_after_every_part_succeeds():
     )
     with service._get_session() as session:
         message = session.get(ConversationMessageModel, message_id)
-        assert message.delivery_status == "sent"
+        assert message.delivery_status == "confirmed"
         assert message.message_id == "provider-final"
 
 
@@ -1155,8 +1157,116 @@ async def test_send_worker_records_eyun_create_time(monkeypatch):
         events = session.query(EyunOutboundDeliveryEventModel).order_by(
             EyunOutboundDeliveryEventModel.id
         ).all()
-        assert [event.event for event in events] == ["send_started", "sent"]
+        assert [event.event for event in events] == ["send_started", "accepted"]
         assert events[-1].provider_code == "1000"
+
+
+@pytest.mark.asyncio
+async def test_provider_callback_confirms_accepted_outbound(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 9, 2, 8, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+
+    async def fake_send(**kwargs):
+        del kwargs
+        return {
+            "code": "1000",
+            "data": {
+                "createTime": int(now.timestamp()),
+                "newMsgId": "provider-accepted-1",
+            },
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.eyun_callback_service.send_eyun_text",
+        fake_send,
+    )
+    with service._get_session() as session:
+        message = ConversationMessageModel(
+            conversation_id="wechat:customer:default",
+            delivery_status="queued",
+            sender_type="system",
+            sender_id="service_material_touch",
+            content="触达文案",
+            metadata_json="{}",
+            created_at=now,
+        )
+        session.add(message)
+        session.flush()
+        outbound = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="customer",
+            content="触达文案",
+            source_batch_key="test:88",
+            conversation_message_id=message.id,
+            status="queued",
+            priority=20,
+            due_at=now,
+            attempts=0,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(outbound)
+        session.commit()
+        outbound_id = outbound.id
+        message_id = message.id
+
+    assert await service.process_due_eyun_outbound_messages() == 1
+    with service._get_session() as session:
+        assert session.get(EyunOutboundMessageModel, outbound_id).status == "accepted"
+        assert session.get(ConversationMessageModel, message_id).delivery_status == "accepted"
+
+    confirmed = service.confirm_eyun_outbound_delivery("provider-accepted-1")
+    assert confirmed and confirmed["status"] == "confirmed"
+    with service._get_session() as session:
+        assert session.get(EyunOutboundMessageModel, outbound_id).status == "confirmed"
+        message = session.get(ConversationMessageModel, message_id)
+        assert message.delivery_status == "confirmed"
+        assert message.message_id == "provider-accepted-1"
+
+
+def test_stale_accepted_outbound_is_retried_then_failed(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    monkeypatch.setenv("EYUN_SEND_MAX_ATTEMPTS", "4")
+    monkeypatch.setenv("EYUN_DELIVERY_CONFIRMATION_TIMEOUT_SECONDS", "120")
+    get_settings.cache_clear()
+    now = datetime(2026, 9, 2, 8, 10, tzinfo=timezone.utc)
+    with service._get_session() as session:
+        outbound = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="customer",
+            content="触达媒体",
+            source_batch_key="test:89",
+            status="accepted",
+            priority=20,
+            due_at=now,
+            attempts=1,
+            created_at=now - timedelta(minutes=5),
+            updated_at=now - timedelta(minutes=3),
+        )
+        session.add(outbound)
+        session.commit()
+        outbound_id = outbound.id
+
+    assert service.recover_stale_eyun_outbound_deliveries(now=now) == 1
+    with service._get_session() as session:
+        outbound = session.get(EyunOutboundMessageModel, outbound_id)
+        assert outbound.status == "queued"
+        assert outbound.due_at.replace(tzinfo=timezone.utc) == now + timedelta(
+            minutes=1
+        )
+        outbound.status = "accepted"
+        outbound.attempts = 4
+        outbound.updated_at = now - timedelta(minutes=3)
+        session.commit()
+
+    assert service.recover_stale_eyun_outbound_deliveries(now=now) == 1
+    with service._get_session() as session:
+        outbound = session.get(EyunOutboundMessageModel, outbound_id)
+        assert outbound.status == "failed"
+        assert "未收到自身消息确认" in outbound.last_error
 
 
 @pytest.mark.asyncio

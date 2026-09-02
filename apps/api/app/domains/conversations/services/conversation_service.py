@@ -283,7 +283,7 @@ def was_outbound_content_sent(
                 ConversationModel.channel == channel,
                 ConversationModel.user_id == user_id,
                 ConversationMessageModel.sender_type.in_(("ai", "human")),
-                ConversationMessageModel.delivery_status == "sent",
+                ConversationMessageModel.delivery_status.in_(("sent", "confirmed")),
                 ConversationMessageModel.created_at >= cutoff,
                 ConversationMessageModel.content.contains(marker),
             )

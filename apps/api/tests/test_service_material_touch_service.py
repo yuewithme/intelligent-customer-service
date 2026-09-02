@@ -299,7 +299,7 @@ async def test_worker_refresh_failure_does_not_block_scheduled_work(
     assert calls == ["create", "process", "refresh"]
 
 
-def test_touch_completes_only_after_copy_and_media_are_sent(monkeypatch, tmp_path):
+def test_touch_completes_only_after_copy_and_media_are_confirmed(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
     now = datetime.now(timezone.utc)
     batch_key = "service_material_touch:1"
@@ -342,7 +342,7 @@ def test_touch_completes_only_after_copy_and_media_are_sent(monkeypatch, tmp_pat
         )
         session.commit()
 
-    service.sync_service_material_touch_from_outbound(batch_key, "sent")
+    service.sync_service_material_touch_from_outbound(batch_key, "confirmed")
     with service._database_session() as session:
         assert session.get(AgentWakeupModel, 1).status == "queued"
     with service._chat_session() as session:
@@ -354,7 +354,7 @@ def test_touch_completes_only_after_copy_and_media_are_sent(monkeypatch, tmp_pat
         media.status = "sent"
         session.commit()
 
-    service.sync_service_material_touch_from_outbound(batch_key, "sent")
+    service.sync_service_material_touch_from_outbound(batch_key, "confirmed")
     with service._database_session() as session:
         assert session.get(AgentWakeupModel, 1).status == "completed"
 
