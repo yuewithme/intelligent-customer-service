@@ -179,7 +179,7 @@ async def process_due_service_material_touches(
     settings = get_settings()
     if not settings.service_material_touch_enabled:
         return 0
-    limit = limit or settings.service_material_touch_batch_size
+    limit = limit or max(settings.service_material_touch_batch_size, 200)
     utc_now = (now or _utcnow()).astimezone(timezone.utc)
     candidates: list[int] = []
     with _database_session() as session:
@@ -298,6 +298,7 @@ async def _process_service_material_touch(
             session.commit()
             return False
         batch_key = f"service_material_touch:{row.id}"
+        scheduled_at = _iso(row.due_at)
         w_id = contact.current_w_id
         customer_id = contact.wc_id
         tenant_id = contact.tenant_id
@@ -324,6 +325,55 @@ async def _process_service_material_touch(
         _mark_service_material_touch(wakeup_id, "failed", "定时素材缺少已审核文案")
         return False
 
+    delivery_metadata = {
+        "touch_kind": _SERVICE_MATERIAL_KIND,
+        "scheduled_at": scheduled_at,
+        "slot_id": slot_id,
+        "material_ref": material.get("material_ref"),
+        "copy_ref": material.get("copy_ref"),
+        "copy_type": material.get("copy_type"),
+        "copy_version": material.get("copy_version"),
+    }
+
+    from app.domains.conversations.services.conversation_service import (
+        ensure_outbound_conversation_message,
+        update_outbound_message_delivery,
+    )
+
+    workbench_message_ids: dict[str, int] = {}
+    for message_type, content, message_role in (
+        ("text", copy_text, "copy"),
+        (media_type, media_content, "media"),
+    ):
+        workbench_message = await ensure_outbound_conversation_message(
+            channel="wechat",
+            user_id=customer_id,
+            session_id="default",
+            tenant_id=tenant_id,
+            content=content,
+            message_type=message_type,
+            sender_type="system",
+            sender_id=_SERVICE_MATERIAL_KIND,
+            trace_id=f"{batch_key}:{message_role}",
+            delivery_status="queued",
+            route=_SERVICE_MATERIAL_KIND,
+            reconcile_pending=False,
+            metadata={
+                **delivery_metadata,
+                "provider": "eyun",
+                "origin": _SERVICE_MATERIAL_KIND,
+                "source_type": _SERVICE_MATERIAL_KIND,
+                "source_id": str(wakeup_id),
+                "source_batch_key": batch_key,
+                "message_role": message_role,
+                "w_id": w_id,
+                "owner_wc_id": tenant_id if tenant_id != "tenant_default" else "",
+                "contact_wc_id": customer_id,
+                "wc_id": customer_id,
+            },
+        )
+        workbench_message_ids[message_role] = int(workbench_message["id"])
+
     from app.integrations.eyun.services.eyun_material_service import (
         materialize_eyun_outbound_media,
     )
@@ -338,6 +388,11 @@ async def _process_service_material_touch(
             content=media_content,
         )
     except Exception as exc:  # noqa: BLE001
+        for message_id in workbench_message_ids.values():
+            update_outbound_message_delivery(
+                message_id,
+                status="waiting_material",
+            )
         _retry_service_material_touch(
             wakeup_id,
             now=now,
@@ -348,14 +403,6 @@ async def _process_service_material_touch(
         (media_type, media_content, int(prepared_material["id"]), "media"),
     )
 
-    delivery_metadata = {
-        "touch_kind": _SERVICE_MATERIAL_KIND,
-        "slot_id": slot_id,
-        "material_ref": material.get("material_ref"),
-        "copy_ref": material.get("copy_ref"),
-        "copy_type": material.get("copy_type"),
-        "copy_version": material.get("copy_version"),
-    }
     logger.info(
         "Service material touch matched task=%s slot=%s material=%s copy=%s type=%s",
         wakeup_id,
@@ -376,6 +423,7 @@ async def _process_service_material_touch(
                 source_batch_key=batch_key,
                 message_type=message_type,
                 material_id=material_id,
+                conversation_message_id=workbench_message_ids[message_role],
                 depends_on_outbound_id=dependency_id,
                 due_at=due_at,
                 channel="wechat",
@@ -513,7 +561,10 @@ async def service_material_touch_worker(stop_event: asyncio.Event) -> None:
         try:
             await asyncio.wait_for(
                 stop_event.wait(),
-                timeout=get_settings().service_material_touch_poll_seconds,
+                timeout=min(
+                    get_settings().service_material_touch_poll_seconds,
+                    5.0,
+                ),
             )
         except asyncio.TimeoutError:
             pass

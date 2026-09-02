@@ -1159,6 +1159,13 @@ async def ensure_outbound_conversation_message(
     now = _now()
     display_content = _outbound_display_content(message_type, content)
     message_metadata = _outbound_metadata(message_type, content, metadata)
+    delivery_timestamps = message_metadata.get("delivery_timestamps")
+    if not isinstance(delivery_timestamps, dict):
+        delivery_timestamps = {}
+    if metadata.get("scheduled_at"):
+        delivery_timestamps.setdefault("scheduled_at", metadata["scheduled_at"])
+    delivery_timestamps.setdefault("queued_at", _utc_isoformat(now))
+    message_metadata["delivery_timestamps"] = delivery_timestamps
 
     with _get_session() as session:
         conversation = session.scalar(
@@ -1245,6 +1252,16 @@ async def ensure_outbound_conversation_message(
                 message.message_id = provider_message_id
             message.delivery_status = delivery_status
             existing_metadata = _load_metadata(message.metadata_json)
+            existing_timestamps = existing_metadata.get("delivery_timestamps")
+            if isinstance(existing_timestamps, dict):
+                existing_timestamps.update(
+                    {
+                        key: value
+                        for key, value in delivery_timestamps.items()
+                        if key not in existing_timestamps
+                    }
+                )
+                message_metadata["delivery_timestamps"] = existing_timestamps
             existing_metadata.update(message_metadata)
             message.metadata_json = json.dumps(existing_metadata, ensure_ascii=False)
 
@@ -1280,8 +1297,20 @@ def update_outbound_message_delivery(
                 session.delete(duplicate)
             message.message_id = provider_message_id
         message.delivery_status = status
-        if sent_at is not None:
-            message.created_at = sent_at
+        metadata = _load_metadata(message.metadata_json)
+        timestamps = metadata.get("delivery_timestamps")
+        if not isinstance(timestamps, dict):
+            timestamps = {}
+        timestamp = _utc_isoformat(sent_at or _now())
+        if status == "queued":
+            if "queued_at" in timestamps:
+                timestamps["last_queued_at"] = timestamp
+            else:
+                timestamps["queued_at"] = timestamp
+        else:
+            timestamps[f"{status}_at"] = timestamp
+        metadata["delivery_timestamps"] = timestamps
+        message.metadata_json = json.dumps(metadata, ensure_ascii=False)
         session.commit()
         conversation_id = message.conversation_id
     _publish_change(conversation_id, "message")

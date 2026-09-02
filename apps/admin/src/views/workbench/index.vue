@@ -83,7 +83,7 @@ import { useMessageTenantStore } from '@/store/modules/messageTenant'
 
 defineOptions({ name: 'Workbench' })
 
-const FALLBACK_SYNC_INTERVAL_MS = 30_000
+const FALLBACK_SYNC_INTERVAL_MS = 5_000
 
 const selectedId = ref('')
 const mobileView = ref<'conversations' | 'messages' | 'details'>('conversations')
