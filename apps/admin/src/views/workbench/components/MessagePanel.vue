@@ -80,6 +80,9 @@
             <small v-if="message.metadata.delivery_error" class="delivery-error">
               {{ message.metadata.delivery_error }}
             </small>
+            <small v-if="isPrivateFile(message)" class="file-network-hint">
+              文件名已识别，原文件请在微信中查看
+            </small>
             <a
               v-if="linkCard(message)"
               class="commerce-card"
@@ -408,6 +411,9 @@ const mediaSource = (message: ConversationMessage) => {
     return ''
   }
   if (media.url) {
+    if (media.type === 'file' && isPrivateNetworkUrl(media.url)) {
+      return ''
+    }
     if (
       media.url.startsWith('http://') &&
       message.metadata.direction === 'outbound' &&
@@ -421,6 +427,14 @@ const mediaSource = (message: ConversationMessage) => {
     return `data:image/jpeg;base64,${media.thumb_base64}`
   }
   return ''
+}
+
+const isPrivateNetworkUrl = (url: string) =>
+  /^http:\/\/(?:localhost|127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/i.test(url)
+
+const isPrivateFile = (message: ConversationMessage) => {
+  const media = messageMedia(message)
+  return media?.type === 'file' && Boolean(media.url && isPrivateNetworkUrl(media.url))
 }
 
 const mediaFileName = (message: ConversationMessage) => {
@@ -731,6 +745,12 @@ p {
   margin-bottom: 4px;
   color: var(--el-color-danger);
   overflow-wrap: anywhere;
+}
+
+.file-network-hint {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--el-text-color-secondary);
 }
 
 .image-load-error {
