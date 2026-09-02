@@ -40,6 +40,8 @@ def test_risk_control_defaults():
     assert settings.eyun_send_max_interval_seconds == 3.0
     assert settings.eyun_send_max_attempts == 4
     assert settings.eyun_delivery_confirmation_timeout_seconds == 120
+    assert settings.service_material_touch_poll_seconds == 5.0
+    assert settings.service_material_touch_batch_size == 200
     assert settings.eyun_opening_min_interval_seconds == 6.0
     assert settings.eyun_opening_max_interval_seconds == 10.0
     assert settings.eyun_opening_followup_min_seconds == 8.0
@@ -560,7 +562,9 @@ async def test_enqueue_outbound_always_creates_workbench_message(monkeypatch):
     assert message.content == "服务中素材"
     assert message.sender_type == "system"
     assert message.delivery_status == "queued"
-    assert json.loads(message.metadata_json)["source_type"] == "service_material_touch"
+    metadata = json.loads(message.metadata_json)
+    assert metadata["source_type"] == "service_material_touch"
+    assert metadata["delivery_timestamps"]["queued_at"]
 
 
 @pytest.mark.asyncio
@@ -1153,7 +1157,12 @@ async def test_send_worker_records_eyun_create_time(monkeypatch):
 
     with _get_session() as session:
         message = session.query(ConversationMessageModel).one()
-        assert message.created_at.replace(tzinfo=timezone.utc) == provider_sent_at
+        assert message.created_at.replace(tzinfo=timezone.utc) == now - timedelta(
+            seconds=5
+        )
+        assert message.delivery_status == "accepted"
+        metadata = json.loads(message.metadata_json)
+        assert metadata["delivery_timestamps"]["accepted_at"] == provider_sent_at.isoformat()
         events = session.query(EyunOutboundDeliveryEventModel).order_by(
             EyunOutboundDeliveryEventModel.id
         ).all()
@@ -1224,6 +1233,9 @@ async def test_provider_callback_confirms_accepted_outbound(monkeypatch):
         message = session.get(ConversationMessageModel, message_id)
         assert message.delivery_status == "confirmed"
         assert message.message_id == "provider-accepted-1"
+        timestamps = json.loads(message.metadata_json)["delivery_timestamps"]
+        assert timestamps["accepted_at"]
+        assert timestamps["confirmed_at"]
 
 
 def test_stale_accepted_outbound_is_retried_then_failed(monkeypatch):

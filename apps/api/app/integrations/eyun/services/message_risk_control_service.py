@@ -663,6 +663,7 @@ async def enqueue_wechat_outbound(
                 "source_id": source_id,
                 "source_batch_key": source_batch_key,
                 "message_role": message_role or None,
+                "scheduled_at": (delivery_metadata or {}).get("scheduled_at"),
                 "w_id": w_id,
                 "owner_wc_id": (
                     tenant_id if tenant_id != "tenant_default" else ""
@@ -2048,6 +2049,14 @@ def _eyun_provider_message_id_from_result(result: Any) -> str | None:
     return str(data.get("newMsgId") or data.get("msgId") or "") or None
 
 
+def _load_message_metadata(value: str | None) -> dict[str, Any]:
+    try:
+        metadata = json.loads(value or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
 def _mark_conversation_ai_message_sent(
     session: Session,
     *,
@@ -2080,7 +2089,14 @@ def _mark_conversation_ai_message_sent(
         .limit(1)
     )
     if message is not None:
-        message.created_at = sent_at
+        metadata = _load_message_metadata(message.metadata_json)
+        timestamps = metadata.get("delivery_timestamps")
+        if not isinstance(timestamps, dict):
+            timestamps = {}
+        timestamps["accepted_at"] = _ensure_aware(sent_at).isoformat()
+        metadata["delivery_timestamps"] = timestamps
+        message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        message.delivery_status = "accepted"
 
 
 def _provider_message_id(

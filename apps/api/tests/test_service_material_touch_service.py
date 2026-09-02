@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.domains.sales.services import service_material_touch_service as service
 from app.infrastructure.database.models import (
     AgentWakeupModel,
+    ConversationMessageModel,
     EyunContactModel,
     EyunOutboundMessageModel,
     UserProfileModel,
@@ -212,6 +213,9 @@ async def test_due_service_touch_queues_copy_before_media(
     assert queued[1]["depends_on_outbound_id"] == 1
     assert [item["material_id"] for item in queued] == [None, 99]
     assert queued[0]["source_batch_key"].startswith("service_material_touch:")
+    assert queued[0]["conversation_message_id"] != queued[1]["conversation_message_id"]
+    assert queued[0]["delivery_metadata"]["scheduled_at"]
+    assert queued[1]["delivery_metadata"]["scheduled_at"]
     assert {item["sender_type"] for item in queued} == {"system"}
     assert {item["sender_id"] for item in queued} == {"service_material_touch"}
     if expected_type == "video":
@@ -271,6 +275,16 @@ async def test_service_media_conversion_failure_retries_whole_bundle(
     assert row.status == "pending"
     assert row.due_at.replace(tzinfo=timezone.utc) == due + timedelta(minutes=15)
     assert "已安排重试" in row.last_error
+    with service._chat_session() as session:
+        messages = session.query(ConversationMessageModel).order_by(
+            ConversationMessageModel.id
+        ).all()
+    assert len(messages) == 2
+    assert {message.delivery_status for message in messages} == {"waiting_material"}
+    assert all(
+        json.loads(message.metadata_json)["delivery_timestamps"]["scheduled_at"]
+        for message in messages
+    )
 
 
 @pytest.mark.asyncio

@@ -115,13 +115,13 @@ class Settings(BaseSettings):
         default=True, alias="SERVICE_MATERIAL_TOUCH_ENABLED"
     )
     service_material_touch_poll_seconds: float = Field(
-        default=60.0, ge=5.0, alias="SERVICE_MATERIAL_TOUCH_POLL_SECONDS"
+        default=5.0, ge=5.0, alias="SERVICE_MATERIAL_TOUCH_POLL_SECONDS"
     )
     service_material_touch_timezone: str = Field(
         default="Asia/Shanghai", alias="SERVICE_MATERIAL_TOUCH_TIMEZONE"
     )
     service_material_touch_batch_size: int = Field(
-        default=20, ge=1, le=200, alias="SERVICE_MATERIAL_TOUCH_BATCH_SIZE"
+        default=200, ge=1, le=500, alias="SERVICE_MATERIAL_TOUCH_BATCH_SIZE"
     )
     purchase_tags_enabled: bool = Field(
         default=False, alias="PURCHASE_TAGS_ENABLED"
