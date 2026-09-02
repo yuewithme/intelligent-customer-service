@@ -559,6 +559,10 @@ async def enqueue_wechat_outbound(
     original_content = content
     if conversation_message_id is None:
         origin = source_type or _source_type_from_batch_key(source_batch_key)
+        message_role = str((delivery_metadata or {}).get("message_role") or "").strip()
+        conversation_trace_id = source_batch_key
+        if source_batch_key and message_role:
+            conversation_trace_id = f"{source_batch_key}:{message_role}"
         conversation_message = await ensure_outbound_conversation_message(
             channel=channel,
             user_id=(user_id or wc_id).strip(),
@@ -568,7 +572,7 @@ async def enqueue_wechat_outbound(
             message_type=original_message_type,
             sender_type=sender_type,
             sender_id=sender_id,
-            trace_id=source_batch_key,
+            trace_id=conversation_trace_id,
             delivery_status="queued",
             route=origin,
             reconcile_pending=False,
@@ -578,6 +582,7 @@ async def enqueue_wechat_outbound(
                 "source_type": origin,
                 "source_id": source_id,
                 "source_batch_key": source_batch_key,
+                "message_role": message_role or None,
                 "w_id": w_id,
                 "owner_wc_id": (
                     tenant_id if tenant_id != "tenant_default" else ""

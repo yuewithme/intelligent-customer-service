@@ -147,7 +147,7 @@
                 重新解析
               </ElButton>
             </div>
-            <span v-else>{{ message.content }}</span>
+            <span v-else>{{ displayContent(message) }}</span>
             <a
               v-if="showOriginalLink(message)"
               class="original-link"
@@ -345,6 +345,13 @@ const mediaSource = (message: ConversationMessage) => {
     return ''
   }
   if (media.url) {
+    if (
+      media.url.startsWith('http://') &&
+      message.metadata.direction === 'outbound' &&
+      message.metadata.source_type === 'service_material_touch'
+    ) {
+      return `/api/v1/admin/conversations/message-media/${message.id}`
+    }
     return media.url
   }
   if (media.type === 'image' && media.thumb_base64) {
@@ -363,6 +370,13 @@ const showOriginalLink = (message: ConversationMessage) =>
 
 const markMediaFailed = (message: ConversationMessage) => {
   failedMediaIds.value = new Set(failedMediaIds.value).add(message.id)
+}
+
+const displayContent = (message: ConversationMessage) => {
+  if (mediaType(message) === 'file') {
+    return mediaFileName(message) || message.content
+  }
+  return message.content
 }
 
 const markVideoFailed = markMediaFailed
