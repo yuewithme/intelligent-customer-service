@@ -32,6 +32,8 @@ compose() {
     BACKEND_ENV_FILE="$BACKEND_ENV_FILE" \
     APP_DATA_DIR="$APP_DATA_DIR" \
     HF_CACHE_DIR="$HF_CACHE_DIR" \
+    DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-0}" \
+    COMPOSE_DOCKER_CLI_BUILD="${COMPOSE_DOCKER_CLI_BUILD:-0}" \
     docker compose -p "$project_name" "${compose_files[@]}" "$@"
 }
 
