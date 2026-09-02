@@ -1,6 +1,6 @@
 # sales-agent.hzwohu.com production release
 # Shared Runner: #4 hz-build-01 (tag: linux)
-# Target: ubuntu@10.200.5.17 (VPC address for public 43.143.83.26)
+# Route: Runner -> ubuntu@150.158.52.233 (restricted jump) -> ubuntu@43.143.83.26
 
 workflow:
   rules:
@@ -19,9 +19,9 @@ default:
 
 variables:
   GIT_DEPTH: "20"
-  PROD_HOST: "ubuntu@10.200.5.17"
+  PROD_HOST: "ubuntu@43.143.83.26"
   PROD_DIR: "/home/ubuntu/intelligent-customer-service"
-  SSHOPT: "-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
+  SSHOPT: "-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o ProxyJump=ubuntu@150.158.52.233"
 
 preflight:production:
   stage: preflight
@@ -29,12 +29,6 @@ preflight:production:
   script:
     - |
       set -eu
-      for public_key in "$HOME"/.ssh/id_*.pub; do
-        if [ -f "$public_key" ]; then
-          printf 'runner_public_key=%s ' "$(basename "$public_key")"
-          cat "$public_key"
-        fi
-      done
       SSH="ssh $SSHOPT"
       $SSH "$PROD_HOST" "
         set -eu
