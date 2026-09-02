@@ -622,6 +622,55 @@ def test_unclaimed_legacy_fallback_handoff_recovers_before_next_turn(
     )
 
 
+def test_unsupported_message_handoff_recovers_without_touching_manual_handoff(
+    monkeypatch, tmp_path
+):
+    import asyncio
+
+    from app.domains.conversations.services.conversation_service import (
+        conversation_blocks_ai,
+        recover_stale_unsupported_handoffs,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="unsupported_customer",
+            session_id="unsupported_session",
+            content="[表情]",
+            route="non_text",
+            handoff_reason="unsupported_message_type",
+        )
+    )
+    asyncio.run(
+        record_customer_message(
+            channel="wechat",
+            user_id="manual_customer",
+            session_id="manual_session",
+            content="我要找人工",
+            route="human",
+            handoff_reason="manual_force_handoff",
+        )
+    )
+
+    recovered = asyncio.run(
+        recover_stale_unsupported_handoffs(older_than_seconds=0)
+    )
+
+    assert recovered == 1
+    assert not conversation_blocks_ai(
+        channel="wechat",
+        user_id="unsupported_customer",
+        session_id="unsupported_session",
+    )
+    assert conversation_blocks_ai(
+        channel="wechat",
+        user_id="manual_customer",
+        session_id="manual_session",
+    )
+
+
 def test_explicit_human_handoff_does_not_auto_recover(monkeypatch, tmp_path):
     import asyncio
 
@@ -980,6 +1029,10 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
             },
         },
     )
+    force = client.post(
+        "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot/force-handoff",
+        json={"operator_id": "lead_001", "reason": "manual_review"},
+    )
     claim = client.post(
         "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot/claim",
         json={"operator_id": "op_001"},
@@ -990,6 +1043,7 @@ def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_pa
     )
 
     assert callback.status_code == 200
+    assert force.status_code == 200
     assert claim.status_code == 200
     assert reply.status_code == 200
     assert len(sent) == 1

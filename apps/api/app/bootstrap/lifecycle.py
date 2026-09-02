@@ -5,6 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.config import get_settings
+from app.domains.conversations.services.conversation_service import (
+    recover_stale_unsupported_handoffs,
+)
 from app.domains.customers.workers.memory_worker import memory_worker
 from app.domains.sales.services.service_material_touch_service import (
     service_material_touch_worker,
@@ -35,6 +38,10 @@ async def lifespan(app: FastAPI):
     if get_settings().evaluation_mode:
         yield
         return
+
+    recovered = await recover_stale_unsupported_handoffs()
+    if recovered:
+        logger.info("Recovered %s stale unsupported-message handoffs", recovered)
 
     stop_event = asyncio.Event()
     app.state.eyun_risk_control_stop_event = stop_event

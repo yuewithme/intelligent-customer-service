@@ -403,6 +403,7 @@ def test_private_emoji_is_recorded_as_reaction_without_handoff(
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
     queued = []
+    recovered = []
 
     async def fake_ensure(user_id, **kwargs):
         return {"user_id": user_id}
@@ -416,12 +417,19 @@ def test_private_emoji_is_recorded_as_reaction_without_handoff(
     async def fake_enqueue(payload):
         queued.append(payload)
 
+    async def fake_recover(**kwargs):
+        recovered.append(kwargs)
+        return True
+
     monkeypatch.setattr(
         eyun_callback_service, "ensure_user_profile", fake_ensure, raising=False
     )
     monkeypatch.setattr(eyun_callback_service, "record_customer_message", fake_record)
     monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", fake_contact)
     monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fake_enqueue)
+    monkeypatch.setattr(
+        eyun_callback_service, "recover_automatic_handoff", fake_recover
+    )
 
     response = TestClient(app).post(
         "/wechat/callback",
@@ -446,6 +454,13 @@ def test_private_emoji_is_recorded_as_reaction_without_handoff(
     assert recorded[0]["handoff_reason"] is None
     assert recorded[0]["metadata"]["inbound_classification"]["disposition"] == "reaction"
     assert queued == []
+    assert recovered == [
+        {
+            "channel": "wechat",
+            "user_id": "wxid_customer",
+            "session_id": "wxid_bot",
+        }
+    ]
 
 
 def test_private_app_card_is_normalized_for_agent(monkeypatch, tmp_path):

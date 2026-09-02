@@ -16,6 +16,7 @@ from app.domains.conversations.services.conversation_service import (
     HANDOFF_PENDING,
     ensure_outbound_conversation_message,
     make_conversation_id,
+    recover_automatic_handoff,
     record_customer_message,
 )
 from app.integrations.eyun.services.eyun_contact_service import (
@@ -232,6 +233,12 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         )
     session_id = _eyun_conversation_session_id(payload, data)
     provider_message_id = _eyun_message_id(data)
+    if not global_handoff:
+        await recover_automatic_handoff(
+            channel="wechat",
+            user_id=user_id,
+            session_id=session_id,
+        )
     await record_customer_message(
         channel="wechat",
         user_id=user_id,
