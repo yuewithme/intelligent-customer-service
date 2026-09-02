@@ -10,28 +10,9 @@
           </ElTag>
         </div>
         <dl>
-          <dt>客户</dt>
-          <dd class="customer-cell">
-            <ElAvatar :size="28" :src="conversation.user_avatar_url || undefined">
-              {{ avatarText(conversation) }}
-            </ElAvatar>
-            <span>{{ displayName(conversation) }}</span>
-          </dd>
-          <dt>渠道</dt>
-          <dd>{{ conversation.channel }}</dd>
-          <dt>会话</dt>
-          <dd>{{ sessionText(conversation) }}</dd>
-          <dt>运行方式</dt>
-          <dd>{{ routeText(conversation.last_route) }}</dd>
-          <dt>客户信号</dt>
-          <dd>{{ customerSignalText(agentRelationship?.customer_signal) }}</dd>
-          <dt>接管人</dt>
-          <dd>{{ conversation.owner_id || '-' }}</dd>
-          <dt>转人工原因</dt>
-          <dd>{{ handoffReasonText(conversation.handoff_reason) }}</dd>
           <dt>标签</dt>
           <dd>
-            <div v-if="profileLoading" class="muted">更新中...</div>
+            <div v-if="profileLoading || catalogLoading" class="muted">更新中...</div>
             <div v-else-if="tags.length" class="tag-list">
               <ElTag v-for="tag in tags" :key="tag" size="small" effect="plain">
                 {{ tagValueText(tag) }}
@@ -39,6 +20,8 @@
             </div>
             <span v-else>-</span>
           </dd>
+          <dt>转人工原因</dt>
+          <dd>{{ handoffReasonText(conversation.handoff_reason) }}</dd>
         </dl>
       </div>
 
@@ -107,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -122,6 +105,7 @@ import {
   type ConversationItem,
   type ConversationStatus
 } from '@/api/admin/conversations'
+import { getTagCatalog } from '@/api/admin/tags'
 import type { UserProfile } from '@/api/user-profile'
 import { useUserStore } from '@/store/modules/user'
 import { tagValueText } from '@/utils/tagDisplay'
@@ -141,7 +125,26 @@ const emit = defineEmits<{ changed: [conversation?: ConversationItem] }>()
 const userStore = useUserStore()
 const router = useRouter()
 const operatorId = computed(() => userStore.user.nickname || 'admin')
-const tags = computed(() => props.profile?.customer_tags?.filter(Boolean) || [])
+const catalogTags = ref<string[]>([])
+const catalogLoading = ref(false)
+const tags = computed(() => {
+  const selected = new Set(props.profile?.customer_tags?.filter(Boolean) || [])
+  return catalogTags.value.filter((tag) => selected.has(tag))
+})
+
+const loadCatalog = async () => {
+  catalogLoading.value = true
+  try {
+    const catalog = await getTagCatalog()
+    catalogTags.value = catalog.items
+      .filter((category) => category.profile_assignable)
+      .flatMap((category) => category.tags.map((tag) => tag.value))
+  } finally {
+    catalogLoading.value = false
+  }
+}
+
+onMounted(loadCatalog)
 
 const claimIfPending = async () => {
   if (props.conversation?.status !== 'handoff_pending') return
@@ -249,34 +252,6 @@ const statusType = (value: ConversationStatus) =>
     resolved: 'danger'
   })[value] as 'info' | 'warning' | 'success' | 'danger'
 
-const sessionText = (conversation: ConversationItem) =>
-  conversation.channel === 'wechat' && conversation.session_id === 'default'
-    ? '私聊'
-    : conversation.session_id || '-'
-
-const routeText = (value?: string | null) =>
-  ({
-    agent: '小兰自主 Agent',
-    agent_first_contact: '小兰主动开场',
-    unsupported: '未匹配',
-    inbound_text: '私聊消息',
-    non_text: '非文本消息',
-    rag_answer: '知识库回答',
-    template_reply: '话术回答',
-    template_then_rag: '话术后知识库',
-    clarify: '追问澄清',
-    human: '人工处理'
-  })[value || ''] ||
-  value ||
-  '-'
-
-const customerSignalText = (value?: AgentRelationshipState['customer_signal']) =>
-  ({
-    none: '正常沟通',
-    soft_refusal: '软拒绝／需要降压',
-    explicit_refusal: '明确拒绝／降低频率'
-  })[value || 'none']
-
 const handoffReasonText = (value?: string | null) =>
   ({
     manual_force_handoff: '人工主动接管',
@@ -288,11 +263,6 @@ const handoffReasonText = (value?: string | null) =>
   value ||
   '-'
 
-const displayName = (conversation: ConversationItem) =>
-  conversation.user_display_name || conversation.user_id
-
-const avatarText = (conversation: ConversationItem) =>
-  displayName(conversation).slice(0, 1).toUpperCase()
 </script>
 
 <style scoped>
@@ -335,17 +305,6 @@ dd {
   margin: 0;
   overflow-wrap: anywhere;
   color: #111827;
-}
-
-.customer-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.customer-cell span {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .actions {
