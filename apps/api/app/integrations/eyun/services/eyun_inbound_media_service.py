@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
@@ -246,10 +247,44 @@ async def _process_media_job(job_id: int) -> None:
         _fail_media_job(job_id, exc)
         return
 
-    _complete_media_job(job_id, url)
+    recognition: dict[str, Any] | None = None
+    agent_text = ""
+    if media_type == "audio":
+        try:
+            from app.integrations.ai.services.speech_recognition_service import (
+                transcribe_audio_file,
+            )
+
+            transcript = await transcribe_audio_file(_local_media_path(url))
+            recognition = {"status": "succeeded", **transcript.to_metadata()}
+            agent_text = f"[客户语音转写] {transcript.text}"
+        except Exception as exc:  # noqa: BLE001
+            recognition = {
+                "status": "failed",
+                "error": str(exc).strip()[:500] or exc.__class__.__name__,
+            }
+            agent_text = (
+                "[客户发送了一条语音，但未能形成可靠转写。请自然请客户用文字"
+                "补充要咨询的问题；不要提及系统、模型或技术故障，也不要仅因语音"
+                "消息转人工。]"
+            )
+            logger.warning("Eyun voice recognition failed job=%s error=%s", job_id, exc)
+
+    _complete_media_job(job_id, url, recognition=recognition)
+    if media_type == "audio":
+        try:
+            await _enqueue_audio_agent_input(job_id, agent_text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Eyun voice understanding enqueue failed job=%s error=%s",
+                job_id,
+                exc,
+            )
 
 
-def _complete_media_job(job_id: int, url: str) -> None:
+def _complete_media_job(
+    job_id: int, url: str, *, recognition: dict[str, Any] | None = None
+) -> None:
     now = utcnow()
     with _get_session() as session:
         job = session.get(EyunInboundMediaJobModel, job_id)
@@ -270,6 +305,7 @@ def _complete_media_job(job_id: int, url: str) -> None:
                 resolve_error=None,
                 url=url,
                 job_key=job.dedup_key,
+                recognition=recognition,
             )
             conversation_id = message.conversation_id
         session.commit()
@@ -367,6 +403,7 @@ def _update_message_media(
     url: str | None = None,
     clear_url: bool = False,
     job_key: str | None = None,
+    recognition: dict[str, Any] | None = None,
 ) -> None:
     metadata = _load_json(message.metadata_json)
     media = metadata.get("media") if isinstance(metadata.get("media"), dict) else {}
@@ -374,6 +411,8 @@ def _update_message_media(
     media["resolve_status"] = resolve_status
     if job_key:
         media["job_key"] = job_key
+    if recognition is not None:
+        media["recognition"] = recognition
     if url:
         media["url"] = url
         media["fallback"] = False
@@ -387,6 +426,64 @@ def _update_message_media(
         media.pop("resolve_error", None)
     metadata["media"] = media
     message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+
+
+def _local_media_path(url: str) -> Path:
+    from app.integrations.eyun.services.eyun_callback_service import media_storage_dir
+
+    if url.startswith("/static/media/"):
+        path = media_storage_dir() / Path(url).name
+    else:
+        path = Path(url)
+    resolved = path.resolve()
+    storage = media_storage_dir().resolve()
+    if resolved != storage and storage not in resolved.parents:
+        raise RuntimeError("resolved media path is outside media storage")
+    return resolved
+
+
+async def _enqueue_audio_agent_input(job_id: int, content: str) -> None:
+    with _get_session() as session:
+        job = session.get(EyunInboundMediaJobModel, job_id)
+        if job is None:
+            return
+        message = session.get(ConversationMessageModel, job.conversation_message_id)
+        if message is None:
+            return
+        metadata = _load_json(message.metadata_json)
+        owner_wc_id = str(
+            metadata.get("owner_wc_id") or metadata.get("wc_id") or ""
+        )
+        from_user = str(metadata.get("from_user") or message.sender_id or "")
+        provider_message_id = str(
+            metadata.get("provider_msg_id")
+            or metadata.get("message_id")
+            or message.message_id
+            or ""
+        )
+        payload = {
+            "account": str(metadata.get("account") or ""),
+            "messageType": "60001",
+            "wcId": owner_wc_id,
+            "_eyun_original_message_type": str(
+                metadata.get("message_type") or "60004"
+            ),
+            "_eyun_media_source_message_id": message.id,
+            "data": {
+                "wId": str(metadata.get("w_id") or ""),
+                "fromUser": from_user,
+                "toUser": owner_wc_id,
+                "content": content,
+                "newMsgId": provider_message_id,
+                "self": False,
+            },
+        }
+
+    from app.integrations.eyun.services.message_risk_control_service import (
+        enqueue_eyun_inbound,
+    )
+
+    await enqueue_eyun_inbound(payload)
 
 
 def _positive_int(value: Any) -> int:
