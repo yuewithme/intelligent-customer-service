@@ -14,6 +14,7 @@ export HF_CACHE_DIR="${HF_CACHE_DIR:-/srv/intelligent-customer-service/cache/hug
 deploy_log_dir="${DEPLOY_LOG_DIR:-/srv/intelligent-customer-service/logs}"
 lock_file="${DEPLOY_LOCK_FILE:-/tmp/intelligent-customer-service-deploy.lock}"
 force_deploy="${1:-}"
+lock_wait_seconds="${DEPLOY_LOCK_WAIT_SECONDS:-1200}"
 
 mkdir -p "$deploy_log_dir"
 log_file="$deploy_log_dir/auto-deploy.log"
@@ -35,7 +36,12 @@ compose() {
 }
 
 exec 9>"$lock_file"
-if ! flock -n 9; then
+if [[ "$force_deploy" == "--force" ]]; then
+  if ! flock -w "$lock_wait_seconds" 9; then
+    log "ERROR: timed out waiting for the production deployment lock"
+    exit 1
+  fi
+elif ! flock -n 9; then
   exit 0
 fi
 
