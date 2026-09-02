@@ -1,0 +1,106 @@
+# sales-agent.hzwohu.com production release
+# Shared Runner: #4 hz-build-01 (tag: linux)
+# Target: ubuntu@43.143.83.26
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - when: never
+
+stages:
+  - preflight
+  - deploy
+  - verify
+
+default:
+  tags:
+    - linux
+  interruptible: true
+
+variables:
+  GIT_DEPTH: "20"
+  PROD_HOST: "ubuntu@43.143.83.26"
+  PROD_DIR: "/home/ubuntu/intelligent-customer-service"
+  SSHOPT: "-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
+
+preflight:production:
+  stage: preflight
+  timeout: 5m
+  script:
+    - |
+      set -eu
+      SSH="ssh $SSHOPT"
+      $SSH "$PROD_HOST" "
+        set -eu
+        test -d '$PROD_DIR/.git'
+        cd '$PROD_DIR'
+        remote_url=\$(git remote get-url origin)
+        case \"\$remote_url\" in
+          https://git.hzwohu.com/wohu-apps/intelligent-customer-service.git|git@git.hzwohu.com:wohu-apps/intelligent-customer-service.git)
+            ;;
+          *)
+            echo 'ERROR: production origin is not the GitLab main repository'
+            exit 1
+            ;;
+        esac
+        if [ -n \"\$(git status --porcelain --untracked-files=no)\" ]; then
+          echo 'ERROR: production checkout contains tracked changes'
+          exit 1
+        fi
+        test -f /etc/intelligent-customer-service/backend.env
+        test -d /srv/intelligent-customer-service/data
+        test -d /srv/intelligent-customer-service/cache/huggingface
+        test -f deploy/auto-deploy.sh
+        git fetch origin main --quiet
+        target_revision=\$(git rev-parse origin/main)
+        if [ \"\$target_revision\" != '$CI_COMMIT_SHA' ]; then
+          echo 'ERROR: production origin/main does not match this pipeline revision'
+          exit 1
+        fi
+        sudo -n docker compose version >/dev/null
+        printf 'production_host=%s target_revision=%s\\n' \"\$(hostname)\" \"\$target_revision\"
+      "
+
+deploy:production:
+  stage: deploy
+  needs:
+    - preflight:production
+  resource_group: sales-agent-production
+  interruptible: false
+  timeout: 30m
+  environment:
+    name: production
+    url: https://sales-agent.hzwohu.com/workbench
+  script:
+    - |
+      set -eu
+      SSH="ssh $SSHOPT"
+      $SSH "$PROD_HOST" "cd '$PROD_DIR' && bash deploy/auto-deploy.sh --force"
+
+verify:production:
+  stage: verify
+  needs:
+    - deploy:production
+  timeout: 5m
+  script:
+    - |
+      set -eu
+      SSH="ssh $SSHOPT"
+      deployed_revision="$($SSH "$PROD_HOST" "git -C '$PROD_DIR' rev-parse HEAD")"
+      if [ "$deployed_revision" != "$CI_COMMIT_SHA" ]; then
+        echo "ERROR: deployed revision $deployed_revision does not match $CI_COMMIT_SHA"
+        exit 1
+      fi
+      health_body="$(curl -fsS --retry 6 --retry-delay 5 --max-time 15 https://sales-agent.hzwohu.com/health)"
+      printf 'health=%s\n' "$health_body"
+      html="$(curl -fsS --retry 6 --retry-delay 5 --max-time 15 "https://sales-agent.hzwohu.com/workbench?ci=$CI_COMMIT_SHA")"
+      asset="$(printf '%s' "$html" | grep -o 'assets/index-[A-Za-z0-9_-]*\.js' | head -n 1)"
+      if [ -z "$asset" ]; then
+        echo 'ERROR: production frontend asset was not found'
+        exit 1
+      fi
+      if [ "$asset" = 'assets/index-BF6zTPMM.js' ]; then
+        echo 'ERROR: production is still serving the old frontend asset'
+        exit 1
+      fi
+      printf 'production_revision=%s frontend_asset=%s\n' "$deployed_revision" "$asset"
