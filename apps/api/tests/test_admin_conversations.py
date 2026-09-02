@@ -88,6 +88,114 @@ def test_paired_file_callbacks_merge_metadata(monkeypatch, tmp_path):
     assert message["metadata"]["provider_message_ids"] == ["first", "second"]
 
 
+def test_detail_hides_legacy_sysmsg_and_collapses_historical_files(
+    monkeypatch, tmp_path
+):
+    import asyncio
+    from app.domains.conversations.services.conversation_service import (
+        get_conversation_detail,
+    )
+
+    _reset_settings(monkeypatch, tmp_path)
+    common = {
+        "channel": "wechat",
+        "user_id": "legacy_customer",
+        "session_id": "owner",
+        "status": "ai_active",
+    }
+    asyncio.run(
+        record_customer_message(
+            **common,
+            content="[非文本消息]",
+            message_id="system-1",
+            route="non_text",
+            metadata={
+                "message_type": "60999",
+                "raw_content": '<sysmsg type="functionmsg"><functionmsg /></sysmsg>',
+            },
+        )
+    )
+    for message_id, url in (
+        ("file-1", ""),
+        ("file-2", "https://media.example.com/guide.docx"),
+    ):
+        asyncio.run(
+            record_customer_message(
+                **common,
+                content="[文件]",
+                message_id=message_id,
+                route="inbound_file",
+                metadata={
+                    "message_type": "60008",
+                    "media": {
+                        "type": "file",
+                        "file_name": "养兰指南.docx",
+                        "url": url,
+                    },
+                },
+            )
+        )
+    detail = asyncio.run(get_conversation_detail("wechat:legacy_customer:owner"))
+    assert len(detail["messages"]) == 1
+    assert detail["messages"][0]["metadata"]["media"]["url"].endswith(
+        "guide.docx"
+    )
+
+
+def test_failed_delivery_can_be_requeued_from_admin(monkeypatch, tmp_path):
+    from app.infrastructure.database.models import (
+        ConversationMessageModel,
+        EyunOutboundDeliveryEventModel,
+        EyunOutboundMessageModel,
+    )
+    from app.integrations.eyun.services import message_risk_control_service as risk
+
+    _reset_settings(monkeypatch, tmp_path)
+    now = datetime.now(timezone.utc)
+    with risk._get_session() as session:
+        message = ConversationMessageModel(
+            conversation_id="wechat:retry_customer:owner",
+            delivery_status="failed",
+            sender_type="system",
+            sender_id="service_material_touch",
+            content="[图片]",
+            metadata_json="{}",
+            created_at=now,
+        )
+        session.add(message)
+        session.flush()
+        outbound = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="retry_customer",
+            content="image",
+            source_batch_key="test:manual-retry",
+            conversation_message_id=message.id,
+            status="failed",
+            priority=20,
+            due_at=now,
+            attempts=4,
+            last_error="provider failed",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(outbound)
+        session.commit()
+        message_id = message.id
+        outbound_id = outbound.id
+
+    response = TestClient(app).post(
+        f"/api/v1/admin/conversations/messages/{message_id}/retry-delivery"
+    )
+    assert response.status_code == 200
+    with risk._get_session() as session:
+        outbound = session.get(EyunOutboundMessageModel, outbound_id)
+        assert outbound.status == "queued"
+        assert outbound.attempts == 0
+        assert session.query(EyunOutboundDeliveryEventModel).one().event == (
+            "manual_retry_scheduled"
+        )
+
+
 def test_message_recognition_stats_report_categories_and_results(
     monkeypatch, tmp_path
 ):

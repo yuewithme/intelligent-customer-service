@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections import Counter, defaultdict
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -392,6 +393,7 @@ async def _process_service_material_touch(
             update_outbound_message_delivery(
                 message_id,
                 status="waiting_material",
+                error=f"定时素材转换失败：{type(exc).__name__}",
             )
         _retry_service_material_touch(
             wakeup_id,
@@ -550,6 +552,151 @@ def sync_service_material_touch_from_outbound(
             row.last_error = (error or status)[:2000]
         row.updated_at = now
         session.commit()
+
+
+def reopen_service_material_touch_for_manual_retry(
+    source_batch_key: str | None,
+) -> bool:
+    task_id = _service_material_touch_id(source_batch_key)
+    if task_id is None:
+        return False
+    with _database_session() as session:
+        row = session.get(AgentWakeupModel, task_id)
+        if row is None or row.kind != _SERVICE_MATERIAL_KIND:
+            return False
+        if row.status == "completed":
+            return True
+        row.status = "queued"
+        row.last_error = "已由消息后台安排人工补发"
+        row.updated_at = _utcnow()
+        session.commit()
+    return True
+
+
+def retry_service_material_touch_task_now(source_batch_key: str | None) -> bool:
+    task_id = _service_material_touch_id(source_batch_key)
+    if task_id is None:
+        return False
+    with _database_session() as session:
+        row = session.get(AgentWakeupModel, task_id)
+        if row is None or row.kind != _SERVICE_MATERIAL_KIND:
+            return False
+        if row.status in {"completed", "processing"}:
+            return False
+        row.status = "pending"
+        row.attempts = 0
+        row.due_at = _utcnow()
+        row.last_error = "已由消息后台安排立即重试"
+        row.updated_at = _utcnow()
+        session.commit()
+    return True
+
+
+def get_service_material_touch_delivery_stats(
+    *,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    item_limit: int = 100,
+) -> dict[str, Any]:
+    end = _as_utc(end_time or _utcnow())
+    start = _as_utc(start_time or (end - timedelta(days=7)))
+    if start > end:
+        raise ValueError("start_time must not be later than end_time")
+    with _database_session() as session:
+        tasks = list(
+            session.scalars(
+                select(AgentWakeupModel)
+                .where(
+                    AgentWakeupModel.kind == _SERVICE_MATERIAL_KIND,
+                    AgentWakeupModel.created_at >= start,
+                    AgentWakeupModel.created_at <= end,
+                )
+                .order_by(AgentWakeupModel.created_at.desc())
+            )
+        )
+    batch_keys = [f"service_material_touch:{row.id}" for row in tasks]
+    outbound_by_batch: dict[str, list[EyunOutboundMessageModel]] = defaultdict(list)
+    if batch_keys:
+        with _chat_session() as session:
+            outbound_rows = list(
+                session.scalars(
+                    select(EyunOutboundMessageModel).where(
+                        EyunOutboundMessageModel.source_batch_key.in_(batch_keys)
+                    )
+                )
+            )
+        for outbound in outbound_rows:
+            outbound_by_batch[str(outbound.source_batch_key or "")].append(outbound)
+    task_statuses = Counter(row.status for row in tasks)
+    outbound_statuses = Counter(
+        outbound.status
+        for rows in outbound_by_batch.values()
+        for outbound in rows
+    )
+    attention_statuses = {
+        "failed",
+        "cancelled",
+        "technical_skip",
+        "waiting_material",
+    }
+    items: list[dict[str, Any]] = []
+    attention_count = 0
+    max_items = max(1, min(item_limit, 500))
+    for task in tasks:
+        batch_key = f"service_material_touch:{task.id}"
+        outbound_rows = outbound_by_batch.get(batch_key, [])
+        needs_attention = task.status in attention_statuses or any(
+            outbound.status in attention_statuses for outbound in outbound_rows
+        )
+        if not needs_attention:
+            continue
+        attention_count += 1
+        if len(items) >= max_items:
+            continue
+        items.append(
+            {
+                "task_id": task.id,
+                "customer_id": task.customer_id,
+                "local_date": task.local_date,
+                "slot_id": task.reason.removeprefix("service_material:"),
+                "status": task.status,
+                "attempts": task.attempts,
+                "last_error": task.last_error,
+                "scheduled_at": _iso(task.due_at),
+                "updated_at": _iso(task.updated_at),
+                "source_batch_key": batch_key,
+                "messages": [
+                    {
+                        "outbound_id": outbound.id,
+                        "conversation_message_id": outbound.conversation_message_id,
+                        "status": outbound.status,
+                        "attempts": outbound.attempts,
+                        "last_error": outbound.last_error,
+                        "updated_at": _iso(outbound.updated_at),
+                    }
+                    for outbound in outbound_rows
+                ],
+            }
+        )
+    total_outbound = sum(outbound_statuses.values())
+    confirmed_outbound = sum(
+        outbound_statuses.get(status, 0) for status in ("confirmed", "sent")
+    )
+    return {
+        "start_time": _iso(start),
+        "end_time": _iso(end),
+        "task_total": len(tasks),
+        "task_statuses": dict(task_statuses),
+        "outbound_total": total_outbound,
+        "outbound_statuses": dict(outbound_statuses),
+        "confirmed_rate": (
+            round(confirmed_outbound / total_outbound, 4)
+            if total_outbound
+            else 0.0
+        ),
+        "attention_count": attention_count,
+        "items": items,
+    }
 
 
 async def service_material_touch_worker(stop_event: asyncio.Event) -> None:
@@ -765,6 +912,12 @@ def _iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _utcnow() -> datetime:

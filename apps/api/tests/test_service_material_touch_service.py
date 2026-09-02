@@ -285,6 +285,14 @@ async def test_service_media_conversion_failure_retries_whole_bundle(
         json.loads(message.metadata_json)["delivery_timestamps"]["scheduled_at"]
         for message in messages
     )
+    assert service.retry_service_material_touch_task_now(
+        f"service_material_touch:{row.id}"
+    )
+    with service._database_session() as session:
+        retried = session.get(AgentWakeupModel, row.id)
+        assert retried.status == "pending"
+        assert retried.attempts == 0
+        assert "立即重试" in retried.last_error
 
 
 @pytest.mark.asyncio
@@ -371,6 +379,54 @@ def test_touch_completes_only_after_copy_and_media_are_confirmed(monkeypatch, tm
     service.sync_service_material_touch_from_outbound(batch_key, "confirmed")
     with service._database_session() as session:
         assert session.get(AgentWakeupModel, 1).status == "completed"
+
+
+def test_touch_delivery_stats_expose_failure_details(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    now = datetime.now(timezone.utc)
+    with service._database_session() as session:
+        session.add(
+            AgentWakeupModel(
+                id=91,
+                dedup_key="service-material:stats:91",
+                tenant_id="tenant_default",
+                customer_id="customer-91",
+                kind="service_material_touch",
+                local_date="2026-09-02",
+                reason="service_material:topic",
+                checklist_json="[]",
+                status="failed",
+                due_at=now,
+                attempts=3,
+                last_error="媒体发送失败",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+    with service._chat_session() as session:
+        session.add(
+            EyunOutboundMessageModel(
+                w_id="wid-1",
+                wc_id="customer-91",
+                content="image",
+                source_batch_key="service_material_touch:91",
+                status="failed",
+                priority=20,
+                due_at=now,
+                attempts=4,
+                last_error="provider failed",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    stats = service.get_service_material_touch_delivery_stats()
+    assert stats["task_statuses"] == {"failed": 1}
+    assert stats["outbound_statuses"] == {"failed": 1}
+    assert stats["attention_count"] == 1
+    assert stats["items"][0]["messages"][0]["last_error"] == "provider failed"
 
 
 @pytest.mark.asyncio
