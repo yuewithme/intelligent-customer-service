@@ -24,4 +24,8 @@
 
 - `pnpm ts:check` 通过。
 - `pnpm build:prod` 通过，生产产物包含统一媒体条件和新版 viewport。
-- 本机 Docker daemon 未运行，因此 Nginx 容器启动和真实响应头留待 GitLab 生产流水线验证。
+- 本机 Docker daemon 未运行，Nginx 容器启动改由 GitLab 生产流水线验证。
+- Pipeline `#529` 的预检、部署和验收任务全部通过，生产版本为 `511caf252b0b43d3733442c125a24d4d5d136762`，公开健康检查正常。
+- 生产 `/workbench` 返回 `Cache-Control: no-cache, no-store, must-revalidate`；新版入口引用 `assets/index-CXnTdev3.js`，该资源返回 `Cache-Control: public, max-age=31536000, immutable`。
+- 真实登录页面在 `390 x 844` 手机视口下显示收起的侧栏、顶部导航按钮和底部三页签。
+- 模拟 `980px` 布局宽度但保持 `hover: none`、`pointer: coarse` 的手机 WebView 时，统一媒体条件仍命中，侧栏保持抽屉定位且底部导航显示。
