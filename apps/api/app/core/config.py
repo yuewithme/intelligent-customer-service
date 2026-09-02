@@ -355,6 +355,24 @@ class Settings(BaseSettings):
     vision_min_confidence: float = Field(
         default=0.55, ge=0, le=1, alias="VISION_MIN_CONFIDENCE"
     )
+    speech_recognition_enabled: bool = Field(
+        default=True, alias="SPEECH_RECOGNITION_ENABLED"
+    )
+    speech_recognition_model: str = Field(
+        default="qwen3-asr-flash", alias="SPEECH_RECOGNITION_MODEL"
+    )
+    speech_recognition_api_key: str = Field(
+        default="", alias="SPEECH_RECOGNITION_API_KEY"
+    )
+    speech_recognition_base_url: str = Field(
+        default="", alias="SPEECH_RECOGNITION_BASE_URL"
+    )
+    speech_recognition_timeout_seconds: float = Field(
+        default=120, ge=1, alias="SPEECH_RECOGNITION_TIMEOUT_SECONDS"
+    )
+    speech_recognition_max_retries: int = Field(
+        default=1, ge=0, le=3, alias="SPEECH_RECOGNITION_MAX_RETRIES"
+    )
     embedding_provider: str = "mock"
     embedding_model: str = "BAAI/bge-m3"
     embedding_api_key: str = ""

@@ -1068,12 +1068,16 @@ def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
     monkeypatch, tmp_path
 ):
     from app.services import eyun_callback_service
+    from app.integrations.ai.services import speech_recognition_service
+    from app.integrations.ai.services.speech_recognition_service import SpeechTranscript
     from app.integrations.eyun.services.eyun_inbound_media_service import (
         process_due_eyun_media_jobs,
     )
+    from app.integrations.eyun.services import message_risk_control_service
 
     _reset_settings(monkeypatch, tmp_path)
     calls = []
+    queued = []
 
     async def fake_contact_snapshot(**kwargs):
         return {}
@@ -1082,11 +1086,30 @@ def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
         calls.append(kwargs)
         return "/static/media/voice.wav"
 
+    async def fake_transcribe(path):
+        assert path.name == "voice.wav"
+        return SpeechTranscript(
+            text="我的兰花根腐烂了怎么办",
+            language="zh",
+            emotion="neutral",
+            duration_seconds=2,
+        )
+
+    async def fake_enqueue(payload):
+        queued.append(payload)
+        return {"batch_key": "wid_test:wxid_customer"}
+
     monkeypatch.setattr(
         eyun_callback_service, "get_eyun_contact_snapshot", fake_contact_snapshot
     )
     monkeypatch.setattr(
         eyun_callback_service, "download_eyun_voice", fake_download_voice
+    )
+    monkeypatch.setattr(
+        speech_recognition_service, "transcribe_audio_file", fake_transcribe
+    )
+    monkeypatch.setattr(
+        message_risk_control_service, "enqueue_eyun_inbound", fake_enqueue
     )
     client = TestClient(app)
     payload = {
@@ -1126,3 +1149,15 @@ def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
     media = detail["messages"][0]["metadata"]["media"]
     assert media["url"] == "/static/media/voice.wav"
     assert media["resolve_status"] == "succeeded"
+    assert media["recognition"] == {
+        "status": "succeeded",
+        "text": "我的兰花根腐烂了怎么办",
+        "language": "zh",
+        "emotion": "neutral",
+        "duration_seconds": 2,
+    }
+    assert queued[0]["messageType"] == "60001"
+    assert queued[0]["_eyun_original_message_type"] == "60004"
+    assert queued[0]["data"]["content"] == (
+        "[客户语音转写] 我的兰花根腐烂了怎么办"
+    )
