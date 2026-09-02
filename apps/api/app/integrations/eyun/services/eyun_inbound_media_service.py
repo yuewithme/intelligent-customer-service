@@ -269,14 +269,34 @@ async def _process_media_job(job_id: int) -> None:
                 "消息转人工。]"
             )
             logger.warning("Eyun voice recognition failed job=%s error=%s", job_id, exc)
+    elif media_type == "video":
+        try:
+            from app.integrations.ai.services.video_understanding_service import (
+                understand_video_file,
+            )
+
+            understanding = await understand_video_file(_local_media_path(url))
+            recognition = {"status": "succeeded", **understanding.to_metadata()}
+            agent_text = understanding.to_agent_text()
+        except Exception as exc:  # noqa: BLE001
+            recognition = {
+                "status": "failed",
+                "error": str(exc).strip()[:500] or exc.__class__.__name__,
+            }
+            agent_text = (
+                "[客户发送了一段视频，但未能形成可靠内容摘要。请结合上下文自然"
+                "询问客户希望重点查看什么问题；不要提及系统、模型或技术故障，"
+                "也不要仅因视频消息转人工。]"
+            )
+            logger.warning("Eyun video understanding failed job=%s error=%s", job_id, exc)
 
     _complete_media_job(job_id, url, recognition=recognition)
-    if media_type == "audio":
+    if media_type in {"audio", "video"}:
         try:
-            await _enqueue_audio_agent_input(job_id, agent_text)
+            await _enqueue_media_agent_input(job_id, agent_text)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Eyun voice understanding enqueue failed job=%s error=%s",
+                "Eyun media understanding enqueue failed job=%s error=%s",
                 job_id,
                 exc,
             )
@@ -442,7 +462,7 @@ def _local_media_path(url: str) -> Path:
     return resolved
 
 
-async def _enqueue_audio_agent_input(job_id: int, content: str) -> None:
+async def _enqueue_media_agent_input(job_id: int, content: str) -> None:
     with _get_session() as session:
         job = session.get(EyunInboundMediaJobModel, job_id)
         if job is None:
@@ -466,7 +486,8 @@ async def _enqueue_audio_agent_input(job_id: int, content: str) -> None:
             "messageType": "60001",
             "wcId": owner_wc_id,
             "_eyun_original_message_type": str(
-                metadata.get("message_type") or "60004"
+                metadata.get("message_type")
+                or ("60003" if job.media_type == "video" else "60004")
             ),
             "_eyun_media_source_message_id": message.id,
             "data": {

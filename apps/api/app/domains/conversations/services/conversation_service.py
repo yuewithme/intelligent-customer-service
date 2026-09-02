@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -391,6 +392,129 @@ async def get_conversation_detail(conversation_id: str) -> dict:
         "messages": [_message_to_dict(row) for row in messages],
         "agent_relationship": get_agent_relationship_state(conversation.user_id),
     }
+
+
+async def get_message_recognition_stats(
+    *, start_time: datetime | None = None, end_time: datetime | None = None
+) -> dict[str, Any]:
+    end = _aware_utc(end_time or _now())
+    start = _aware_utc(start_time or (end - timedelta(days=30)))
+    if start > end:
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message="开始时间不能晚于结束时间",
+            status_code=422,
+        )
+
+    with _get_session() as session:
+        messages = session.execute(
+            select(
+                ConversationMessageModel.metadata_json,
+                ConversationMessageModel.route,
+                ConversationMessageModel.primary_intent,
+            ).where(
+                ConversationMessageModel.sender_type == "customer",
+                ConversationMessageModel.created_at >= start,
+                ConversationMessageModel.created_at <= end,
+            )
+        ).all()
+        handoffs = session.execute(
+            select(
+                ConversationModel.handoff_reason,
+                func.count(ConversationModel.id),
+            )
+            .where(
+                ConversationModel.handoff_reason.is_not(None),
+                ConversationModel.updated_at >= start,
+                ConversationModel.updated_at <= end,
+            )
+            .group_by(ConversationModel.handoff_reason)
+        ).all()
+
+    categories: Counter[str] = Counter()
+    dispositions: Counter[str] = Counter()
+    recognition_statuses: Counter[str] = Counter()
+    failure_reasons: Counter[str] = Counter()
+    unknown_types: Counter[str] = Counter()
+    classified = 0
+    for metadata_json, route, primary_intent in messages:
+        metadata = _load_metadata(metadata_json)
+        classification = metadata.get("inbound_classification")
+        classification = classification if isinstance(classification, dict) else {}
+        category = str(classification.get("category") or "").strip()
+        disposition = str(classification.get("disposition") or "").strip()
+        if category:
+            classified += 1
+        else:
+            category = _legacy_message_category(metadata, route, primary_intent)
+        categories[category] += 1
+        if disposition:
+            dispositions[disposition] += 1
+
+        media = metadata.get("media") if isinstance(metadata.get("media"), dict) else {}
+        recognition = (
+            media.get("recognition")
+            if isinstance(media.get("recognition"), dict)
+            else {}
+        )
+        recognition_status = str(recognition.get("status") or "").strip()
+        if recognition_status:
+            recognition_statuses[recognition_status] += 1
+        if recognition_status == "failed":
+            reason = str(recognition.get("error") or "unknown").split(":", 1)[0]
+            failure_reasons[reason[:120]] += 1
+        if category in {"unknown", "legacy_unclassified"}:
+            message_type = str(metadata.get("message_type") or "missing")
+            unknown_types[message_type] += 1
+
+    return {
+        "start_time": start.isoformat(),
+        "end_time": end.isoformat(),
+        "total_customer_messages": len(messages),
+        "classified_messages": classified,
+        "categories": dict(categories.most_common()),
+        "dispositions": dict(dispositions.most_common()),
+        "recognition_statuses": dict(recognition_statuses.most_common()),
+        "recognition_failures": dict(failure_reasons.most_common()),
+        "unknown_message_types": dict(unknown_types.most_common()),
+        "current_handoff_reasons": {
+            str(reason): int(count) for reason, count in handoffs if reason
+        },
+    }
+
+
+def _legacy_message_category(
+    metadata: dict[str, Any], route: str | None, primary_intent: str | None
+) -> str:
+    message_type = str(metadata.get("message_type") or "")
+    suffix_categories = {
+        "001": "text",
+        "002": "image",
+        "003": "video",
+        "004": "audio",
+        "005": "contact",
+        "006": "emoji",
+        "007": "link",
+        "008": "file",
+        "009": "file",
+        "010": "mini_program",
+        "011": "chat_history",
+        "020": "location",
+    }
+    if message_type[-3:] in suffix_categories:
+        return suffix_categories[message_type[-3:]]
+    media = metadata.get("media") if isinstance(metadata.get("media"), dict) else {}
+    if media.get("type"):
+        return str(media["type"])
+    if route == "non_text":
+        return "legacy_unclassified"
+    return str(primary_intent or "unknown")
+
+
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 async def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:

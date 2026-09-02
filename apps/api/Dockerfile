@@ -7,7 +7,7 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential cmake \
+    && apt-get install -y --no-install-recommends build-essential cmake ffmpeg \
     && pip install --no-cache-dir \
     --index-url https://mirrors.cloud.tencent.com/pypi/simple \
     --timeout 120 \
