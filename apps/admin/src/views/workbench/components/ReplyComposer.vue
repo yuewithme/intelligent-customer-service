@@ -263,7 +263,7 @@ watch(
   font-size: 11px;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .composer { gap: 8px; }
   .mobile-reception-status {
     display: flex;

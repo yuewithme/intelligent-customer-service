@@ -199,7 +199,7 @@ header span { margin-top: 3px; color: #84918c; font-size: 12px; }
 .operator button { padding: 6px 10px; color: #50645d; cursor: pointer; background: transparent; border: 1px solid #cfdad6; border-radius: 7px; }
 main { min-width: 0; }
 @media (max-width: 1100px) { .tenant-switcher { width: min(340px, 34vw); } .tenant-label { display: none; } }
-@media (max-width: 820px) {
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .sales-layout { display: block; min-height: 100dvh; }
   .sidebar {
     position: fixed;

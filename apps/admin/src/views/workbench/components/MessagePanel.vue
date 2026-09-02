@@ -727,7 +727,7 @@ p {
   text-underline-offset: 3px;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .header { min-height: 56px; padding: 10px 12px; }
   .mobile-back {
     display: grid;
