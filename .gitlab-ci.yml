@@ -16,12 +16,22 @@ default:
   tags:
     - linux
   interruptible: true
+  before_script:
+    - |
+      set -eu
+      install -d -m 0700 "$HOME/.ssh"
+      touch "$HOME/.ssh/known_hosts"
+      chmod 0600 "$HOME/.ssh/known_hosts"
+      grep -Fqx '150.158.52.233 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBCmc8G53u/r3Is/WrbPwsPzAKRIQFpGEJ5XhqsImAEo' "$HOME/.ssh/known_hosts" ||
+        printf '%s\n' '150.158.52.233 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBCmc8G53u/r3Is/WrbPwsPzAKRIQFpGEJ5XhqsImAEo' >> "$HOME/.ssh/known_hosts"
+      grep -Fqx '43.143.83.26 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPsigB8y7BrHM2VExN9gEVm07/GspHOxXKAw7uXo4VqC' "$HOME/.ssh/known_hosts" ||
+        printf '%s\n' '43.143.83.26 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPsigB8y7BrHM2VExN9gEVm07/GspHOxXKAw7uXo4VqC' >> "$HOME/.ssh/known_hosts"
 
 variables:
   GIT_DEPTH: "20"
   PROD_HOST: "ubuntu@43.143.83.26"
   PROD_DIR: "/home/ubuntu/intelligent-customer-service"
-  SSHOPT: "-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o ProxyJump=ubuntu@150.158.52.233"
+  SSHOPT: "-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o ProxyJump=ubuntu@150.158.52.233"
 
 preflight:production:
   stage: preflight
