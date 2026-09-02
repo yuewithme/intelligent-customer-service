@@ -14,7 +14,7 @@
   border-radius: 12px;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .content-wrap {
     min-height: calc(100dvh - 72px);
     padding: 12px;

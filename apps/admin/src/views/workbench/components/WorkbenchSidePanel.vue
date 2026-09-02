@@ -111,7 +111,7 @@ const activeTab = ref<(typeof tabs)[number]['value']>('supervision')
   min-height: 0;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .side-switch { position: sticky; top: 0; z-index: 2; padding: 6px 6px 0; background: #fff; }
   .side-switch button { min-width: 0; padding: 10px 4px; font-size: 13px; }
 }

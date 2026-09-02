@@ -88,6 +88,7 @@ const FALLBACK_SYNC_INTERVAL_MS = 30_000
 const selectedId = ref('')
 const mobileView = ref<'conversations' | 'messages' | 'details'>('conversations')
 const isMobile = ref(false)
+const MOBILE_MEDIA_QUERY = '(max-width: 820px), (hover: none) and (pointer: coarse)'
 const route = useRoute()
 const tenantStore = useMessageTenantStore()
 const selectedIds = ref<string[]>([])
@@ -277,7 +278,7 @@ const syncMobileViewport = () => {
 }
 
 onMounted(() => {
-  mobileMediaQuery = window.matchMedia('(max-width: 820px)')
+  mobileMediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY)
   syncMobileViewport()
   mobileMediaQuery.addEventListener('change', syncMobileViewport)
   void restoreRouteConversation()
@@ -326,6 +327,8 @@ onBeforeUnmount(() => {
   scrollbar-gutter: stable;
 }
 
+.mobile-workbench-nav { display: none; }
+
 @media (max-width: 1100px) {
   .workbench {
     grid-template-columns: 280px minmax(0, 1fr);
@@ -337,7 +340,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 820px) {
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .workbench {
     display: flex;
     flex-direction: column;
@@ -412,7 +415,4 @@ onBeforeUnmount(() => {
   .mobile-workbench-nav button:disabled { color: #b9c3bf; }
 }
 
-@media (min-width: 821px) {
-  .mobile-workbench-nav { display: none; }
-}
 </style>

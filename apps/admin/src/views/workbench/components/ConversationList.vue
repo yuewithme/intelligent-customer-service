@@ -274,7 +274,7 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
   color: #6b7280;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .conversation-list { padding: 10px; }
   .toolbar { grid-template-columns: minmax(0, 1fr) 36px; }
   .toolbar :deep(.el-select) { grid-column: 1 / -1; }

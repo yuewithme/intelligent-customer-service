@@ -336,7 +336,7 @@ dd {
   color: #9ca3af;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .actions .handoff-action { display: none; }
   .supervision.mobile-details-mode :deep(.composer) { display: none; }
 }

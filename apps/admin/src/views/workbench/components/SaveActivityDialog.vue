@@ -118,7 +118,7 @@ watch(
   width: 100%;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .time-fields { grid-template-columns: 1fr; }
 }
 </style>
