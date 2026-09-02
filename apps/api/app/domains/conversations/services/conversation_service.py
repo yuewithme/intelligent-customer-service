@@ -34,6 +34,7 @@ RECOVERABLE_AUTOMATIC_HANDOFF_REASONS = frozenset(
         "matched_orchid_not_found",
         "rag_no_answer_to_handoff",
         "template_not_found_to_handoff",
+        "unsupported_message_type",
         "unsupported_to_handoff",
     }
 )
@@ -324,6 +325,50 @@ async def recover_automatic_handoff(
     await clear_human_handoff(user_id)
     _publish_change(conversation_id, "automatic_handoff_recovered")
     return True
+
+
+async def recover_stale_unsupported_handoffs(
+    *, older_than_seconds: int = 86400, limit: int = 500
+) -> int:
+    """Clear obsolete, unclaimed transport fallbacks left by older releases."""
+    cutoff = _now() - timedelta(seconds=max(0, older_than_seconds))
+    with _get_session() as session:
+        rows = session.execute(
+            select(
+                ConversationModel.conversation_id,
+                ConversationModel.user_id,
+            )
+            .where(
+                ConversationModel.status == HANDOFF_PENDING,
+                ConversationModel.owner_id.is_(None),
+                ConversationModel.handoff_reason == "unsupported_message_type",
+                ConversationModel.updated_at <= cutoff,
+            )
+            .order_by(ConversationModel.updated_at.asc())
+            .limit(max(1, min(limit, 5000)))
+        ).all()
+        if not rows:
+            return 0
+        conversation_ids = [row.conversation_id for row in rows]
+        session.execute(
+            update(ConversationModel)
+            .where(ConversationModel.conversation_id.in_(conversation_ids))
+            .values(
+                status=AI_ACTIVE,
+                handoff_reason=None,
+                handoff_ticket_id=None,
+                updated_at=_now(),
+            )
+        )
+        session.commit()
+
+    from app.domains.customers.services.user_profile_service import clear_human_handoff
+
+    for user_id in {row.user_id for row in rows}:
+        await clear_human_handoff(user_id)
+    for conversation_id in conversation_ids:
+        _publish_change(conversation_id, "stale_unsupported_handoff_recovered")
+    return len(conversation_ids)
 
 
 async def get_conversation_detail(conversation_id: str) -> dict:
