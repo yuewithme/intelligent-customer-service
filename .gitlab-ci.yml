@@ -82,7 +82,7 @@ deploy:production:
     - preflight:production
   resource_group: sales-agent-production
   interruptible: false
-  timeout: 30m
+  timeout: 45m
   environment:
     name: production
     url: https://sales-agent.hzwohu.com/workbench
