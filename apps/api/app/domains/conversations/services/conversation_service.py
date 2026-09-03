@@ -55,52 +55,6 @@ def make_conversation_id(channel: str, user_id: str, session_id: str | None) -> 
     return f"{channel}:{user_id}:{session_id or 'default'}"
 
 
-def conversation_has_reply_route(
-    *,
-    channel: str,
-    user_id: str,
-    session_id: str | None,
-    route: str,
-) -> bool:
-    conversation_id = make_conversation_id(channel, user_id, session_id)
-    with _get_session() as session:
-        return session.scalar(
-            select(ConversationMessageModel.id)
-            .where(
-                ConversationMessageModel.conversation_id == conversation_id,
-                ConversationMessageModel.sender_type.in_(("ai", "human")),
-                ConversationMessageModel.route == route,
-            )
-            .limit(1)
-        ) is not None
-
-
-def latest_conversation_reply_route(
-    *,
-    channel: str,
-    user_id: str,
-    session_id: str | None,
-    before: datetime | None = None,
-) -> str | None:
-    conversation_id = make_conversation_id(channel, user_id, session_id)
-    with _get_session() as session:
-        filters = [
-            ConversationMessageModel.conversation_id == conversation_id,
-            ConversationMessageModel.sender_type.in_(("ai", "human")),
-        ]
-        if before is not None:
-            filters.append(ConversationMessageModel.created_at < before)
-        return session.scalar(
-            select(ConversationMessageModel.route)
-            .where(*filters)
-            .order_by(
-                ConversationMessageModel.created_at.desc(),
-                ConversationMessageModel.id.desc(),
-            )
-            .limit(1)
-        )
-
-
 def get_demo_platform_state(state_key: str) -> dict[str, str | None] | None:
     with _get_session() as session:
         state = session.get(DemoPlatformStateModel, state_key)
@@ -2293,23 +2247,6 @@ def _evaluation_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "evaluation_id": evaluation_id,
         "is_evaluation": True,
     }
-
-
-def _eyun_result_message_id(result: Any) -> str | None:
-    if not isinstance(result, dict) or not isinstance(result.get("data"), dict):
-        return None
-    data = result["data"]
-    return str(data.get("newMsgId") or data.get("msgId") or "") or None
-
-
-def _eyun_result_sent_at(result: Any) -> datetime | None:
-    if not isinstance(result, dict) or not isinstance(result.get("data"), dict):
-        return None
-    try:
-        timestamp = int(result["data"].get("createTime"))
-    except (TypeError, ValueError):
-        return None
-    return datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp > 0 else None
 
 
 def _outbound_display_content(message_type: str, content: str) -> str:

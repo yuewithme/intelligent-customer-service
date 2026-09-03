@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services import qdrant_service
+from app.domains.knowledge.services import qdrant_service
 
 
 def test_client_forwards_proxy_setting(monkeypatch):

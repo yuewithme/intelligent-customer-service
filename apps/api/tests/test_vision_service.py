@@ -63,7 +63,7 @@ def _order_response(*, store_name="萧岚苑", needs_ocr=False):
 
 @pytest.mark.asyncio
 async def test_verified_store_order_uses_dashscope_and_returns_purchase_tag(monkeypatch):
-    from app.services import vision_service
+    from app.integrations.ai.services import vision_service
 
     monkeypatch.setenv("VISION_ENABLED", "true")
     monkeypatch.setenv("PURCHASE_TAGS_ENABLED", "true")
@@ -90,7 +90,7 @@ async def test_verified_store_order_uses_dashscope_and_returns_purchase_tag(monk
 
 
 def test_purchase_tag_is_disabled_by_default():
-    from app.services import vision_service
+    from app.integrations.ai.services import vision_service
 
     analysis = vision_service.VisionAnalysis.model_validate(_order_response())
 
@@ -108,7 +108,7 @@ def test_purchase_tag_is_disabled_by_default():
     ),
 )
 def test_purchase_tag_requires_douyin_and_paid_status(monkeypatch, platform, status):
-    from app.services import vision_service
+    from app.integrations.ai.services import vision_service
 
     monkeypatch.setenv("PURCHASE_TAGS_ENABLED", "true")
     payload = _order_response()
@@ -122,7 +122,7 @@ def test_purchase_tag_requires_douyin_and_paid_status(monkeypatch, platform, sta
 
 @pytest.mark.asyncio
 async def test_order_ocr_rechecks_store_name(monkeypatch):
-    from app.services import vision_service
+    from app.integrations.ai.services import vision_service
 
     monkeypatch.setenv("VISION_ENABLED", "true")
     monkeypatch.setenv("VISION_API_KEY", "test-key")
@@ -148,7 +148,7 @@ async def test_order_ocr_rechecks_store_name(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_orchid_health_result_can_request_clarification(monkeypatch):
-    from app.services import vision_service
+    from app.integrations.ai.services import vision_service
 
     monkeypatch.setenv("VISION_ENABLED", "true")
     monkeypatch.setenv("VISION_API_KEY", "test-key")
@@ -188,7 +188,7 @@ async def test_orchid_health_result_can_request_clarification(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_healthy_orchid_identification_is_soft_evidence(monkeypatch):
-    from app.services import vision_service
+    from app.integrations.ai.services import vision_service
 
     monkeypatch.setenv("VISION_ENABLED", "true")
     monkeypatch.setenv("VISION_API_KEY", "test-key")
@@ -228,7 +228,7 @@ async def test_healthy_orchid_identification_is_soft_evidence(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_order_from_other_store_is_not_supported(monkeypatch):
-    from app.services import vision_service
+    from app.integrations.ai.services import vision_service
 
     monkeypatch.setenv("VISION_ENABLED", "true")
     monkeypatch.setenv("VISION_API_KEY", "test-key")
@@ -246,7 +246,7 @@ async def test_order_from_other_store_is_not_supported(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_unrelated_image_is_not_described(monkeypatch):
-    from app.services import vision_service
+    from app.integrations.ai.services import vision_service
 
     monkeypatch.setenv("VISION_ENABLED", "true")
     monkeypatch.setenv("VISION_API_KEY", "test-key")

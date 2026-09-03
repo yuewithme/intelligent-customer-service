@@ -1239,18 +1239,6 @@ class CustomerLevelProfileModel(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
-class CustomerLevelRuleModel(Base):
-    __tablename__ = "customer_level_rules"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    level: Mapped[str] = mapped_column(String(16), index=True)
-    rule_type: Mapped[str] = mapped_column(String(64), default="keyword_any")
-    pattern: Mapped[str] = mapped_column(Text)
-    weight: Mapped[float] = mapped_column(Float, default=1.0)
-    evidence_label: Mapped[str] = mapped_column(String(256))
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-
-
 class PromptBlockModel(Base):
     __tablename__ = "prompt_blocks"
 

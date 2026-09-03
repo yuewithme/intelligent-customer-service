@@ -1,16 +1,14 @@
 import pytest
 
 from app.core.config import get_settings
-from app.domains.sales.schemas.tag import TagResult
-from app.services import business_tag_prompt_service, customer_level_service
+from app.domains.sales.services import business_tag_prompt_service
+from app.domains.customers.services import customer_level_service
 from app.domains.sales.services.business_tag_prompt_service import (
     get_business_tag_prompt_block_ids,
     seed_business_tag_prompt_policy,
 )
-from app.domains.decisioning.services.policy_engine import decide_policy
 from app.domains.decisioning.services.prompt_builder import build_prompt
 from app.domains.conversations.schemas.context import ContextPackage
-from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.schemas.prompt import PromptBuildInput
 
 
@@ -53,54 +51,6 @@ def test_seed_business_tag_policy_splits_quantity_region_and_orchid_preference()
     assert get_business_tag_prompt_block_ids(["customer_tag:阳台"]) == [
         "growing_environment.fit"
     ]
-
-
-def test_advanced_customer_level_changes_guidance_without_forcing_handoff():
-    result = customer_level_service.classify_customer_level(
-        message="我主要研究艺草和叶艺",
-        user_state=UserState(user_id="advanced-customer"),
-    )
-
-    assert result.level == "L5"
-    assert result.route == "rag_answer"
-    assert result.handoff_reason is None
-    assert customer_level_service.get_customer_level_prompt_block_ids("L5") == [
-        "customer_level.l5.identity",
-        "customer_level.l5.communication",
-        "customer_level.l5.recommendation",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_policy_adds_business_tag_prompt_blocks_after_customer_level_blocks():
-    tag = TagResult(
-        intent="orchid_care",
-        route="rag_answer",
-        segment="beginner",
-        confidence=0.9,
-        labels=[
-            "customer_tag:L2 白银期",
-            "customer_tag:100-199盆",
-            "customer_tag:浙江省",
-            "customer_tag:春兰",
-        ],
-    )
-
-    decision = await decide_policy(tag)
-
-    expected_order = [
-        "customer_level.l2.identity",
-        "customer_level.l2.communication",
-        "customer_level.l2.recommendation",
-        "orchid_quantity.large.focus",
-        "region.east_china.variety",
-        "orchid_preference.chunlan",
-        "output.customer_reply",
-    ]
-    positions = [decision.prompt_block_ids.index(block_id) for block_id in expected_order]
-
-    assert positions == sorted(positions)
-    assert "orchid_preference.chunlan" in decision.prompt_block_ids
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from app.services import eyun_callback_service
+from app.integrations.eyun.services import eyun_callback_service
 from app.integrations.eyun.services.eyun_callback_service import (
     _decode_silk_to_wav,
     persist_eyun_video,

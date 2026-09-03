@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services import embedding_service
+from app.domains.knowledge.services import embedding_service
 
 
 @pytest.mark.asyncio

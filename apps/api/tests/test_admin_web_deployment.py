@@ -23,3 +23,11 @@ def test_production_data_and_model_cache_are_externalized():
         ":/app/data/huggingface"
     ) in compose
     assert '"21873:80"' not in compose
+
+
+def test_external_callbacks_are_proxied_to_the_api():
+    nginx = (ROOT / "apps" / "admin" / "nginx.conf").read_text(encoding="utf-8")
+
+    for path in ("wechat", "eyun", "youzan"):
+        assert f"location /{path}/" in nginx or f"location = /{path}/callback" in nginx
+        assert f"proxy_pass http://api:8000/{path}/" in nginx

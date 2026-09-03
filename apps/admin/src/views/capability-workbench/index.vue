@@ -412,7 +412,6 @@ import {
   type CapabilityVisibility,
   type CapabilityWorkbenchResponse,
   type ConditionClause,
-  type ExperienceOutcome,
   type ExperiencePackage,
   type ExperienceStep,
   type ExperienceTransition

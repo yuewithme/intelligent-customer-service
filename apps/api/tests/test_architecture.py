@@ -20,23 +20,17 @@ def test_repository_uses_the_canonical_top_level_layout():
     assert "var/" in (REPOSITORY_ROOT / ".gitignore").read_text(encoding="utf-8")
 
 
-def test_legacy_layer_packages_are_compatibility_only():
+def test_legacy_layer_packages_are_removed():
     for package_name in ("services", "routers"):
-        python_files = sorted(
-            path.name for path in (APP_ROOT / package_name).glob("*.py")
-        )
-        assert python_files == ["__init__.py"]
+        assert not (APP_ROOT / package_name).exists()
     assert not (APP_ROOT / "schemas").exists()
 
 
 def test_production_modules_do_not_import_legacy_layer_packages():
     violations: list[str] = []
     legacy_prefixes = ("app.services", "app.routers", "app.schemas")
-    ignored_roots = {APP_ROOT / "services", APP_ROOT / "routers"}
 
     for path in APP_ROOT.rglob("*.py"):
-        if any(root in path.parents for root in ignored_roots):
-            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             module = ""

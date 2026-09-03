@@ -12,7 +12,9 @@ from app.integrations.ai.services.vision_service import (
 
 @pytest.fixture(autouse=True)
 def image_flow_db(monkeypatch, tmp_path):
-    from app.services import message_risk_control_service, tag_catalog, user_profile_service
+    from app.integrations.eyun.services import message_risk_control_service
+    from app.domains.sales.services import tag_catalog
+    from app.domains.customers.services import user_profile_service
 
     chat_db_path = tmp_path / "image-flow-chat.db"
     profile_db_path = tmp_path / "image-flow-profile.db"
@@ -33,7 +35,7 @@ def image_flow_db(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_image_and_followup_text_share_dynamic_window(monkeypatch):
-    from app.services import message_risk_control_service as service
+    from app.integrations.eyun.services import message_risk_control_service as service
 
     now = datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(service, "utcnow", lambda: now)
@@ -74,8 +76,8 @@ async def test_image_and_followup_text_share_dynamic_window(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_prepare_content_combines_orchid_health_result_and_text(monkeypatch):
-    from app.services import message_risk_control_service as service
-    from app.services import vision_service
+    from app.integrations.eyun.services import message_risk_control_service as service
+    from app.integrations.ai.services import vision_service
 
     async def fake_analyze(image_source):
         assert image_source == "https://cdn.example.com/image.jpg"
@@ -117,8 +119,9 @@ async def test_prepare_content_combines_orchid_health_result_and_text(monkeypatc
 
 @pytest.mark.asyncio
 async def test_verified_store_order_does_not_add_disabled_purchase_tag(monkeypatch):
-    from app.services import message_risk_control_service as service
-    from app.services import user_profile_service, vision_service
+    from app.integrations.eyun.services import message_risk_control_service as service
+    from app.domains.customers.services import user_profile_service
+    from app.integrations.ai.services import vision_service
 
     queued = []
     chat_requests = []
@@ -196,7 +199,7 @@ async def test_verified_store_order_does_not_add_disabled_purchase_tag(monkeypat
 
 @pytest.mark.asyncio
 async def test_unrecognized_image_continues_as_soft_agent_context(monkeypatch):
-    from app.services import message_risk_control_service as service
+    from app.integrations.eyun.services import message_risk_control_service as service
 
     queued = []
     chat_requests = []
@@ -257,8 +260,8 @@ async def test_unrecognized_image_continues_as_soft_agent_context(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_order_from_other_store_is_passed_to_agent(monkeypatch):
-    from app.services import message_risk_control_service as service
-    from app.services import vision_service
+    from app.integrations.eyun.services import message_risk_control_service as service
+    from app.integrations.ai.services import vision_service
 
     queued = []
     now = datetime(2026, 7, 18, 12, 15, tzinfo=timezone.utc)
@@ -314,8 +317,8 @@ async def test_order_from_other_store_is_passed_to_agent(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_repeated_image_failure_still_continues_with_agent(monkeypatch):
-    from app.services import message_risk_control_service as service
-    from app.services import vision_service
+    from app.integrations.eyun.services import message_risk_control_service as service
+    from app.integrations.ai.services import vision_service
 
     queued = []
     chat_requests = []

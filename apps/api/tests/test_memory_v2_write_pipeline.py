@@ -15,7 +15,7 @@ from app.infrastructure.database.models import (
     MemoryJobModel,
 )
 from app.domains.customers.schemas.memory import MemoryEventCreate, MemoryOperationCandidate
-from app.services import memory_repository
+from app.domains.customers.services import memory_repository
 from app.domains.customers.services.memory_consolidation_service import apply_memory_candidate
 from app.domains.customers.services.memory_event_service import append_memory_event, list_memory_events
 from app.domains.customers.services.memory_extraction_service import extract_memory_candidates
@@ -527,7 +527,7 @@ async def test_deterministic_extraction_uses_customer_and_commitment_evidence(me
 async def test_llm_candidate_still_requires_runtime_evidence_validation(
     memory_db, monkeypatch
 ):
-    from app.services import memory_extraction_service
+    from app.domains.customers.services import memory_extraction_service
 
     subject = _subject()
     customer = _append(

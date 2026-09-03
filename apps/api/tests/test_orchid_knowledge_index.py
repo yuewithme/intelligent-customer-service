@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import get_settings
 from app.infrastructure.database.models import Base, OrchidKnowledgeChunkModel
 from app.domains.catalog.orchid_products import knowledge_index
-from app.services import rag_service
+from app.domains.knowledge.services import rag_service
 
 
 def _reset_db(monkeypatch, tmp_path):

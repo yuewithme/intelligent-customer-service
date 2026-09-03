@@ -74,12 +74,6 @@ const TAG_PREFIX_TEXT: Record<string, Record<string, string>> = {
   risk: RISK_TEXT
 }
 
-export const intentText = (value?: string | null) =>
-  value ? INTENT_TEXT[value] || value : '-'
-
-export const salesStageText = (value?: string | null) =>
-  value ? SALES_STAGE_TEXT[value] || value : '-'
-
 export const riskLevelText = (value?: string | null) =>
   value ? RISK_TEXT[value] || value : '-'
 

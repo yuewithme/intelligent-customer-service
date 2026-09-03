@@ -41,7 +41,6 @@ def _reset_settings(monkeypatch, tmp_path, *, enabled: bool = True, auth: bool =
     monkeypatch.setenv("CHAT_LOG_PROVIDER", "sqlite")
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{db_path.as_posix()}")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{app_db_path.as_posix()}")
-    monkeypatch.setenv("CHAT_LOG_RETENTION_DAYS", "30")
     monkeypatch.setenv("CHAT_LOG_MAX_MESSAGE_LENGTH", "2000")
     monkeypatch.setenv("CHAT_LOG_MAX_ANSWER_LENGTH", "4000")
     monkeypatch.setenv("API_AUTH_ENABLED", "true" if auth else "false")
@@ -187,7 +186,8 @@ def test_admin_rag_debug_search_returns_candidates_reranked_docs_and_prompt_prev
     get_settings.cache_clear()
     import anyio
 
-    from app.services import embedding_service, qdrant_service
+    from app.domains.knowledge.services import embedding_service
+    from app.domains.knowledge.services import qdrant_service
 
     async def seed_points():
         qdrant_service._memory_points.clear()

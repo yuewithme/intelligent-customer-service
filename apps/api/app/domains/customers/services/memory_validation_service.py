@@ -10,28 +10,10 @@ from app.domains.customers.schemas.memory import (
     ValidatedMemoryOperation,
     validate_fact_value,
 )
-from app.domains.customers.services.memory_repository import get_memory_session
 
 
 class MemoryValidationError(ValueError):
     pass
-
-
-def validate_memory_candidate(
-    *,
-    tenant_id: str,
-    subject_id: str,
-    candidate: MemoryOperationCandidate | dict,
-    min_confidence: float = 0.85,
-) -> ValidatedMemoryOperation:
-    with get_memory_session() as session:
-        return validate_memory_candidate_in_session(
-            session,
-            tenant_id=tenant_id,
-            subject_id=subject_id,
-            candidate=candidate,
-            min_confidence=min_confidence,
-        )
 
 
 def validate_memory_candidate_in_session(

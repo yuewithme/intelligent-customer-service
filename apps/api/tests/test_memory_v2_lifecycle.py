@@ -18,7 +18,8 @@ from app.infrastructure.database.models import (
     UserProfileModel,
 )
 from app.domains.customers.schemas.memory import MemoryEventCreate, MemoryOperationCandidate
-from app.services import memory_repository, user_profile_service
+from app.domains.customers.services import memory_repository
+from app.domains.customers.services import user_profile_service
 from app.domains.knowledge.services.embedding_service import embed_text
 from app.domains.customers.services.memory_consolidation_service import apply_memory_candidate
 from app.domains.customers.services.memory_event_service import append_memory_event
@@ -402,7 +403,7 @@ async def test_subject_purge_removes_sql_vector_and_legacy_residue(memory_db):
 
 @pytest.mark.asyncio
 async def test_purge_fails_closed_when_vector_deletion_fails(memory_db, monkeypatch):
-    from app.services import memory_lifecycle_service
+    from app.domains.customers.services import memory_lifecycle_service
 
     subject = _subject()
     event = _event(subject, "event:retain", "保留")

@@ -76,7 +76,7 @@ apps/api/app/
 2. API 层调用 service；service 不得导入 API/router。
 3. 外部供应商协议只放在 `integrations`，领域模块不猜测供应商响应结构。
 4. 跨领域调用必须指向明确的领域 service/schema，不再通过全局平铺目录新增模块。
-5. `app/services` 与 `app/routers` 仅是旧测试和脚本的惰性兼容入口，禁止新增实现文件。
+5. 旧的 `app/services`、`app/routers` 与 `app/schemas` 平铺入口已移除；应用与测试都必须从现役领域或集成路径导入。
 6. 数据库模型暂时集中在 `infrastructure/database/models.py`。在引入正式迁移工具前，
    不按领域拆表模型，避免 SQLite 生产结构出现不可控漂移。
 

@@ -3,8 +3,8 @@ import json
 import pytest
 
 from app.core.config import get_settings
-from app.services import eyun_callback_service
-from app.services import link_card_thumbnail_service
+from app.integrations.eyun.services import eyun_callback_service
+from app.integrations.web.services import link_card_thumbnail_service
 from app.integrations.eyun.services.eyun_callback_service import send_eyun_link_card
 from app.integrations.eyun.services.message_risk_control_service import (
     _decode_outbound_content,

@@ -1,6 +1,6 @@
 def test_youzan_identity_store_persists_full_and_masked_mobile(monkeypatch, tmp_path):
     from app.core.config import get_settings
-    from app.services import youzan_identity_store as service
+    from app.integrations.youzan.services import youzan_identity_store as service
     from app.integrations.youzan.services.youzan_order_service import YouzanCustomerIdentity
 
     db_path = tmp_path / "youzan-identity.db"
