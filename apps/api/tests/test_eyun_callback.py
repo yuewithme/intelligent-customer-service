@@ -395,6 +395,36 @@ def test_private_system_event_is_classified_and_ignored(monkeypatch, tmp_path):
     assert response.status_code == 200
 
 
+def test_self_system_event_is_ignored_before_outbound_sync(monkeypatch, tmp_path):
+    from app.services import eyun_callback_service
+
+    _reset_settings(monkeypatch, tmp_path)
+
+    async def fail(*args, **kwargs):
+        pytest.fail(f"system event must not enter outbound sync: {args} {kwargs}")
+
+    monkeypatch.setattr(eyun_callback_service, "ensure_outbound_conversation_message", fail)
+    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fail)
+
+    response = TestClient(app).post(
+        "/wechat/callback",
+        json={
+            "messageType": "60999",
+            "wcId": "wxid_bot",
+            "data": {
+                "wId": "wid",
+                "fromUser": "wxid_bot",
+                "toUser": "wxid_customer",
+                "content": '<sysmsg type="dynacfg"><dynacfg /></sysmsg>',
+                "newMsgId": 108,
+                "self": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+
+
 def test_self_callback_confirms_queued_outbound_without_duplicate(
     monkeypatch, tmp_path
 ):

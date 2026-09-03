@@ -146,7 +146,17 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     if not str(data.get("fromGroup") or data.get("fromUser") or "").strip():
         return eyun_success()
 
-    if _is_self_message(data):
+    classification = classify_eyun_inbound(payload)
+    if classification.disposition == "ignore":
+        logger.info(
+            "Eyun system event ignored messageType=%s subtype=%s messageId=%s",
+            message_type,
+            classification.subtype,
+            _eyun_message_id(data),
+        )
+        return eyun_success()
+
+    if _is_self_message(payload, data):
         user_id = str(data.get("fromGroup") or data.get("toUser") or "").strip()
         if not user_id:
             return eyun_success()
@@ -174,16 +184,6 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             delivery_status="sent",
             route="self_outbound",
             metadata={**metadata, "origin": "wechat_client"},
-        )
-        return eyun_success()
-
-    classification = classify_eyun_inbound(payload)
-    if classification.disposition == "ignore":
-        logger.info(
-            "Eyun system event ignored messageType=%s subtype=%s messageId=%s",
-            message_type,
-            classification.subtype,
-            _eyun_message_id(data),
         )
         return eyun_success()
 
@@ -396,11 +396,28 @@ def _message_type_in_range(payload: dict[str, Any], start: int, end: int) -> boo
     return start <= message_type <= end
 
 
-def _is_self_message(data: dict[str, Any]) -> bool:
+def _is_self_message(payload: dict[str, Any], data: dict[str, Any]) -> bool:
     value = data.get("self")
     if isinstance(value, str):
-        return value.lower() == "true"
-    return bool(value)
+        if value.lower() == "true":
+            return True
+    elif bool(value):
+        return True
+
+    owner_wc_id = str(payload.get("wcId") or "").strip()
+    if not owner_wc_id:
+        settings = get_settings()
+        w_id = str(data.get("wId") or payload.get("wId") or "").strip()
+        if settings.eyun_wid.strip() and w_id == settings.eyun_wid.strip():
+            owner_wc_id = settings.eyun_wc_id.strip()
+    from_user = str(data.get("fromUser") or "").strip()
+    to_user = str(data.get("toUser") or "").strip()
+    return bool(
+        owner_wc_id
+        and from_user == owner_wc_id
+        and to_user
+        and to_user != owner_wc_id
+    )
 
 
 def _eyun_conversation_user_id(data: dict[str, Any]) -> str:
@@ -411,7 +428,7 @@ def _eyun_owner_wc_id(payload: dict[str, Any], data: dict[str, Any]) -> str:
     owner_wc_id = str(payload.get("wcId") or "").strip()
     if owner_wc_id:
         return owner_wc_id
-    if not _is_self_message(data):
+    if not _is_self_message(payload, data):
         return str(data.get("toUser") or "").strip()
     settings = get_settings()
     w_id = str(data.get("wId") or payload.get("wId") or "").strip()
