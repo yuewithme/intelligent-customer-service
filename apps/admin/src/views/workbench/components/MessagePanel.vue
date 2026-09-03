@@ -205,7 +205,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
   getConversationDetail,
@@ -372,6 +372,21 @@ const deliveryDetailText = (message: ConversationMessage) => {
 }
 
 const retryDelivery = async (message: ConversationMessage) => {
+  if (['unconfirmed', 'delivery_unknown'].includes(message.delivery_status || '')) {
+    try {
+      await ElMessageBox.confirm(
+        '这条消息可能已经送达，继续补发可能造成客户收到重复内容。确认仍要补发吗？',
+        '补发风险确认',
+        {
+          confirmButtonText: '确认补发',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }
+      )
+    } catch {
+      return
+    }
+  }
   retryingDeliveryIds.value = new Set(retryingDeliveryIds.value).add(message.id)
   try {
     await retryConversationMessageDelivery(message.id)
