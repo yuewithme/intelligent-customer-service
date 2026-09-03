@@ -362,6 +362,9 @@ class EyunOutboundMessageModel(Base):
     wc_id: Mapped[str] = mapped_column(String(256), index=True)
     content: Mapped[str] = mapped_column(Text)
     source_batch_key: Mapped[str | None] = mapped_column(String(512), index=True, nullable=True)
+    delivery_key: Mapped[str | None] = mapped_column(
+        String(512), unique=True, index=True, nullable=True
+    )
     conversation_message_id: Mapped[int | None] = mapped_column(
         Integer, index=True, nullable=True
     )

@@ -9,7 +9,9 @@ from app.infrastructure.database.models import (
     AgentWakeupModel,
     ConversationMessageModel,
     EyunContactModel,
+    EyunOutboundDeliveryEventModel,
     EyunOutboundMessageModel,
+    EyunOutboundProviderMessageIdModel,
     UserProfileModel,
 )
 
@@ -405,12 +407,12 @@ def test_touch_delivery_stats_expose_failure_details(monkeypatch, tmp_path):
         )
         session.commit()
     with service._chat_session() as session:
-        session.add(
-            EyunOutboundMessageModel(
+        outbound = EyunOutboundMessageModel(
                 w_id="wid-1",
                 wc_id="customer-91",
                 content="image",
                 source_batch_key="service_material_touch:91",
+                delivery_key="service_material_touch:91:media",
                 status="failed",
                 priority=20,
                 due_at=now,
@@ -419,6 +421,32 @@ def test_touch_delivery_stats_expose_failure_details(monkeypatch, tmp_path):
                 created_at=now,
                 updated_at=now,
             )
+        session.add(outbound)
+        session.flush()
+        session.add(
+            EyunOutboundProviderMessageIdModel(
+                outbound_message_id=outbound.id,
+                w_id="wid-1",
+                wc_id="customer-91",
+                provider_message_id="provider-91",
+                source="send_response",
+                created_at=now,
+            )
+        )
+        session.add(
+            EyunOutboundDeliveryEventModel(
+                outbound_message_id=outbound.id,
+                source_batch_key="service_material_touch:91",
+                event="send_failed",
+                status_from="sending",
+                status_to="failed",
+                attempt=4,
+                provider_code="2001",
+                provider_message_id="provider-91",
+                error="provider failed",
+                metadata_json="{}",
+                created_at=now,
+            )
         )
         session.commit()
 
@@ -426,7 +454,11 @@ def test_touch_delivery_stats_expose_failure_details(monkeypatch, tmp_path):
     assert stats["task_statuses"] == {"failed": 1}
     assert stats["outbound_statuses"] == {"failed": 1}
     assert stats["attention_count"] == 1
-    assert stats["items"][0]["messages"][0]["last_error"] == "provider failed"
+    message = stats["items"][0]["messages"][0]
+    assert message["last_error"] == "provider failed"
+    assert message["delivery_key"] == "service_material_touch:91:media"
+    assert message["provider_message_ids"] == ["provider-91"]
+    assert message["events"][0]["event"] == "send_failed"
 
 
 @pytest.mark.asyncio

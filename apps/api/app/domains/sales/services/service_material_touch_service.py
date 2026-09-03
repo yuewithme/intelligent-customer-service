@@ -21,7 +21,9 @@ from app.infrastructure.database.models import (
     AgentWakeupModel,
     Base,
     EyunContactModel,
+    EyunOutboundDeliveryEventModel,
     EyunOutboundMessageModel,
+    EyunOutboundProviderMessageIdModel,
     UserProfileModel,
 )
 
@@ -423,6 +425,7 @@ async def _process_service_material_touch(
                 wc_id=customer_id,
                 content=content,
                 source_batch_key=batch_key,
+                delivery_key=f"{batch_key}:{message_role}",
                 message_type=message_type,
                 material_id=material_id,
                 conversation_message_id=workbench_message_ids[message_role],
@@ -619,6 +622,8 @@ def get_service_material_touch_delivery_stats(
         )
     batch_keys = [f"service_material_touch:{row.id}" for row in tasks]
     outbound_by_batch: dict[str, list[EyunOutboundMessageModel]] = defaultdict(list)
+    provider_ids_by_outbound: dict[int, list[str]] = defaultdict(list)
+    events_by_outbound: dict[int, list[EyunOutboundDeliveryEventModel]] = defaultdict(list)
     if batch_keys:
         with _chat_session() as session:
             outbound_rows = list(
@@ -628,8 +633,43 @@ def get_service_material_touch_delivery_stats(
                     )
                 )
             )
+            outbound_ids = [outbound.id for outbound in outbound_rows]
+            aliases = (
+                list(
+                    session.scalars(
+                        select(EyunOutboundProviderMessageIdModel).where(
+                            EyunOutboundProviderMessageIdModel.outbound_message_id.in_(
+                                outbound_ids
+                            )
+                        )
+                    )
+                )
+                if outbound_ids
+                else []
+            )
+            delivery_events = (
+                list(
+                    session.scalars(
+                        select(EyunOutboundDeliveryEventModel)
+                        .where(
+                            EyunOutboundDeliveryEventModel.outbound_message_id.in_(
+                                outbound_ids
+                            )
+                        )
+                        .order_by(EyunOutboundDeliveryEventModel.created_at.asc())
+                    )
+                )
+                if outbound_ids
+                else []
+            )
         for outbound in outbound_rows:
             outbound_by_batch[str(outbound.source_batch_key or "")].append(outbound)
+        for alias in aliases:
+            provider_ids_by_outbound[alias.outbound_message_id].append(
+                alias.provider_message_id
+            )
+        for event in delivery_events:
+            events_by_outbound[event.outbound_message_id].append(event)
     task_statuses = Counter(row.status for row in tasks)
     outbound_statuses = Counter(
         outbound.status
@@ -673,11 +713,28 @@ def get_service_material_touch_delivery_stats(
                 "messages": [
                     {
                         "outbound_id": outbound.id,
+                        "delivery_key": outbound.delivery_key,
                         "conversation_message_id": outbound.conversation_message_id,
                         "status": outbound.status,
                         "attempts": outbound.attempts,
+                        "provider_message_ids": provider_ids_by_outbound.get(
+                            outbound.id, []
+                        ),
                         "last_error": outbound.last_error,
                         "updated_at": _iso(outbound.updated_at),
+                        "events": [
+                            {
+                                "event": event.event,
+                                "status_from": event.status_from,
+                                "status_to": event.status_to,
+                                "attempt": event.attempt,
+                                "provider_code": event.provider_code,
+                                "provider_message_id": event.provider_message_id,
+                                "error": event.error,
+                                "created_at": _iso(event.created_at),
+                            }
+                            for event in events_by_outbound.get(outbound.id, [])[-20:]
+                        ],
                     }
                     for outbound in outbound_rows
                 ],
@@ -795,8 +852,20 @@ def _chat_session() -> Session:
     url = get_settings().chat_log_db_url
     factory = _chat_factories.get(url)
     if factory is None:
+        from app.integrations.eyun.services.message_risk_control_service import (
+            ensure_eyun_delivery_storage,
+        )
+
+        ensure_eyun_delivery_storage()
         engine = create_engine(url)
-        Base.metadata.create_all(engine, tables=[EyunOutboundMessageModel.__table__])
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                EyunOutboundMessageModel.__table__,
+                EyunOutboundDeliveryEventModel.__table__,
+                EyunOutboundProviderMessageIdModel.__table__,
+            ],
+        )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _chat_factories[url] = factory
     return factory()

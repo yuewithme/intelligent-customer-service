@@ -80,6 +80,9 @@
             <small v-if="message.metadata.delivery_error" class="delivery-error">
               {{ message.metadata.delivery_error }}
             </small>
+            <small v-if="deliveryDetailText(message)" class="delivery-detail">
+              {{ deliveryDetailText(message) }}
+            </small>
             <small v-if="isPrivateFile(message)" class="file-network-hint">
               文件名已识别，原文件请在微信中查看
             </small>
@@ -355,6 +358,18 @@ const canRetryDelivery = (message: ConversationMessage) =>
   ['failed', 'cancelled', 'waiting_material', 'unconfirmed', 'delivery_unknown'].includes(
     message.delivery_status || ''
   )
+
+const deliveryDetailText = (message: ConversationMessage) => {
+  const attempts = Number(message.metadata.delivery_attempts || 0)
+  const rawIds = message.metadata.provider_message_ids
+  const providerIds = Array.isArray(rawIds)
+    ? rawIds.map(value => String(value)).filter(Boolean)
+    : []
+  const parts: string[] = []
+  if (attempts > 0) parts.push(`发送尝试 ${attempts} 次`)
+  if (providerIds.length) parts.push(`亿云 ID：${providerIds.join('、')}`)
+  return parts.join(' · ')
+}
 
 const retryDelivery = async (message: ConversationMessage) => {
   retryingDeliveryIds.value = new Set(retryingDeliveryIds.value).add(message.id)
@@ -748,6 +763,13 @@ p {
   display: block;
   margin-bottom: 4px;
   color: var(--el-color-danger);
+  overflow-wrap: anywhere;
+}
+
+.delivery-detail {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--el-text-color-secondary);
   overflow-wrap: anywhere;
 }
 

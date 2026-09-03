@@ -1330,6 +1330,7 @@ def update_outbound_message_delivery(
     provider_message_id: str | None = None,
     sent_at: datetime | None = None,
     error: str | None = None,
+    delivery_metadata: dict[str, Any] | None = None,
 ) -> None:
     with _get_session() as session:
         message = session.get(ConversationMessageModel, conversation_message_id)
@@ -1364,6 +1365,8 @@ def update_outbound_message_delivery(
             metadata["delivery_error"] = str(error)[:2000]
         elif status in {"queued", "sending", "accepted", "confirmed"}:
             metadata.pop("delivery_error", None)
+        if delivery_metadata:
+            metadata.update(delivery_metadata)
         message.metadata_json = json.dumps(metadata, ensure_ascii=False)
         session.commit()
         conversation_id = message.conversation_id

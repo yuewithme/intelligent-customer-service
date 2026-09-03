@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import create_engine, inspect, or_, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -136,6 +137,24 @@ def _sync_conversation_delivery_from_bundle(
             )
         )
         statuses = [bundle_row.status for bundle_row in bundle_rows]
+        bundle_row_ids = [bundle_row.id for bundle_row in bundle_rows]
+        provider_message_ids = list(
+            session.scalars(
+                select(EyunOutboundProviderMessageIdModel.provider_message_id).where(
+                    EyunOutboundProviderMessageIdModel.outbound_message_id.in_(
+                        bundle_row_ids
+                    )
+                )
+            )
+        )
+        latest_event = session.scalar(
+            select(EyunOutboundDeliveryEventModel)
+            .where(
+                EyunOutboundDeliveryEventModel.outbound_message_id.in_(bundle_row_ids)
+            )
+            .order_by(EyunOutboundDeliveryEventModel.id.desc())
+            .limit(1)
+        )
         delivery_error = next(
             (
                 str(bundle_row.last_error)
@@ -182,6 +201,14 @@ def _sync_conversation_delivery_from_bundle(
         ),
         sent_at=(sent_at if aggregate == "confirmed" else None),
         error=delivery_error,
+        delivery_metadata={
+            "delivery_attempts": sum(
+                int(bundle_row.attempts or 0) for bundle_row in bundle_rows
+            ),
+            "delivery_key": row.delivery_key,
+            "provider_message_ids": provider_message_ids,
+            "last_delivery_event": latest_event.event if latest_event else None,
+        },
     )
 
 
@@ -674,6 +701,7 @@ async def enqueue_wechat_outbound(
     wc_id: str,
     content: str,
     source_batch_key: str | None,
+    delivery_key: str | None = None,
     message_type: str = "text",
     conversation_message_id: int | None = None,
     depends_on_outbound_id: int | None = None,
@@ -691,6 +719,17 @@ async def enqueue_wechat_outbound(
     source_id: str | None = None,
     delivery_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    normalized_delivery_key = str(delivery_key or "").strip() or None
+    if normalized_delivery_key:
+        with _get_session() as session:
+            existing = session.scalar(
+                select(EyunOutboundMessageModel).where(
+                    EyunOutboundMessageModel.delivery_key
+                    == normalized_delivery_key
+                )
+            )
+            if existing is not None:
+                return _outbound_to_dict(existing)
     original_message_type = message_type
     original_content = content
     if conversation_message_id is None:
@@ -749,6 +788,7 @@ async def enqueue_wechat_outbound(
             wc_id=wc_id,
             content=_encode_outbound_content(message_type, content),
             source_batch_key=source_batch_key,
+            delivery_key=normalized_delivery_key,
             conversation_message_id=conversation_message_id,
             depends_on_outbound_id=depends_on_outbound_id,
             material_id=material_id,
@@ -778,6 +818,19 @@ async def enqueue_wechat_outbound(
             session.commit()
             session.refresh(row)
             return _outbound_to_dict(row)
+    except IntegrityError:
+        if normalized_delivery_key:
+            with _get_session() as session:
+                existing = session.scalar(
+                    select(EyunOutboundMessageModel).where(
+                        EyunOutboundMessageModel.delivery_key
+                        == normalized_delivery_key
+                    )
+                )
+                if existing is not None:
+                    return _outbound_to_dict(existing)
+        update_outbound_message_delivery(conversation_message_id, status="failed")
+        raise
     except Exception:
         update_outbound_message_delivery(conversation_message_id, status="failed")
         raise
@@ -789,6 +842,7 @@ async def enqueue_eyun_outbound(
     wc_id: str,
     content: str,
     source_batch_key: str | None,
+    delivery_key: str | None = None,
     message_type: str = "text",
     conversation_message_id: int | None = None,
     depends_on_outbound_id: int | None = None,
@@ -803,6 +857,7 @@ async def enqueue_eyun_outbound(
         wc_id=wc_id,
         content=content,
         source_batch_key=source_batch_key,
+        delivery_key=delivery_key,
         message_type=message_type,
         conversation_message_id=conversation_message_id,
         depends_on_outbound_id=depends_on_outbound_id,
@@ -2360,6 +2415,11 @@ def _get_session() -> Session:
     return factory()
 
 
+def ensure_eyun_delivery_storage() -> None:
+    with _get_session():
+        pass
+
+
 def _ensure_risk_control_columns(factory: sessionmaker) -> None:
     with factory() as session:
         bind = session.get_bind()
@@ -2396,6 +2456,20 @@ def _ensure_risk_control_columns(factory: sessionmaker) -> None:
                     "ADD COLUMN priority INTEGER NOT NULL DEFAULT 50"
                 )
             )
+        if "delivery_key" not in outbound_columns:
+            session.execute(
+                text(
+                    "ALTER TABLE eyun_outbound_messages "
+                    "ADD COLUMN delivery_key VARCHAR(512)"
+                )
+            )
+        session.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "ix_eyun_outbound_messages_delivery_key "
+                "ON eyun_outbound_messages (delivery_key)"
+            )
+        )
         opening_control_columns = {
             column["name"]
             for column in inspect(bind).get_columns("eyun_opening_controls")
@@ -2430,6 +2504,23 @@ def _ensure_risk_control_columns(factory: sessionmaker) -> None:
                 "CREATE INDEX IF NOT EXISTS "
                 "ix_eyun_outbound_delivery_events_provider_message_id "
                 "ON eyun_outbound_delivery_events (provider_message_id)"
+            )
+        )
+        session.execute(
+            text(
+                "UPDATE eyun_outbound_messages "
+                "SET status = 'unconfirmed', "
+                "last_error = '亿云已受理但未收到自身消息确认，需人工核验' "
+                "WHERE status = 'queued' AND id IN ("
+                "SELECT event.outbound_message_id "
+                "FROM eyun_outbound_delivery_events AS event "
+                "WHERE event.event = 'confirmation_timeout_retry_scheduled' "
+                "AND event.id = ("
+                "SELECT MAX(latest.id) "
+                "FROM eyun_outbound_delivery_events AS latest "
+                "WHERE latest.outbound_message_id = event.outbound_message_id"
+                ")"
+                ")"
             )
         )
         session.commit()
@@ -2472,6 +2563,7 @@ def _outbound_to_dict(row: EyunOutboundMessageModel) -> dict[str, Any]:
         "wc_id": row.wc_id,
         "content": row.content,
         "source_batch_key": row.source_batch_key,
+        "delivery_key": row.delivery_key,
         "conversation_message_id": row.conversation_message_id,
         "depends_on_outbound_id": row.depends_on_outbound_id,
         "material_id": row.material_id,
