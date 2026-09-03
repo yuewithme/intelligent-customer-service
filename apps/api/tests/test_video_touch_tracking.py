@@ -37,6 +37,15 @@ def _create_link():
     )
 
 
+def test_production_tracking_host_is_always_https(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+
+    assert (
+        tracking._public_base_url("http://sales-agent.hzwohu.com")
+        == "https://sales-agent.hzwohu.com"
+    )
+
+
 def test_preview_does_not_count_and_play_sessions_are_deduplicated(
     monkeypatch, tmp_path
 ):

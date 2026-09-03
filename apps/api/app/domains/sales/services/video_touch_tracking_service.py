@@ -341,6 +341,8 @@ def _public_base_url(override: str = "") -> str:
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("VIDEO_TOUCH_PUBLIC_BASE_URL 未配置为可用的 HTTP(S) 地址")
+    if parsed.hostname == "sales-agent.hzwohu.com":
+        value = f"https://{parsed.netloc}"
     return value
 
 
