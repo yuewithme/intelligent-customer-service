@@ -1238,7 +1238,7 @@ async def test_provider_callback_confirms_accepted_outbound(monkeypatch):
         assert timestamps["confirmed_at"]
 
 
-def test_stale_accepted_outbound_is_retried_then_failed(monkeypatch):
+def test_stale_accepted_outbound_requires_manual_review_without_resend(monkeypatch):
     from app.integrations.eyun.services import message_risk_control_service as service
 
     monkeypatch.setenv("EYUN_SEND_MAX_ATTEMPTS", "4")
@@ -1265,20 +1265,11 @@ def test_stale_accepted_outbound_is_retried_then_failed(monkeypatch):
     assert service.recover_stale_eyun_outbound_deliveries(now=now) == 1
     with service._get_session() as session:
         outbound = session.get(EyunOutboundMessageModel, outbound_id)
-        assert outbound.status == "queued"
-        assert outbound.due_at.replace(tzinfo=timezone.utc) == now + timedelta(
-            minutes=1
-        )
-        outbound.status = "accepted"
-        outbound.attempts = 4
-        outbound.updated_at = now - timedelta(minutes=3)
-        session.commit()
+        assert outbound.status == "unconfirmed"
+        assert outbound.attempts == 1
+        assert "人工核验" in outbound.last_error
 
-    assert service.recover_stale_eyun_outbound_deliveries(now=now) == 1
-    with service._get_session() as session:
-        outbound = session.get(EyunOutboundMessageModel, outbound_id)
-        assert outbound.status == "failed"
-        assert "未收到自身消息确认" in outbound.last_error
+    assert service.recover_stale_eyun_outbound_deliveries(now=now) == 0
 
 
 @pytest.mark.asyncio

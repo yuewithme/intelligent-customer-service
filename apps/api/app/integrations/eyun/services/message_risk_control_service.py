@@ -888,15 +888,9 @@ def recover_stale_eyun_outbound_deliveries(
         )
         for row in rows:
             previous_status = row.status
-            if row.attempts >= settings.eyun_send_max_attempts:
-                row.status = "failed"
-                row.last_error = "亿云已受理但未收到自身消息确认"
-                event = "confirmation_timeout_failed"
-            else:
-                row.status = "queued"
-                row.due_at = current + _outbound_retry_delay(row.attempts)
-                row.last_error = "亿云已受理但未收到自身消息确认，已安排补发"
-                event = "confirmation_timeout_retry_scheduled"
+            row.status = "unconfirmed"
+            row.last_error = "亿云已受理但未收到自身消息确认，需人工核验"
+            event = "confirmation_timeout_unconfirmed"
             row.updated_at = current
             _record_outbound_delivery_event(
                 session,
