@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import secrets
 from urllib.parse import quote
 
@@ -56,33 +57,22 @@ async def video_touch_landing(token: str) -> HTMLResponse:
   <title>{safe_title}</title>
   <style>
     html,body{{height:100%;margin:0;background:#000;color:#fff}}
-    body{{overflow:hidden;font:14px system-ui,sans-serif}}
-    video{{display:block;width:100%;height:100%;object-fit:contain;background:#000}}
-    .manual{{position:fixed;inset:0;margin:auto;width:88px;height:42px;border:0;
-      border-radius:21px;background:rgba(0,0,0,.72);color:#fff;font-size:15px}}
+    body{{display:grid;place-items:center;font:14px system-ui,sans-serif}}
+    .loading{{opacity:.72}}
   </style>
 </head>
 <body>
-  <video id="player" src="{html.escape(play_path, quote=True)}" autoplay controls
-    playsinline webkit-playsinline="true" x5-playsinline="true"
-    x5-video-player-type="h5-page" preload="auto"></video>
-  <button id="manual" class="manual" type="button" hidden>点击播放</button>
+  <div class="loading">正在打开视频…</div>
+  <noscript><a href="{html.escape(play_path, quote=True)}">点击播放视频</a></noscript>
   <script>
     (() => {{
-      const player = document.getElementById('player');
-      const manual = document.getElementById('manual');
+      let started = false;
       const play = () => {{
-        if (document.visibilityState !== 'visible') return;
-        const result = player.play();
-        if (result && typeof result.catch === 'function') {{
-          result.catch(() => {{ manual.hidden = false; }});
-        }}
+        if (started || document.visibilityState !== 'visible') return;
+        started = true;
+        window.location.replace({json.dumps(play_path)});
       }};
-      player.addEventListener('playing', () => {{ manual.hidden = true; }});
-      manual.addEventListener('click', play);
-      document.addEventListener('DOMContentLoaded', play);
       document.addEventListener('visibilitychange', play);
-      document.addEventListener('WeixinJSBridgeReady', play);
       window.addEventListener('pageshow', play);
       play();
     }})();
@@ -95,8 +85,7 @@ async def video_touch_landing(token: str) -> HTMLResponse:
             "Cache-Control": "no-store",
             "Content-Security-Policy": (
                 "default-src 'none'; style-src 'unsafe-inline'; "
-                "script-src 'unsafe-inline'; media-src 'self'; "
-                "base-uri 'none'; frame-ancestors 'none'"
+                "script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
             ),
             "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff",

@@ -126,9 +126,7 @@ def test_public_landing_streams_video_and_reuses_one_play_session(
 
     landing = client.get(f"/v/{link['token']}")
     assert landing.status_code == 200
-    assert '<video id="player"' in landing.text
-    assert "autoplay controls" in landing.text
-    assert "WeixinJSBridgeReady" in landing.text
+    assert "window.location.replace" in landing.text
     assert tracking.get_video_touch_test(link["id"])["open_count"] == 0
     play_session = re.search(r"session=([A-Za-z0-9_-]+)", landing.text).group(1)
 
@@ -160,12 +158,13 @@ async def test_test_sender_queues_link_card_without_changing_native_video_flow(
             "format": "video",
             "url": "https://media.example.test/video.mp4",
             "thumb_url": "https://media.example.test/video.jpg",
+            "copy_text": "这是一条已审核的养兰视频文案。",
         },
     )
-    captured = {}
+    captured = []
 
     async def fake_enqueue(**kwargs):
-        captured.update(kwargs)
+        captured.append(kwargs)
         now = datetime.now(timezone.utc)
         with tracking._session() as session:
             row = EyunOutboundMessageModel(
@@ -174,7 +173,8 @@ async def test_test_sender_queues_link_card_without_changing_native_video_flow(
                 content=kwargs["content"],
                 source_batch_key=kwargs["source_batch_key"],
                 delivery_key=kwargs["delivery_key"],
-                conversation_message_id=77,
+                conversation_message_id=77 + len(captured),
+                depends_on_outbound_id=kwargs.get("depends_on_outbound_id"),
                 status="queued",
                 priority=100,
                 due_at=now,
@@ -185,7 +185,10 @@ async def test_test_sender_queues_link_card_without_changing_native_video_flow(
             session.add(row)
             session.commit()
             session.refresh(row)
-            return {"id": row.id, "conversation_message_id": 77}
+            return {
+                "id": row.id,
+                "conversation_message_id": row.conversation_message_id,
+            }
 
     monkeypatch.setattr(risk, "enqueue_wechat_outbound", fake_enqueue)
     result = await tracking.enqueue_video_touch_test(
@@ -194,8 +197,10 @@ async def test_test_sender_queues_link_card_without_changing_native_video_flow(
         wc_id="filehelper",
     )
 
-    assert captured["message_type"] == "link_card"
-    card = json.loads(captured["content"])
+    assert [item["message_type"] for item in captured] == ["text", "link_card"]
+    assert captured[0]["content"] == "这是一条已审核的养兰视频文案。"
+    assert captured[1]["depends_on_outbound_id"] == 1
+    card = json.loads(captured[1]["content"])
     assert card["url"].startswith("https://sales.example.test/v/")
     assert card["thumb_url"] == "https://media.example.test/video.jpg"
     assert result["delivery_status"] == "queued"

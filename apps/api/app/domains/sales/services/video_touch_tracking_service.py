@@ -43,8 +43,11 @@ async def enqueue_video_touch_test(
         raise ValueError("测试触达只支持视频素材")
     target_url = str(media.get("url") or "").strip()
     thumb_url = str(media.get("thumb_url") or "").strip()
+    copy_text = str(media.get("copy_text") or "").strip()
     if not target_url or not thumb_url:
         raise ValueError("视频素材缺少播放地址或封面")
+    if not copy_text:
+        raise ValueError("视频素材缺少已审核文案")
     _validate_target_url(target_url)
 
     settings = get_settings()
@@ -81,6 +84,26 @@ async def enqueue_video_touch_test(
     )
 
     try:
+        copy_outbound = await enqueue_wechat_outbound(
+            w_id=resolved_w_id,
+            wc_id=resolved_wc_id,
+            content=copy_text,
+            source_batch_key=source_batch_key,
+            delivery_key=f"{source_batch_key}:copy",
+            message_type="text",
+            channel="wechat",
+            user_id=resolved_wc_id,
+            session_id="default",
+            sender_type="system",
+            sender_id=_SOURCE_TYPE,
+            source_type=_SOURCE_TYPE,
+            source_id=str(link["id"]),
+            delivery_metadata={
+                "message_role": "copy",
+                "material_ref": link["material_ref"],
+                "video_touch_link_id": link["id"],
+            },
+        )
         outbound = await enqueue_wechat_outbound(
             w_id=resolved_w_id,
             wc_id=resolved_wc_id,
@@ -95,6 +118,7 @@ async def enqueue_video_touch_test(
             sender_id=_SOURCE_TYPE,
             source_type=_SOURCE_TYPE,
             source_id=str(link["id"]),
+            depends_on_outbound_id=int(copy_outbound["id"]),
             delivery_metadata={
                 "message_role": "video_card",
                 "material_ref": link["material_ref"],
@@ -112,6 +136,10 @@ async def enqueue_video_touch_test(
     result = get_video_touch_test(link["id"])
     if result is None:
         raise RuntimeError("视频触达测试记录创建失败")
+    result["copy_outbound_message_id"] = int(copy_outbound["id"])
+    result["copy_conversation_message_id"] = int(
+        copy_outbound["conversation_message_id"]
+    )
     return result
 
 
