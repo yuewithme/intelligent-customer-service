@@ -23,6 +23,9 @@ from app.domains.conversations.services.state_service import (
 from app.domains.customers.services.memory_rollout_service import (
     prepare_memory_context_for_request,
 )
+from app.domains.customers.services.customer_level_service import (
+    prompt_blocks_for_customer_level_labels,
+)
 from app.domains.customers.services.user_profile_service import (
     append_conversation_memory,
     get_profile_bundle,
@@ -40,6 +43,10 @@ from app.domains.decisioning.services.customer_reply_formatter import (
 from app.domains.sales.services.service_material_touch_service import (
     get_agent_relationship_state,
     record_agent_relationship_state,
+)
+from app.domains.sales.services.business_tag_prompt_service import (
+    get_business_tag_prompt_block_ids,
+    get_prompt_blocks,
 )
 from app.shared.schemas.common import AppError, ErrorCode
 
@@ -337,8 +344,24 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
             profile_view.pop("basic_info", None)
     memory_context = user_state.metadata.get("memory_v2_context")
     relationship = get_agent_relationship_state(message.user_id)
+    customer_tags = profile_view.get("customer_tags")
+    customer_tags = customer_tags if isinstance(customer_tags, list) else []
+    tag_block_ids = list(
+        dict.fromkeys(
+            [
+                *prompt_blocks_for_customer_level_labels(customer_tags),
+                *get_business_tag_prompt_block_ids(customer_tags),
+            ]
+        )
+    )
+    tag_blocks = get_prompt_blocks(tag_block_ids)
     workspace = {
         "profile": profile_view,
+        "tag_guidance": [
+            tag_blocks[block_id]
+            for block_id in tag_block_ids
+            if tag_blocks.get(block_id)
+        ],
         "recent_turns": [
             {
                 "role": item.get("role"),

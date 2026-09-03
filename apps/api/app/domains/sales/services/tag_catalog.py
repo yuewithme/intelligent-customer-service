@@ -1,4 +1,6 @@
+import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,6 +14,7 @@ from app.infrastructure.database.models import (
     TagCategoryModel,
     TagDefinitionModel,
     TagPromptBindingModel,
+    UserProfileModel,
 )
 from app.domains.sales.schemas.tag import TagResult
 
@@ -51,13 +54,15 @@ TAG_CATEGORIES: dict[str, TagCategory] = {
         name="养兰数量",
         prompt_rule="Use collection size to decide whether to explain basics or optimize care/selection efficiency.",
         values=(
-            TagValue("1-10盆", "orchid_quantity.small_collection"),
-            TagValue("10-30盆", "orchid_quantity.small_collection"),
-            TagValue("30-50盆", "orchid_quantity.medium_collection"),
-            TagValue("50-100盆", "orchid_quantity.medium_collection"),
-            TagValue("100-200盆", "orchid_quantity.large_collection"),
-            TagValue("200+盆", "orchid_quantity.large_collection"),
-            TagValue("1000+盆", "orchid_quantity.large_collection"),
+            TagValue("准备养兰", "orchid_quantity.small_collection"),
+            TagValue("1-9盆", "orchid_quantity.small_collection"),
+            TagValue("10-29盆", "orchid_quantity.small_collection"),
+            TagValue("30-49盆", "orchid_quantity.medium_collection"),
+            TagValue("50-99盆", "orchid_quantity.medium_collection"),
+            TagValue("100-199盆", "orchid_quantity.large_collection"),
+            TagValue("200-499盆", "orchid_quantity.large_collection"),
+            TagValue("500-999盆", "orchid_quantity.large_collection"),
+            TagValue("1000盆以上", "orchid_quantity.large_collection"),
         ),
     ),
     "province": TagCategory(
@@ -97,7 +102,11 @@ TAG_CATEGORIES: dict[str, TagCategory] = {
                 "宁夏",
                 "新疆",
                 "西藏自治区",
-                "广西省",
+                "广西壮族自治区",
+                "香港",
+                "澳门",
+                "台湾",
+                "海外",
             ]
         ),
     ),
@@ -107,7 +116,74 @@ TAG_CATEGORIES: dict[str, TagCategory] = {
         prompt_rule="Use preferred orchid type to keep recommendations and examples aligned with the user's taste.",
         values=tuple(
             TagValue(name, "preference.orchid_variety")
-            for name in ["春兰", "建兰", "墨兰", "寒兰", "蕙兰", "莲瓣兰", "春剑", "大花蕙兰等花大色漂亮的"]
+            for name in [
+                "春兰",
+                "建兰",
+                "墨兰",
+                "寒兰",
+                "蕙兰",
+                "莲瓣兰",
+                "春剑",
+                "豆瓣兰",
+                "大花蕙兰等花大色漂亮的",
+                "小众品类（送春、秋芝等）",
+                "品类不限",
+            ]
+        ),
+        exclusive=False,
+    ),
+    "product_demand": TagCategory(
+        id="product_demand",
+        name="产品需求分类",
+        prompt_rule="Use explicit product preferences to rank matching products without treating them as purchase intent.",
+        values=tuple(
+            TagValue(name)
+            for name in [
+                "色花（红、黄、复色等，不含红素）",
+                "素花（绿白黄素心，不含红素）",
+                "红素",
+                "奇花（多瓣、蝶瓣、三星蝶）",
+                "艺草（虎斑、蛇斑、线艺、缟艺）",
+                "梅瓣",
+                "荷瓣",
+                "水仙瓣及其他瓣型",
+                "浓香",
+                "清香",
+                "矮种",
+                "半垂叶",
+                "直立叶",
+                "花大色艳",
+                "好养易活",
+                "勤花易开",
+                "需求不限",
+            ]
+        ),
+        exclusive=False,
+    ),
+    "price_range": TagCategory(
+        id="price_range",
+        name="价格接受范围",
+        prompt_rule="Use the latest explicit budget as a recommendation constraint; do not pressure the customer above it.",
+        values=tuple(
+            TagValue(name)
+            for name in [
+                "50元以内",
+                "51-100元",
+                "101-200元",
+                "201-500元",
+                "501-999元",
+                "1000元以上",
+                "价格不限",
+            ]
+        ),
+    ),
+    "growing_environment": TagCategory(
+        id="growing_environment",
+        name="养兰环境",
+        prompt_rule="Use the customer's actual growing environment for product fit and care advice; never infer it from province alone.",
+        values=tuple(
+            TagValue(name)
+            for name in ["阳台", "室内", "庭院/露台", "室外露养", "有兰棚"]
         ),
     ),
     "purchase_status": TagCategory(
@@ -188,7 +264,39 @@ SYSTEM_TAG_PREFIXES = {
     "product_interest": "product_interest:",
 }
 PURCHASE_TAG_VALUES = frozenset({"抖音已购", "微信已购"})
-_CATALOG_VERSION = "6"
+_CATALOG_VERSION = "7"
+
+_V7_TAG_RENAMES = {
+    ("orchid_quantity", "1-10盆"): "1-9盆",
+    ("orchid_quantity", "10-30盆"): "10-29盆",
+    ("orchid_quantity", "30-50盆"): "30-49盆",
+    ("orchid_quantity", "50-100盆"): "50-99盆",
+    ("orchid_quantity", "100-200盆"): "100-199盆",
+    ("orchid_quantity", "200+盆"): "200-499盆",
+    ("orchid_quantity", "500+盆"): "500-999盆",
+    ("orchid_quantity", "800+盆"): "500-999盆",
+    ("orchid_quantity", "1000+盆"): "1000盆以上",
+    ("orchid_quantity", "2000+盆"): "1000盆以上",
+    ("province", "广西省"): "广西壮族自治区",
+    ("favorite_orchid_type", "小众品类（送春秋芝等）"): "小众品类（送春、秋芝等）",
+    ("product_demand", "色花（红素、红、黄、复色花等）"): "色花（红、黄、复色等，不含红素）",
+    ("product_demand", "素花（绿白黄素心、素雅绿色）"): "素花（绿白黄素心，不含红素）",
+    ("product_demand", "红素（不包含其他的色花）"): "红素",
+    ("product_demand", "水仙瓣及其他"): "水仙瓣及其他瓣型",
+    ("growing_environment", "阳台党"): "阳台",
+    ("growing_environment", "室外"): "室外露养",
+}
+
+_V7_TAG_MOVES = {
+    ("product_demand", "接受50元以内"): ("price_range", "50元以内"),
+    ("product_demand", "50元以内"): ("price_range", "50元以内"),
+    ("product_demand", "接受50-100以内"): ("price_range", "51-100元"),
+    ("product_demand", "50-100以内"): ("price_range", "51-100元"),
+    ("product_demand", "100-200以内"): ("price_range", "101-200元"),
+    ("product_demand", "200-500以内"): ("price_range", "201-500元"),
+    ("product_demand", "500以上"): ("price_range", "501-999元"),
+    ("product_demand", "1000+"): ("price_range", "1000元以上"),
+}
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -200,6 +308,7 @@ _tables = [
     PromptBlockModel.__table__,
     CustomerLevelPromptBindingModel.__table__,
     TagPromptBindingModel.__table__,
+    UserProfileModel.__table__,
 ]
 
 
@@ -286,13 +395,207 @@ def _ensure_seeded() -> None:
                     )
                 )
         if count and (marker is None or marker.value != _CATALOG_VERSION):
-            _seed_missing_value(session, "province", "海南省")
+            _upgrade_profile_catalog_v7(session)
             _remove_retired_categories(session, {"intent", "sales_stage"})
         if marker is None:
             session.add(TagCatalogMetaModel(key="seed_version", value=_CATALOG_VERSION))
         else:
             marker.value = _CATALOG_VERSION
         session.commit()
+
+
+def _upgrade_profile_catalog_v7(session: Session) -> None:
+    for (category_id, old_value), new_value in _V7_TAG_RENAMES.items():
+        _rename_catalog_value(session, category_id, old_value, new_value)
+        session.flush()
+
+    max_position = session.scalar(select(func.max(TagCategoryModel.position))) or 0
+    for category in (
+        TAG_CATEGORIES["customer_level"],
+        TAG_CATEGORIES["orchid_quantity"],
+        TAG_CATEGORIES["province"],
+        TAG_CATEGORIES["favorite_orchid_type"],
+        TAG_CATEGORIES["product_demand"],
+        TAG_CATEGORIES["price_range"],
+        TAG_CATEGORIES["growing_environment"],
+    ):
+        row = session.get(TagCategoryModel, category.id)
+        if row is None:
+            max_position += 1
+            row = TagCategoryModel(
+                id=category.id,
+                name=category.name,
+                prompt_rule=category.prompt_rule,
+                ai_assignable=category.ai_assignable,
+                exclusive=category.exclusive,
+                position=max_position,
+            )
+            session.add(row)
+            session.flush()
+        else:
+            row.name = category.name
+            row.prompt_rule = category.prompt_rule
+            row.ai_assignable = category.ai_assignable
+            row.exclusive = category.exclusive
+        for value in category.values:
+            _seed_missing_value(session, category.id, value.name)
+
+    for (old_category_id, old_value), (
+        new_category_id,
+        new_value,
+    ) in _V7_TAG_MOVES.items():
+        _move_catalog_value(
+            session,
+            old_category_id,
+            old_value,
+            new_category_id,
+            new_value,
+        )
+        session.flush()
+
+
+def _rename_catalog_value(
+    session: Session,
+    category_id: str,
+    old_value: str,
+    new_value: str,
+) -> None:
+    old_row = session.scalar(
+        select(TagDefinitionModel).where(
+            TagDefinitionModel.category_id == category_id,
+            TagDefinitionModel.value == old_value,
+        )
+    )
+    if old_row is None:
+        return
+    new_row = session.scalar(
+        select(TagDefinitionModel).where(TagDefinitionModel.value == new_value)
+    )
+    _replace_profile_tag_value(session, old_value, new_value)
+    bindings = session.scalars(
+        select(TagPromptBindingModel).where(
+            TagPromptBindingModel.category_id == category_id,
+            TagPromptBindingModel.tag_value == old_value,
+        )
+    ).all()
+    for binding in bindings:
+        duplicate = session.scalar(
+            select(TagPromptBindingModel.id).where(
+                TagPromptBindingModel.category_id == category_id,
+                TagPromptBindingModel.tag_value == new_value,
+                TagPromptBindingModel.prompt_block_id == binding.prompt_block_id,
+            )
+        )
+        if duplicate is None:
+            binding.tag_value = new_value
+        else:
+            session.delete(binding)
+    if new_row is None:
+        old_row.value = new_value
+    else:
+        session.delete(old_row)
+
+
+def _replace_profile_tag_value(
+    session: Session,
+    old_value: str,
+    new_value: str,
+) -> None:
+    for profile in session.scalars(select(UserProfileModel)).all():
+        try:
+            tags = json.loads(profile.customer_tags_json or "[]")
+        except (TypeError, ValueError):
+            tags = []
+        if not isinstance(tags, list) or old_value not in tags:
+            continue
+        updated: list[str] = []
+        for tag in tags:
+            value = new_value if tag == old_value else tag
+            if value and value not in updated:
+                updated.append(value)
+        profile.customer_tags_json = json.dumps(updated, ensure_ascii=False)
+        profile.updated_at = datetime.now(timezone.utc)
+
+
+def _move_catalog_value(
+    session: Session,
+    old_category_id: str,
+    old_value: str,
+    new_category_id: str,
+    new_value: str,
+) -> None:
+    old_row = session.scalar(
+        select(TagDefinitionModel).where(
+            TagDefinitionModel.category_id == old_category_id,
+            TagDefinitionModel.value == old_value,
+        )
+    )
+    if old_row is None:
+        return
+    new_row = session.scalar(
+        select(TagDefinitionModel).where(TagDefinitionModel.value == new_value)
+    )
+    _replace_profile_tag_value(session, old_value, new_value)
+    if new_row is old_row:
+        _retarget_tag_bindings(
+            session,
+            old_category_id,
+            old_value,
+            new_category_id,
+            new_value,
+        )
+        old_row.category_id = new_category_id
+        return
+    if new_row is not None and new_row.category_id != new_category_id:
+        _retarget_tag_bindings(
+            session,
+            new_row.category_id,
+            new_value,
+            new_category_id,
+            new_value,
+        )
+        new_row.category_id = new_category_id
+        session.flush()
+    _retarget_tag_bindings(
+        session,
+        old_category_id,
+        old_value,
+        new_category_id,
+        new_value,
+    )
+    if new_row is None:
+        old_row.category_id = new_category_id
+        old_row.value = new_value
+    else:
+        session.delete(old_row)
+
+
+def _retarget_tag_bindings(
+    session: Session,
+    old_category_id: str,
+    old_value: str,
+    new_category_id: str,
+    new_value: str,
+) -> None:
+    bindings = session.scalars(
+        select(TagPromptBindingModel).where(
+            TagPromptBindingModel.category_id == old_category_id,
+            TagPromptBindingModel.tag_value == old_value,
+        )
+    ).all()
+    for binding in bindings:
+        duplicate = session.scalar(
+            select(TagPromptBindingModel.id).where(
+                TagPromptBindingModel.category_id == new_category_id,
+                TagPromptBindingModel.tag_value == new_value,
+                TagPromptBindingModel.prompt_block_id == binding.prompt_block_id,
+            )
+        )
+        if duplicate is None:
+            binding.category_id = new_category_id
+            binding.tag_value = new_value
+        else:
+            session.delete(binding)
 
 
 def _remove_retired_categories(session: Session, category_ids: set[str]) -> None:
@@ -409,6 +712,7 @@ def _seed_missing_value(session: Session, category_id: str, value: str) -> None:
             position=max_position + 1,
         )
     )
+    session.flush()
 
 
 def get_profile_tag_categories() -> dict[str, TagCategory]:

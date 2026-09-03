@@ -51,6 +51,8 @@ ORCHID_CATEGORIES = (
     "寒兰",
     "春剑",
     "莲瓣兰",
+    "豆瓣兰",
+    "大花蕙兰",
     "秋芝",
     "送春",
 )
@@ -79,7 +81,7 @@ class ProductRecommendationCriteria:
     max_price_cent: int | None = None
     target_price_cent: int | None = None
     audience_tag: str | None = None
-    category: str | None = None
+    categories: tuple[str, ...] = ()
     fragrance: str | None = None
     flowering_status: str | None = None
     scene: str | None = None
@@ -96,7 +98,7 @@ class ProductRecommendationCriteria:
                 self.min_price_cent,
                 self.max_price_cent,
                 self.audience_tag,
-                self.category,
+                self.categories or None,
                 self.fragrance,
                 self.flowering_status,
                 self.scene,
@@ -435,13 +437,13 @@ def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteri
     else:
         price = re.search(
             r"预算(?:在|是|大概|约)?\s*(\d+(?:\.\d+)?)\s*元?\s*"
-            r"(以内|以下|之内|不超过|最多|左右|上下)?",
+            r"(以内|以下|之内|不超过|最多|左右|上下|以上|起)?",
             keyword,
         )
         if price is None:
             price = re.search(
                 r"(\d+(?:\.\d+)?)\s*元?\s*"
-                r"(以内|以下|之内|不超过|最多|左右|上下)",
+                r"(以内|以下|之内|不超过|最多|左右|上下|以上|起)",
                 keyword,
             )
         if price:
@@ -451,6 +453,8 @@ def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteri
                 min_price_cent = round(amount_cent * 0.8)
                 max_price_cent = round(amount_cent * 1.2)
                 target_price_cent = amount_cent
+            elif qualifier in {"以上", "起"}:
+                min_price_cent = amount_cent
             else:
                 max_price_cent = amount_cent
 
@@ -460,7 +464,7 @@ def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteri
         re.I,
     )
     audience_tag = f"L{audience_match.group(1)}" if audience_match else None
-    category = next((value for value in ORCHID_CATEGORIES if value in keyword), None)
+    categories = tuple(value for value in ORCHID_CATEGORIES if value in keyword)
     fragrance = next((value for value in FRAGRANCE_TERMS if value in keyword), None)
     if fragrance is None and any(value in keyword for value in ("香味浓", "香气浓", "浓郁")):
         fragrance = "浓香"
@@ -489,7 +493,7 @@ def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteri
         max_price_cent=max_price_cent,
         target_price_cent=target_price_cent,
         audience_tag=audience_tag,
-        category=category,
+        categories=categories,
         fragrance=fragrance,
         flowering_status=flowering_status,
         scene=scene,
@@ -520,9 +524,9 @@ def _matches_recommendation_criteria(
         price_cent is None or price_cent > criteria.max_price_cent
     ):
         return False
-    if criteria.category and _normalize_name(knowledge.category) != _normalize_name(
-        criteria.category
-    ):
+    if criteria.categories and _normalize_name(knowledge.category) not in {
+        _normalize_name(category) for category in criteria.categories
+    }:
         return False
     if criteria.fragrance and _normalize_name(knowledge.fragrance) != _normalize_name(
         criteria.fragrance
@@ -633,7 +637,7 @@ def _raw_recommendation_score(
     ):
         return 0
     required_markers = (
-        (criteria.category, (criteria.category,) if criteria.category else ()),
+        (criteria.categories, criteria.categories),
         (criteria.fragrance, (criteria.fragrance,) if criteria.fragrance else ()),
         (
             criteria.flowering_status,

@@ -11,7 +11,10 @@ from app.integrations.youzan.services.youzan_product_sync_service import (
     update_product_note,
     update_product_sort,
 )
-from app.domains.catalog.services.product_knowledge_service import import_product_knowledge
+from app.domains.catalog.services.product_knowledge_service import (
+    _parse_recommendation_criteria,
+    import_product_knowledge,
+)
 
 
 def _configure(monkeypatch, tmp_path):
@@ -350,6 +353,8 @@ async def test_recommendation_respects_budget_level_and_product_preferences(
     good_value = search_catalog_products("L2预算30元以内，想要性价比高的建兰")
     nearby_level = search_catalog_products("L1客户，想要性价比高、适合阳台的建兰")
     exact_level = search_catalog_products("L4客户，预算50元以内，推荐带花的浓香建兰")
+    premium = search_catalog_products("预算1000元以上，推荐建兰")
+    multiple_categories = _parse_recommendation_criteria("推荐春兰和建兰")
     direct = search_catalog_products("建兰皇帝，预算1元")
 
     assert [item["item_id"] for item in strict] == ["1001", "1003"]
@@ -358,6 +363,8 @@ async def test_recommendation_respects_budget_level_and_product_preferences(
     assert [item["item_id"] for item in good_value] == ["1001"]
     assert [item["item_id"] for item in nearby_level] == ["1001"]
     assert exact_level[0]["item_id"] == "1003"
+    assert premium == []
+    assert set(multiple_categories.categories) == {"春兰", "建兰"}
     assert direct[0]["item_id"] == "1001"
 
 

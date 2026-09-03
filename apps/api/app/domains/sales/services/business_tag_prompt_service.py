@@ -9,8 +9,16 @@ from app.infrastructure.database.models import Base, PromptBlockModel, TagPrompt
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _tables = [PromptBlockModel.__table__, TagPromptBindingModel.__table__]
-_OWNED_PREFIXES = ("orchid_quantity.", "region.", "orchid_preference.")
-_SEED_MARKER_ID = "system.seed.business_tag_prompt_policy"
+_OWNED_PREFIXES = (
+    "orchid_quantity.",
+    "region.",
+    "orchid_preference.",
+    "product_demand.",
+    "price_range.",
+    "growing_environment.",
+)
+_LEGACY_SEED_MARKER_ID = "system.seed.business_tag_prompt_policy"
+_SEED_MARKER_ID = "system.seed.business_tag_prompt_policy.v2"
 
 
 _PROMPT_BLOCKS = {
@@ -38,6 +46,9 @@ _PROMPT_BLOCKS = {
     "region.northwest.variety": (
         "The user is in Northwest China. Prioritize drought tolerance, indoor humidity management, and conservative variety recommendations."
     ),
+    "region.overseas.context": (
+        "The user is overseas. Do not infer climate or logistics from this broad tag; ask for a more specific location only when it materially changes the answer."
+    ),
     "orchid_preference.chunlan": (
         "The user prefers Chunlan. Use Chunlan examples and avoid drifting to unrelated varieties unless comparison is useful."
     ),
@@ -62,18 +73,44 @@ _PROMPT_BLOCKS = {
     "orchid_preference.cymbidium": (
         "The user prefers large colorful orchids. Distinguish these from traditional Guolan before making care or product claims."
     ),
+    "orchid_preference.doubanlan": (
+        "The user prefers Doubanlan. Keep examples and recommendations aligned with its regional fit and flower characteristics."
+    ),
+    "orchid_preference.niche": (
+        "The user prefers niche orchid types such as Songchun or Qiuzhi. Avoid replacing that preference with mainstream varieties without a clear reason."
+    ),
+    "orchid_preference.open": (
+        "The user has no fixed orchid-category preference. Do not ask for a category unless it would materially change the recommendation."
+    ),
+    "product_demand.preference": (
+        "Treat the customer's product-demand tags as positive selection preferences, not as purchase intent. Use them when relevant and do not repeat questions already answered by those tags."
+    ),
+    "product_demand.open": (
+        "The user has no fixed product-trait preference. Do not force another trait question unless it materially changes the recommendation."
+    ),
+    "price_range.constraint": (
+        "Treat the latest price-range tag as the customer's budget constraint. Prefer matching products within it and do not pressure the customer above it."
+    ),
+    "price_range.open": (
+        "The user has explicitly said price is open. Prioritize fit and value instead of asking for a budget again."
+    ),
+    "growing_environment.fit": (
+        "Use the customer's actual growing-environment tag to judge product fit and care advice. Do not infer the environment from province alone."
+    ),
 }
 
 
 _BINDINGS = {
     "orchid_quantity": {
-        "1-10盆": "orchid_quantity.small.focus",
-        "10-30盆": "orchid_quantity.small.focus",
-        "30-50盆": "orchid_quantity.medium.focus",
-        "50-100盆": "orchid_quantity.medium.focus",
-        "100-200盆": "orchid_quantity.large.focus",
-        "200+盆": "orchid_quantity.large.focus",
-        "1000+盆": "orchid_quantity.large.focus",
+        "准备养兰": "orchid_quantity.small.focus",
+        "1-9盆": "orchid_quantity.small.focus",
+        "10-29盆": "orchid_quantity.small.focus",
+        "30-49盆": "orchid_quantity.medium.focus",
+        "50-99盆": "orchid_quantity.medium.focus",
+        "100-199盆": "orchid_quantity.large.focus",
+        "200-499盆": "orchid_quantity.large.focus",
+        "500-999盆": "orchid_quantity.large.focus",
+        "1000盆以上": "orchid_quantity.large.focus",
     },
     "province": {
         "浙江省": "region.east_china.variety",
@@ -92,7 +129,7 @@ _BINDINGS = {
         "黑龙江省": "region.north_china.variety",
         "河南省": "region.north_china.variety",
         "广东省": "region.south_china.variety",
-        "广西省": "region.south_china.variety",
+        "广西壮族自治区": "region.south_china.variety",
         "海南省": "region.south_china.variety",
         "湖北省": "region.southwest.variety",
         "湖南省": "region.southwest.variety",
@@ -107,6 +144,10 @@ _BINDINGS = {
         "宁夏": "region.northwest.variety",
         "新疆": "region.northwest.variety",
         "西藏自治区": "region.northwest.variety",
+        "香港": "region.south_china.variety",
+        "澳门": "region.south_china.variety",
+        "台湾": "region.south_china.variety",
+        "海外": "region.overseas.context",
     },
     "favorite_orchid_type": {
         "春兰": "orchid_preference.chunlan",
@@ -116,8 +157,68 @@ _BINDINGS = {
         "蕙兰": "orchid_preference.huilan",
         "莲瓣兰": "orchid_preference.lianbanlan",
         "春剑": "orchid_preference.chunjian",
+        "豆瓣兰": "orchid_preference.doubanlan",
         "大花蕙兰等花大色漂亮的": "orchid_preference.cymbidium",
+        "小众品类（送春、秋芝等）": "orchid_preference.niche",
+        "品类不限": "orchid_preference.open",
     },
+    "product_demand": {
+        **{
+            value: "product_demand.preference"
+            for value in (
+                "色花（红、黄、复色等，不含红素）",
+                "素花（绿白黄素心，不含红素）",
+                "红素",
+                "奇花（多瓣、蝶瓣、三星蝶）",
+                "艺草（虎斑、蛇斑、线艺、缟艺）",
+                "梅瓣",
+                "荷瓣",
+                "水仙瓣及其他瓣型",
+                "浓香",
+                "清香",
+                "矮种",
+                "半垂叶",
+                "直立叶",
+                "花大色艳",
+                "好养易活",
+                "勤花易开",
+            )
+        },
+        "需求不限": "product_demand.open",
+    },
+    "price_range": {
+        **{
+            value: "price_range.constraint"
+            for value in (
+                "50元以内",
+                "51-100元",
+                "101-200元",
+                "201-500元",
+                "501-999元",
+                "1000元以上",
+            )
+        },
+        "价格不限": "price_range.open",
+    },
+    "growing_environment": {
+        value: "growing_environment.fit"
+        for value in ("阳台", "室内", "庭院/露台", "室外露养", "有兰棚")
+    },
+}
+
+_V2_NEW_BINDING_VALUES = {
+    "准备养兰",
+    "500-999盆",
+    "香港",
+    "澳门",
+    "台湾",
+    "海外",
+    "豆瓣兰",
+    "小众品类（送春、秋芝等）",
+    "品类不限",
+    *tuple(_BINDINGS["product_demand"]),
+    *tuple(_BINDINGS["price_range"]),
+    *tuple(_BINDINGS["growing_environment"]),
 }
 
 
@@ -218,24 +319,49 @@ def ensure_business_tag_prompt_policy() -> None:
 def _ensure_seeded() -> None:
     with _get_session() as session:
         marker = session.get(PromptBlockModel, _SEED_MARKER_ID)
-        has_binding = session.scalar(
-            select(TagPromptBindingModel.id)
-            .where(TagPromptBindingModel.category_id.in_(list(_BINDINGS.keys())))
-            .limit(1)
-        )
-        if marker is None and has_binding is not None:
-            session.add(
-                PromptBlockModel(
-                    block_id=_SEED_MARKER_ID,
-                    title="Business tag prompt policy seeded",
-                    content="",
-                    enabled=False,
-                )
-            )
-            session.commit()
+        if marker is not None:
             return
-    if marker is None and has_binding is None:
-        seed_business_tag_prompt_policy()
+        legacy_seeded = session.get(PromptBlockModel, _LEGACY_SEED_MARKER_ID) is not None
+        for block_id, content in _PROMPT_BLOCKS.items():
+            if session.get(PromptBlockModel, block_id) is None:
+                session.add(
+                    PromptBlockModel(
+                        block_id=block_id,
+                        title=block_id,
+                        content=content,
+                        enabled=True,
+                    )
+                )
+        for category_id, bindings in _BINDINGS.items():
+            for tag_value, block_id in bindings.items():
+                if legacy_seeded and tag_value not in _V2_NEW_BINDING_VALUES:
+                    continue
+                existing = session.scalar(
+                    select(TagPromptBindingModel.id).where(
+                        TagPromptBindingModel.category_id == category_id,
+                        TagPromptBindingModel.tag_value == tag_value,
+                        TagPromptBindingModel.prompt_block_id == block_id,
+                    )
+                )
+                if existing is None:
+                    session.add(
+                        TagPromptBindingModel(
+                            category_id=category_id,
+                            tag_value=tag_value,
+                            prompt_block_id=block_id,
+                            priority=1,
+                            enabled=True,
+                        )
+                    )
+        session.add(
+            PromptBlockModel(
+                block_id=_SEED_MARKER_ID,
+                title="Business tag prompt policy v2 seeded",
+                content="",
+                enabled=False,
+            )
+        )
+        session.commit()
 
 
 def _get_session() -> Session:

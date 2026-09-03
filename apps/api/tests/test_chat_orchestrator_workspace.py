@@ -35,6 +35,34 @@ def test_customer_workspace_does_not_expose_profile_names_to_agent():
     assert workspace["profile"]["basic_info"] == {"region": "杭州"}
 
 
+def test_customer_workspace_includes_resolved_tag_guidance(monkeypatch):
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "get_business_tag_prompt_block_ids",
+        lambda tags: ["price_range.constraint"] if tags == ["201-500元"] else [],
+    )
+    monkeypatch.setattr(
+        chat_orchestrator,
+        "get_prompt_blocks",
+        lambda block_ids: {
+            "price_range.constraint": "Keep recommendations inside the known budget."
+        },
+    )
+
+    workspace = _customer_workspace(
+        message=_Message(),
+        user_state=UserState(user_id="customer-1"),
+        profile_bundle={
+            "profile": {"customer_tags": ["201-500元"]},
+            "recent_memories": [],
+        },
+    )
+
+    assert workspace["tag_guidance"] == [
+        "Keep recommendations inside the known budget."
+    ]
+
+
 @pytest.mark.asyncio
 async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
     monkeypatch,
