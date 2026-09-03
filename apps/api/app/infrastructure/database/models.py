@@ -433,6 +433,61 @@ class EyunOutboundProviderMessageIdModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class VideoTouchLinkModel(Base):
+    __tablename__ = "video_touch_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    delivery_key: Mapped[str] = mapped_column(String(512), unique=True, index=True)
+    w_id: Mapped[str] = mapped_column(String(256), index=True)
+    wc_id: Mapped[str] = mapped_column(String(256), index=True)
+    material_ref: Mapped[str] = mapped_column(String(256), index=True)
+    public_base_url: Mapped[str] = mapped_column(Text)
+    target_url: Mapped[str] = mapped_column(Text)
+    thumb_url: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(String(256))
+    source_type: Mapped[str] = mapped_column(String(64), index=True)
+    source_batch_key: Mapped[str] = mapped_column(String(512), index=True)
+    outbound_message_id: Mapped[int | None] = mapped_column(
+        Integer, index=True, nullable=True
+    )
+    conversation_message_id: Mapped[int | None] = mapped_column(
+        Integer, index=True, nullable=True
+    )
+    first_opened_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+    last_opened_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+    open_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class VideoTouchOpenEventModel(Base):
+    __tablename__ = "video_touch_open_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "video_touch_link_id",
+            "session_hash",
+            name="uq_video_touch_open_link_session",
+        ),
+        Index(
+            "ix_video_touch_open_link_time",
+            "video_touch_link_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_touch_link_id: Mapped[int] = mapped_column(Integer, index=True)
+    session_hash: Mapped[str] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class EyunSendRateModel(Base):
     __tablename__ = "eyun_send_rates"
 

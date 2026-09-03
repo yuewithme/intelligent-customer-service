@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     app_name: str = "wechat_rag_bot"
     app_public_base_url: str = Field(default="", alias="APP_PUBLIC_BASE_URL")
+    video_touch_public_base_url: str = Field(
+        default="", alias="VIDEO_TOUCH_PUBLIC_BASE_URL"
+    )
     agent_media_library_base_url: str = Field(
         default="http://150.158.52.233:18081",
         alias="AGENT_MEDIA_LIBRARY_BASE_URL",
