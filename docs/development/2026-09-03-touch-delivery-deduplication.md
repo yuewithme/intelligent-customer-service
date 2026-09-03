@@ -16,8 +16,10 @@
 ## 完成结果
 
 - 阶段一：确认超时消息改为 `unconfirmed`，不再自动补发或标记为发送失败；消息后台显示“待人工核验”，并允许人工决定是否补发。
-- 阶段二至阶段四：进行中。
+- 阶段二：网络超时、连接中断等不确定结果改为 `delivery_unknown`，明确拒绝改为 `failed`，两者均不再盲目自动重发；组合消息可继续处理后续素材。
+- 阶段三至阶段四：进行中。
 
 ## 验证情况
 
 - 阶段一：`pytest apps/api/tests/test_message_risk_control.py -k "stale_accepted_outbound or accepted_outbound_is_confirmed" -q` 通过（1 passed），管理端 `pnpm ts:check` 通过。
+- 阶段二：发送结果分类测试通过（3 passed），管理端 `pnpm ts:check` 通过。
