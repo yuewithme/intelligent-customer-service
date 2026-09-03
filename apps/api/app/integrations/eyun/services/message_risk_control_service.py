@@ -4,6 +4,7 @@ import json
 import logging
 import random
 import re
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -24,6 +25,7 @@ from app.infrastructure.database.models import (
     EyunOpeningControlModel,
     EyunOutboundDeliveryEventModel,
     EyunOutboundMessageModel,
+    EyunOutboundProviderMessageIdModel,
     EyunSendRateModel,
 )
 from app.domains.conversations.schemas.chat import ChatRequest
@@ -184,33 +186,53 @@ def _sync_conversation_delivery_from_bundle(
 
 
 def confirm_eyun_outbound_delivery(
-    provider_message_id: str | None,
+    provider_message_ids: str | Iterable[str] | None,
     *,
     confirmed_at: datetime | None = None,
+    w_id: str | None = None,
+    wc_id: str | None = None,
+    message_type: str | None = None,
 ) -> dict[str, Any] | None:
-    provider_message_id = str(provider_message_id or "").strip()
-    if not provider_message_id:
+    message_ids = _normalized_provider_message_ids(provider_message_ids)
+    if not message_ids:
         return None
+    provider_message_id = message_ids[0]
+    normalized_w_id = str(w_id or "").strip()
     now = _ensure_aware(confirmed_at or utcnow())
     with _get_session() as session:
-        event = session.scalar(
-            select(EyunOutboundDeliveryEventModel)
-            .where(
-                EyunOutboundDeliveryEventModel.provider_message_id
-                == provider_message_id
+        alias_query = select(EyunOutboundProviderMessageIdModel).where(
+            EyunOutboundProviderMessageIdModel.provider_message_id.in_(message_ids)
+        )
+        if normalized_w_id:
+            alias_query = alias_query.where(
+                EyunOutboundProviderMessageIdModel.w_id == normalized_w_id
             )
-            .order_by(EyunOutboundDeliveryEventModel.id.desc())
-            .limit(1)
+        alias = session.scalar(
+            alias_query.order_by(EyunOutboundProviderMessageIdModel.id.desc()).limit(1)
         )
         row = (
-            session.get(EyunOutboundMessageModel, event.outbound_message_id)
-            if event
+            session.get(EyunOutboundMessageModel, alias.outbound_message_id)
+            if alias
             else None
         )
         if row is None:
+            event = session.scalar(
+                select(EyunOutboundDeliveryEventModel)
+                .where(
+                    EyunOutboundDeliveryEventModel.provider_message_id.in_(message_ids)
+                )
+                .order_by(EyunOutboundDeliveryEventModel.id.desc())
+                .limit(1)
+            )
+            row = (
+                session.get(EyunOutboundMessageModel, event.outbound_message_id)
+                if event
+                else None
+            )
+        if row is None:
             message = session.scalar(
                 select(ConversationMessageModel).where(
-                    ConversationMessageModel.message_id == provider_message_id
+                    ConversationMessageModel.message_id.in_(message_ids)
                 )
             )
             if message is not None:
@@ -224,6 +246,13 @@ def confirm_eyun_outbound_delivery(
                 )
         if row is None:
             return None
+        _store_provider_message_ids(
+            session,
+            row,
+            message_ids,
+            source="callback",
+            wc_id=wc_id,
+        )
         if row.status != "confirmed":
             previous_status = row.status
             row.status = "confirmed"
@@ -238,7 +267,11 @@ def confirm_eyun_outbound_delivery(
                     "code": "callback",
                     "data": {"newMsgId": provider_message_id},
                 },
-                metadata={"confirmed_at": now},
+                metadata={
+                    "confirmed_at": now,
+                    "message_type": message_type,
+                    "provider_message_ids": message_ids,
+                },
             )
             session.commit()
         outbound_id = row.id
@@ -1307,6 +1340,12 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 provider_result=send_result,
                 metadata={"sent_at": sent_at},
             )
+            _store_provider_message_ids(
+                session,
+                row,
+                _eyun_provider_message_ids_from_result(send_result),
+                source="send_response",
+            )
             session.commit()
             _sync_service_material_touch_outbound(row.source_batch_key, "accepted")
             if row.conversation_message_id:
@@ -2112,10 +2151,61 @@ def _eyun_sent_at(result: Any) -> datetime | None:
 
 
 def _eyun_provider_message_id_from_result(result: Any) -> str | None:
+    message_ids = _eyun_provider_message_ids_from_result(result)
+    return message_ids[0] if message_ids else None
+
+
+def _eyun_provider_message_ids_from_result(result: Any) -> list[str]:
     if not isinstance(result, dict) or not isinstance(result.get("data"), dict):
-        return None
+        return []
     data = result["data"]
-    return str(data.get("newMsgId") or data.get("msgId") or "") or None
+    return _normalized_provider_message_ids(
+        [data.get("newMsgId"), data.get("msgId")]
+    )
+
+
+def _normalized_provider_message_ids(
+    values: str | Iterable[Any] | None,
+) -> list[str]:
+    candidates = [values] if isinstance(values, str) or values is None else values
+    normalized: list[str] = []
+    for value in candidates:
+        message_id = str(value or "").strip()
+        if message_id and message_id not in normalized:
+            normalized.append(message_id)
+    return normalized
+
+
+def _store_provider_message_ids(
+    session: Session,
+    row: EyunOutboundMessageModel,
+    provider_message_ids: str | Iterable[Any] | None,
+    *,
+    source: str,
+    wc_id: str | None = None,
+) -> None:
+    for provider_message_id in _normalized_provider_message_ids(
+        provider_message_ids
+    ):
+        existing = session.scalar(
+            select(EyunOutboundProviderMessageIdModel.id).where(
+                EyunOutboundProviderMessageIdModel.w_id == row.w_id,
+                EyunOutboundProviderMessageIdModel.provider_message_id
+                == provider_message_id,
+            )
+        )
+        if existing is not None:
+            continue
+        session.add(
+            EyunOutboundProviderMessageIdModel(
+                outbound_message_id=row.id,
+                w_id=row.w_id,
+                wc_id=str(wc_id or row.wc_id),
+                provider_message_id=provider_message_id,
+                source=source,
+                created_at=utcnow(),
+            )
+        )
 
 
 def _load_message_metadata(value: str | None) -> dict[str, Any]:
@@ -2258,6 +2348,7 @@ def _get_session() -> Session:
                 EyunOpeningControlModel.__table__,
                 EyunOutboundDeliveryEventModel.__table__,
                 EyunOutboundMessageModel.__table__,
+                EyunOutboundProviderMessageIdModel.__table__,
                 EyunSendRateModel.__table__,
             ],
         )
