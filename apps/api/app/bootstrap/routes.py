@@ -20,6 +20,7 @@ from app.domains.sales.api import (
     admin_activities,
     admin_care_manuals,
     admin_tags,
+    video_touch,
 )
 from app.integrations.eyun.api import admin_eyun_materials, eyun
 from app.integrations.wechat.api import wechat
@@ -35,6 +36,8 @@ ROUTERS = (
     admin_handoff_notification.router,
     admin_conversation_cases.router,
     admin_tags.router,
+    video_touch.admin_router,
+    video_touch.public_router,
     chat.router,
     knowledge.router,
     user_profile.router,
