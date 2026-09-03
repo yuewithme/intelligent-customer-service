@@ -26,9 +26,14 @@ async def test_contact_sync_initializes_each_login_instance_before_address_list(
     async def refresh(wc_ids, w_id):
         calls.append(("refresh", w_id, tuple(wc_ids)))
 
+    async def add_tag(user_id, tag, **kwargs):
+        calls.append(("tag", user_id, tag, kwargs))
+        return {"user_id": user_id, "customer_tags": [tag]}
+
     monkeypatch.setattr(service, "initialize_eyun_contacts", initialize)
     monkeypatch.setattr(service, "query_eyun_friend_ids", query)
     monkeypatch.setattr(service, "_refresh_contact_details", refresh)
+    monkeypatch.setattr(service, "add_system_customer_tag", add_tag)
 
     first = await service.sync_eyun_contacts()
     second = await service.sync_eyun_contacts()
@@ -38,6 +43,12 @@ async def test_contact_sync_initializes_each_login_instance_before_address_list(
     assert calls == [
         ("initialize", "wid-current"),
         ("query", "wid-current"),
+        (
+            "tag",
+            "customer-1",
+            "服务中",
+            {"reason": "eyun_contact_sync_new_friend"},
+        ),
         ("refresh", "wid-current", ("customer-1",)),
         ("query", "wid-current"),
         ("refresh", "wid-current", ("customer-1",)),

@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
+from app.domains.customers.services.user_profile_service import add_system_customer_tag
 from app.infrastructure.database.models import Base, EyunContactModel
 from app.integrations.eyun.services.eyun_contact_service import (
     initialize_eyun_contacts,
@@ -66,6 +67,7 @@ async def sync_eyun_contacts(
     )
     now = datetime.now(timezone.utc)
     new_ids: list[str] = []
+    newly_active_ids: list[str] = []
     readded = 0
     removed = 0
     with _session() as session:
@@ -97,9 +99,11 @@ async def sync_eyun_contacts(
                 session.add(row)
                 by_wc_id[wc_id] = row
                 new_ids.append(wc_id)
+                newly_active_ids.append(wc_id)
                 continue
             if row.status == "removed":
                 readded += 1
+                newly_active_ids.append(wc_id)
             row.current_w_id = w_id or row.current_w_id
             row.status = "active"
             row.missing_count = 0
@@ -116,6 +120,7 @@ async def sync_eyun_contacts(
                 row.current_w_id = None
                 removed += 1
         session.commit()
+    await _assign_service_tags(newly_active_ids)
     await _refresh_contact_details(sorted(current_ids), w_id)
     return {
         "total": len(current_ids),
@@ -124,6 +129,15 @@ async def sync_eyun_contacts(
         "removed": removed,
         "synced_at": now.isoformat(),
     }
+
+
+async def _assign_service_tags(customer_ids: list[str]) -> None:
+    for customer_id in sorted(set(customer_ids)):
+        await add_system_customer_tag(
+            customer_id,
+            "服务中",
+            reason="eyun_contact_sync_new_friend",
+        )
 
 
 async def _refresh_contact_details(wc_ids: list[str], w_id: str) -> None:
