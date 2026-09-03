@@ -403,8 +403,8 @@ def test_self_callback_confirms_queued_outbound_without_duplicate(
     _reset_settings(monkeypatch, tmp_path)
     confirmed = []
 
-    def fake_confirm(message_id):
-        confirmed.append(message_id)
+    def fake_confirm(message_ids, **kwargs):
+        confirmed.append((message_ids, kwargs))
         return {"status": "confirmed"}
 
     async def fail_metadata(*args, **kwargs):
@@ -432,7 +432,16 @@ def test_self_callback_confirms_queued_outbound_without_duplicate(
         },
     )
     assert response.status_code == 200
-    assert confirmed == ["provider-accepted-1"]
+    assert confirmed == [
+        (
+            ["provider-accepted-1"],
+            {
+                "w_id": "wid",
+                "wc_id": "wxid_customer",
+                "message_type": "60002",
+            },
+        )
+    ]
 
 
 def test_private_emoji_is_recorded_as_reaction_without_handoff(

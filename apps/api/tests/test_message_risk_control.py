@@ -13,6 +13,7 @@ from app.infrastructure.database.models import (
     EyunOpeningControlModel,
     EyunOutboundDeliveryEventModel,
     EyunOutboundMessageModel,
+    EyunOutboundProviderMessageIdModel,
     EyunSendRateModel,
 )
 
@@ -1237,6 +1238,76 @@ async def test_provider_callback_confirms_accepted_outbound(monkeypatch):
         timestamps = json.loads(message.metadata_json)["delivery_timestamps"]
         assert timestamps["accepted_at"]
         assert timestamps["confirmed_at"]
+
+
+@pytest.mark.asyncio
+async def test_provider_callback_matches_secondary_message_id(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 9, 2, 8, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+
+    async def fake_send(**kwargs):
+        del kwargs
+        return {
+            "code": "1000",
+            "data": {
+                "newMsgId": "provider-new-id",
+                "msgId": "provider-legacy-id",
+            },
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.eyun_callback_service.send_eyun_text",
+        fake_send,
+    )
+    with service._get_session() as session:
+        outbound = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="customer",
+            content="触达文案",
+            source_batch_key="test:secondary-id",
+            status="queued",
+            due_at=now,
+            attempts=0,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(outbound)
+        session.commit()
+        outbound_id = outbound.id
+
+    assert await service.process_due_eyun_outbound_messages() == 1
+    with service._get_session() as session:
+        aliases = (
+            session.query(EyunOutboundProviderMessageIdModel)
+            .filter(
+                EyunOutboundProviderMessageIdModel.outbound_message_id
+                == outbound_id
+            )
+            .all()
+        )
+        assert {alias.provider_message_id for alias in aliases} == {
+            "provider-new-id",
+            "provider-legacy-id",
+        }
+
+    confirmed = service.confirm_eyun_outbound_delivery(
+        ["provider-legacy-id"],
+        w_id="wid",
+        wc_id="customer",
+        message_type="60004",
+    )
+    assert confirmed and confirmed["status"] == "confirmed"
+    with service._get_session() as session:
+        assert session.get(EyunOutboundMessageModel, outbound_id).status == "confirmed"
+        event = (
+            session.query(EyunOutboundDeliveryEventModel)
+            .filter(EyunOutboundDeliveryEventModel.event == "callback_confirmed")
+            .order_by(EyunOutboundDeliveryEventModel.id.desc())
+            .first()
+        )
+        assert json.loads(event.metadata_json)["message_type"] == "60004"
 
 
 def test_stale_accepted_outbound_requires_manual_review_without_resend(monkeypatch):

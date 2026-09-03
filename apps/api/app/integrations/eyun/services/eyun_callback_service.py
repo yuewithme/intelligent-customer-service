@@ -150,7 +150,12 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         user_id = str(data.get("fromGroup") or data.get("toUser") or "").strip()
         if not user_id:
             return eyun_success()
-        if confirm_eyun_outbound_delivery(_eyun_message_id(data)):
+        if confirm_eyun_outbound_delivery(
+            _eyun_message_ids(data),
+            w_id=str(data.get("wId") or payload.get("wId") or ""),
+            wc_id=user_id,
+            message_type=message_type,
+        ):
             return eyun_success()
         metadata = await _eyun_workbench_metadata(payload, data, user_id=user_id)
         _capture_material_group_message(payload, metadata)
@@ -434,7 +439,17 @@ def _eyun_conversation_session_id(
 
 
 def _eyun_message_id(data: dict[str, Any]) -> str | None:
-    return str(data.get("newMsgId") or data.get("msgId") or "") or None
+    message_ids = _eyun_message_ids(data)
+    return message_ids[0] if message_ids else None
+
+
+def _eyun_message_ids(data: dict[str, Any]) -> list[str]:
+    message_ids: list[str] = []
+    for value in (data.get("newMsgId"), data.get("msgId")):
+        message_id = str(value or "").strip()
+        if message_id and message_id not in message_ids:
+            message_ids.append(message_id)
+    return message_ids
 
 
 def _eyun_provider_message_id(data: dict[str, Any]) -> str | None:

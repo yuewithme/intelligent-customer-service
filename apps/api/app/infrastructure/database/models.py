@@ -407,6 +407,29 @@ class EyunOutboundDeliveryEventModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class EyunOutboundProviderMessageIdModel(Base):
+    __tablename__ = "eyun_outbound_provider_message_ids"
+    __table_args__ = (
+        UniqueConstraint(
+            "w_id",
+            "provider_message_id",
+            name="uq_eyun_outbound_provider_message_id",
+        ),
+        Index(
+            "ix_eyun_outbound_provider_message_outbound",
+            "outbound_message_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    outbound_message_id: Mapped[int] = mapped_column(Integer, index=True)
+    w_id: Mapped[str] = mapped_column(String(256), index=True)
+    wc_id: Mapped[str] = mapped_column(String(256), index=True)
+    provider_message_id: Mapped[str] = mapped_column(String(256), index=True)
+    source: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class EyunSendRateModel(Base):
     __tablename__ = "eyun_send_rates"
 
