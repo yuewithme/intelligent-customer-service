@@ -336,6 +336,7 @@ const deliveryStatusText = (status: NonNullable<ConversationMessage['delivery_st
     sending: '发送中',
     waiting_material: '等待素材',
     accepted: '已受理待确认',
+    unconfirmed: '待人工核验',
     confirmed: '已确认',
     sent: '已确认',
     failed: '发送失败',
@@ -345,12 +346,12 @@ const deliveryStatusText = (status: NonNullable<ConversationMessage['delivery_st
 const deliveryStatusType = (status: NonNullable<ConversationMessage['delivery_status']>) => {
   if (['confirmed', 'sent'].includes(status)) return 'success'
   if (['failed', 'cancelled'].includes(status)) return 'danger'
-  if (status === 'accepted') return 'warning'
+  if (['accepted', 'unconfirmed'].includes(status)) return 'warning'
   return 'info'
 }
 
 const canRetryDelivery = (message: ConversationMessage) =>
-  ['failed', 'cancelled', 'waiting_material'].includes(message.delivery_status || '')
+  ['failed', 'cancelled', 'waiting_material', 'unconfirmed'].includes(message.delivery_status || '')
 
 const retryDelivery = async (message: ConversationMessage) => {
   retryingDeliveryIds.value = new Set(retryingDeliveryIds.value).add(message.id)
