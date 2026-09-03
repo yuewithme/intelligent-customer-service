@@ -26,7 +26,8 @@
 
 ## 验证情况
 
-- `pytest -q tests/test_video_touch_tracking.py tests/test_service_material_touch_service.py`：17 项通过。
+- `pytest -q tests/test_video_touch_tracking.py tests/test_service_material_touch_service.py`：18 项通过。
 - 定向加载 FastAPI OpenAPI，确认测试管理接口和两条 `/v/` 公开路由均已注册。
 - 读取现有远程素材库进行连通性验证：共识别 504 条素材，抽样视频支持 HTTP `206` Range 请求，抽样封面为 JPEG 且小于 50KB。
+- 首次生产测试发现 TLS 在宿主机终止后容器内传入 HTTP 协议；已将正式追踪域名强制规范为 HTTPS，避免用户端增加一次协议重定向。
 - 待部署后向测试微信发送卡片，验证真实微信端样式、点击播放和记数回传。
