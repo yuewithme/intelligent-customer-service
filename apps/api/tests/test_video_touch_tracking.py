@@ -126,7 +126,9 @@ def test_public_landing_streams_video_and_reuses_one_play_session(
 
     landing = client.get(f"/v/{link['token']}")
     assert landing.status_code == 200
-    assert "window.location.replace" in landing.text
+    assert '<video id="player"' in landing.text
+    assert "autoplay controls" in landing.text
+    assert "WeixinJSBridgeReady" in landing.text
     assert tracking.get_video_touch_test(link["id"])["open_count"] == 0
     play_session = re.search(r"session=([A-Za-z0-9_-]+)", landing.text).group(1)
 
