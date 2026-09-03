@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import httpx
 from sqlalchemy import create_engine, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -139,7 +140,13 @@ def _sync_conversation_delivery_from_bundle(
                 for bundle_row in bundle_rows
                 if bundle_row.last_error
                 and bundle_row.status
-                in {"failed", "cancelled", "waiting_material"}
+                in {
+                    "failed",
+                    "cancelled",
+                    "waiting_material",
+                    "delivery_unknown",
+                    "unconfirmed",
+                }
             ),
             None,
         )
@@ -152,6 +159,10 @@ def _sync_conversation_delivery_from_bundle(
         aggregate = "cancelled"
     elif "waiting_material" in statuses:
         aggregate = "waiting_material"
+    elif "delivery_unknown" in statuses:
+        aggregate = "delivery_unknown"
+    elif "unconfirmed" in statuses:
+        aggregate = "unconfirmed"
     elif statuses and all(status in {"accepted", "confirmed"} for status in statuses):
         aggregate = "accepted"
     elif any(
@@ -1013,7 +1024,13 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     if row.conversation_message_id:
                         _sync_conversation_delivery_from_bundle(row.id)
                     continue
-                if dependency.status not in {"accepted", "confirmed", "sent"}:
+                if dependency.status not in {
+                    "accepted",
+                    "confirmed",
+                    "sent",
+                    "delivery_unknown",
+                    "unconfirmed",
+                }:
                     row.due_at = now + timedelta(seconds=5)
                     row.updated_at = now
                     session.commit()
@@ -1231,22 +1248,26 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         _sync_conversation_delivery_from_bundle(row.id)
                     continue
                 previous_status = row.status
-                row.status = (
-                    "failed"
-                    if row.attempts >= get_settings().eyun_send_max_attempts
-                    else "queued"
+                uncertain = isinstance(
+                    exc, (httpx.TransportError, json.JSONDecodeError)
                 )
-                row.last_error = str(exc)
-                if row.status == "queued":
-                    row.due_at = utcnow() + _outbound_retry_delay(row.attempts)
+                row.status = "delivery_unknown" if uncertain else "failed"
+                row.last_error = (
+                    f"亿云发送结果未知，需人工核验：{type(exc).__name__}"
+                    if uncertain
+                    else str(exc)
+                )
                 row.updated_at = utcnow()
                 _record_outbound_delivery_event(
                     session,
                     row,
-                    event=("send_failed" if row.status == "failed" else "retry_scheduled"),
+                    event=(
+                        "delivery_result_unknown"
+                        if uncertain
+                        else "send_failed"
+                    ),
                     status_from=previous_status,
                     error=row.last_error,
-                    metadata={"next_due_at": row.due_at},
                 )
                 session.commit()
                 if row.conversation_message_id:

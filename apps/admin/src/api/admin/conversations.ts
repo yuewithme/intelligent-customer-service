@@ -37,6 +37,7 @@ export interface ConversationMessage {
     | 'waiting_material'
     | 'accepted'
     | 'unconfirmed'
+    | 'delivery_unknown'
     | 'confirmed'
     | 'sent'
     | 'failed'

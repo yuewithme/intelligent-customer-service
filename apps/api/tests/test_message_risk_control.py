@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 
 from app.core.config import get_settings
@@ -1270,6 +1271,86 @@ def test_stale_accepted_outbound_requires_manual_review_without_resend(monkeypat
         assert "人工核验" in outbound.last_error
 
     assert service.recover_stale_eyun_outbound_deliveries(now=now) == 0
+
+
+@pytest.mark.asyncio
+async def test_transport_error_is_not_automatically_retried(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 9, 3, 8, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+
+    async def fake_send(**kwargs):
+        del kwargs
+        raise httpx.ReadTimeout("provider response timed out")
+
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.eyun_callback_service.send_eyun_text",
+        fake_send,
+    )
+    with service._get_session() as session:
+        outbound = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="customer",
+            content="触达文案",
+            source_batch_key="test:90",
+            status="queued",
+            due_at=now,
+            attempts=0,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(outbound)
+        session.commit()
+        outbound_id = outbound.id
+
+    assert await service.process_due_eyun_outbound_messages() == 1
+    with service._get_session() as session:
+        outbound = session.get(EyunOutboundMessageModel, outbound_id)
+        assert outbound.status == "delivery_unknown"
+        assert outbound.attempts == 1
+
+    assert await service.process_due_eyun_outbound_messages() == 0
+
+
+@pytest.mark.asyncio
+async def test_explicit_provider_rejection_is_failed_without_retry(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 9, 3, 8, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+
+    async def fake_send(**kwargs):
+        del kwargs
+        raise RuntimeError("Eyun sendText failed: code=2001")
+
+    monkeypatch.setattr(
+        "app.integrations.eyun.services.eyun_callback_service.send_eyun_text",
+        fake_send,
+    )
+    with service._get_session() as session:
+        outbound = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="customer",
+            content="触达文案",
+            source_batch_key="test:91",
+            status="queued",
+            due_at=now,
+            attempts=0,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(outbound)
+        session.commit()
+        outbound_id = outbound.id
+
+    assert await service.process_due_eyun_outbound_messages() == 1
+    with service._get_session() as session:
+        outbound = session.get(EyunOutboundMessageModel, outbound_id)
+        assert outbound.status == "failed"
+        assert outbound.attempts == 1
+
+    assert await service.process_due_eyun_outbound_messages() == 0
 
 
 @pytest.mark.asyncio

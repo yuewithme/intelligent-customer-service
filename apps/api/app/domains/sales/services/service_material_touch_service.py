@@ -548,7 +548,7 @@ def sync_service_material_touch_from_outbound(
             row.completed_at = now
             row.last_error = None
         elif (
-            status in {"failed", "cancelled", "unconfirmed"}
+            status in {"failed", "cancelled", "unconfirmed", "delivery_unknown"}
             and row.status != "completed"
         ):
             row.status = status
@@ -642,6 +642,7 @@ def get_service_material_touch_delivery_stats(
         "technical_skip",
         "waiting_material",
         "unconfirmed",
+        "delivery_unknown",
     }
     items: list[dict[str, Any]] = []
     attention_count = 0
