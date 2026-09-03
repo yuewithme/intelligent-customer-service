@@ -14,7 +14,8 @@ from app.domains.conversations.schemas.context import ContextPackage, ContextSel
 from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.customers.schemas.memory import MemoryContext
 from app.domains.decisioning.schemas.prompt import PromptBuildInput
-from app.services import memory_repository, user_profile_service
+from app.domains.customers.services import memory_repository
+from app.domains.customers.services import user_profile_service
 from app.domains.knowledge.services.context_selector import select_context
 from app.domains.customers.services.memory_dual_write_service import dual_write_conversation_event
 from app.domains.customers.services.memory_rollout_service import (
@@ -224,7 +225,7 @@ async def test_explicit_gate_bypass_allows_full_canary_without_gate(memory_db):
 
 @pytest.mark.asyncio
 async def test_runtime_violation_blocks_canary_even_after_gate(memory_db, monkeypatch):
-    from app.services import memory_rollout_service
+    from app.domains.customers.services import memory_rollout_service
 
     _configure(memory_db, MEMORY_V2_WRITE_ENABLED=True)
     _write_event()

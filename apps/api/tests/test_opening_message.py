@@ -6,7 +6,7 @@ import pytest
 def test_first_inbound_message_is_the_only_opening_trigger(monkeypatch, tmp_path):
     from app.core.config import get_settings
     from app.infrastructure.database.models import EyunInboundMessageModel
-    from app.services import message_risk_control_service as risk_control
+    from app.integrations.eyun.services import message_risk_control_service as risk_control
 
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{(tmp_path / 'opening.db').as_posix()}")
     get_settings.cache_clear()
@@ -44,7 +44,7 @@ def test_first_inbound_message_is_the_only_opening_trigger(monkeypatch, tmp_path
 @pytest.mark.asyncio
 async def test_first_inbound_message_skips_debounce_delay(monkeypatch, tmp_path):
     from app.core.config import get_settings
-    from app.services import message_risk_control_service as risk_control
+    from app.integrations.eyun.services import message_risk_control_service as risk_control
 
     now = datetime(2026, 7, 10, 10, 0, tzinfo=timezone.utc)
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{(tmp_path / 'opening-delay.db').as_posix()}")
@@ -72,7 +72,7 @@ async def test_first_inbound_message_skips_debounce_delay(monkeypatch, tmp_path)
 
 @pytest.mark.asyncio
 async def test_new_friend_opening_uses_service_copy_and_dedicated_queue(monkeypatch):
-    from app.services import message_risk_control_service as risk_control
+    from app.integrations.eyun.services import message_risk_control_service as risk_control
 
     queued = []
     recorded = []

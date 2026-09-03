@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.shared.schemas.common import AppError, ErrorCode
-from app.services import knowledge_service
+from app.domains.knowledge.services import knowledge_service
 
 
 def test_chunk_text_uses_overlap():

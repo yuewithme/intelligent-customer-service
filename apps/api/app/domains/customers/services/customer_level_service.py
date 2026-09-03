@@ -8,19 +8,14 @@ from app.infrastructure.database.models import (
     Base,
     CustomerLevelProfileModel,
     CustomerLevelPromptBindingModel,
-    CustomerLevelRuleModel,
     PromptBlockModel,
     TagPromptBindingModel,
 )
-from app.domains.customers.schemas.customer_level import CustomerLevelResult
-from app.domains.customers.schemas.state import UserState
-from app.domains.sales.services.tag_catalog import get_tag_categories
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
 _tables = [
     CustomerLevelProfileModel.__table__,
-    CustomerLevelRuleModel.__table__,
     PromptBlockModel.__table__,
     CustomerLevelPromptBindingModel.__table__,
     TagPromptBindingModel.__table__,
@@ -79,28 +74,6 @@ _LEVEL_PROFILES = [
         "handoff_reason": None,
     },
 ]
-
-
-_RULES = {
-    "L1": [
-        ("keyword_any", ["新手", "刚开始", "没养过", "泥土", "水培", "预算30", "预算50", "10盆以内"], 1.0),
-    ],
-    "L2": [
-        ("keyword_any", ["烂根", "黄叶", "焦尖", "不开花", "芦头", "植料", "叶芽", "花芽"], 1.0),
-    ],
-    "L3": [
-        ("keyword_any", ["100盆", "一百多盆", "病虫害", "经典品种", "跨区引种", "春兰", "蕙兰"], 1.0),
-    ],
-    "L4": [
-        ("keyword_any", ["瓣型", "老八种", "品种档案", "老种鉴定", "价格行情", "荷瓣"], 1.0),
-    ],
-    "L5": [
-        ("keyword_any", ["艺草", "虎斑", "蛇斑", "中透艺", "叶艺", "返青"], 1.0),
-    ],
-    "L6": [
-        ("keyword_any", ["命名权", "转卖", "种源交易", "投资", "几万", "稀有品种"], 1.0),
-    ],
-}
 
 
 _PROMPT_BLOCKS = {
@@ -203,26 +176,12 @@ def seed_customer_level_policy() -> None:
             )
         )
         session.execute(delete(CustomerLevelPromptBindingModel))
-        session.execute(delete(CustomerLevelRuleModel))
         session.execute(delete(CustomerLevelProfileModel))
         session.execute(
             delete(PromptBlockModel).where(PromptBlockModel.block_id.startswith(_PROMPT_PREFIX))
         )
         for item in _LEVEL_PROFILES:
             session.add(CustomerLevelProfileModel(**item, enabled=True))
-        for level, rules in _RULES.items():
-            for rule_type, patterns, weight in rules:
-                for pattern in patterns:
-                    session.add(
-                        CustomerLevelRuleModel(
-                            level=level,
-                            rule_type=rule_type,
-                            pattern=pattern,
-                            weight=weight,
-                            evidence_label=pattern,
-                            enabled=True,
-                        )
-                    )
         for block_id, content in _PROMPT_BLOCKS.items():
             session.add(
                 PromptBlockModel(
@@ -267,52 +226,6 @@ def seed_customer_level_policy() -> None:
         session.commit()
 
 
-def classify_customer_level(*, message: str, user_state: UserState) -> CustomerLevelResult:
-    _ensure_seeded()
-    evidence_text = _evidence_text(message, user_state)
-    with _get_session() as session:
-        profiles = {
-            row.level: row
-            for row in session.scalars(
-                select(CustomerLevelProfileModel).where(CustomerLevelProfileModel.enabled.is_(True))
-            )
-        }
-        rules = session.scalars(
-            select(CustomerLevelRuleModel).where(CustomerLevelRuleModel.enabled.is_(True))
-        ).all()
-
-    scores: dict[str, float] = {}
-    evidence: dict[str, list[str]] = {}
-    for rule in rules:
-        if rule.rule_type == "keyword_any" and rule.pattern.lower() in evidence_text:
-            scores[rule.level] = scores.get(rule.level, 0.0) + rule.weight
-            evidence.setdefault(rule.level, []).append(rule.evidence_label)
-
-    candidates = [
-        (level, score)
-        for level, score in scores.items()
-        if level in profiles and score >= profiles[level].min_score
-    ]
-    if not candidates:
-        return CustomerLevelResult()
-
-    level, score = sorted(candidates, key=lambda item: (_level_rank(item[0]), item[1]), reverse=True)[0]
-    profile = profiles[level]
-    live_category = get_tag_categories().get("customer_level")
-    live_values = {value.name for value in live_category.values} if live_category else set()
-    if profile.name not in live_values:
-        return CustomerLevelResult()
-    return CustomerLevelResult(
-        level=level,
-        label=profile.name,
-        route=profile.default_route,
-        confidence=round(min(0.99, score / (score + 3)), 2),
-        score=score,
-        matched_evidence=evidence.get(level, []),
-        handoff_reason=profile.handoff_reason,
-    )
-
-
 def get_customer_level_prompt_block_ids(level: str) -> list[str]:
     _ensure_seeded()
     with _get_session() as session:
@@ -335,20 +248,6 @@ def get_customer_level_prompt_block_ids(level: str) -> list[str]:
         return [row.prompt_block_id for row in rows]
 
 
-def get_customer_level_prompt_blocks(block_ids: list[str]) -> dict[str, str]:
-    if not block_ids:
-        return {}
-    _ensure_seeded()
-    with _get_session() as session:
-        rows = session.scalars(
-            select(PromptBlockModel).where(
-                PromptBlockModel.block_id.in_(block_ids),
-                PromptBlockModel.enabled.is_(True),
-            )
-        ).all()
-        return {row.block_id: row.content for row in rows}
-
-
 def prompt_blocks_for_customer_level_labels(labels: list[str]) -> list[str]:
     for label in labels:
         value = label.split(":", 1)[1] if ":" in label else label
@@ -356,15 +255,6 @@ def prompt_blocks_for_customer_level_labels(labels: list[str]) -> list[str]:
         if level in {"L1", "L2", "L3", "L4", "L5", "L6"}:
             return get_customer_level_prompt_block_ids(level)
     return []
-
-
-def advanced_customer_level_from_labels(labels: list[str]) -> str | None:
-    for label in labels:
-        value = label.split(":", 1)[1] if ":" in label else label
-        level = _level_from_label(value)
-        if level in {"L4", "L5", "L6"}:
-            return level
-    return None
 
 
 def clear_cache() -> None:
@@ -461,14 +351,6 @@ def _get_session() -> Session:
     return factory()
 
 
-def _evidence_text(message: str, user_state: UserState) -> str:
-    del user_state
-    # Customer-level evidence must be customer-authored. Product titles, tool
-    # results, assistant replies, and inferred metadata are execution state and
-    # must never raise the customer's expertise level.
-    return str(message or "").lower()
-
-
 def _level_from_label(value: str) -> str | None:
     if value.startswith("L1"):
         return "L1"
@@ -483,10 +365,3 @@ def _level_from_label(value: str) -> str | None:
     if value.startswith("L6"):
         return "L6"
     return None
-
-
-def _level_rank(level: str) -> int:
-    try:
-        return int(level[1:])
-    except (ValueError, IndexError):
-        return 0

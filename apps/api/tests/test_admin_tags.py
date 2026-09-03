@@ -14,14 +14,12 @@ from app.infrastructure.database.models import (
     UserProfileModel,
 )
 from app.main import app
-from app.services import (
-    admin_tag_service,
-    business_tag_prompt_service,
-    customer_level_service,
-    state_service,
-    tag_catalog,
-    user_profile_service,
-)
+from app.domains.sales.services import admin_tag_service
+from app.domains.sales.services import business_tag_prompt_service
+from app.domains.customers.services import customer_level_service
+from app.domains.conversations.services import state_service
+from app.domains.sales.services import tag_catalog
+from app.domains.customers.services import user_profile_service
 
 
 @pytest.fixture(autouse=True)

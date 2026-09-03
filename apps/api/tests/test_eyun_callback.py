@@ -9,7 +9,7 @@ from app.main import app
 
 @pytest.fixture(autouse=True)
 def disable_background_contact_refresh(monkeypatch):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     monkeypatch.setattr(
         eyun_callback_service,
@@ -28,13 +28,11 @@ def _reset_settings(monkeypatch, tmp_path):
     monkeypatch.setenv("API_AUTH_ENABLED", "false")
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     monkeypatch.setenv("LLM_PROVIDER", "mock")
-    monkeypatch.setenv("INTENT_LLM_PROVIDER", "mock")
-    monkeypatch.setenv("STATE_PROVIDER", "memory")
     get_settings.cache_clear()
 
 
 def test_offline_callback_schedules_login_alert(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     scheduled = []
@@ -60,7 +58,7 @@ def test_offline_callback_schedules_login_alert(monkeypatch, tmp_path):
 
 
 def test_private_callback_uses_external_user_id_and_persists_basic_info(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
@@ -165,7 +163,7 @@ def test_self_message_never_uses_recipient_as_owner(monkeypatch, tmp_path):
 def test_new_friend_event_enters_opening_flow_instead_of_handoff(
     monkeypatch, tmp_path, content
 ):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
@@ -235,7 +233,7 @@ def test_new_friend_event_enters_opening_flow_instead_of_handoff(
 def test_global_handoff_routes_customer_message_without_ai_queue(
     monkeypatch, tmp_path
 ):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
@@ -290,7 +288,7 @@ def test_global_handoff_routes_customer_message_without_ai_queue(
 
 
 def test_internal_workbench_title_callback_is_ignored(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -320,7 +318,7 @@ def test_internal_workbench_title_callback_is_ignored(monkeypatch, tmp_path):
 
 
 def test_private_non_text_callback_uses_external_user_id(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
@@ -366,7 +364,7 @@ def test_private_non_text_callback_uses_external_user_id(monkeypatch, tmp_path):
 
 
 def test_private_system_event_is_classified_and_ignored(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -396,7 +394,7 @@ def test_private_system_event_is_classified_and_ignored(monkeypatch, tmp_path):
 
 
 def test_self_system_event_is_ignored_before_outbound_sync(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -428,7 +426,7 @@ def test_self_system_event_is_ignored_before_outbound_sync(monkeypatch, tmp_path
 def test_self_callback_confirms_queued_outbound_without_duplicate(
     monkeypatch, tmp_path
 ):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     confirmed = []
@@ -477,7 +475,7 @@ def test_self_callback_confirms_queued_outbound_without_duplicate(
 def test_private_emoji_is_recorded_as_reaction_without_handoff(
     monkeypatch, tmp_path
 ):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
@@ -543,7 +541,7 @@ def test_private_emoji_is_recorded_as_reaction_without_handoff(
 
 
 def test_private_app_card_is_normalized_for_agent(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
@@ -599,7 +597,7 @@ def test_private_app_card_is_normalized_for_agent(monkeypatch, tmp_path):
 
 
 def test_private_image_callback_enters_recognition_batch(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
@@ -658,7 +656,7 @@ def test_private_image_callback_enters_recognition_batch(monkeypatch, tmp_path):
 def test_image_like_private_other_callback_is_normalized_for_recognition(
     monkeypatch, tmp_path
 ):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     recorded = []
@@ -722,7 +720,7 @@ def test_image_like_private_other_callback_is_normalized_for_recognition(
 
 
 def test_private_image_callback_never_sends_immediate_fallback(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     enqueued = []
@@ -775,7 +773,7 @@ def test_private_image_callback_never_sends_immediate_fallback(monkeypatch, tmp_
 
 
 def test_eyun_callback_accepts_json_payload(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -823,7 +821,7 @@ def test_wechat_callback_accepts_eyun_test_payload():
 
 
 def test_wechat_callback_enqueues_eyun_text_payload(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     enqueued = []
@@ -860,7 +858,7 @@ def test_wechat_callback_enqueues_eyun_text_payload(monkeypatch, tmp_path):
 
 
 def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
     enqueued = []
@@ -946,7 +944,7 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
 
 
 def test_wechat_callback_ignores_group_messages(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -1005,7 +1003,7 @@ def test_wechat_callback_ignores_group_messages(monkeypatch, tmp_path):
 def test_mislabeled_private_callback_is_blocked_before_processing(
     monkeypatch, tmp_path, data
 ):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -1041,7 +1039,7 @@ def test_mislabeled_private_callback_is_blocked_before_processing(
 
 
 def test_eyun_non_image_messages_expose_media_metadata(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -1146,7 +1144,7 @@ def test_eyun_non_image_messages_expose_media_metadata(monkeypatch, tmp_path):
 def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
     monkeypatch, tmp_path
 ):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
     from app.integrations.ai.services import speech_recognition_service
     from app.integrations.ai.services.speech_recognition_service import SpeechTranscript
     from app.integrations.eyun.services.eyun_inbound_media_service import (

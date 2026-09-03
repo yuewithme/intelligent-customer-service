@@ -8,7 +8,7 @@ from app.infrastructure.database.models import EyunOutboundMessageModel
 
 @pytest.mark.asyncio
 async def test_outbound_becomes_failed_after_second_send_failure(monkeypatch, tmp_path):
-    from app.services import message_risk_control_service as service
+    from app.integrations.eyun.services import message_risk_control_service as service
 
     now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
     monkeypatch.setenv(

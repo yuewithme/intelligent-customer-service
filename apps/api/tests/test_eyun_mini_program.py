@@ -6,7 +6,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_send_eyun_mini_program_posts_structured_card(monkeypatch):
     from app.core.config import get_settings
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
 
     monkeypatch.setenv("EYUN_BASE_URL", "https://eyun.example.com")
     monkeypatch.setenv("EYUN_AUTHORIZATION", "Bearer test")

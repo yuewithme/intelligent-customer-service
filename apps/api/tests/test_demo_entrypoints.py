@@ -27,7 +27,6 @@ def _reset_settings(monkeypatch, tmp_path, *, auth: bool = False):
     monkeypatch.setenv("LLM_PROVIDER", "mock")
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     monkeypatch.setenv("RAG_KNOWLEDGE_ENABLED", "false")
-    monkeypatch.setenv("STATE_PROVIDER", "memory")
     get_settings.cache_clear()
 
 
@@ -36,7 +35,7 @@ def test_demo_customer_ids_remain_distinct_for_non_ascii_names():
 
 
 def test_demo_chat_forces_web_demo_channel(monkeypatch, tmp_path):
-    from app.routers import demo
+    from app.domains.conversations.api import demo
 
     _reset_settings(monkeypatch, tmp_path)
 
@@ -303,7 +302,7 @@ def test_demo_openings_use_customer_scoped_memory_ids(monkeypatch, tmp_path):
 
 
 def test_demo_chat_reuses_agent_runtime_for_first_message(monkeypatch, tmp_path):
-    from app.services import demo_sales_agent_service
+    from app.domains.decisioning.services import demo_sales_agent_service
 
     _reset_settings(monkeypatch, tmp_path)
     captured = {}

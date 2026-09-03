@@ -6,7 +6,8 @@ from app.core.config import get_settings
 
 
 def _configure_db(monkeypatch, tmp_path, name: str) -> None:
-    from app.services import conversation_service, message_risk_control_service
+    from app.domains.conversations.services import conversation_service
+    from app.integrations.eyun.services import message_risk_control_service
 
     monkeypatch.setenv(
         "CHAT_LOG_DB_URL", f"sqlite:///{(tmp_path / f'{name}.db').as_posix()}"
@@ -21,7 +22,7 @@ def _configure_db(monkeypatch, tmp_path, name: str) -> None:
 
 @pytest.mark.asyncio
 async def test_self_callback_records_wechat_client_message(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
     from app.domains.conversations.services.conversation_service import get_conversation_detail
 
     _configure_db(monkeypatch, tmp_path, "self-message")
@@ -60,7 +61,7 @@ async def test_self_callback_records_wechat_client_message(monkeypatch, tmp_path
 async def test_callback_direction_records_wechat_client_message_without_reliable_self(
     monkeypatch, tmp_path, self_value
 ):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
     from app.domains.conversations.services.conversation_service import get_conversation_detail
 
     _configure_db(monkeypatch, tmp_path, f"direction-message-{self_value}")
@@ -98,7 +99,7 @@ async def test_callback_direction_records_wechat_client_message_without_reliable
 
 @pytest.mark.asyncio
 async def test_self_callback_reconciles_queued_ai_message(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
     from app.domains.conversations.services.conversation_service import (
         ensure_outbound_conversation_message,
         get_conversation_detail,
@@ -148,7 +149,7 @@ async def test_self_callback_reconciles_queued_ai_message(monkeypatch, tmp_path)
 
 @pytest.mark.asyncio
 async def test_agent_first_contact_is_recorded(monkeypatch, tmp_path):
-    from app.services import message_risk_control_service as risk_control
+    from app.integrations.eyun.services import message_risk_control_service as risk_control
     from app.domains.conversations.services.conversation_service import (
         AI_WAITING,
         get_conversation_detail,
@@ -216,7 +217,8 @@ async def test_agent_first_contact_is_recorded(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_admin_reply_records_eyun_message_id(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service, message_risk_control_service
+    from app.integrations.eyun.services import eyun_callback_service
+    from app.integrations.eyun.services import message_risk_control_service
     from app.domains.conversations.services.conversation_service import (
         HANDOFF_PENDING,
         claim_conversation,

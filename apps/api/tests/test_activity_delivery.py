@@ -107,7 +107,9 @@ def test_activity_send_requires_matching_human_owner(monkeypatch, tmp_path):
 def test_activity_send_queues_and_dispatches_text_image_video(monkeypatch, tmp_path):
     from datetime import datetime, timedelta, timezone
 
-    from app.services import activity_service, eyun_callback_service, message_risk_control_service
+    from app.domains.sales.services import activity_service
+    from app.integrations.eyun.services import eyun_callback_service
+    from app.integrations.eyun.services import message_risk_control_service
 
     _reset_settings(monkeypatch, tmp_path)
     _seed_activity_and_target()

@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, desc, func, or_, select
+from sqlalchemy import create_engine, desc, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings

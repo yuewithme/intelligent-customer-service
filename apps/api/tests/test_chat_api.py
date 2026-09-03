@@ -4,7 +4,7 @@ from app.main import app
 
 
 def test_chat_api_returns_unified_response(monkeypatch):
-    from app.routers import chat
+    from app.domains.conversations.api import chat
 
     async def fake_handle_chat(request):
         assert request.channel == "api"
@@ -65,7 +65,7 @@ def test_validation_error_uses_unified_response():
 
 
 def test_unhandled_error_uses_unified_response(monkeypatch):
-    from app.routers import chat
+    from app.domains.conversations.api import chat
 
     async def fail_handle_chat(request):
         del request

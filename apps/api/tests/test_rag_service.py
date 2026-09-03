@@ -3,7 +3,8 @@ import pytest
 from app.shared.schemas.common import AppError, ErrorCode
 from app.domains.conversations.schemas.context import ContextPackage
 from app.domains.decisioning.schemas.policy import PolicyDecision
-from app.services import llm_service, rag_service
+from app.integrations.ai.services import llm_service
+from app.domains.knowledge.services import rag_service
 
 
 def test_care_retrieval_excludes_sales_sections():

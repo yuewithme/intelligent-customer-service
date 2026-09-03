@@ -1,17 +1,10 @@
 import axios, { type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
-import { clearAccessToken, getAccessToken } from '@/utils/auth'
 import { clearGateRole } from '@/utils/gate'
 
 const client = axios.create({
   baseURL: import.meta.env.VITE_BASE_URL || '',
   timeout: Number(import.meta.env.VITE_REQUEST_TIMEOUT || 180000)
-})
-
-client.interceptors.request.use((config) => {
-  const token = getAccessToken()
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
 })
 
 client.interceptors.response.use(
@@ -23,7 +16,6 @@ client.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
-      clearAccessToken()
       clearGateRole()
       if (window.location.pathname !== '/demo-chat') window.location.assign('/gate')
     }

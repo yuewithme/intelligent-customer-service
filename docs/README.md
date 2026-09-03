@@ -7,6 +7,7 @@
 - `reference/api/`：后端流程、集成和数据结构参考。
 - `reference/memory-v2/`：长期记忆的数据契约、基线与运维说明。
 - `archive/plans/`：已执行或失效的历史方案，只供追溯。
+- `archive/presentations/`：已退役架构与路演展示稿，不作为当前实现依据。
 - `archive/test-logs/`：历史人工验证记录。
 
 评测数据与测试样本不属于文档，统一位于仓库根目录的 `datasets/`。

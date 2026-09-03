@@ -95,7 +95,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/modules/user'
-import { clearAccessToken } from '@/utils/auth'
 import { clearGateRole, isTestGate } from '@/utils/gate'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
 import type { ConversationTenant } from '@/api/admin/conversations'
@@ -166,7 +165,6 @@ const logout = async () => {
   closeMobileNav()
   await fetch('/api/gate', { method: 'DELETE', credentials: 'same-origin' })
   clearGateRole()
-  clearAccessToken()
   userStore.reset()
   void router.replace('/gate')
 }

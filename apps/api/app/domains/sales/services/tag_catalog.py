@@ -16,7 +16,6 @@ from app.infrastructure.database.models import (
     TagPromptBindingModel,
     UserProfileModel,
 )
-from app.domains.sales.schemas.tag import TagResult
 
 
 @dataclass(frozen=True)
@@ -622,58 +621,6 @@ def _remove_retired_categories(session: Session, category_ids: set[str]) -> None
     _delete_orphan_prompt_blocks(session, block_ids)
 
 
-def _sync_frozen_category(session: Session, category: TagCategory) -> None:
-    category_row = session.get(TagCategoryModel, category.id)
-    if category_row is None:
-        return
-    category_row.name = category.name
-    category_row.prompt_rule = category.prompt_rule
-    category_row.ai_assignable = category.ai_assignable
-    category_row.exclusive = category.exclusive
-
-    expected_values = [value.name for value in category.values]
-    existing_rows = session.scalars(
-        select(TagDefinitionModel).where(TagDefinitionModel.category_id == category.id)
-    ).all()
-    existing_by_value = {row.value: row for row in existing_rows}
-    obsolete_values = set(existing_by_value) - set(expected_values)
-    if obsolete_values:
-        obsolete_block_ids = set(
-            session.scalars(
-                select(TagPromptBindingModel.prompt_block_id).where(
-                    TagPromptBindingModel.category_id == category.id,
-                    TagPromptBindingModel.tag_value.in_(obsolete_values),
-                )
-            ).all()
-        )
-        session.execute(
-            delete(TagPromptBindingModel).where(
-                TagPromptBindingModel.category_id == category.id,
-                TagPromptBindingModel.tag_value.in_(obsolete_values),
-            )
-        )
-        session.execute(
-            delete(TagDefinitionModel).where(
-                TagDefinitionModel.category_id == category.id,
-                TagDefinitionModel.value.in_(obsolete_values),
-            )
-        )
-        _delete_orphan_prompt_blocks(session, obsolete_block_ids)
-
-    for position, value in enumerate(expected_values, start=1):
-        row = existing_by_value.get(value)
-        if row is None:
-            session.add(
-                TagDefinitionModel(
-                    category_id=category.id,
-                    value=value,
-                    position=position,
-                )
-            )
-        else:
-            row.position = position
-
-
 def _delete_orphan_prompt_blocks(session: Session, block_ids: set[str]) -> None:
     for block_id in block_ids:
         tag_binding = session.scalar(
@@ -730,16 +677,6 @@ def is_profile_tag_category_enabled(category_id: str) -> bool:
 
 def is_profile_tag_enabled(value: str) -> bool:
     return value not in PURCHASE_TAG_VALUES or get_settings().purchase_tags_enabled
-
-
-def system_tag_token(category_id: str, value: str | None) -> str:
-    if not isinstance(value, str):
-        return ""
-    value = value.strip()
-    prefix = SYSTEM_TAG_PREFIXES.get(category_id, "")
-    if not value or not prefix:
-        return ""
-    return value if value.startswith(prefix) else f"{prefix}{value}"
 
 
 def system_tag_values(category_id: str) -> list[str]:
@@ -801,27 +738,6 @@ def filter_profile_tags(values: list[str]) -> list[str]:
     return result
 
 
-def filter_runtime_labels(labels: list[str]) -> list[str]:
-    """Keep only configured customer or system labels; never preserve free-form tags."""
-    result: list[str] = []
-    for label in labels:
-        if not isinstance(label, str):
-            continue
-        label = label.strip()
-        if label.startswith("customer_tag:"):
-            value = label.split(":", 1)[1].strip()
-            normalized = (
-                f"customer_tag:{value}"
-                if is_allowed_profile_tag(value) and is_profile_tag_enabled(value)
-                else ""
-            )
-        else:
-            normalized = label if is_allowed_system_tag(label) else ""
-        if normalized and normalized not in result:
-            result.append(normalized)
-    return result
-
-
 def _get_session() -> Session:
     url = get_settings().database_url
     factory = _sessionmakers.get(url)
@@ -831,10 +747,6 @@ def _get_session() -> Session:
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[url] = factory
     return factory()
-
-
-def prompt_blocks_for_tag_result(tag: TagResult) -> list[str]:
-    return prompt_blocks_for_labels(tag.labels)
 
 
 def prompt_blocks_for_labels(labels: list[str]) -> list[str]:

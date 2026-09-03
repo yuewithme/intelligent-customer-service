@@ -43,7 +43,7 @@ push main -> GitLab Runner -> 150 受限跳板 -> 43.143.83.26 生产机 -> 线�
 | 微信回调 | `https://sales-agent.hzwohu.com/wechat/callback` |
 | 健康检查 | `https://sales-agent.hzwohu.com/health` |
 
-`admin-web` 容器中的 Nginx 承载 Vue 静态资源，并把 `/api/`、`/wechat/`、`/youzan/`、`/static/` 和 `/health` 转发给 FastAPI。
+`admin-web` 容器中的 Nginx 承载 Vue 静态资源，并把 `/api/`、`/wechat/`、`/eyun/`、`/youzan/`、`/static/` 和 `/health` 转发给 FastAPI。
 
 ## 首次准备
 

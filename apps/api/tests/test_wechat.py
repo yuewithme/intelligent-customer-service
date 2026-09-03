@@ -32,7 +32,7 @@ def test_wechat_xml_parse_and_reply_escape():
 
 @pytest.mark.asyncio
 async def test_wechat_post_delegates_to_handle_chat(monkeypatch):
-    from app.routers import wechat
+    from app.integrations.wechat.api import wechat
 
     monkeypatch.setenv("WECHAT_TOKEN", "change_me")
     get_settings.cache_clear()

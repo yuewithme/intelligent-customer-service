@@ -9,7 +9,7 @@ from app.infrastructure.database.models import ConversationModel
 
 @pytest.mark.asyncio
 async def test_initialize_contacts_uses_official_endpoint(monkeypatch):
-    from app.services import eyun_contact_service as service
+    from app.integrations.eyun.services import eyun_contact_service as service
 
     calls = []
 
@@ -49,7 +49,7 @@ async def test_initialize_contacts_uses_official_endpoint(monkeypatch):
 async def test_empty_contact_initializes_then_refreshes_and_backfills(
     monkeypatch, tmp_path
 ):
-    from app.services import eyun_contact_service as service
+    from app.integrations.eyun.services import eyun_contact_service as service
 
     monkeypatch.setenv(
         "CHAT_LOG_DB_URL", f"sqlite:///{(tmp_path / 'chat.db').as_posix()}"
@@ -121,7 +121,7 @@ async def test_empty_contact_initializes_then_refreshes_and_backfills(
 
 @pytest.mark.asyncio
 async def test_empty_callback_schedules_contact_refresh(monkeypatch):
-    from app.services import eyun_callback_service as service
+    from app.integrations.eyun.services import eyun_callback_service as service
 
     scheduled = []
 
@@ -171,7 +171,7 @@ async def test_empty_callback_schedules_contact_refresh(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_contact_refresh_scheduler_deduplicates_same_contact(monkeypatch):
-    from app.services import eyun_contact_service as service
+    from app.integrations.eyun.services import eyun_contact_service as service
 
     started = asyncio.Event()
     release = asyncio.Event()
@@ -202,7 +202,7 @@ async def test_contact_refresh_scheduler_deduplicates_same_contact(monkeypatch):
 async def test_update_customer_identity_backfills_existing_conversation(
     monkeypatch, tmp_path
 ):
-    from app.services import conversation_service as service
+    from app.domains.conversations.services import conversation_service as service
 
     monkeypatch.setenv(
         "CHAT_LOG_DB_URL", f"sqlite:///{(tmp_path / 'identity.db').as_posix()}"

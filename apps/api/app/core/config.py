@@ -46,8 +46,6 @@ class Settings(BaseSettings):
     admin_gate_test_password: str = ""
     admin_gate_secret: str = ""
     wechat_token: str = "change_me"
-    wechat_app_id: str = "change_me"
-    wechat_app_secret: str = "change_me"
     wechat_default_kb_id: str = "kb_default"
     eyun_base_url: str = ""
     eyun_authorization: str = ""
@@ -217,9 +215,6 @@ class Settings(BaseSettings):
     memory_v2_shadow_min_samples: int = Field(
         default=100, ge=1, alias="MEMORY_V2_SHADOW_MIN_SAMPLES"
     )
-    first_order_sales_flow_v2_enabled: bool | None = Field(
-        default=None, alias="FIRST_ORDER_SALES_FLOW_V2_ENABLED"
-    )
 
     @field_validator("eyun_base_url", mode="before")
     @classmethod
@@ -233,12 +228,7 @@ class Settings(BaseSettings):
         return normalized
 
     @model_validator(mode="after")
-    def default_sales_flow_v2_by_environment(self):
-        if self.first_order_sales_flow_v2_enabled is None:
-            self.first_order_sales_flow_v2_enabled = self.app_env.lower() not in {
-                "prod",
-                "production",
-            }
+    def validate_memory_rollout(self):
         if (
             self.memory_v2_write_enabled
             and self.memory_v2_job_lease_seconds <= self.llm_timeout_seconds
@@ -269,7 +259,6 @@ class Settings(BaseSettings):
     youzan_inventory_version: str = "3.0.0"
     youzan_follower_get_method: str = "youzan.users.weixin.follower.get"
     youzan_follower_get_version: str = "3.0.0"
-    youzan_order_detail_enabled: bool = True
     youzan_order_detail_method: str = "youzan.trade.get"
     youzan_order_detail_version: str = "4.0.0"
     youzan_logistics_enabled: bool = False
@@ -290,9 +279,6 @@ class Settings(BaseSettings):
     youzan_mini_program_user_name: str = ""
     youzan_mini_program_display_name: str = ""
     youzan_mini_program_icon_url: str = ""
-    youzan_order_page_path: str = ""
-    youzan_order_card_title: str = "查看我的订单"
-    youzan_order_card_thumb_url: str = ""
     youzan_product_sync_enabled: bool = True
     youzan_product_sync_interval_hours: int = Field(default=24, ge=1, le=168)
     youzan_product_sync_startup_delay_seconds: int = Field(default=30, ge=0, le=3600)
@@ -311,7 +297,6 @@ class Settings(BaseSettings):
     qdrant_url: str = ""
     qdrant_api_key: str = ""
     qdrant_collection: str = "knowledge_chunks"
-    qdrant_knowledge_collection: str = "knowledge_chunks"
     qdrant_vector_size: int = 1024
     qdrant_distance: str = "COSINE"
     qdrant_trust_env: bool = True
@@ -335,8 +320,6 @@ class Settings(BaseSettings):
     persona_llm_timeout_seconds: float = Field(
         default=15, ge=1, alias="PERSONA_LLM_TIMEOUT_SECONDS"
     )
-    persona_reply_enabled: bool = True
-    persona_reply_temperature: float = Field(default=0.3, ge=0, le=1)
     profile_llm_provider: str = ""
     profile_llm_model: str = "qwen3.7-flash"
     profile_analysis_prompt: str = ""
@@ -406,18 +389,12 @@ class Settings(BaseSettings):
     rag_top_k: int = Field(default=20, ge=1)
     rag_top_n: int = Field(default=5, ge=1)
     rag_knowledge_enabled: bool = False
-    template_top_k: int = Field(default=5, ge=1)
-    template_min_score: float = Field(default=0.5, ge=0, le=1)
-    state_provider: str = "memory"
-    rule_guard_enabled: bool = True
-    debug_api_enabled: bool = True
     chunk_size: int = Field(default=600, ge=1)
     chunk_overlap: int = Field(default=100, ge=0)
     chunk_strategy: Literal["fixed", "adaptive"] = "fixed"
     markdown_heading_max_level: int = Field(default=6, ge=1, le=6)
 
     database_url: str = "sqlite:///./rag.db"
-    redis_url: str = "redis://localhost:6379/0"
     upload_dir: str = "data/uploads"
     sop_image_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1)
     sop_video_max_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
@@ -425,7 +402,6 @@ class Settings(BaseSettings):
     chat_log_enabled: bool = True
     chat_log_provider: str = "sqlite"
     chat_log_db_url: str = "sqlite:///./chat_logs.db"
-    chat_log_retention_days: int = Field(default=30, ge=1)
     chat_log_max_message_length: int = Field(default=2000, ge=1)
     chat_log_max_answer_length: int = Field(default=4000, ge=1)
 

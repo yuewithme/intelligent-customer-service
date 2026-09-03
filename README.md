@@ -26,7 +26,7 @@ docker-compose.prod.yml
 
 ```powershell
 cd apps/api
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
 uvicorn app.main:app --reload
 ```

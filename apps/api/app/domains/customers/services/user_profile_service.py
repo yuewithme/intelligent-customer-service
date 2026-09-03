@@ -304,23 +304,6 @@ async def save_shipping_contact(
         return allowed
 
 
-async def refresh_profile_from_memory(user_id: str) -> None:
-    with _get_session() as session:
-        profile = _get_or_create_profile(session, user_id)
-        records = _list_profile_context_records(
-            session, user_id, current_message="", limit=18
-        )
-        tenant_id = profile.tenant_id
-    if not records:
-        return
-    analysis = await _build_profile_analysis(records)
-    with _get_session() as session:
-        profile = _get_or_create_profile(session, user_id, tenant_id=tenant_id)
-        _apply_profile_analysis(profile, analysis)
-        profile.updated_at = _now()
-        session.commit()
-
-
 async def get_profile_events(user_id: str, limit: int = 20) -> dict:
     limit = _clamp_limit(limit, default=20, maximum=100)
     with _get_session() as session:

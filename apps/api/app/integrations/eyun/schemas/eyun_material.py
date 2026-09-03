@@ -3,9 +3,6 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
-MaterialType = Literal["image", "video"]
-
-
 class MaterialUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=256)
     status: Literal["ready", "expired", "disabled"] = "ready"

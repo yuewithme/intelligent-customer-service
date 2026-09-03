@@ -136,12 +136,6 @@ export const deleteProductKnowledge = (id: number) =>
     url: `/api/v1/admin/products/knowledge/${id}`
   })
 
-export const updateProductSort = (itemId: string, sortOrder: number) =>
-  request.put<ProductItem>({
-    url: `/api/v1/admin/products/${encodeURIComponent(itemId)}/sort`,
-    data: { sort_order: sortOrder }
-  })
-
 export const updateProductNote = (itemId: string, internalNote: string) =>
   request.put<ProductItem>({
     url: `/api/v1/admin/products/${encodeURIComponent(itemId)}/note`,

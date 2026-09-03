@@ -76,8 +76,8 @@ def test_thirty_per_minute_configuration_has_a_rolling_window_safety_margin(monk
 async def test_hundreds_of_messages_queue_without_bypassing_rate_limit(monkeypatch, tmp_path):
     from app.core.config import get_settings
     from app.infrastructure.database.models import EyunOutboundMessageModel
-    from app.services import eyun_callback_service
-    from app.services import message_risk_control_service as service
+    from app.integrations.eyun.services import eyun_callback_service
+    from app.integrations.eyun.services import message_risk_control_service as service
 
     db_path = tmp_path / "bulk-outbound.db"
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{db_path.as_posix()}")

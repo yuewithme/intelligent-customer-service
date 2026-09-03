@@ -11,7 +11,7 @@ from app.infrastructure.database.models import (
 )
 from app.domains.customers.schemas.memory import MemoryEventCreate, MemoryOperationCandidate
 from app.domains.decisioning.schemas.prompt import PromptBuildInput
-from app.services import memory_repository
+from app.domains.customers.services import memory_repository
 from app.domains.customers.services.memory_consolidation_service import apply_memory_candidate
 from app.domains.customers.services.memory_event_service import append_memory_event
 from app.domains.customers.services.memory_identity_service import resolve_or_create_subject

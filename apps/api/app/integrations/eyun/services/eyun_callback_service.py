@@ -102,10 +102,6 @@ def should_process_eyun_payload(payload: dict[str, Any]) -> bool:
     )
 
 
-def is_eyun_non_text_message(payload: dict[str, Any]) -> bool:
-    return not is_eyun_text_message(payload)
-
-
 def is_eyun_private_text_message(payload: dict[str, Any]) -> bool:
     return str(payload.get("messageType", "")) == EYUN_PRIVATE_TEXT
 
@@ -372,22 +368,6 @@ def _has_contact_display(metadata: dict[str, Any]) -> bool:
     )
 
 
-def _eyun_non_text_label(message_type: str) -> str:
-    return {
-        "002": "[图片]",
-        "003": "[视频]",
-        "004": "[语音]",
-        "005": "[名片]",
-        "006": "[表情]",
-        "007": "[链接]",
-        "008": "[文件]",
-        "009": "[文件]",
-        "010": "[小程序]",
-        "011": "[聊天记录]",
-        "020": "[位置]",
-    }.get(message_type[-3:], "[非文本消息]")
-
-
 def _message_type_in_range(payload: dict[str, Any], start: int, end: int) -> bool:
     try:
         message_type = int(str(payload.get("messageType", "")))
@@ -471,14 +451,6 @@ def _eyun_message_ids(data: dict[str, Any]) -> list[str]:
 
 def _eyun_provider_message_id(data: dict[str, Any]) -> str | None:
     return str(data.get("msgId") or data.get("newMsgId") or "") or None
-
-
-def _eyun_display_content(payload: dict[str, Any]) -> str:
-    if is_eyun_text_message(payload):
-        return str((payload.get("data") or {}).get("content") or "").strip() or "[空消息]"
-    if is_eyun_new_friend_opening_event(payload):
-        return str((payload.get("data") or {}).get("content") or "").strip()
-    return _eyun_non_text_label(str(payload.get("messageType", "")))
 
 
 def _eyun_message_kind(message_type: str) -> str:

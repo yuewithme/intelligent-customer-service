@@ -18,7 +18,7 @@ from app.domains.customers.schemas.memory import (
     MemoryEventCreate,
     validate_fact_value,
 )
-from app.services import memory_repository
+from app.domains.customers.services import memory_repository
 from app.domains.customers.services.memory_event_service import (
     MemoryEventConflictError,
     MemoryEventSubjectError,

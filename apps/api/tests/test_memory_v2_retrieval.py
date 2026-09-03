@@ -4,7 +4,7 @@ import pytest
 
 from app.core.config import get_settings
 from app.domains.customers.schemas.memory import MemoryEventCreate, MemoryOperationCandidate
-from app.services import memory_repository
+from app.domains.customers.services import memory_repository
 from app.domains.knowledge.services.embedding_service import embed_text
 from app.domains.customers.services.memory_consolidation_service import apply_memory_candidate
 from app.domains.customers.services.memory_event_service import append_memory_event
@@ -54,7 +54,7 @@ def _subject(tenant_id="tenant_alpha", external_user_id="user_1"):
 async def test_ensure_memory_collection_adds_required_filter_indexes(
     monkeypatch,
 ):
-    from app.services import memory_vector_service
+    from app.domains.customers.services import memory_vector_service
 
     class ExistingCollection:
         payload_schema = {"tenant_id": object()}
@@ -205,7 +205,7 @@ async def test_memory_vector_search_is_tenant_and_subject_scoped(memory_db):
 async def test_retrieval_revalidates_vector_hits_against_sql_scope(
     memory_db, monkeypatch
 ):
-    from app.services import memory_retrieval_service
+    from app.domains.customers.services import memory_retrieval_service
 
     alpha = _subject(external_user_id="alpha")
     beta = _subject(external_user_id="beta")
@@ -308,7 +308,7 @@ async def test_context_uses_current_temporal_fact_and_requires_verified_payment(
 
 @pytest.mark.asyncio
 async def test_rerank_prefers_relevant_older_episode(memory_db, monkeypatch):
-    from app.services import memory_retrieval_service
+    from app.domains.customers.services import memory_retrieval_service
 
     subject = _subject()
     now = datetime.now(timezone.utc)
@@ -362,7 +362,7 @@ async def test_rerank_prefers_relevant_older_episode(memory_db, monkeypatch):
 async def test_evidence_expansion_is_bounded_and_excludes_restricted_content(
     memory_db, monkeypatch
 ):
-    from app.services import memory_retrieval_service
+    from app.domains.customers.services import memory_retrieval_service
 
     subject = _subject()
     events = [
@@ -425,7 +425,7 @@ async def test_evidence_expansion_is_bounded_and_excludes_restricted_content(
 async def test_retrieval_falls_back_to_sql_when_vector_service_is_unavailable(
     memory_db, monkeypatch
 ):
-    from app.services import memory_retrieval_service
+    from app.domains.customers.services import memory_retrieval_service
 
     subject = _subject()
     event = _event(subject, uid="fallback:memory", text="我喜欢白色兰花")

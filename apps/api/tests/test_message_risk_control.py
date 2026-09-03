@@ -20,7 +20,7 @@ from app.infrastructure.database.models import (
 
 @pytest.fixture(autouse=True)
 def risk_control_db(monkeypatch, tmp_path):
-    from app.services import message_risk_control_service
+    from app.integrations.eyun.services import message_risk_control_service
 
     db_path = tmp_path / "risk_control.db"
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{db_path.as_posix()}")
@@ -476,7 +476,7 @@ async def test_internal_workbench_title_is_not_sent_to_ai(monkeypatch):
 @pytest.mark.asyncio
 async def test_process_due_batch_ignores_obsolete_profile_id_and_uses_sender(monkeypatch, tmp_path):
     del tmp_path
-    from app.services import message_risk_control_service as service
+    from app.integrations.eyun.services import message_risk_control_service as service
 
     monkeypatch.setenv("EYUN_INBOUND_DEBOUNCE_SECONDS", "0")
     get_settings.cache_clear()
@@ -1491,7 +1491,7 @@ async def test_explicit_provider_rejection_is_failed_without_retry(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_send_worker_respects_account_min_interval(monkeypatch):
-    from app.services import message_risk_control_service
+    from app.integrations.eyun.services import message_risk_control_service
     from app.integrations.eyun.services.message_risk_control_service import (
         _get_session,
         process_due_eyun_outbound_messages,

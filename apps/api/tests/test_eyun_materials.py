@@ -11,7 +11,8 @@ from app.main import app
 
 @pytest.fixture(autouse=True)
 def material_db(monkeypatch, tmp_path):
-    from app.services import eyun_material_service, message_risk_control_service
+    from app.integrations.eyun.services import eyun_material_service
+    from app.integrations.eyun.services import message_risk_control_service
 
     db_path = tmp_path / "materials.db"
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{db_path.as_posix()}")
@@ -84,7 +85,7 @@ def test_material_group_callback_auto_captures_raw_xml(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_image_url_is_materialized_once_for_concurrent_sends(monkeypatch):
-    from app.services import eyun_material_service as materials
+    from app.integrations.eyun.services import eyun_material_service as materials
 
     monkeypatch.setenv("EYUN_BASE_URL", "https://eyun.example")
     monkeypatch.setenv("EYUN_AUTHORIZATION", "token")
@@ -128,7 +129,7 @@ async def test_image_url_is_materialized_once_for_concurrent_sends(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_video_url_builds_reusable_video_and_thumbnail_xml(monkeypatch):
-    from app.services import eyun_material_service as materials
+    from app.integrations.eyun.services import eyun_material_service as materials
 
     async def fake_fetch(url):
         return b"video-content" if url.endswith(".mp4") else b"thumb-content"
@@ -159,9 +160,9 @@ async def test_video_url_builds_reusable_video_and_thumbnail_xml(monkeypatch):
 @pytest.mark.asyncio
 async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch):
     from app.infrastructure.database.models import EyunOutboundMessageModel
-    from app.services import eyun_callback_service
-    from app.services import eyun_material_service as materials
-    from app.services import message_risk_control_service as risk
+    from app.integrations.eyun.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_material_service as materials
+    from app.integrations.eyun.services import message_risk_control_service as risk
 
     now = datetime(2026, 7, 17, 7, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(risk, "utcnow", lambda: now)
@@ -204,8 +205,8 @@ async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch):
 @pytest.mark.asyncio
 async def test_generated_material_refresh_resumes_waiting_queue(monkeypatch):
     from app.infrastructure.database.models import EyunOutboundMessageModel
-    from app.services import eyun_material_service as materials
-    from app.services import message_risk_control_service as risk
+    from app.integrations.eyun.services import eyun_material_service as materials
+    from app.integrations.eyun.services import message_risk_control_service as risk
 
     now = datetime(2026, 7, 17, 7, 30, tzinfo=timezone.utc)
     monkeypatch.setattr(risk, "utcnow", lambda: now)
@@ -257,9 +258,9 @@ async def test_generated_material_refresh_resumes_waiting_queue(monkeypatch):
 @pytest.mark.asyncio
 async def test_bulk_material_send_stores_one_xml_and_queues_per_recipient(monkeypatch):
     from app.infrastructure.database.models import EyunMediaMaterialModel, EyunOutboundMessageModel
-    from app.services import eyun_callback_service
-    from app.services import eyun_material_service as materials
-    from app.services import message_risk_control_service as risk
+    from app.integrations.eyun.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_material_service as materials
+    from app.integrations.eyun.services import message_risk_control_service as risk
 
     xml = '<msg><img cdnmidimgurl="bulk-asset" /></msg>'
     material = materials.capture_eyun_material(media_type="image", raw_xml=xml)
@@ -302,9 +303,9 @@ async def test_bulk_material_send_stores_one_xml_and_queues_per_recipient(monkey
 @pytest.mark.asyncio
 async def test_expired_material_pauses_and_recapture_resumes_queue(monkeypatch):
     from app.infrastructure.database.models import EyunOutboundMessageModel
-    from app.services import eyun_callback_service
-    from app.services import eyun_material_service as materials
-    from app.services import message_risk_control_service as risk
+    from app.integrations.eyun.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_material_service as materials
+    from app.integrations.eyun.services import message_risk_control_service as risk
 
     xml = '<msg><videomsg cdnvideourl="temporary-cdn" /></msg>'
     material = materials.capture_eyun_material(media_type="video", raw_xml=xml)

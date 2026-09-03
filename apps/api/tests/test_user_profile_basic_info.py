@@ -37,7 +37,7 @@ async def test_ensure_user_profile_persists_basic_info_under_external_user_id(
     monkeypatch, tmp_path
 ):
     _profile_db(monkeypatch, tmp_path)
-    from app.services import user_profile_service
+    from app.domains.customers.services import user_profile_service
 
     user_profile_service._sessionmakers.clear()
     profile = await user_profile_service.ensure_user_profile(
@@ -77,7 +77,7 @@ async def test_basic_info_refresh_preserves_existing_values_when_provider_return
     monkeypatch, tmp_path
 ):
     _profile_db(monkeypatch, tmp_path)
-    from app.services import user_profile_service
+    from app.domains.customers.services import user_profile_service
 
     user_profile_service._sessionmakers.clear()
     await user_profile_service.ensure_user_profile(

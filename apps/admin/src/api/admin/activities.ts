@@ -68,9 +68,6 @@ export const getActivities = (params: {
   conversation_id?: string
 }) => request.get<ActivityListResponse>({ url: '/api/v1/admin/activities', params })
 
-export const getActivity = (activityId: number) =>
-  request.get<ActivityItem>({ url: `/api/v1/admin/activities/${activityId}` })
-
 export const createActivityFromMessages = (data: {
   conversation_id: string
   message_ids: number[]

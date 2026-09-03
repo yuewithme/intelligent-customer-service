@@ -22,8 +22,6 @@ def _reset_settings(monkeypatch, tmp_path, *, auth: bool = False):
     monkeypatch.setenv("API_KEY", "test-key")
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     monkeypatch.setenv("LLM_PROVIDER", "mock")
-    monkeypatch.setenv("INTENT_LLM_PROVIDER", "mock")
-    monkeypatch.setenv("STATE_PROVIDER", "memory")
     monkeypatch.setenv("EYUN_WC_ID", "")
     monkeypatch.setenv("EYUN_WID", "")
     get_settings.cache_clear()
@@ -1209,7 +1207,8 @@ def test_claimed_handoff_conversation_accepts_human_reply(monkeypatch, tmp_path)
 
 
 def test_human_reply_to_eyun_conversation_sends_via_provider(monkeypatch, tmp_path):
-    from app.services import eyun_callback_service, message_risk_control_service
+    from app.integrations.eyun.services import eyun_callback_service
+    from app.integrations.eyun.services import message_risk_control_service
 
     _reset_settings(monkeypatch, tmp_path)
     sent = []
@@ -1438,7 +1437,7 @@ def test_claimed_eyun_conversation_sends_care_manual_link_card(
 def test_queued_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
     import asyncio
 
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
     from app.integrations.ai.services import video_understanding_service
     from app.integrations.ai.services.video_understanding_service import (
         VideoUnderstanding,
@@ -1521,7 +1520,7 @@ def test_stale_eyun_media_job_is_recovered_after_worker_restart(
 ):
     import asyncio
 
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
     from app.infrastructure.database.models import EyunInboundMediaJobModel
     from app.integrations.eyun.services import eyun_inbound_media_service
 
@@ -1579,7 +1578,7 @@ def test_stale_eyun_media_job_is_recovered_after_worker_restart(
 def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
     import asyncio
 
-    from app.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service
     from app.integrations.eyun.services import eyun_inbound_media_service
 
     _reset_settings(monkeypatch, tmp_path)
