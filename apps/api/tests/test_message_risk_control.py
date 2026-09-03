@@ -54,6 +54,71 @@ def test_risk_control_defaults():
     assert settings.eyun_reply_jitter_max_seconds == 2
 
 
+@pytest.mark.asyncio
+async def test_delivery_key_reuses_existing_outbound():
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    kwargs = {
+        "w_id": "wid",
+        "wc_id": "customer",
+        "content": "固定触达文案",
+        "source_batch_key": "service_material_touch:501",
+        "delivery_key": "service_material_touch:501:copy",
+        "user_id": "customer",
+        "sender_type": "system",
+        "sender_id": "service_material_touch",
+    }
+    first = await service.enqueue_wechat_outbound(**kwargs)
+    second = await service.enqueue_wechat_outbound(**kwargs)
+
+    assert first["id"] == second["id"]
+    assert first["delivery_key"] == "service_material_touch:501:copy"
+    with service._get_session() as session:
+        assert session.query(EyunOutboundMessageModel).count() == 1
+
+
+def test_legacy_confirmation_retry_is_migrated_to_unconfirmed():
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    now = datetime(2026, 9, 3, 8, 0, tzinfo=timezone.utc)
+    with service._get_session() as session:
+        outbound = EyunOutboundMessageModel(
+            w_id="wid",
+            wc_id="customer",
+            content="固定触达文案",
+            source_batch_key="service_material_touch:502",
+            status="queued",
+            due_at=now + timedelta(minutes=15),
+            attempts=3,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(outbound)
+        session.flush()
+        session.add(
+            EyunOutboundDeliveryEventModel(
+                outbound_message_id=outbound.id,
+                source_batch_key=outbound.source_batch_key,
+                event="confirmation_timeout_retry_scheduled",
+                status_from="accepted",
+                status_to="queued",
+                attempt=3,
+                metadata_json="{}",
+                created_at=now,
+            )
+        )
+        session.commit()
+        outbound_id = outbound.id
+
+    factory = service._sessionmakers[get_settings().chat_log_db_url]
+    service._ensure_risk_control_columns(factory)
+
+    with service._get_session() as session:
+        outbound = session.get(EyunOutboundMessageModel, outbound_id)
+        assert outbound.status == "unconfirmed"
+        assert "人工核验" in outbound.last_error
+
+
 def test_risk_control_models_have_table_names():
     from app.infrastructure.database import models
 
