@@ -10,6 +10,7 @@ from app.domains.sales.services.business_tag_prompt_service import (
 from app.domains.decisioning.services.policy_engine import decide_policy
 from app.domains.decisioning.services.prompt_builder import build_prompt
 from app.domains.conversations.schemas.context import ContextPackage
+from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.schemas.prompt import PromptBuildInput
 
 
@@ -28,10 +29,10 @@ def isolated_tag_prompt_db(tmp_path, monkeypatch):
 def test_seed_business_tag_policy_splits_quantity_region_and_orchid_preference():
     seed_business_tag_prompt_policy()
 
-    assert get_business_tag_prompt_block_ids(["customer_tag:1-10盆"]) == [
+    assert get_business_tag_prompt_block_ids(["customer_tag:1-9盆"]) == [
         "orchid_quantity.small.focus"
     ]
-    assert get_business_tag_prompt_block_ids(["customer_tag:100-200盆"]) == [
+    assert get_business_tag_prompt_block_ids(["customer_tag:100-199盆"]) == [
         "orchid_quantity.large.focus"
     ]
     assert get_business_tag_prompt_block_ids(["customer_tag:浙江省"]) == [
@@ -42,6 +43,31 @@ def test_seed_business_tag_policy_splits_quantity_region_and_orchid_preference()
     ]
     assert get_business_tag_prompt_block_ids(["customer_tag:建兰"]) == [
         "orchid_preference.jianlan"
+    ]
+    assert get_business_tag_prompt_block_ids(["customer_tag:浓香"]) == [
+        "product_demand.preference"
+    ]
+    assert get_business_tag_prompt_block_ids(["customer_tag:201-500元"]) == [
+        "price_range.constraint"
+    ]
+    assert get_business_tag_prompt_block_ids(["customer_tag:阳台"]) == [
+        "growing_environment.fit"
+    ]
+
+
+def test_advanced_customer_level_changes_guidance_without_forcing_handoff():
+    result = customer_level_service.classify_customer_level(
+        message="我主要研究艺草和叶艺",
+        user_state=UserState(user_id="advanced-customer"),
+    )
+
+    assert result.level == "L5"
+    assert result.route == "rag_answer"
+    assert result.handoff_reason is None
+    assert customer_level_service.get_customer_level_prompt_block_ids("L5") == [
+        "customer_level.l5.identity",
+        "customer_level.l5.communication",
+        "customer_level.l5.recommendation",
     ]
 
 
@@ -54,7 +80,7 @@ async def test_policy_adds_business_tag_prompt_blocks_after_customer_level_block
         confidence=0.9,
         labels=[
             "customer_tag:L2 白银期",
-            "customer_tag:100-200盆",
+            "customer_tag:100-199盆",
             "customer_tag:浙江省",
             "customer_tag:春兰",
         ],

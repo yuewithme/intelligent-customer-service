@@ -26,6 +26,7 @@ _tables = [
     TagPromptBindingModel.__table__,
 ]
 _PROMPT_PREFIX = "customer_level."
+_SEED_MARKER_ID = "system.seed.customer_level_policy.v2"
 
 
 _LEVEL_PROFILES = [
@@ -58,24 +59,24 @@ _LEVEL_PROFILES = [
         "name": "L4 铂金期",
         "description": "品种收藏型用户，关注瓣型、老种鉴定、品种档案和价格行情。",
         "min_score": 1.0,
-        "default_route": "human",
-        "handoff_reason": "advanced_customer_level",
+        "default_route": "rag_answer",
+        "handoff_reason": None,
     },
     {
         "level": "L5",
         "name": "L5 宗师期",
         "description": "艺向研究型用户，关注艺草、叶艺进化、虎斑、蛇斑、中透艺等高专业问题。",
         "min_score": 1.0,
-        "default_route": "human",
-        "handoff_reason": "advanced_customer_level",
+        "default_route": "rag_answer",
+        "handoff_reason": None,
     },
     {
         "level": "L6",
         "name": "L6 王者期",
         "description": "品种缔造或高价值交易用户，关注稀有品种、投资、命名权和种源交易。",
         "min_score": 1.0,
-        "default_route": "human",
-        "handoff_reason": "advanced_customer_level",
+        "default_route": "rag_answer",
+        "handoff_reason": None,
     },
 ]
 
@@ -130,6 +131,33 @@ _PROMPT_BLOCKS = {
     "customer_level.l3.recommendation": (
         "Recommend classic varieties, color flowers, and proven old varieties when relevant. Avoid too-basic commodity suggestions."
     ),
+    "customer_level.l4.identity": (
+        "L4 customer: an experienced collector who values petal form, classic cultivars, provenance, and market context."
+    ),
+    "customer_level.l4.communication": (
+        "Use precise collector language, respect existing knowledge, and focus on evidence, distinctions, and tradeoffs."
+    ),
+    "customer_level.l4.recommendation": (
+        "Prefer credible classic or collectible varieties when relevant; never infer authenticity, scarcity, or appreciation potential without verified facts."
+    ),
+    "customer_level.l5.identity": (
+        "L5 customer: an advanced enthusiast with strong interest in leaf art and specialist orchid traits."
+    ),
+    "customer_level.l5.communication": (
+        "Be concise and technically precise. Do not repeat beginner basics unless the current question requires them."
+    ),
+    "customer_level.l5.recommendation": (
+        "Align recommendations with verified art-orchid traits and provenance; do not make unsupported stability or evolution claims."
+    ),
+    "customer_level.l6.identity": (
+        "L6 customer: a highly experienced or high-value orchid customer. Treat expertise and transaction risk with care."
+    ),
+    "customer_level.l6.communication": (
+        "Communicate directly and professionally, verify high-value facts, and avoid sales pressure or basic explanations."
+    ),
+    "customer_level.l6.recommendation": (
+        "Only present premium or rare options when relevant and verified; customer level alone never triggers handoff or a purchase action."
+    ),
 }
 
 
@@ -148,6 +176,21 @@ _PROMPT_BINDINGS = {
         "customer_level.l3.identity",
         "customer_level.l3.communication",
         "customer_level.l3.recommendation",
+    ],
+    "L4": [
+        "customer_level.l4.identity",
+        "customer_level.l4.communication",
+        "customer_level.l4.recommendation",
+    ],
+    "L5": [
+        "customer_level.l5.identity",
+        "customer_level.l5.communication",
+        "customer_level.l5.recommendation",
+    ],
+    "L6": [
+        "customer_level.l6.identity",
+        "customer_level.l6.communication",
+        "customer_level.l6.recommendation",
     ],
 }
 
@@ -211,6 +254,16 @@ def seed_customer_level_policy() -> None:
                         enabled=True,
                     )
                 )
+        marker = session.get(PromptBlockModel, _SEED_MARKER_ID)
+        if marker is None:
+            session.add(
+                PromptBlockModel(
+                    block_id=_SEED_MARKER_ID,
+                    title="Customer level policy v2 seeded",
+                    content="",
+                    enabled=False,
+                )
+            )
         session.commit()
 
 
@@ -300,7 +353,7 @@ def prompt_blocks_for_customer_level_labels(labels: list[str]) -> list[str]:
     for label in labels:
         value = label.split(":", 1)[1] if ":" in label else label
         level = _level_from_label(value)
-        if level in {"L1", "L2", "L3"}:
+        if level in {"L1", "L2", "L3", "L4", "L5", "L6"}:
             return get_customer_level_prompt_block_ids(level)
     return []
 
@@ -321,33 +374,80 @@ def clear_cache() -> None:
 def _ensure_seeded() -> None:
     with _get_session() as session:
         has_profile = session.scalar(select(CustomerLevelProfileModel.level).limit(1))
-        has_catalog_binding = session.scalar(
-            select(TagPromptBindingModel.id)
-            .where(TagPromptBindingModel.category_id == "customer_level")
-            .limit(1)
-        )
+        marker = session.get(PromptBlockModel, _SEED_MARKER_ID)
     if has_profile is None:
         seed_customer_level_policy()
-    elif has_catalog_binding is None:
-        with _get_session() as session:
-            profiles = {
-                row.level: row.name
-                for row in session.scalars(select(CustomerLevelProfileModel)).all()
-            }
-            bindings = session.scalars(select(CustomerLevelPromptBindingModel)).all()
-            for binding in bindings:
-                label = profiles.get(binding.level)
-                if label:
+        return
+    if marker is not None:
+        return
+    with _get_session() as session:
+        profiles = {
+            row.level: row
+            for row in session.scalars(select(CustomerLevelProfileModel)).all()
+        }
+        for item in _LEVEL_PROFILES:
+            profile = profiles.get(item["level"])
+            if profile is None:
+                profile = CustomerLevelProfileModel(**item, enabled=True)
+                session.add(profile)
+                profiles[item["level"]] = profile
+            elif item["level"] in {"L4", "L5", "L6"}:
+                profile.default_route = "rag_answer"
+                profile.handoff_reason = None
+        for block_id, content in _PROMPT_BLOCKS.items():
+            if session.get(PromptBlockModel, block_id) is None:
+                session.add(
+                    PromptBlockModel(
+                        block_id=block_id,
+                        title=block_id,
+                        content=content,
+                        enabled=True,
+                    )
+                )
+        for level, block_ids in _PROMPT_BINDINGS.items():
+            label = profiles[level].name
+            for priority, block_id in enumerate(block_ids, start=1):
+                level_binding = session.scalar(
+                    select(CustomerLevelPromptBindingModel.id).where(
+                        CustomerLevelPromptBindingModel.level == level,
+                        CustomerLevelPromptBindingModel.prompt_block_id == block_id,
+                    )
+                )
+                if level_binding is None:
+                    session.add(
+                        CustomerLevelPromptBindingModel(
+                            level=level,
+                            prompt_block_id=block_id,
+                            priority=priority,
+                            enabled=True,
+                        )
+                    )
+                tag_binding = session.scalar(
+                    select(TagPromptBindingModel.id).where(
+                        TagPromptBindingModel.category_id == "customer_level",
+                        TagPromptBindingModel.tag_value == label,
+                        TagPromptBindingModel.prompt_block_id == block_id,
+                    )
+                )
+                if tag_binding is None:
                     session.add(
                         TagPromptBindingModel(
                             category_id="customer_level",
                             tag_value=label,
-                            prompt_block_id=binding.prompt_block_id,
-                            priority=binding.priority,
-                            enabled=binding.enabled,
+                            prompt_block_id=block_id,
+                            priority=priority,
+                            enabled=True,
                         )
                     )
-            session.commit()
+        session.add(
+            PromptBlockModel(
+                block_id=_SEED_MARKER_ID,
+                title="Customer level policy v2 seeded",
+                content="",
+                enabled=False,
+            )
+        )
+        session.commit()
 
 
 def _get_session() -> Session:

@@ -27,6 +27,7 @@ from app.domains.sales.services.care_manual_service import (
     get_care_manual,
     test_match_care_manuals,
 )
+from app.domains.sales.services.tag_catalog import get_profile_tag_categories
 from app.integrations.youzan.services.youzan_ai_tool_service import YouzanAIToolService
 
 
@@ -63,8 +64,8 @@ CAPABILITIES = (
     CapabilitySpec(
         "customer.tag",
         "tool",
-        ("标签", "盆数", "品种", "客户等级", "L1", "L2", "L3", "L4", "L5", "L6"),
-        "输入 {\"tag\":\"标签库中的准确名称\",\"evidence\":\"客户本轮原话片段\"}。当客户亲口提供盆数、主要品种或足以判断 L1-L6 的稳定证据时记录标签；标签只辅助后续判断，不是销售阶段。客户说‘几盆、不多’已经给出了可用于销售判断的小规模信息，不要为了把标签精确到某个区间重新追问；无法稳妥映射时可以不打盆数标签，但继续推进。等级准确名称是 L1 青铜期、L2 白银期、L3 黄金期、L4 铂金期、L5 宗师期、L6 王者期；常用盆数准确名称是 1-10盆、10-30盆、30-50盆、50-100盆、100-200盆、200+盆、1000+盆。L1 潜在或试错期，L2 有少量经验且常见养护问题，L3 有较多品种和稳定经验，L4 收藏与品种档案，L5 艺草研究，L6 品种缔造或高价值交易。不要凭一个品种名、一个痛点或盆数单独拔高等级；证据不足就不打。抖音已购和微信已购属于受保护标签，客户口头自述不能调用本工具写入。",
+        ("标签", "盆数", "品种", "客户等级", "地区", "省份", "预算", "价格", "环境", "阳台", "室内", "花色", "瓣型", "香味", "红素", "荷瓣", "艺草", "好养", "勤花", "L1", "L2", "L3", "L4", "L5", "L6"),
+        "输入 {\"tag\":\"标签库中的准确名称\",\"evidence\":\"客户本轮原话片段\"}。客户本轮亲口提供客户等级、盆数、所在省份、喜欢的兰花品类、产品需求、价格接受范围或养兰环境等稳定事实时记录；一条消息有多个明确事实时可分别调用本工具。每次必须引用能支持该标签的客户本轮原话，不能根据提问、否定表达、他人情况或省份推断养兰环境。标签只辅助后续判断，不等于购买意向或销售阶段。盆数准确名称是 准备养兰、1-9盆、10-29盆、30-49盆、50-99盆、100-199盆、200-499盆、500-999盆、1000盆以上；喜欢的品类准确名称是 春兰、建兰、墨兰、寒兰、蕙兰、莲瓣兰、春剑、豆瓣兰、大花蕙兰等花大色漂亮的、小众品类（送春、秋芝等）、品类不限；产品需求准确名称是 色花（红、黄、复色等，不含红素）、素花（绿白黄素心，不含红素）、红素、奇花（多瓣、蝶瓣、三星蝶）、艺草（虎斑、蛇斑、线艺、缟艺）、梅瓣、荷瓣、水仙瓣及其他瓣型、浓香、清香、矮种、半垂叶、直立叶、花大色艳、好养易活、勤花易开、需求不限；价格准确名称是 50元以内、51-100元、101-200元、201-500元、501-999元、1000元以上、价格不限；环境准确名称是 阳台、室内、庭院/露台、室外露养、有兰棚。客户明确没有限制时才记录对应的不限标签。客户说‘几盆、不多’已经给出可用于销售判断的粗粒度信息，不要为了精确打标追问；无法稳妥映射可以不打。L1-L6 必须结合多项稳定证据判断，不要凭一个品种名、一个痛点或盆数单独拔高等级。抖音已购和微信已购属于受保护标签，客户口头自述不能调用本工具写入。",
     ),
     CapabilitySpec(
         "brand.service_facts",
@@ -527,20 +528,122 @@ async def _knowledge_search(*, call_id, arguments, context) -> AgentToolResult:
 
 
 async def _product_search(*, call_id, arguments, context) -> AgentToolResult:
-    del context
     query = _text(arguments.get("query"), maximum=100)
     limit = _limit(arguments.get("limit"), default=3, maximum=5)
     if not query:
         return _result(call_id, "product.search", "invalid_arguments", error="query_required")
-    products = search_catalog_products(query, limit=limit)
+    effective_query, applied_tags = _product_query_with_profile_tags(query, context)
+    products = search_catalog_products(effective_query, limit=limit)
     public = [_public_product(item) for item in products if isinstance(item, dict)]
     return _result(
         call_id,
         "product.search",
         "found" if public else "not_found",
         products=public,
+        applied_customer_tags=applied_tags,
         queried_at=_now_iso(),
     )
+
+
+_PRODUCT_SEARCH_CATEGORY_IDS = {
+    "customer_level",
+    "favorite_orchid_type",
+    "product_demand",
+    "price_range",
+    "growing_environment",
+}
+_UNRESTRICTED_SEARCH_TAGS = {"品类不限", "需求不限", "价格不限"}
+_SEARCH_TAG_TEXT = {
+    "大花蕙兰等花大色漂亮的": "大花蕙兰",
+    "小众品类（送春、秋芝等）": "送春 秋芝",
+    "色花（红、黄、复色等，不含红素）": "色花",
+    "素花（绿白黄素心，不含红素）": "素花",
+    "奇花（多瓣、蝶瓣、三星蝶）": "奇花",
+    "艺草（虎斑、蛇斑、线艺、缟艺）": "艺草",
+    "水仙瓣及其他瓣型": "水仙瓣",
+    "庭院/露台": "露台",
+    "室外露养": "室外",
+}
+_DEMAND_CONFLICT_GROUPS = (
+    ({"浓香", "清香"}, ("浓香", "清香", "淡香", "幽香", "甜香", "香味")),
+    (
+        {"色花（红、黄、复色等，不含红素）", "素花（绿白黄素心，不含红素）", "红素"},
+        ("色花", "素花", "素心", "红素", "红花", "黄花", "白花", "绿花", "复色"),
+    ),
+    ({"奇花（多瓣、蝶瓣、三星蝶）", "梅瓣", "荷瓣", "水仙瓣及其他瓣型"}, ("奇花", "多瓣", "蝶瓣", "三星蝶", "梅瓣", "荷瓣", "水仙瓣")),
+    ({"半垂叶", "直立叶"}, ("半垂叶", "直立叶", "垂叶")),
+)
+
+
+def _product_query_with_profile_tags(
+    query: str,
+    context: AgentExecutionContext,
+) -> tuple[str, list[str]]:
+    profile = context.workspace.get("profile")
+    profile = profile if isinstance(profile, dict) else {}
+    tags = profile.get("customer_tags")
+    tags = tags if isinstance(tags, list) else []
+    if not tags:
+        return query, []
+
+    categories = get_profile_tag_categories()
+    category_by_value = {
+        value.name: category_id
+        for category_id, category in categories.items()
+        for value in category.values
+    }
+    current_message = str(context.message.message or "")
+    current_text = f"{current_message} {query}"
+    applied: list[str] = []
+    additions: list[str] = []
+    for raw_tag in tags:
+        tag = str(raw_tag or "").strip()
+        category_id = category_by_value.get(tag)
+        if (
+            not tag
+            or category_id not in _PRODUCT_SEARCH_CATEGORY_IDS
+            or tag in _UNRESTRICTED_SEARCH_TAGS
+            or tag in current_text
+            or _profile_search_category_is_overridden(category_id, tag, current_text)
+        ):
+            continue
+        applied.append(tag)
+        additions.append(_SEARCH_TAG_TEXT.get(tag, tag))
+    return " ".join([query, *additions]).strip(), applied
+
+
+def _profile_search_category_is_overridden(
+    category_id: str,
+    tag: str,
+    current_text: str,
+) -> bool:
+    if category_id == "customer_level":
+        return bool(re.search(r"(?<![A-Za-z0-9])L[1-6](?![A-Za-z0-9])", current_text, re.I))
+    if category_id == "price_range":
+        return bool(
+            re.search(r"(?:预算|价位|最多|不超过)[^\d]{0,8}\d+", current_text)
+            or re.search(r"\d+(?:\.\d+)?\s*元\s*(?:以内|以下|左右|上下|以上)", current_text)
+            or "价格不限" in current_text
+        )
+    if category_id == "growing_environment":
+        return any(
+            marker in current_text
+            for marker in ("阳台", "室内", "庭院", "露台", "室外", "露养", "兰棚")
+        )
+    if category_id == "favorite_orchid_type":
+        return any(
+            marker in current_text
+            for marker in (
+                "春兰", "建兰", "墨兰", "寒兰", "蕙兰", "莲瓣兰", "春剑",
+                "豆瓣兰", "大花蕙兰", "送春", "秋芝", "品类不限",
+            )
+        )
+    if category_id == "product_demand":
+        return any(
+            tag in group and tag not in current_text and any(marker in current_text for marker in markers)
+            for group, markers in _DEMAND_CONFLICT_GROUPS
+        )
+    return False
 
 
 async def _product_get(*, call_id, arguments, context) -> AgentToolResult:

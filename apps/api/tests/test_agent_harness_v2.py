@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -405,6 +406,68 @@ async def test_customer_tag_records_evidence_backed_catalog_tag(monkeypatch):
         "reason": "agent_customer_evidence",
         "trace_id": "trace-agent-v2",
     }
+
+
+@pytest.mark.asyncio
+async def test_product_search_adds_profile_tags_and_respects_current_overrides(
+    monkeypatch,
+):
+    captured = []
+    categories = {
+        "favorite_orchid_type": SimpleNamespace(
+            values=[SimpleNamespace(name="建兰")]
+        ),
+        "product_demand": SimpleNamespace(
+            values=[SimpleNamespace(name="浓香"), SimpleNamespace(name="清香")]
+        ),
+        "price_range": SimpleNamespace(
+            values=[SimpleNamespace(name="201-500元")]
+        ),
+        "growing_environment": SimpleNamespace(
+            values=[SimpleNamespace(name="阳台")]
+        ),
+    }
+    monkeypatch.setattr(agent_tools, "get_profile_tag_categories", lambda: categories)
+    monkeypatch.setattr(
+        agent_tools,
+        "search_catalog_products",
+        lambda query, limit=3: captured.append((query, limit)) or [],
+    )
+
+    context = AgentExecutionContext(
+        message=_message("帮我推荐一款"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={
+            "profile": {
+                "customer_tags": ["建兰", "浓香", "201-500元", "阳台"]
+            }
+        },
+    )
+    result = await agent_tools.execute_agent_tool(
+        call_id="product-search-tags",
+        name="product.search",
+        arguments={"query": "推荐兰花", "limit": 3},
+        context=context,
+    )
+
+    assert captured[-1] == ("推荐兰花 建兰 浓香 201-500元 阳台", 3)
+    assert result.data["applied_customer_tags"] == [
+        "建兰",
+        "浓香",
+        "201-500元",
+        "阳台",
+    ]
+
+    context.message = _message("这次要清香建兰，预算100元以内，放室内")
+    result = await agent_tools.execute_agent_tool(
+        call_id="product-search-current",
+        name="product.search",
+        arguments={"query": "推荐清香建兰，预算100元以内，室内"},
+        context=context,
+    )
+
+    assert captured[-1] == ("推荐清香建兰，预算100元以内，室内", 3)
+    assert result.data["applied_customer_tags"] == []
 
 
 @pytest.mark.asyncio
@@ -1690,7 +1753,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "不要用“资料里面有、您先对照看看”代替回答" in prompt
     assert "先直接解决客户的新问题，再判断是否推品" in prompt
     assert "新客户开场优先了解当前盆数和主要品种" in prompt
-    assert "L1-L6 客户等级、盆数和品种标签" in prompt
+    assert "L1-L6 客户等级、盆数、省份、喜欢的品类、产品需求、价格范围和养兰环境标签" in prompt
     assert "两个标签可以同时存在" in prompt
     assert "这只是一次专业答疑，不要擅自升级成诊断会诊" in prompt
     assert "同一个技术细节最多追问一轮" in prompt

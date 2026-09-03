@@ -154,6 +154,42 @@ async def test_ai_customer_tag_accepts_level_but_rejects_purchase_status(
     assert bundle["events"][0]["event_type"] == "ai_customer_tag_added"
 
 
+def test_profile_tag_wildcards_replace_and_yield_to_specific_preferences(
+    monkeypatch, tmp_path
+):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/users/user-wildcard/profile",
+        json={"customer_tags": ["建兰", "春兰", "浓香", "好养易活"]},
+    )
+    assert response.json()["data"]["profile"]["customer_tags"] == [
+        "建兰",
+        "春兰",
+        "浓香",
+        "好养易活",
+    ]
+
+    response = client.patch(
+        "/api/v1/users/user-wildcard/profile",
+        json={"customer_tags": ["品类不限", "需求不限"]},
+    )
+    assert response.json()["data"]["profile"]["customer_tags"] == [
+        "品类不限",
+        "需求不限",
+    ]
+
+    response = client.patch(
+        "/api/v1/users/user-wildcard/profile",
+        json={"customer_tags": ["品类不限", "豆瓣兰", "需求不限", "荷瓣"]},
+    )
+    assert response.json()["data"]["profile"]["customer_tags"] == [
+        "豆瓣兰",
+        "荷瓣",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_profile_bundle_can_load_all_conversation_within_char_budget(
     monkeypatch,
@@ -213,8 +249,9 @@ def test_get_profile_normalizes_legacy_tags_to_catalog(monkeypatch, tmp_path):
     assert get_response.status_code == 200
     assert get_response.json()["data"]["profile"]["customer_tags"] == [
         "浙江省",
-        "100-200盆",
+        "100-199盆",
         "建兰",
+        "101-200元",
     ]
 
 
@@ -324,7 +361,7 @@ async def test_profile_update_persists_tag_result_and_overall_memory(monkeypatch
     await update_profile_after_chat(message, intent, reply)
 
     profile = (await get_profile_bundle("user_001"))["profile"]
-    assert profile["customer_tags"] == ["浙江省"]
+    assert profile["customer_tags"] == ["浙江省", "101-200元"]
     assert profile["product_interests"] == ["兰花养护"]
     assert profile["pain_points"] == ["兰花烂根，需要救治方案"]
 
@@ -498,7 +535,7 @@ async def test_profile_update_uses_only_raw_user_messages_for_llm_profile(monkey
     assert "tpl_should_not_be_in_prompt" not in prompt
 
     profile = (await get_profile_bundle("user_003"))["profile"]
-    assert profile["customer_tags"] == ["广西省", "100-200盆"]
+    assert profile["customer_tags"] == ["广西壮族自治区", "100-199盆"]
 
 
 @pytest.mark.asyncio
@@ -636,7 +673,13 @@ async def test_profile_update_keeps_one_customer_tag_per_type(monkeypatch, tmp_p
     await update_profile_after_chat(message, intent, reply)
 
     profile = (await get_profile_bundle("user_004"))["profile"]
-    assert profile["customer_tags"] == ["广西省", "10-30盆", "蕙兰"]
+    assert profile["customer_tags"] == [
+        "广西壮族自治区",
+        "10-29盆",
+        "建兰",
+        "蕙兰",
+        "101-200元",
+    ]
 
 
 @pytest.mark.asyncio
@@ -697,7 +740,12 @@ async def test_profile_update_filters_customer_tags_to_catalog_values(monkeypatc
     await update_profile_after_chat(message, intent, reply)
 
     profile = (await get_profile_bundle("user_005"))["profile"]
-    assert profile["customer_tags"] == ["浙江省", "L3 黄金期", "建兰"]
+    assert profile["customer_tags"] == [
+        "浙江省",
+        "L3 黄金期",
+        "建兰",
+        "101-200元",
+    ]
 
 
 @pytest.mark.asyncio

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
@@ -9,6 +11,7 @@ from app.infrastructure.database.models import (
     TagCategoryModel,
     TagDefinitionModel,
     TagPromptBindingModel,
+    UserProfileModel,
 )
 from app.main import app
 from app.services import (
@@ -47,7 +50,7 @@ def test_tag_admin_lists_all_categories_and_prompt_configuration():
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["total_categories"] == 11
+    assert data["total_categories"] == 14
     assert data["total_tags"] > 60
     categories = {item["id"]: item for item in data["items"]}
     assert categories["purchase_status"]["ai_assignable"] is False
@@ -55,10 +58,14 @@ def test_tag_admin_lists_all_categories_and_prompt_configuration():
     assert categories["purchase_status"]["profile_assignable"] is False
     assert categories["customer_sentiment"]["profile_assignable"] is False
     assert {"customer_sentiment", "risk_level", "pain_point"} <= set(categories)
+    assert categories["favorite_orchid_type"]["exclusive"] is False
+    assert categories["product_demand"]["exclusive"] is False
+    assert categories["price_range"]["exclusive"] is True
+    assert categories["growing_environment"]["exclusive"] is True
     assert "intent" not in categories
     assert "sales_stage" not in categories
     quantity = next(
-        tag for tag in categories["orchid_quantity"]["tags"] if tag["value"] == "1-10盆"
+        tag for tag in categories["orchid_quantity"]["tags"] if tag["value"] == "1-9盆"
     )
     assert quantity["prompts"][0]["content"].startswith("The user keeps a small")
     hainan = next(
@@ -132,7 +139,7 @@ def test_removing_last_business_prompt_does_not_reseed_it():
     client = TestClient(app)
     catalog = client.get("/api/v1/admin/tags").json()["data"]
     quantity = next(item for item in catalog["items"] if item["id"] == "orchid_quantity")
-    tag = next(item for item in quantity["tags"] if item["value"] == "1-10盆")
+    tag = next(item for item in quantity["tags"] if item["value"] == "1-9盆")
 
     response = client.put(
         f"/api/v1/admin/tags/items/{tag['id']}",
@@ -143,7 +150,7 @@ def test_removing_last_business_prompt_does_not_reseed_it():
     assert response.json()["data"]["prompts"] == []
     assert client.get("/api/v1/admin/tags").status_code == 200
     assert business_tag_prompt_service.get_business_tag_prompt_block_ids(
-        ["customer_tag:1-10盆"]
+        ["customer_tag:1-9盆"]
     ) == []
 
 
@@ -217,6 +224,99 @@ def test_catalog_upgrade_adds_manual_service_status_category():
     assert categories["service_status"].name == "服务标签"
     assert [value.name for value in categories["service_status"].values] == ["服务中"]
     assert categories["service_status"].ai_assignable is False
+
+
+def test_catalog_upgrade_renames_legacy_values_and_profile_tags():
+    client = TestClient(app)
+    client.patch(
+        "/api/v1/users/catalog-upgrade/profile",
+        json={
+            "customer_tags": [
+                "1-9盆",
+                "广西壮族自治区",
+                "51-100元",
+            ]
+        },
+    )
+    assert client.get("/api/v1/admin/tags").status_code == 200
+
+    with tag_catalog._get_session() as session:
+        quantity = session.scalar(
+            select(TagDefinitionModel).where(TagDefinitionModel.value == "1-9盆")
+        )
+        province = session.scalar(
+            select(TagDefinitionModel).where(
+                TagDefinitionModel.value == "广西壮族自治区"
+            )
+        )
+        large_quantity = session.scalar(
+            select(TagDefinitionModel).where(
+                TagDefinitionModel.value == "500-999盆"
+            )
+        )
+        legacy_exact_price = session.scalar(
+            select(TagDefinitionModel).where(
+                TagDefinitionModel.value == "50元以内"
+            )
+        )
+        quantity.value = "1-10盆"
+        province.value = "广西省"
+        large_quantity.value = "500+盆"
+        legacy_exact_price.category_id = "product_demand"
+        session.add(
+            TagDefinitionModel(
+                category_id="product_demand",
+                value="接受50-100以内",
+                position=99,
+            )
+        )
+        session.add(
+            TagDefinitionModel(
+                category_id="product_demand",
+                value="接受50元以内",
+                position=98,
+            )
+        )
+        session.add(
+            TagDefinitionModel(
+                category_id="orchid_quantity",
+                value="800+盆",
+                position=99,
+            )
+        )
+        for binding in session.scalars(
+            select(TagPromptBindingModel).where(
+                TagPromptBindingModel.tag_value.in_(
+                    ["1-9盆", "广西壮族自治区", "500-999盆"]
+                )
+            )
+        ):
+            binding.tag_value = {
+                "1-9盆": "1-10盆",
+                "广西壮族自治区": "广西省",
+                "500-999盆": "500+盆",
+            }[binding.tag_value]
+        profile = session.get(UserProfileModel, "catalog-upgrade")
+        profile.customer_tags_json = json.dumps(
+            ["500+盆", "广西省", "接受50-100以内"], ensure_ascii=False
+        )
+        session.get(TagCatalogMetaModel, "seed_version").value = "6"
+        session.commit()
+
+    tag_catalog.invalidate_cache()
+    categories = tag_catalog.get_tag_categories()
+    profile = client.get("/api/v1/users/catalog-upgrade/profile").json()["data"]["profile"]
+
+    assert "product_demand" in categories
+    assert categories["favorite_orchid_type"].exclusive is False
+    assert "50元以内" in {
+        value.name for value in categories["price_range"].values
+    }
+    assert profile["customer_tags"] == [
+        "广西壮族自治区",
+        "500-999盆",
+        "51-100元",
+    ]
 
 
 def test_tag_admin_requires_api_authorization(monkeypatch):

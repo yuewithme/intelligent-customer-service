@@ -15,7 +15,10 @@ def test_current_business_tags_are_available_in_catalog():
     ]
     assert TAG_CATEGORIES["purchase_status"].ai_assignable is False
     assert TAG_CATEGORIES["purchase_status"].exclusive is False
-    assert "product_demand" not in TAG_CATEGORIES
+    assert TAG_CATEGORIES["favorite_orchid_type"].exclusive is False
+    assert TAG_CATEGORIES["product_demand"].exclusive is False
+    assert TAG_CATEGORIES["price_range"].exclusive is True
+    assert TAG_CATEGORIES["growing_environment"].exclusive is True
     assert "sop_group" not in TAG_CATEGORIES
 
 
@@ -23,10 +26,10 @@ def test_prompt_blocks_are_derived_from_tag_dimensions():
     blocks = prompt_blocks_for_labels(
         [
             "customer_tag:L3 黄金期",
-            "customer_tag:100-200盆",
+            "customer_tag:100-199盆",
             "customer_tag:浙江省",
             "customer_tag:建兰",
-            "customer_tag:红素（不包含其他的色花）",
+            "customer_tag:红素",
         ]
     )
 
@@ -44,7 +47,7 @@ def test_prompt_blocks_for_tag_result_keep_dimension_order_and_remove_duplicates
         route="rag_answer",
         segment="beginner",
         confidence=0.9,
-        labels=["customer_tag:L1 青铜期", "customer_tag:建兰", "customer_tag:1-10盆"],
+        labels=["customer_tag:L1 青铜期", "customer_tag:建兰", "customer_tag:1-9盆"],
     )
 
     assert prompt_blocks_for_tag_result(tag) == [

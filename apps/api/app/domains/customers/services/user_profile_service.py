@@ -730,6 +730,37 @@ def _merge_customer_tags(existing: list[str], incoming: list[str]) -> list[str]:
         if normalized_tag
         if is_profile_tag_enabled(normalized_tag)
     ]
+    wildcard_values = {
+        "favorite_orchid_type": "品类不限",
+        "product_demand": "需求不限",
+    }
+    for category_id, wildcard in wildcard_values.items():
+        category_items = [
+            (index, tag)
+            for index, tag in enumerate(candidates)
+            if _catalog_category_for_tag(tag) == category_id
+        ]
+        wildcard_indexes = [
+            index for index, tag in category_items if tag == wildcard
+        ]
+        if not wildcard_indexes:
+            continue
+        cutoff = max(wildcard_indexes)
+        later_specifics = {
+            index
+            for index, tag in category_items
+            if index > cutoff and tag != wildcard
+        }
+        candidates = [
+            tag
+            for index, tag in enumerate(candidates)
+            if _catalog_category_for_tag(tag) != category_id
+            or (
+                index in later_specifics
+                if later_specifics
+                else index == cutoff and tag == wildcard
+            )
+        ]
     latest_by_key: dict[str, tuple[int, str]] = {}
     for index, tag in enumerate(candidates):
         latest_by_key[_tag_replace_key(tag)] = (index, tag)
@@ -752,6 +783,8 @@ def _normalize_customer_tag(tag: str) -> str:
         return _catalog_province_value(tag.split(":", 1)[1])
     if tag.startswith("plant_count:"):
         return _catalog_quantity_value(tag.split(":", 1)[1])
+    if tag.startswith("budget:"):
+        return _catalog_price_range_value(tag.split(":", 1)[1])
     if tag.startswith("preference:"):
         return _catalog_orchid_type_value(tag.split(":", 1)[1])
     return ""
@@ -782,6 +815,9 @@ def _tag_order(tag: str) -> int:
         "orchid_quantity": 20,
         "customer_level": 30,
         "favorite_orchid_type": 40,
+        "product_demand": 50,
+        "price_range": 60,
+        "growing_environment": 70,
     }
     return order.get(_catalog_category_for_tag(tag), 100)
 
@@ -820,7 +856,14 @@ def _catalog_province_value(raw: str) -> str:
         "天津": "天津市",
         "上海": "上海市",
         "重庆": "重庆市",
-        "广西": "广西省",
+        "广西": "广西壮族自治区",
+        "广西省": "广西壮族自治区",
+        "内蒙古自治区": "内蒙古",
+        "宁夏回族自治区": "宁夏",
+        "新疆维吾尔自治区": "新疆",
+        "香港特别行政区": "香港",
+        "澳门特别行政区": "澳门",
+        "台湾省": "台湾",
         "西藏": "西藏自治区",
         "杭州": "浙江省",
     }
@@ -844,19 +887,43 @@ def _catalog_quantity_value(raw: str) -> str:
     count = int(match.group(1))
     if count > 10000:
         return ""
-    if count <= 10:
-        return "1-10盆"
-    if count <= 30:
-        return "10-30盆"
-    if count <= 50:
-        return "30-50盆"
-    if count < 100:
-        return "50-100盆"
-    if count <= 200:
-        return "100-200盆"
-    if count < 1000:
-        return "200+盆"
-    return "1000+盆"
+    if count == 0:
+        return "准备养兰"
+    if count <= 9:
+        return "1-9盆"
+    if count <= 29:
+        return "10-29盆"
+    if count <= 49:
+        return "30-49盆"
+    if count <= 99:
+        return "50-99盆"
+    if count <= 199:
+        return "100-199盆"
+    if count <= 499:
+        return "200-499盆"
+    if count <= 999:
+        return "500-999盆"
+    return "1000盆以上"
+
+
+def _catalog_price_range_value(raw: str) -> str:
+    import re
+
+    match = re.search(r"(\d+(?:\.\d+)?)", raw)
+    if not match:
+        return ""
+    amount = float(match.group(1))
+    if amount <= 50:
+        return "50元以内"
+    if amount <= 100:
+        return "51-100元"
+    if amount <= 200:
+        return "101-200元"
+    if amount <= 500:
+        return "201-500元"
+    if amount < 1000:
+        return "501-999元"
+    return "1000元以上"
 
 
 def _catalog_orchid_type_value(raw: str) -> str:

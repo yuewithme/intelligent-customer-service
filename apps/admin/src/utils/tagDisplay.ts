@@ -99,7 +99,10 @@ const ORCHID_TEXT: Record<string, string> = {
   huilan: '蕙兰',
   lianbanlan: '莲瓣兰',
   chunjian: '春剑',
-  cymbidium: '大花蕙兰'
+  cymbidium: '大花蕙兰',
+  doubanlan: '豆瓣兰',
+  niche: '小众品类',
+  open: '品类不限'
 }
 
 const REGION_TEXT: Record<string, string> = {
@@ -107,7 +110,8 @@ const REGION_TEXT: Record<string, string> = {
   north_china: '华北地区',
   south_china: '华南地区',
   southwest: '西南地区',
-  northwest: '西北地区'
+  northwest: '西北地区',
+  overseas: '海外地区'
 }
 
 export const promptTitleText = (blockId: string, fallback: string) => {
@@ -124,5 +128,9 @@ export const promptTitleText = (blockId: string, fallback: string) => {
   }
   const regionMatch = blockId.match(/^region\.(.+)\.variety$/)
   if (regionMatch) return `${REGION_TEXT[regionMatch[1]] || regionMatch[1]}品种推荐策略`
+  if (blockId === 'region.overseas.context') return '海外地区使用策略'
+  if (blockId.startsWith('product_demand.')) return '产品需求推荐策略'
+  if (blockId.startsWith('price_range.')) return '价格范围使用策略'
+  if (blockId.startsWith('growing_environment.')) return '养兰环境适配策略'
   return fallback
 }
