@@ -56,6 +56,47 @@ async def test_self_callback_records_wechat_client_message(monkeypatch, tmp_path
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("self_value", [None, False])
+async def test_callback_direction_records_wechat_client_message_without_reliable_self(
+    monkeypatch, tmp_path, self_value
+):
+    from app.services import eyun_callback_service
+    from app.domains.conversations.services.conversation_service import get_conversation_detail
+
+    _configure_db(monkeypatch, tmp_path, f"direction-message-{self_value}")
+
+    async def empty_contact(**kwargs):
+        del kwargs
+        return {}
+
+    monkeypatch.setattr(eyun_callback_service, "get_eyun_contact_snapshot", empty_contact)
+    data = {
+        "wId": "wid",
+        "fromUser": "wxid_bot",
+        "toUser": "wxid_customer",
+        "content": "微信客户端人工回复",
+        "newMsgId": 1003,
+    }
+    if self_value is not None:
+        data["self"] = self_value
+
+    await eyun_callback_service.handle_eyun_callback(
+        {
+            "account": "sales",
+            "messageType": "60001",
+            "wcId": "wxid_bot",
+            "data": data,
+        }
+    )
+
+    detail = await get_conversation_detail("wechat:wxid_customer:wxid_bot")
+    assert len(detail["messages"]) == 1
+    assert detail["messages"][0]["sender_type"] == "human"
+    assert detail["messages"][0]["sender_id"] == "wechat_client"
+    assert detail["messages"][0]["content"] == "微信客户端人工回复"
+
+
+@pytest.mark.asyncio
 async def test_self_callback_reconciles_queued_ai_message(monkeypatch, tmp_path):
     from app.services import eyun_callback_service
     from app.domains.conversations.services.conversation_service import (
