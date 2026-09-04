@@ -39,7 +39,7 @@ export const updateHandoffNotificationSettings = (data: {
   global_handoff_enabled: boolean
   recipient_contact_ids: number[]
   message_text: string
-  sop_node_handoff: Record<string, boolean>
+  sop_node_handoff?: Record<string, boolean>
 }) =>
   request.put<HandoffNotificationSettings>({
     url: '/api/v1/admin/handoff-notification',

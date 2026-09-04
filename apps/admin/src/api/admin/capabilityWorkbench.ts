@@ -86,6 +86,7 @@ export interface ExperienceStepCapability {
 
 export interface ExperienceStep {
   step_id: string
+  node_id?: string
   name: string
   type: 'agent_stage' | 'decision' | 'action' | 'wait'
   description?: string | null
@@ -104,6 +105,7 @@ export interface ExperienceStep {
     parameter?: string | null
     unit: 'seconds' | 'minutes' | 'hours' | 'days'
   }
+  handoff_enabled?: boolean
 }
 
 export interface ExperienceTransition {
@@ -172,4 +174,20 @@ export interface CapabilityWorkbenchResponse {
 export const getCapabilityWorkbench = () =>
   request.get<CapabilityWorkbenchResponse>({
     url: '/api/v1/admin/orchestration/workbench'
+  })
+
+export const updateWorkbenchSopNodeHandoff = (data: {
+  node_id: string
+  handoff_enabled: boolean
+}) =>
+  request.put<{
+    sop_scope: 'first_order' | 'service'
+    node_id: string
+    name: string
+    description: string
+    handoff_enabled: boolean
+    updated_at: string
+  }>({
+    url: '/api/v1/admin/orchestration/workbench/sop-node-handoff',
+    data
   })

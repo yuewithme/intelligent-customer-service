@@ -19,6 +19,10 @@ from app.domains.handoff.services.handoff_notification_service import (
     update_handoff_notification_settings,
 )
 from app.domains.handoff.services import handoff_notification_service
+from app.domains.orchestration.services.workbench_service import (
+    get_capability_workbench,
+    update_capability_workbench_sop_node,
+)
 from app.domains.sales.services.contact_sync_service import (
     _session as get_contact_session,
     sync_eyun_contacts,
@@ -78,6 +82,49 @@ async def test_admin_can_save_handoff_notification_settings(monkeypatch, tmp_pat
     assert not is_sop_node_handoff_enabled(
         "service", "first_order.value_building"
     )
+
+
+def test_workbench_exposes_both_sops_and_every_business_node(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+
+    workbench = get_capability_workbench()
+
+    packages = workbench["experience_packages"]
+    assert [package["package_id"] for package in packages] == [
+        "orchid.first_order",
+        "orchid.service",
+    ]
+    steps = [step for package in packages for step in package["steps"]]
+    assert len(steps) == 12
+    assert all(step["node_id"] for step in steps)
+    assert all(step["handoff_enabled"] is False for step in steps)
+    assert workbench["read_only"] is False
+
+
+def test_workbench_updates_shared_sop_handoff_setting(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+
+    updated = update_capability_workbench_sop_node(
+        node_id="service.repurchase_discovery",
+        handoff_enabled=True,
+    )
+
+    assert updated["handoff_enabled"] is True
+    assert is_sop_node_handoff_enabled(
+        "service", "service.repurchase_discovery"
+    )
+    workbench = get_capability_workbench()
+    service_package = next(
+        package
+        for package in workbench["experience_packages"]
+        if package["package_id"] == "orchid.service"
+    )
+    repurchase = next(
+        step
+        for step in service_package["steps"]
+        if step["node_id"] == "service.repurchase_discovery"
+    )
+    assert repurchase["handoff_enabled"] is True
 
 
 def test_existing_handoff_settings_table_adds_global_switch_column(
