@@ -144,9 +144,31 @@ def test_public_landing_streams_video_and_reuses_one_play_session(
     assert tracking.get_video_touch_test(link["id"])["open_count"] == 1
 
 
+@pytest.mark.parametrize(
+    ("media_type", "target_url", "thumb_url", "expected_description"),
+    [
+        (
+            "video",
+            "https://media.example.test/video.mp4",
+            "https://media.example.test/video.jpg",
+            "点击播放视频",
+        ),
+        (
+            "image",
+            "https://media.example.test/image.jpg",
+            "",
+            "点击查看图片",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_test_sender_queues_link_card_without_changing_native_video_flow(
-    monkeypatch, tmp_path
+async def test_test_sender_queues_copy_and_tracked_media_card(
+    monkeypatch,
+    tmp_path,
+    media_type,
+    target_url,
+    thumb_url,
+    expected_description,
 ):
     _configure(monkeypatch, tmp_path)
     monkeypatch.setattr(
@@ -155,9 +177,9 @@ async def test_test_sender_queues_link_card_without_changing_native_video_flow(
         lambda material_ref: {
             "material_ref": f"material:{material_ref}",
             "title": "养兰视频",
-            "format": "video",
-            "url": "https://media.example.test/video.mp4",
-            "thumb_url": "https://media.example.test/video.jpg",
+            "format": media_type,
+            "url": target_url,
+            "thumb_url": thumb_url,
             "copy_text": "这是一条已审核的养兰视频文案。",
         },
     )
@@ -202,6 +224,7 @@ async def test_test_sender_queues_link_card_without_changing_native_video_flow(
     assert captured[1]["depends_on_outbound_id"] == 1
     card = json.loads(captured[1]["content"])
     assert card["url"].startswith("https://sales.example.test/v/")
-    assert card["thumb_url"] == "https://media.example.test/video.jpg"
+    assert card["thumb_url"] == (thumb_url or target_url)
+    assert card["description"] == expected_description
     assert result["delivery_status"] == "queued"
     assert result["open_count"] == 0

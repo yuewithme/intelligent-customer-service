@@ -38,16 +38,19 @@ async def enqueue_video_touch_test(
     normalized_ref = str(material_ref or "").strip().removeprefix("material:")
     media = get_agent_media(normalized_ref)
     if media is None:
-        raise ValueError("视频素材不存在")
-    if media.get("format") != "video":
-        raise ValueError("测试触达只支持视频素材")
+        raise ValueError("素材不存在")
+    media_type = str(media.get("format") or "").strip()
+    if media_type not in {"image", "video"}:
+        raise ValueError("测试触达只支持图片或视频素材")
     target_url = str(media.get("url") or "").strip()
     thumb_url = str(media.get("thumb_url") or "").strip()
+    if media_type == "image" and not thumb_url:
+        thumb_url = target_url
     copy_text = str(media.get("copy_text") or "").strip()
     if not target_url or not thumb_url:
-        raise ValueError("视频素材缺少播放地址或封面")
+        raise ValueError("素材缺少内容地址或封面")
     if not copy_text:
-        raise ValueError("视频素材缺少已审核文案")
+        raise ValueError("素材缺少已审核文案")
     _validate_target_url(target_url)
 
     settings = get_settings()
@@ -67,7 +70,7 @@ async def enqueue_video_touch_test(
         material_ref=str(media.get("material_ref") or material_ref),
         target_url=target_url,
         thumb_url=thumb_url,
-        title=str(title or media.get("title") or "视频资料").strip(),
+        title=str(title or media.get("title") or "养兰资料").strip(),
         source_type=_SOURCE_TYPE,
         source_batch_key=source_batch_key,
         public_base_url=public_base_url,
@@ -75,7 +78,10 @@ async def enqueue_video_touch_test(
     card = {
         "title": link["title"],
         "url": link["tracking_url"],
-        "description": str(description or "点击播放视频").strip(),
+        "description": str(
+            description
+            or ("点击查看图片" if media_type == "image" else "点击播放视频")
+        ).strip(),
         "thumb_url": thumb_url,
     }
 
