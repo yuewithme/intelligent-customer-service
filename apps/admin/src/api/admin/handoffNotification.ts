@@ -15,7 +15,19 @@ export interface HandoffNotificationSettings {
   recipient_contact_ids: number[]
   recipients: HandoffNotificationContact[]
   message_text: string
+  sop_node_handoff: Record<string, boolean>
+  sop_node_groups: HandoffSopNodeGroup[]
   updated_at: string
+}
+
+export interface HandoffSopNodeGroup {
+  sop_scope: 'first_order' | 'service'
+  name: string
+  nodes: Array<{
+    node_id: string
+    name: string
+    description: string
+  }>
 }
 
 export const getHandoffNotificationSettings = () =>
@@ -27,6 +39,7 @@ export const updateHandoffNotificationSettings = (data: {
   global_handoff_enabled: boolean
   recipient_contact_ids: number[]
   message_text: string
+  sop_node_handoff: Record<string, boolean>
 }) =>
   request.put<HandoffNotificationSettings>({
     url: '/api/v1/admin/handoff-notification',

@@ -167,6 +167,8 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_state=user_state,
             profile_bundle=profile_bundle,
         )
+        if not str(message.metadata.get("sop_scope") or "").strip():
+            message.metadata["sop_scope"] = _sop_scope_for_workspace(workspace)
         user_state.metadata["profile"] = workspace.get("profile", {})
         user_state.metadata["recent_turns"] = workspace.get("recent_turns", [])
         stage_latencies["workspace_ms"] = _elapsed_ms(stage_started)
@@ -388,6 +390,19 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
     ) and evaluation_customer_context.strip():
         workspace["customer_context"] = evaluation_customer_context.strip()
     return workspace
+
+
+def _sop_scope_for_workspace(workspace: dict[str, Any]) -> str:
+    profile = workspace.get("profile")
+    profile = profile if isinstance(profile, dict) else {}
+    tags = profile.get("customer_tags")
+    tags = tags if isinstance(tags, list) else []
+    purchased_tags = {"抖音已购", "微信已购"}
+    return (
+        "service"
+        if {str(tag).strip() for tag in tags}.intersection(purchased_tags)
+        else "first_order"
+    )
 
 
 def _agent_intent(

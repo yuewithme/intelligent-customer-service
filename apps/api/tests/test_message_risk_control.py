@@ -857,6 +857,43 @@ async def test_opening_slots_persistently_serialize_customers(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_opening_node_switch_hands_off_before_sending(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    captured = {}
+
+    async def fake_force_handoff(conversation_id, operator_id, reason):
+        captured.update(
+            {
+                "conversation_id": conversation_id,
+                "operator_id": operator_id,
+                "reason": reason,
+            }
+        )
+
+    monkeypatch.setattr(
+        service,
+        "is_sop_node_handoff_enabled",
+        lambda sop_scope, node_id: (
+            sop_scope == "first_order" and node_id == "first_order.opening"
+        ),
+    )
+    monkeypatch.setattr(service, "force_handoff", fake_force_handoff)
+
+    await service._send_opening_for_new_friend(
+        {
+            "from_user": "customer-1",
+            "target_wc_id": "customer-1",
+            "batch_key": "wid:customer-1",
+        }
+    )
+
+    assert captured["conversation_id"] == "wechat:customer-1:default"
+    assert captured["operator_id"] == "system"
+    assert captured["reason"] == "SOP 节点已配置转人工：破冰"
+
+
+@pytest.mark.asyncio
 async def test_new_friend_opening_sends_service_copy_without_first_order_package(monkeypatch):
     from app.integrations.eyun.services import message_risk_control_service as service
 

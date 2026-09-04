@@ -1222,6 +1222,7 @@ class HandoffNotificationSettingModel(Base):
         Boolean, nullable=False, default=False
     )
     recipient_contact_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    sop_node_handoff_json: Mapped[str] = mapped_column(Text, default="{}")
     message_text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

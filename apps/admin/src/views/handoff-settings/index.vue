@@ -8,8 +8,8 @@
       <div class="head-actions">
         <div class="global-handoff-control">
           <div>
-            <strong>转人工总开关</strong>
-            <span>开启后，客户新消息默认转人工</span>
+            <strong>全部转人工（紧急开关）</strong>
+            <span>开启后，除系统开场事件外的客户新消息直接转人工</span>
           </div>
           <ElSwitch v-model="form.global_handoff_enabled" />
         </div>
@@ -82,6 +82,35 @@
         </div>
       </section>
     </div>
+
+    <section v-loading="loading" class="setting-card sop-settings">
+      <div class="card-title">
+        <span class="step">3</span>
+        <div>
+          <h2>按 SOP 节点转人工</h2>
+          <p>所有节点默认由 AI 回复；开启某个节点后，识别到该节点时由人工接管。</p>
+        </div>
+      </div>
+      <div class="sop-groups">
+        <div v-for="group in sopNodeGroups" :key="group.sop_scope" class="sop-group">
+          <h3>{{ group.name }}</h3>
+          <div class="node-list">
+            <div v-for="node in group.nodes" :key="node.node_id" class="node-row">
+              <div class="node-copy">
+                <strong>{{ node.name }}</strong>
+                <span>{{ node.description }}</span>
+              </div>
+              <div class="node-control">
+                <span :class="{ human: form.sop_node_handoff[node.node_id] }">
+                  {{ form.sop_node_handoff[node.node_id] ? '转人工' : 'AI 回复' }}
+                </span>
+                <ElSwitch v-model="form.sop_node_handoff[node.node_id]" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </ContentWrap>
 </template>
 
@@ -93,7 +122,8 @@ import {
   getHandoffNotificationSettings,
   syncHandoffNotificationContacts,
   updateHandoffNotificationSettings,
-  type HandoffNotificationContact
+  type HandoffNotificationContact,
+  type HandoffSopNodeGroup
 } from '@/api/admin/handoffNotification'
 
 const loading = ref(false)
@@ -101,10 +131,12 @@ const saving = ref(false)
 const syncing = ref(false)
 const contactsLoading = ref(false)
 const contactOptions = ref<HandoffNotificationContact[]>([])
+const sopNodeGroups = ref<HandoffSopNodeGroup[]>([])
 const form = reactive({
   global_handoff_enabled: false,
   recipient_contact_ids: [] as number[],
-  message_text: ''
+  message_text: '',
+  sop_node_handoff: {} as Record<string, boolean>
 })
 
 const selectedContacts = computed(() => {
@@ -148,6 +180,8 @@ const loadSettings = async () => {
     form.global_handoff_enabled = settings.global_handoff_enabled
     form.recipient_contact_ids = [...settings.recipient_contact_ids]
     form.message_text = settings.message_text
+    form.sop_node_handoff = { ...settings.sop_node_handoff }
+    sopNodeGroups.value = settings.sop_node_groups
     mergeContacts([...settings.recipients, ...contacts.items])
   } finally {
     loading.value = false
@@ -179,9 +213,12 @@ const saveSettings = async () => {
     const settings = await updateHandoffNotificationSettings({
       global_handoff_enabled: form.global_handoff_enabled,
       recipient_contact_ids: form.recipient_contact_ids,
-      message_text: form.message_text.trim()
+      message_text: form.message_text.trim(),
+      sop_node_handoff: form.sop_node_handoff
     })
     form.message_text = settings.message_text
+    form.sop_node_handoff = { ...settings.sop_node_handoff }
+    sopNodeGroups.value = settings.sop_node_groups
     mergeContacts(settings.recipients)
     ElMessage.success('转人工设置已保存')
   } finally {
@@ -203,6 +240,19 @@ onMounted(() => { void loadSettings() })
 .global-handoff-control span { margin-top: 3px; color: #7b8984; font-size: 12px; }
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
 .setting-card { min-height: 360px; padding: 24px; background: #fff; border: 1px solid #e2e9e6; border-radius: 14px; box-shadow: 0 8px 24px rgb(18 63 51 / 6%); }
+.sop-settings { min-height: 0; margin-top: 20px; }
+.sop-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.sop-group { overflow: hidden; border: 1px solid #e2e9e6; border-radius: 12px; }
+.sop-group h3 { margin: 0; padding: 14px 16px; color: #21483b; font-size: 15px; background: #f5f9f7; }
+.node-list { display: grid; }
+.node-row { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 16px; border-top: 1px solid #edf2f0; }
+.node-copy { min-width: 0; }
+.node-copy strong, .node-copy span { display: block; }
+.node-copy strong { color: #2c443c; font-size: 14px; }
+.node-copy span { margin-top: 5px; color: #7b8984; font-size: 12px; line-height: 1.5; }
+.node-control { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
+.node-control span { width: 54px; color: #6c7c76; font-size: 12px; text-align: right; }
+.node-control span.human { color: #d46b47; }
 .card-title { display: flex; gap: 13px; margin-bottom: 24px; }
 .card-title .step { display: grid; flex: 0 0 34px; height: 34px; place-items: center; color: #fff; font-weight: 700; background: #258460; border-radius: 10px; }
 .card-title h2 { margin: 1px 0 5px; color: #213e35; font-size: 18px; }
@@ -216,7 +266,7 @@ onMounted(() => { void loadSettings() })
 .auto-fields span { color: #678078; font-size: 12px; }
 .auto-fields code { color: #2d5b4c; font-family: inherit; font-size: 13px; }
 @media (max-width: 1100px) { .page-head { align-items: flex-start; flex-direction: column; } .head-actions { width: 100%; flex-wrap: wrap; } .global-handoff-control { min-width: min(100%, 390px); } }
-@media (max-width: 960px) { .settings-grid { grid-template-columns: 1fr; } }
+@media (max-width: 960px) { .settings-grid, .sop-groups { grid-template-columns: 1fr; } }
 @media (max-width: 640px) {
   .page-head h1 { font-size: 22px; }
   .head-actions { align-items: stretch; flex-direction: column; }

@@ -18,6 +18,37 @@ from app.domains.handoff.schemas.handoff_notification import (
 logger = logging.getLogger("wechat_rag_bot.handoff_notification")
 SETTING_ID = 1
 DEFAULT_MESSAGE_TEXT = "有客户需要转人工处理，请及时跟进。"
+SOP_NODE_GROUPS = (
+    {
+        "sop_scope": "first_order",
+        "name": "首单 SOP",
+        "nodes": (
+            ("first_order.opening", "破冰", "新客首次沟通和关系建立。"),
+            ("first_order.need_discovery", "挖需求", "理解养护、商品或服务需求。"),
+            ("first_order.pain_discovery", "找痛点", "识别客户最在意的问题和服务缺口。"),
+            ("first_order.recommendation", "推品", "根据已知事实推荐匹配的服务或商品。"),
+            ("first_order.value_building", "塑品", "说明方案价值、服务差异和匹配理由。"),
+            ("first_order.trial_close", "试成交", "在价值建立后测试客户购买意愿。"),
+            ("first_order.closing", "逼单 / 成交推进", "处理最后顾虑并给出明确下一步。"),
+        ),
+    },
+    {
+        "sop_scope": "service",
+        "name": "服务 SOP",
+        "nodes": (
+            ("service.need_discovery", "问题处理与服务挖需", "先处理当前问题，再了解会影响后续服务的信息。"),
+            ("service.member_benefit", "会员权益交付", "结合当前问题交付相关教程、资料或指导。"),
+            ("service.post_service_close", "服务收口与偏好采集", "问题解决后完成关系承接并采集稳定偏好。"),
+            ("service.repurchase_discovery", "复购需求挖掘", "客户出现真实新需求时进行复购匹配。"),
+            ("service.relationship_maintenance", "长期关系维护", "围绕回访、养护内容和承诺延续服务关系。"),
+        ),
+    },
+)
+SOP_NODE_IDS = frozenset(
+    node_id
+    for group in SOP_NODE_GROUPS
+    for node_id, _name, _description in group["nodes"]
+)
 HANDOFF_REASON_TEXTS = {
     "global_handoff": "转人工总开关已开启",
     "manual_force_handoff": "人工主动转接",
@@ -60,6 +91,29 @@ def is_global_handoff_enabled() -> bool:
         return enabled
 
 
+def is_sop_node_handoff_enabled(sop_scope: str, node_id: str) -> bool:
+    if not node_id.startswith(f"{sop_scope}.") or node_id not in SOP_NODE_IDS:
+        return False
+    with _get_session() as session:
+        setting = _get_or_create_setting(session)
+        enabled = bool(_sop_node_handoff(setting).get(node_id, False))
+        session.commit()
+        return enabled
+
+
+def get_sop_node(node_id: str) -> dict[str, str] | None:
+    for group in SOP_NODE_GROUPS:
+        for candidate_id, name, description in group["nodes"]:
+            if candidate_id == node_id:
+                return {
+                    "sop_scope": str(group["sop_scope"]),
+                    "node_id": candidate_id,
+                    "name": name,
+                    "description": description,
+                }
+    return None
+
+
 def update_handoff_notification_settings(
     request: HandoffNotificationSettingsUpdateRequest,
 ) -> dict[str, Any]:
@@ -88,6 +142,15 @@ def update_handoff_notification_settings(
         setting.recipient_contact_ids_json = json.dumps(
             request.recipient_contact_ids, ensure_ascii=False
         )
+        if request.sop_node_handoff is not None:
+            setting.sop_node_handoff_json = json.dumps(
+                {
+                    node_id: bool(request.sop_node_handoff.get(node_id, False))
+                    for node_id in SOP_NODE_IDS
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
         setting.message_text = request.message_text
         setting.updated_at = _utcnow()
         session.commit()
@@ -314,6 +377,7 @@ def _get_or_create_setting(session: Session) -> HandoffNotificationSettingModel:
             id=SETTING_ID,
             global_handoff_enabled=False,
             recipient_contact_ids_json="[]",
+            sop_node_handoff_json="{}",
             message_text=DEFAULT_MESSAGE_TEXT,
             created_at=now,
             updated_at=now,
@@ -331,6 +395,7 @@ def _setting_to_dict(
         select(EyunContactModel).where(EyunContactModel.id.in_(recipient_ids))
     ).all() if recipient_ids else []
     contacts_by_id = {contact.id: contact for contact in contacts}
+    sop_node_handoff = _sop_node_handoff(setting)
     return {
         "global_handoff_enabled": bool(setting.global_handoff_enabled),
         "recipient_contact_ids": recipient_ids,
@@ -340,6 +405,25 @@ def _setting_to_dict(
             if contact_id in contacts_by_id
         ],
         "message_text": setting.message_text,
+        "sop_node_handoff": {
+            node_id: bool(sop_node_handoff.get(node_id, False))
+            for node_id in sorted(SOP_NODE_IDS)
+        },
+        "sop_node_groups": [
+            {
+                "sop_scope": group["sop_scope"],
+                "name": group["name"],
+                "nodes": [
+                    {
+                        "node_id": node_id,
+                        "name": name,
+                        "description": description,
+                    }
+                    for node_id, name, description in group["nodes"]
+                ],
+            }
+            for group in SOP_NODE_GROUPS
+        ],
         "updated_at": setting.updated_at.isoformat(),
     }
 
@@ -349,15 +433,21 @@ def _ensure_handoff_notification_columns(engine) -> None:
         column["name"]
         for column in inspect(engine).get_columns("handoff_notification_settings")
     }
-    if "global_handoff_enabled" in columns:
-        return
     with engine.begin() as connection:
-        connection.execute(
-            text(
-                "ALTER TABLE handoff_notification_settings "
-                "ADD COLUMN global_handoff_enabled BOOLEAN NOT NULL DEFAULT FALSE"
+        if "global_handoff_enabled" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE handoff_notification_settings "
+                    "ADD COLUMN global_handoff_enabled BOOLEAN NOT NULL DEFAULT FALSE"
+                )
             )
-        )
+        if "sop_node_handoff_json" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE handoff_notification_settings "
+                    "ADD COLUMN sop_node_handoff_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            )
 
 
 def _recipient_ids(setting: HandoffNotificationSettingModel) -> list[int]:
@@ -374,6 +464,20 @@ def _recipient_ids(setting: HandoffNotificationSettingModel) -> list[int]:
             if isinstance(value, int) and value > 0
         )
     )
+
+
+def _sop_node_handoff(setting: HandoffNotificationSettingModel) -> dict[str, bool]:
+    try:
+        values = json.loads(setting.sop_node_handoff_json or "{}")
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(values, dict):
+        return {}
+    return {
+        node_id: bool(enabled)
+        for node_id, enabled in values.items()
+        if node_id in SOP_NODE_IDS and isinstance(enabled, bool)
+    }
 
 
 def _contact_to_dict(contact: EyunContactModel) -> dict[str, Any]:

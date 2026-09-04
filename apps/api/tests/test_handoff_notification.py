@@ -15,6 +15,7 @@ from app.domains.conversations.services.conversation_service import (
 from app.domains.handoff.services.handoff_notification_service import (
     enqueue_handoff_notification,
     get_handoff_notification_settings,
+    is_sop_node_handoff_enabled,
     update_handoff_notification_settings,
 )
 from app.domains.handoff.services import handoff_notification_service
@@ -57,13 +58,26 @@ async def test_admin_can_save_handoff_notification_settings(monkeypatch, tmp_pat
             global_handoff_enabled=True,
             recipient_contact_ids=[contact_id],
             message_text="请及时接待这位客户。",
+            sop_node_handoff={"first_order.value_building": True},
         )
     )
 
     assert saved["recipient_contact_ids"] == [contact_id]
     assert saved["global_handoff_enabled"] is True
+    assert saved["sop_node_handoff"]["first_order.value_building"] is True
+    assert saved["sop_node_handoff"]["service.need_discovery"] is False
+    assert [group["sop_scope"] for group in saved["sop_node_groups"]] == [
+        "first_order",
+        "service",
+    ]
     assert saved["recipients"][0]["remark_name"] == "小李"
     assert get_handoff_notification_settings()["message_text"] == "请及时接待这位客户。"
+    assert is_sop_node_handoff_enabled(
+        "first_order", "first_order.value_building"
+    )
+    assert not is_sop_node_handoff_enabled(
+        "service", "first_order.value_building"
+    )
 
 
 def test_existing_handoff_settings_table_adds_global_switch_column(
@@ -91,7 +105,9 @@ def test_existing_handoff_settings_table_adds_global_switch_column(
         for column in inspect(engine).get_columns("handoff_notification_settings")
     }
     assert "global_handoff_enabled" in columns
+    assert "sop_node_handoff_json" in columns
     assert settings["global_handoff_enabled"] is False
+    assert not any(settings["sop_node_handoff"].values())
 
 
 @pytest.mark.asyncio
