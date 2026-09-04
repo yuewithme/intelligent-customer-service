@@ -69,20 +69,14 @@
               测试 · {{ message.metadata.evaluation_id }}
             </ElTag>
             <ElTag
-              v-if="message.delivery_status"
+              v-if="hasDeliveryFailure(message)"
               size="small"
-              :type="deliveryStatusType(message.delivery_status)"
+              type="danger"
             >
-              {{ deliveryStatusText(message.delivery_status) }}
+              发送失败
             </ElTag>
           </div>
           <div class="content">
-            <small v-if="message.metadata.delivery_error" class="delivery-error">
-              {{ message.metadata.delivery_error }}
-            </small>
-            <small v-if="deliveryDetailText(message)" class="delivery-detail">
-              {{ deliveryDetailText(message) }}
-            </small>
             <small v-if="isPrivateFile(message)" class="file-network-hint">
               文件名已识别，原文件请在微信中查看
             </small>
@@ -187,7 +181,7 @@
               :loading="retryingDeliveryIds.has(message.id)"
               @click.stop="retryDelivery(message)"
             >
-              立即补发
+              重新发送
             </ElButton>
             <span class="time">{{ formatTime(message.created_at) }}</span>
           </div>
@@ -205,7 +199,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
   getConversationDetail,
@@ -333,67 +327,21 @@ const load = async (options: { silent?: boolean } = {}) => {
 const senderText = (value: string) =>
   ({ customer: '客户', ai: 'AI', human: '人工', system: '系统' })[value] || value
 
-const deliveryStatusText = (status: NonNullable<ConversationMessage['delivery_status']>) =>
-  ({
-    queued: '排队中',
-    sending: '发送中',
-    waiting_material: '等待素材',
-    accepted: '已受理待确认',
-    unconfirmed: '待人工核验',
-    delivery_unknown: '发送结果未知',
-    confirmed: '已确认',
-    sent: '已确认',
-    failed: '发送失败',
-    cancelled: '已取消'
-  })[status] || status
+const deliveryFailureStatuses = new Set(['failed', 'waiting_material'])
 
-const deliveryStatusType = (status: NonNullable<ConversationMessage['delivery_status']>) => {
-  if (['confirmed', 'sent'].includes(status)) return 'success'
-  if (['failed', 'cancelled'].includes(status)) return 'danger'
-  if (['accepted', 'unconfirmed', 'delivery_unknown'].includes(status)) return 'warning'
-  return 'info'
-}
+const hasDeliveryFailure = (message: ConversationMessage) =>
+  deliveryFailureStatuses.has(message.delivery_status || '')
 
-const canRetryDelivery = (message: ConversationMessage) =>
-  ['failed', 'cancelled', 'waiting_material', 'unconfirmed', 'delivery_unknown'].includes(
-    message.delivery_status || ''
-  )
-
-const deliveryDetailText = (message: ConversationMessage) => {
-  const attempts = Number(message.metadata.delivery_attempts || 0)
-  const rawIds = message.metadata.provider_message_ids
-  const providerIds = Array.isArray(rawIds)
-    ? rawIds.map(value => String(value)).filter(Boolean)
-    : []
-  const parts: string[] = []
-  if (attempts > 0) parts.push(`发送尝试 ${attempts} 次`)
-  if (providerIds.length) parts.push(`亿云 ID：${providerIds.join('、')}`)
-  return parts.join(' · ')
-}
+const canRetryDelivery = hasDeliveryFailure
 
 const retryDelivery = async (message: ConversationMessage) => {
-  if (['unconfirmed', 'delivery_unknown'].includes(message.delivery_status || '')) {
-    try {
-      await ElMessageBox.confirm(
-        '这条消息可能已经送达，继续补发可能造成客户收到重复内容。确认仍要补发吗？',
-        '补发风险确认',
-        {
-          confirmButtonText: '确认补发',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      )
-    } catch {
-      return
-    }
-  }
   retryingDeliveryIds.value = new Set(retryingDeliveryIds.value).add(message.id)
   try {
     await retryConversationMessageDelivery(message.id)
-    ElMessage.success('已安排补发')
+    ElMessage.success('已安排重新发送')
     await load({ silent: true })
   } catch {
-    ElMessage.error('补发失败，请稍后重试')
+    ElMessage.error('重新发送失败，请稍后重试')
   } finally {
     const next = new Set(retryingDeliveryIds.value)
     next.delete(message.id)
@@ -772,20 +720,6 @@ p {
   max-height: 320px;
   overflow: hidden;
   border-radius: 6px;
-}
-
-.delivery-error {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--el-color-danger);
-  overflow-wrap: anywhere;
-}
-
-.delivery-detail {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--el-text-color-secondary);
-  overflow-wrap: anywhere;
 }
 
 .file-network-hint {
