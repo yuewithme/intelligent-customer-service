@@ -62,8 +62,8 @@ async def video_touch_landing(token: str) -> HTMLResponse:
   </style>
 </head>
 <body>
-  <div class="loading">正在打开视频…</div>
-  <noscript><a href="{html.escape(play_path, quote=True)}">点击播放视频</a></noscript>
+  <div class="loading">正在打开内容…</div>
+  <noscript><a href="{html.escape(play_path, quote=True)}">点击查看内容</a></noscript>
   <script>
     (() => {{
       let started = false;
