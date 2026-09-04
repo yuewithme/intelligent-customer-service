@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
 from app.infrastructure.database.models import Base, PromptBlockModel, TagPromptBindingModel
+from app.domains.sales.services.tag_catalog import get_tag_categories
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -223,6 +224,10 @@ _V2_NEW_BINDING_VALUES = {
 
 
 def seed_business_tag_prompt_policy() -> None:
+    live_bindings = _live_bindings()
+    live_block_ids = {
+        block_id for bindings in live_bindings.values() for block_id in bindings.values()
+    }
     with _get_session() as session:
         session.execute(
             delete(PromptBlockModel).where(PromptBlockModel.block_id == _SEED_MARKER_ID)
@@ -237,6 +242,8 @@ def seed_business_tag_prompt_policy() -> None:
             )
         )
         for block_id, content in _PROMPT_BLOCKS.items():
+            if block_id not in live_block_ids:
+                continue
             session.add(
                 PromptBlockModel(
                     block_id=block_id,
@@ -253,7 +260,7 @@ def seed_business_tag_prompt_policy() -> None:
                 enabled=False,
             )
         )
-        for category_id, bindings in _BINDINGS.items():
+        for category_id, bindings in live_bindings.items():
             for tag_value, block_id in bindings.items():
                 session.add(
                     TagPromptBindingModel(
@@ -269,7 +276,14 @@ def seed_business_tag_prompt_policy() -> None:
 
 def get_business_tag_prompt_block_ids(labels: list[str]) -> list[str]:
     _ensure_seeded()
-    values = [_label_value(label) for label in labels]
+    live_values = {
+        value.name
+        for category in get_tag_categories().values()
+        for value in category.values
+    }
+    values = [
+        value for label in labels if (value := _label_value(label)) in live_values
+    ]
     if not values:
         return []
     with _get_session() as session:
@@ -317,12 +331,18 @@ def ensure_business_tag_prompt_policy() -> None:
 
 
 def _ensure_seeded() -> None:
+    live_bindings = _live_bindings()
+    live_block_ids = {
+        block_id for bindings in live_bindings.values() for block_id in bindings.values()
+    }
     with _get_session() as session:
         marker = session.get(PromptBlockModel, _SEED_MARKER_ID)
         if marker is not None:
             return
         legacy_seeded = session.get(PromptBlockModel, _LEGACY_SEED_MARKER_ID) is not None
         for block_id, content in _PROMPT_BLOCKS.items():
+            if block_id not in live_block_ids:
+                continue
             if session.get(PromptBlockModel, block_id) is None:
                 session.add(
                     PromptBlockModel(
@@ -332,7 +352,7 @@ def _ensure_seeded() -> None:
                         enabled=True,
                     )
                 )
-        for category_id, bindings in _BINDINGS.items():
+        for category_id, bindings in live_bindings.items():
             for tag_value, block_id in bindings.items():
                 if legacy_seeded and tag_value not in _V2_NEW_BINDING_VALUES:
                     continue
@@ -362,6 +382,19 @@ def _ensure_seeded() -> None:
             )
         )
         session.commit()
+
+
+def _live_bindings() -> dict[str, dict[str, str]]:
+    categories = get_tag_categories()
+    return {
+        category_id: {
+            tag_value: block_id
+            for tag_value, block_id in bindings.items()
+            if any(value.name == tag_value for value in categories[category_id].values)
+        }
+        for category_id, bindings in _BINDINGS.items()
+        if category_id in categories
+    }
 
 
 def _get_session() -> Session:

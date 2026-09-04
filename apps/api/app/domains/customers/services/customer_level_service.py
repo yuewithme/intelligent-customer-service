@@ -11,6 +11,7 @@ from app.infrastructure.database.models import (
     PromptBlockModel,
     TagPromptBindingModel,
 )
+from app.domains.sales.services.tag_catalog import get_tag_categories
 
 
 _sessionmakers: dict[str, sessionmaker] = {}
@@ -169,6 +170,7 @@ _PROMPT_BINDINGS = {
 
 
 def seed_customer_level_policy() -> None:
+    live_labels = _live_customer_level_labels()
     with _get_session() as session:
         session.execute(
             delete(TagPromptBindingModel).where(
@@ -204,15 +206,16 @@ def seed_customer_level_policy() -> None:
                 label = next(
                     item["name"] for item in _LEVEL_PROFILES if item["level"] == level
                 )
-                session.add(
-                    TagPromptBindingModel(
-                        category_id="customer_level",
-                        tag_value=label,
-                        prompt_block_id=block_id,
-                        priority=priority,
-                        enabled=True,
+                if label in live_labels:
+                    session.add(
+                        TagPromptBindingModel(
+                            category_id="customer_level",
+                            tag_value=label,
+                            prompt_block_id=block_id,
+                            priority=priority,
+                            enabled=True,
+                        )
                     )
-                )
         marker = session.get(PromptBlockModel, _SEED_MARKER_ID)
         if marker is None:
             session.add(
@@ -235,6 +238,8 @@ def get_customer_level_prompt_block_ids(level: str) -> list[str]:
             )
         )
         if not label:
+            return []
+        if label not in _live_customer_level_labels():
             return []
         rows = session.scalars(
             select(TagPromptBindingModel)
@@ -294,6 +299,7 @@ def _ensure_seeded() -> None:
                         enabled=True,
                     )
                 )
+        live_labels = _live_customer_level_labels()
         for level, block_ids in _PROMPT_BINDINGS.items():
             label = profiles[level].name
             for priority, block_id in enumerate(block_ids, start=1):
@@ -312,23 +318,24 @@ def _ensure_seeded() -> None:
                             enabled=True,
                         )
                     )
-                tag_binding = session.scalar(
-                    select(TagPromptBindingModel.id).where(
-                        TagPromptBindingModel.category_id == "customer_level",
-                        TagPromptBindingModel.tag_value == label,
-                        TagPromptBindingModel.prompt_block_id == block_id,
-                    )
-                )
-                if tag_binding is None:
-                    session.add(
-                        TagPromptBindingModel(
-                            category_id="customer_level",
-                            tag_value=label,
-                            prompt_block_id=block_id,
-                            priority=priority,
-                            enabled=True,
+                if label in live_labels:
+                    tag_binding = session.scalar(
+                        select(TagPromptBindingModel.id).where(
+                            TagPromptBindingModel.category_id == "customer_level",
+                            TagPromptBindingModel.tag_value == label,
+                            TagPromptBindingModel.prompt_block_id == block_id,
                         )
                     )
+                    if tag_binding is None:
+                        session.add(
+                            TagPromptBindingModel(
+                                category_id="customer_level",
+                                tag_value=label,
+                                prompt_block_id=block_id,
+                                priority=priority,
+                                enabled=True,
+                            )
+                        )
         session.add(
             PromptBlockModel(
                 block_id=_SEED_MARKER_ID,
@@ -338,6 +345,11 @@ def _ensure_seeded() -> None:
             )
         )
         session.commit()
+
+
+def _live_customer_level_labels() -> set[str]:
+    category = get_tag_categories().get("customer_level")
+    return {value.name for value in category.values} if category else set()
 
 
 def _get_session() -> Session:

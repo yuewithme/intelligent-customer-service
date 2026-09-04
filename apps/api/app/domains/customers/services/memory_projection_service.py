@@ -12,6 +12,7 @@ from app.infrastructure.database.models import (
 )
 from app.domains.customers.schemas.memory import LegacyProfileProjection
 from app.domains.customers.services.memory_repository import get_memory_session
+from app.domains.sales.services.tag_catalog import is_memory_fact_enabled
 
 
 def build_legacy_profile_projection(
@@ -86,15 +87,23 @@ def build_legacy_profile_projection(
     if isinstance(region, dict) and region.get("city"):
         basic_info["shipping_city"] = region["city"]
 
-    product_interests = [
-        _product_interest_label(value)
-        for value in current_by_key.get("purchase.product_interest", [])
-    ]
+    product_interests = (
+        [
+            _product_interest_label(value)
+            for value in current_by_key.get("purchase.product_interest", [])
+        ]
+        if is_memory_fact_enabled("purchase.product_interest")
+        else []
+    )
     product_interests = [value for value in product_interests if value]
-    pain_points = [
-        _pain_point_label(value)
-        for value in current_by_key.get("service.pain_point", [])
-    ]
+    pain_points = (
+        [
+            _pain_point_label(value)
+            for value in current_by_key.get("service.pain_point", [])
+        ]
+        if is_memory_fact_enabled("service.pain_point")
+        else []
+    )
     pain_points = [value for value in pain_points if value]
     preference_summary = _preference_summary(current_by_key)
 

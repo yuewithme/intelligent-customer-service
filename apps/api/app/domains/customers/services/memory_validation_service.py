@@ -10,6 +10,7 @@ from app.domains.customers.schemas.memory import (
     ValidatedMemoryOperation,
     validate_fact_value,
 )
+from app.domains.sales.services.tag_catalog import is_memory_fact_enabled
 
 
 class MemoryValidationError(ValueError):
@@ -56,6 +57,8 @@ def validate_memory_candidate_in_session(
 
     if candidate.fact_key == "service.commitment":
         raise MemoryValidationError("service commitments must be stored as episodes")
+    if not is_memory_fact_enabled(candidate.fact_key or ""):
+        raise MemoryValidationError("fact key is disabled by the live tag catalog")
     try:
         fact_value = validate_fact_value(candidate.fact_key or "", candidate.fact_value)
     except ValueError as exc:

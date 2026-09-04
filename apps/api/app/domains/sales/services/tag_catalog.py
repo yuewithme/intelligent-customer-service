@@ -1,14 +1,16 @@
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, delete, func, select
+from sqlalchemy import create_engine, delete, func, inspect, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
 from app.infrastructure.database.models import (
     Base,
     CustomerLevelPromptBindingModel,
+    MemoryFactModel,
     PromptBlockModel,
     TagCatalogMetaModel,
     TagCategoryModel,
@@ -264,6 +266,11 @@ SYSTEM_TAG_PREFIXES = {
 }
 PURCHASE_TAG_VALUES = frozenset({"抖音已购", "微信已购"})
 _CATALOG_VERSION = "7"
+_DELETION_TRACKING_MARKER = "tag.deletion_tracking.v1"
+_MANAGED_MEMORY_FACT_CATEGORIES = {
+    "purchase.product_interest": "product_interest",
+    "service.pain_point": "pain_point",
+}
 
 _V7_TAG_RENAMES = {
     ("orchid_quantity", "1-10盆"): "1-9盆",
@@ -357,11 +364,109 @@ def invalidate_cache() -> None:
     _category_cache.pop(get_settings().database_url, None)
 
 
+def is_tag_category_enabled(category_id: str) -> bool:
+    return category_id in get_tag_categories()
+
+
+def is_memory_fact_enabled(fact_key: str) -> bool:
+    category_id = _MANAGED_MEMORY_FACT_CATEGORIES.get(fact_key)
+    return category_id is None or is_tag_category_enabled(category_id)
+
+
+def mark_category_deleted(
+    session: Session,
+    category_id: str,
+    values: list[str] | tuple[str, ...] = (),
+) -> None:
+    _set_meta_marker(session, _category_deletion_key(category_id))
+    default_category = TAG_CATEGORIES.get(category_id)
+    known_values = set(values)
+    if default_category is not None:
+        known_values.update(value.name for value in default_category.values)
+    for value in known_values:
+        mark_tag_deleted(session, category_id, value)
+
+
+def clear_category_deletion(session: Session, category_id: str) -> None:
+    _remove_meta_marker(session, _category_deletion_key(category_id))
+
+
+def mark_tag_deleted(session: Session, category_id: str, value: str) -> None:
+    _set_meta_marker(session, _tag_deletion_key(category_id, value))
+
+
+def clear_tag_deletion(session: Session, category_id: str, value: str) -> None:
+    _remove_meta_marker(session, _tag_deletion_key(category_id, value))
+
+
+def retire_deleted_category_data(
+    session: Session, category_ids: set[str]
+) -> None:
+    if not category_ids:
+        return
+    now = datetime.now(timezone.utc)
+    removed_values = {
+        value.name
+        for category_id in category_ids
+        for value in TAG_CATEGORIES.get(
+            category_id,
+            TagCategory(category_id, category_id, "", ()),
+        ).values
+    }
+    for profile in session.scalars(select(UserProfileModel)).all():
+        changed = False
+        if removed_values:
+            try:
+                tags = json.loads(profile.customer_tags_json or "[]")
+            except (TypeError, ValueError):
+                tags = []
+            if isinstance(tags, list):
+                updated_tags = [value for value in tags if value not in removed_values]
+                if updated_tags != tags:
+                    profile.customer_tags_json = json.dumps(
+                        updated_tags, ensure_ascii=False
+                    )
+                    changed = True
+        if "risk_level" in category_ids and profile.risk_level != "normal":
+            profile.risk_level = "normal"
+            changed = True
+        if (
+            "product_interest" in category_ids
+            and profile.product_interests_json != "[]"
+        ):
+            profile.product_interests_json = "[]"
+            changed = True
+        if "pain_point" in category_ids and profile.pain_points_json != "[]":
+            profile.pain_points_json = "[]"
+            changed = True
+        if changed:
+            profile.updated_at = now
+
+    fact_keys = {
+        fact_key
+        for fact_key, category_id in _MANAGED_MEMORY_FACT_CATEGORIES.items()
+        if category_id in category_ids
+    }
+    if fact_keys and inspect(session.get_bind()).has_table(
+        MemoryFactModel.__tablename__
+    ):
+        session.execute(
+            update(MemoryFactModel)
+            .where(
+                MemoryFactModel.fact_key.in_(fact_keys),
+                MemoryFactModel.status.in_(("active", "disputed")),
+            )
+            .values(status="superseded", valid_to=now, updated_at=now)
+        )
+
+
 def _ensure_seeded() -> None:
     with _get_session() as session:
         count = session.scalar(select(func.count()).select_from(TagCategoryModel)) or 0
         marker = session.get(TagCatalogMetaModel, "seed_version")
-        if count and marker and marker.value == _CATALOG_VERSION:
+        if marker and marker.value == _CATALOG_VERSION:
+            _ensure_deletion_tracking(session)
+            session.commit()
             return
         categories = (
             TAG_CATEGORIES
@@ -373,6 +478,8 @@ def _ensure_seeded() -> None:
         )
         max_position = session.scalar(select(func.max(TagCategoryModel.position))) or 0
         for category_position, category in enumerate(categories.values(), start=1):
+            if _is_category_deleted(session, category.id):
+                continue
             if session.get(TagCategoryModel, category.id):
                 continue
             session.add(
@@ -386,6 +493,8 @@ def _ensure_seeded() -> None:
                 )
             )
             for value_position, value in enumerate(category.values, start=1):
+                if _is_tag_deleted(session, category.id, value.name):
+                    continue
                 session.add(
                     TagDefinitionModel(
                         category_id=category.id,
@@ -400,6 +509,8 @@ def _ensure_seeded() -> None:
             session.add(TagCatalogMetaModel(key="seed_version", value=_CATALOG_VERSION))
         else:
             marker.value = _CATALOG_VERSION
+        session.flush()
+        _ensure_deletion_tracking(session)
         session.commit()
 
 
@@ -420,6 +531,8 @@ def _upgrade_profile_catalog_v7(session: Session) -> None:
     ):
         row = session.get(TagCategoryModel, category.id)
         if row is None:
+            if _is_category_deleted(session, category.id):
+                continue
             max_position += 1
             row = TagCategoryModel(
                 id=category.id,
@@ -642,6 +755,8 @@ def _delete_orphan_prompt_blocks(session: Session, block_ids: set[str]) -> None:
 def _seed_missing_value(session: Session, category_id: str, value: str) -> None:
     if session.get(TagCategoryModel, category_id) is None:
         return
+    if _is_tag_deleted(session, category_id, value):
+        return
     existing = session.scalar(
         select(TagDefinitionModel.id).where(TagDefinitionModel.value == value).limit(1)
     )
@@ -660,6 +775,65 @@ def _seed_missing_value(session: Session, category_id: str, value: str) -> None:
         )
     )
     session.flush()
+
+
+def _ensure_deletion_tracking(session: Session) -> None:
+    if session.get(TagCatalogMetaModel, _DELETION_TRACKING_MARKER) is not None:
+        return
+    category_ids = set(session.scalars(select(TagCategoryModel.id)).all())
+    tag_values = set(
+        session.execute(
+            select(TagDefinitionModel.category_id, TagDefinitionModel.value)
+        ).all()
+    )
+    missing_categories: set[str] = set()
+    for category in TAG_CATEGORIES.values():
+        if category.id not in category_ids:
+            missing_categories.add(category.id)
+            mark_category_deleted(
+                session,
+                category.id,
+                tuple(value.name for value in category.values),
+            )
+            continue
+        for value in category.values:
+            if (category.id, value.name) not in tag_values:
+                mark_tag_deleted(session, category.id, value.name)
+    retire_deleted_category_data(session, missing_categories)
+    session.add(
+        TagCatalogMetaModel(key=_DELETION_TRACKING_MARKER, value="enabled")
+    )
+
+
+def _category_deletion_key(category_id: str) -> str:
+    return "tag.deleted.category." + _marker_digest(category_id)
+
+
+def _tag_deletion_key(category_id: str, value: str) -> str:
+    return "tag.deleted.value." + _marker_digest(f"{category_id}\0{value}")
+
+
+def _marker_digest(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:40]
+
+
+def _is_category_deleted(session: Session, category_id: str) -> bool:
+    return session.get(TagCatalogMetaModel, _category_deletion_key(category_id)) is not None
+
+
+def _is_tag_deleted(session: Session, category_id: str, value: str) -> bool:
+    return session.get(TagCatalogMetaModel, _tag_deletion_key(category_id, value)) is not None
+
+
+def _set_meta_marker(session: Session, key: str) -> None:
+    if session.get(TagCatalogMetaModel, key) is None:
+        session.add(TagCatalogMetaModel(key=key, value="deleted"))
+
+
+def _remove_meta_marker(session: Session, key: str) -> None:
+    marker = session.get(TagCatalogMetaModel, key)
+    if marker is not None:
+        session.delete(marker)
 
 
 def get_profile_tag_categories() -> dict[str, TagCategory]:
@@ -751,9 +925,18 @@ def _get_session() -> Session:
 
 def prompt_blocks_for_labels(labels: list[str]) -> list[str]:
     blocks: list[str] = []
+    live_values = {
+        value.name
+        for category in get_tag_categories().values()
+        for value in category.values
+    }
     for category in TAG_CATEGORIES.values():
         for value in category.values:
-            if value.prompt_block_id and any(_label_value(label) == value.name for label in labels):
+            if (
+                value.name in live_values
+                and value.prompt_block_id
+                and any(_label_value(label) == value.name for label in labels)
+            ):
                 if value.prompt_block_id not in blocks:
                     blocks.append(value.prompt_block_id)
                 break
