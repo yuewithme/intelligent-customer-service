@@ -152,6 +152,127 @@ def test_removing_last_business_prompt_does_not_reseed_it():
     ) == []
 
 
+def test_deleted_default_tag_stays_deleted_until_explicitly_recreated():
+    client = TestClient(app)
+    catalog = client.get("/api/v1/admin/tags").json()["data"]
+    quantity = next(item for item in catalog["items"] if item["id"] == "orchid_quantity")
+    tag = next(item for item in quantity["tags"] if item["value"] == "1-9盆")
+
+    assert client.delete(f"/api/v1/admin/tags/items/{tag['id']}").status_code == 200
+    with tag_catalog._get_session() as session:
+        session.get(TagCatalogMetaModel, "seed_version").value = "6"
+        session.commit()
+    tag_catalog.clear_cache()
+    categories = tag_catalog.get_tag_categories()
+    assert "1-9盆" not in {
+        value.name for value in categories["orchid_quantity"].values
+    }
+    assert tag_catalog.prompt_blocks_for_labels(["customer_tag:1-9盆"]) == []
+
+    recreated = client.post(
+        "/api/v1/admin/tags/categories/orchid_quantity/items",
+        json={"value": "1-9盆", "prompts": []},
+    )
+    assert recreated.status_code == 200
+    assert recreated.json()["data"]["value"] == "1-9盆"
+    with tag_catalog._get_session() as session:
+        session.get(TagCatalogMetaModel, "seed_version").value = "6"
+        session.commit()
+    tag_catalog.clear_cache()
+    values = [
+        value.name
+        for value in tag_catalog.get_tag_categories()["orchid_quantity"].values
+    ]
+    assert values.count("1-9盆") == 1
+
+
+def test_existing_deleted_system_categories_are_tracked_and_not_reseeded():
+    client = TestClient(app)
+    assert client.get("/api/v1/admin/tags").status_code == 200
+    deleted_category_ids = {
+        "customer_segment",
+        "customer_sentiment",
+        "risk_level",
+        "pain_point",
+        "product_interest",
+    }
+
+    client.patch(
+        "/api/v1/users/deleted-category-user/profile",
+        json={
+            "risk_level": "high",
+            "product_interests": ["兰花养护"],
+            "pain_points": ["兰花烂根"],
+        },
+    )
+    with tag_catalog._get_session() as session:
+        tracking = session.get(
+            TagCatalogMetaModel, tag_catalog._DELETION_TRACKING_MARKER
+        )
+        session.delete(tracking)
+        session.execute(
+            delete(TagDefinitionModel).where(
+                TagDefinitionModel.category_id.in_(deleted_category_ids)
+            )
+        )
+        session.execute(
+            delete(TagCategoryModel).where(
+                TagCategoryModel.id.in_(deleted_category_ids)
+            )
+        )
+        session.commit()
+
+    tag_catalog.clear_cache()
+    categories = tag_catalog.get_tag_categories()
+    assert deleted_category_ids.isdisjoint(categories)
+    with tag_catalog._get_session() as session:
+        profile = session.get(UserProfileModel, "deleted-category-user")
+        assert profile.risk_level == "normal"
+        assert json.loads(profile.product_interests_json) == []
+        assert json.loads(profile.pain_points_json) == []
+        session.get(TagCatalogMetaModel, "seed_version").value = "6"
+        session.commit()
+
+    tag_catalog.clear_cache()
+    assert deleted_category_ids.isdisjoint(tag_catalog.get_tag_categories())
+
+
+def test_profile_writes_respect_deleted_managed_categories():
+    client = TestClient(app)
+    assert client.get("/api/v1/admin/tags").status_code == 200
+    for category_id in ("risk_level", "pain_point", "product_interest"):
+        response = client.delete(f"/api/v1/admin/tags/categories/{category_id}")
+        assert response.status_code == 200
+
+    patched = client.patch(
+        "/api/v1/users/deleted-profile-fields/profile",
+        json={
+            "risk_level": "high",
+            "product_interests": ["建兰"],
+            "pain_points": ["烂根"],
+        },
+    ).json()["data"]["profile"]
+    assert patched["risk_level"] == "normal"
+    assert patched["product_interests"] == []
+    assert patched["pain_points"] == []
+
+    with user_profile_service._get_session() as session:
+        profile = session.get(UserProfileModel, "deleted-profile-fields")
+        user_profile_service._apply_profile_analysis(
+            profile,
+            {
+                "risk_level": "high",
+                "customer_tags": [],
+                "product_interests": ["春兰"],
+                "pain_points": ["不开花"],
+            },
+        )
+        session.commit()
+        assert profile.risk_level == "normal"
+        assert json.loads(profile.product_interests_json) == []
+        assert json.loads(profile.pain_points_json) == []
+
+
 def test_catalog_upgrade_removes_obsolete_stage_bindings_and_orphan_blocks():
     client = TestClient(app)
     assert client.get("/api/v1/admin/tags").status_code == 200

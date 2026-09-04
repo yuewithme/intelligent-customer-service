@@ -13,6 +13,7 @@ from app.infrastructure.database.models import (
     CustomerLevelProfileModel,
     CustomerLevelPromptBindingModel,
     PromptBlockModel,
+    TagCatalogMetaModel,
     TagCategoryModel,
     TagDefinitionModel,
     TagPromptBindingModel,
@@ -33,9 +34,14 @@ from app.domains.sales.services.tag_catalog import (
     FROZEN_CATEGORY_IDS,
     SYSTEM_CATEGORY_IDS,
     SYSTEM_TAG_PREFIXES,
+    clear_category_deletion,
+    clear_tag_deletion,
     get_tag_categories,
     invalidate_cache,
     is_profile_tag_category_enabled,
+    mark_category_deleted,
+    mark_tag_deleted,
+    retire_deleted_category_data,
 )
 
 
@@ -48,6 +54,7 @@ _tables = [
     CustomerLevelProfileModel.__table__,
     CustomerLevelPromptBindingModel.__table__,
     UserProfileModel.__table__,
+    TagCatalogMetaModel.__table__,
 ]
 
 
@@ -151,6 +158,7 @@ def create_tag_category(request: TagCategoryCreateRequest) -> dict:
                 position=max_position + 1,
             )
         )
+        clear_category_deletion(session, request.id)
         session.commit()
     invalidate_cache()
     return _category_detail(request.id)
@@ -196,13 +204,16 @@ def delete_tag_category(category_id: str) -> dict:
             )
         )
         session.delete(category)
+        mark_category_deleted(session, category_id, tuple(values))
         _remove_customer_level_legacy_bindings(session, values)
         _clean_orphan_prompt_blocks(session, block_ids)
         _replace_profile_tags(session, set(values), None)
         _replace_profile_system_values(session, category_id, set(values), None)
+        retire_deleted_category_data(session, {category_id})
         session.commit()
     invalidate_cache()
     state_service.remove_customer_tags(set(values))
+    state_service.retire_deleted_tag_category(category_id)
     for value in values:
         state_service.replace_system_tag(category_id, value, None)
     return {"id": category_id, "deleted_tags": len(values)}
@@ -228,6 +239,7 @@ def create_tag(category_id: str, request: TagCreateRequest) -> dict:
         )
         session.add(tag)
         session.flush()
+        clear_tag_deletion(session, category_id, value)
         _sync_prompts(session, category_id, value, request.prompts)
         session.commit()
         tag_id = tag.id
@@ -247,6 +259,8 @@ def update_tag(tag_id: int, request: TagUpdateRequest) -> dict:
         if duplicate and duplicate.id != tag.id:
             _conflict("标签名称已存在；标签在后端需全局唯一")
         if new_value != old_value:
+            mark_tag_deleted(session, category_id, old_value)
+            clear_tag_deletion(session, category_id, new_value)
             session.execute(
                 TagPromptBindingModel.__table__.update()
                 .where(
@@ -289,6 +303,7 @@ def delete_tag(tag_id: int) -> dict:
                 TagPromptBindingModel.tag_value == value,
             )
         )
+        mark_tag_deleted(session, category_id, value)
         session.delete(tag)
         _remove_customer_level_legacy_bindings(session, [value])
         _clean_orphan_prompt_blocks(session, block_ids)

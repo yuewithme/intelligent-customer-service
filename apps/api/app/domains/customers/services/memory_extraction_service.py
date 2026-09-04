@@ -5,7 +5,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.domains.customers.schemas.memory import MemoryEventRead, MemoryOperationCandidate
+from app.domains.customers.schemas.memory import (
+    FACT_VALUE_MODELS,
+    MemoryEventRead,
+    MemoryOperationCandidate,
+)
+from app.domains.sales.services.tag_catalog import is_memory_fact_enabled
 from app.integrations.ai.services.llm_service import generate_json
 
 
@@ -35,7 +40,14 @@ async def extract_memory_candidates(
     candidates = _deterministic_candidates(events, trigger)
     if use_llm:
         candidates.extend(await _llm_candidates(events, trigger))
-    return _dedupe_candidates(candidates)
+    return _dedupe_candidates(
+        [
+            candidate
+            for candidate in candidates
+            if candidate.memory_kind != "semantic_fact"
+            or is_memory_fact_enabled(candidate.fact_key or "")
+        ]
+    )
 
 
 def _deterministic_candidates(
@@ -225,6 +237,9 @@ def _deterministic_candidates(
 async def _llm_candidates(
     events: list[MemoryEventRead], trigger: MemoryEventRead
 ) -> list[MemoryOperationCandidate]:
+    supported_fact_keys = [
+        fact_key for fact_key in FACT_VALUE_MODELS if is_memory_fact_enabled(fact_key)
+    ]
     records = [
         {
             "id": event.id,
@@ -243,10 +258,8 @@ async def _llm_candidates(
         "Never infer a customer fact from assistant text. Payment status requires "
         "a verified_business_system event. Every non-NOOP operation must cite "
         "numeric evidence_event_ids from the records. Use ISO-8601 timestamps. "
-        "Supported fact keys: identity.display_name, location.region, "
-        "communication.preferred_detail, communication.preferred_channel, "
-        "purchase.budget, purchase.product_interest, purchase.status, "
-        "service.pain_point, service.preference. Supported episode types: "
+        f"Supported fact keys: {', '.join(supported_fact_keys)}. "
+        "Supported episode types: "
         "product_consultation, purchase, refund, complaint, after_sales, "
         "sales_objection, preference_expression, commitment. "
         f"Trigger event ID: {trigger.id}.\n"

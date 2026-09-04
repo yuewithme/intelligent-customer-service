@@ -33,6 +33,7 @@ from app.domains.customers.services.memory_identity_service import (
 )
 from app.domains.customers.services.memory_job_service import enqueue_memory_job
 from app.domains.customers.services.memory_repository import get_memory_session
+from app.domains.sales.services.tag_catalog import is_memory_fact_enabled
 
 
 BACKFILL_VERSION = "legacy_memory_v1"
@@ -261,19 +262,21 @@ def _profile_facts(profile: dict[str, Any]) -> list[tuple[str, Any]]:
     city = _text(basic_info.get("shipping_city"), 120)
     if city:
         facts.append(("location.region", {"city": city}))
-    for value in profile["product_interests"]:
-        label = _text(value, 256)
-        if label:
-            facts.append(("purchase.product_interest", {"name": label}))
-    for value in profile["pain_points"]:
-        detail = _text(value, 1000)
-        if detail:
-            facts.append(
-                (
-                    "service.pain_point",
-                    {"topic": "legacy_profile", "detail": detail},
+    if is_memory_fact_enabled("purchase.product_interest"):
+        for value in profile["product_interests"]:
+            label = _text(value, 256)
+            if label:
+                facts.append(("purchase.product_interest", {"name": label}))
+    if is_memory_fact_enabled("service.pain_point"):
+        for value in profile["pain_points"]:
+            detail = _text(value, 1000)
+            if detail:
+                facts.append(
+                    (
+                        "service.pain_point",
+                        {"topic": "legacy_profile", "detail": detail},
+                    )
                 )
-            )
     preference = _text(profile["preference_summary"], 1000)
     if preference:
         facts.append(

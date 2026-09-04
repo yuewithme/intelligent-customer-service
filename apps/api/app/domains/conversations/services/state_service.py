@@ -84,6 +84,14 @@ def remove_customer_tags(values: set[str]) -> None:
         state.customer_tags = _replace_tag_values(state.customer_tags, values, None)
 
 
+def retire_deleted_tag_category(category_id: str) -> None:
+    for state in _state_store.values():
+        if category_id == "risk_level":
+            state.risk_level = "normal"
+        elif category_id == "product_interest":
+            state.interested_products = []
+
+
 def replace_system_tag(category_id: str, old_value: str, new_value: str | None) -> None:
     prefix_by_category = {
         "risk_level": "risk:",

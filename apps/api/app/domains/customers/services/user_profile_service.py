@@ -18,6 +18,7 @@ from app.domains.sales.services.tag_catalog import (
     get_tag_categories,
     is_allowed_system_tag,
     is_profile_tag_enabled,
+    is_tag_category_enabled,
     normalize_system_value,
 )
 
@@ -494,8 +495,15 @@ def _build_profile_analysis_prompt(user_records: list[dict]) -> str:
         settings.profile_analysis_prompt.strip() or DEFAULT_PROFILE_ANALYSIS_PROMPT
     )
     prompt_records = _wrap_prompt_record_content(user_records)
+    managed_fields = {
+        "risk_level": is_tag_category_enabled("risk_level"),
+        "product_interests": is_tag_category_enabled("product_interest"),
+        "pain_points": is_tag_category_enabled("pain_point"),
+    }
     return (
         f"{prompt}\n\n【标签库】\n{_json_dumps(_profile_tag_catalog_prompt())}"
+        f"\n\n【画像字段开关】\n{_json_dumps(managed_fields)}"
+        "\n开关为 false 的字段必须返回默认值（risk_level 为 normal，数组为 []）。"
         f"\n\n【聊天上下文记录】\n{_json_dumps(prompt_records)}"
     )
 
@@ -542,9 +550,12 @@ def _apply_profile_analysis(
     profile: UserProfileModel,
     analysis: dict,
 ) -> None:
-    risk_level = _risk_value(analysis.get("risk_level"))
-    if risk_level and _risk_rank(risk_level) > _risk_rank(profile.risk_level):
-        profile.risk_level = risk_level
+    if is_tag_category_enabled("risk_level"):
+        risk_level = normalize_system_value(
+            "risk_level", analysis.get("risk_level"), fallback=""
+        )
+        if risk_level and _risk_rank(risk_level) > _risk_rank(profile.risk_level):
+            profile.risk_level = risk_level
 
     profile.customer_tags_json = _json_dumps(
         _merge_customer_tags(
@@ -554,20 +565,30 @@ def _apply_profile_analysis(
             ),
         )
     )
-    profile.product_interests_json = _json_dumps(
-        _dedupe(
-            [
-                *_json_loads(profile.product_interests_json, []),
-                *_string_list(analysis.get("product_interests")),
-            ]
+    profile.product_interests_json = (
+        _json_dumps(
+            _dedupe(
+                [
+                    *_json_loads(profile.product_interests_json, []),
+                    *_string_list(analysis.get("product_interests")),
+                ]
+            )
         )
+        if is_tag_category_enabled("product_interest")
+        else "[]"
     )
-    profile.pain_points_json = _json_dumps(
-        _merge_descriptive_list(
-            _json_loads(profile.pain_points_json, []),
-            _string_list(analysis.get("pain_points")),
+    profile.pain_points_json = (
+        _json_dumps(
+            _merge_descriptive_list(
+                _json_loads(profile.pain_points_json, []),
+                _string_list(analysis.get("pain_points")),
+            )
         )
+        if is_tag_category_enabled("pain_point")
+        else "[]"
     )
+
+
 def _risk_rank(value: str | None) -> int:
     return {"normal": 0, "medium": 1, "high": 2}.get(value or "", 0)
 
@@ -698,10 +719,6 @@ def _append_or_replace_specific(values: list[str], value: str) -> list[str]:
         if item and not _is_more_specific_pain_point(value, item)
     ]
     return _append_unique(compacted, value)
-
-
-def _risk_value(value: Any) -> str:
-    return normalize_system_value("risk_level", value, fallback="")
 
 
 def _merge_customer_tags(existing: list[str], incoming: list[str]) -> list[str]:
@@ -1073,9 +1090,17 @@ def _set_profile_field(profile: UserProfileModel, field: str, value: Any) -> Non
             "risk_level", value, fallback="normal"
         )
     elif field == "product_interests":
-        profile.product_interests_json = _json_dumps(_string_list(value))
+        profile.product_interests_json = (
+            _json_dumps(_string_list(value))
+            if is_tag_category_enabled("product_interest")
+            else "[]"
+        )
     elif field == "pain_points":
-        profile.pain_points_json = _json_dumps(_string_list(value))
+        profile.pain_points_json = (
+            _json_dumps(_string_list(value))
+            if is_tag_category_enabled("pain_point")
+            else "[]"
+        )
     elif hasattr(profile, field):
         setattr(profile, field, value)
 
@@ -1096,9 +1121,17 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
             _json_loads(profile.customer_tags_json, []),
             [],
         ),
-        "product_interests": _json_loads(profile.product_interests_json, []),
+        "product_interests": (
+            _json_loads(profile.product_interests_json, [])
+            if is_tag_category_enabled("product_interest")
+            else []
+        ),
         "preference_summary": profile.preference_summary,
-        "pain_points": _json_loads(profile.pain_points_json, []),
+        "pain_points": (
+            _json_loads(profile.pain_points_json, [])
+            if is_tag_category_enabled("pain_point")
+            else []
+        ),
         "basic_info": _json_loads(profile.basic_info_json, {}),
         "last_route": profile.last_route,
         "last_active_at": _datetime_to_iso(profile.last_active_at),

@@ -1,7 +1,23 @@
+import pytest
+
+from app.core.config import get_settings
+from app.domains.sales.services import tag_catalog
 from app.domains.sales.services.tag_catalog import (
     TAG_CATEGORIES,
     prompt_blocks_for_labels,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolated_tag_catalog(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "DATABASE_URL", f"sqlite:///{(tmp_path / 'tag-catalog.db').as_posix()}"
+    )
+    get_settings.cache_clear()
+    tag_catalog.clear_cache()
+    yield
+    tag_catalog.clear_cache()
+    get_settings.cache_clear()
 
 
 def test_current_business_tags_are_available_in_catalog():

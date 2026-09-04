@@ -28,8 +28,10 @@ from app.domains.customers.services.memory_job_service import (
     fail_memory_job,
     get_memory_job,
 )
+from app.domains.customers.services.memory_query_planner import plan_memory_query
 from app.domains.customers.services.memory_validation_service import MemoryValidationError
 from app.domains.customers.workers.memory_worker import process_memory_job
+from app.domains.sales.services import admin_tag_service, tag_catalog
 from app.shared.schemas.common import AppError, ErrorCode
 
 
@@ -39,9 +41,13 @@ def memory_db(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path.as_posix()}")
     get_settings.cache_clear()
     memory_repository.reset_memory_repository_cache()
+    admin_tag_service.clear_cache()
+    tag_catalog.clear_cache()
     try:
         yield db_path
     finally:
+        tag_catalog.clear_cache()
+        admin_tag_service.clear_cache()
         memory_repository.reset_memory_repository_cache()
         get_settings.cache_clear()
 
@@ -129,6 +135,39 @@ def test_memory_job_is_deduplicated_and_requires_lease_owner(memory_db):
     completed = complete_memory_job(job_id=claimed.id, worker_id="worker_a")
     assert completed.status == "completed"
     assert claim_memory_job(worker_id="worker_a", lease_seconds=60) is None
+
+
+def test_deleted_managed_category_retires_and_blocks_memory_facts(memory_db):
+    subject = _subject()
+    event = _append(subject, uid="message:managed-fact:1", text="我担心兰花烂根")
+    candidate = _fact_candidate(
+        event,
+        0,
+        fact_key="service.pain_point",
+        fact_value={"topic": "orchid_care", "detail": "兰花烂根"},
+        reason="explicit_pain_point",
+    )
+    created = apply_memory_candidate(
+        tenant_id=subject.tenant_id,
+        subject_id=subject.id,
+        candidate=candidate,
+    )
+    assert created.created
+
+    admin_tag_service.delete_tag_category("pain_point")
+    tag_catalog.invalidate_cache()
+
+    with memory_repository.get_memory_session() as session:
+        fact = session.get(MemoryFactModel, created.record_id)
+        assert fact.status == "superseded"
+        assert fact.valid_to is not None
+    assert "service.pain_point" not in plan_memory_query("客户有什么痛点").requested_fact_keys
+    with pytest.raises(MemoryValidationError, match="disabled by the live tag catalog"):
+        apply_memory_candidate(
+            tenant_id=subject.tenant_id,
+            subject_id=subject.id,
+            candidate=candidate,
+        )
 
 
 def test_expired_job_lease_is_reclaimable_and_failures_become_dead(memory_db):

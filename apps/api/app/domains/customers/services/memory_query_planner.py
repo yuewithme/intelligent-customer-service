@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from app.domains.customers.schemas.memory import MemoryEpisodeType, MemoryQueryPlan
+from app.domains.sales.services.tag_catalog import is_memory_fact_enabled
 
 
 _DEFAULT_FACT_KEYS = [
@@ -92,7 +93,11 @@ def plan_memory_query(query: str) -> MemoryQueryPlan:
         fact_keys.extend(_DEFAULT_FACT_KEYS)
     query_terms = matched_terms + re.findall(r"[a-z0-9_-]{2,}", normalized)
     return MemoryQueryPlan(
-        requested_fact_keys=list(dict.fromkeys(fact_keys)),
+        requested_fact_keys=[
+            fact_key
+            for fact_key in dict.fromkeys(fact_keys)
+            if is_memory_fact_enabled(fact_key)
+        ],
         include_episodes=True,
         episode_types=list(dict.fromkeys(episode_types)),
         require_verified_business=require_verified_business,
