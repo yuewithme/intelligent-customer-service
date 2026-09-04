@@ -4,15 +4,15 @@
       <div>
         <div class="title-row">
           <h1>能力工作台</h1>
-          <ElTag type="warning" effect="plain">只读预览</ElTag>
+          <ElTag type="success" effect="plain">SOP 节点可配置</ElTag>
         </div>
-        <p>查看已封装能力与经验包流程，先验证业务展示方式，再开放配置和编排。</p>
+        <p>查看首单与服务 SOP，并统一设置每个业务节点由 AI 回复或转人工。</p>
       </div>
       <ElButton :loading="loading" @click="load">刷新数据</ElButton>
     </div>
 
     <ElAlert
-      title="当前页面读取静态契约，不会修改经验包、能力配置或线上 Agent 行为。"
+      title="SOP 节点开关会直接影响线上 Agent 接管方式；其他流程和能力信息仍为查看模式。"
       type="info"
       :closable="false"
       show-icon
@@ -118,11 +118,14 @@
                     :key="node.key"
                     type="button"
                     class="graph-node"
-                    :class="[node.type, { active: selectedNodeKey === node.key }]"
+                    :class="[node.type, { active: selectedNodeKey === node.key, handoff: node.handoffEnabled }]"
                     :style="{ left: `${node.x}px`, top: `${node.y}px` }"
                     @click="selectNode(node.key)"
                   >
                     <span>{{ nodeTypeText(node.type) }}</span>
+                    <em v-if="node.type !== 'outcome'" class="node-mode">
+                      {{ node.handoffEnabled ? '转人工' : 'AI 回复' }}
+                    </em>
                     <strong>{{ node.name }}</strong>
                     <small>{{ node.subtitle }}</small>
                   </button>
@@ -154,7 +157,17 @@
 
               <template v-else-if="selectedStep">
                 <div class="detail-kicker">{{ stepTypeText(selectedStep.type) }}</div>
-                <h2>{{ selectedStep.name }}</h2>
+                <div class="detail-title-row">
+                  <h2>{{ selectedStep.name }}</h2>
+                  <div v-if="selectedStep.node_id" class="step-handoff-control">
+                    <span>{{ selectedStep.handoff_enabled ? '转人工' : 'AI 回复' }}</span>
+                    <ElSwitch
+                      :model-value="Boolean(selectedStep.handoff_enabled)"
+                      :loading="savingNodeId === selectedStep.node_id"
+                      @change="updateNodeHandoff"
+                    />
+                  </div>
+                </div>
                 <p>{{ selectedStep.description || '暂无补充说明' }}</p>
                 <section v-if="selectedStep.goal">
                   <h3>步骤目标</h3>
@@ -401,8 +414,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
   getCapabilityWorkbench,
+  updateWorkbenchSopNodeHandoff,
   type CapabilityAiMode,
   type CapabilityCustomerContact,
   type CapabilityItem,
@@ -426,6 +441,7 @@ interface GraphNode {
   name: string
   subtitle: string
   type: ExperienceStep['type'] | 'outcome'
+  handoffEnabled: boolean
   x: number
   y: number
 }
@@ -448,6 +464,7 @@ const activeGroup = ref('all')
 const visibilityFilter = ref('business')
 const capabilityDrawerVisible = ref(false)
 const selectedCapabilityId = ref('')
+const savingNodeId = ref('')
 
 const packages = computed(() => data.value?.experience_packages || [])
 const capabilities = computed(() => data.value?.capabilities || [])
@@ -467,6 +484,7 @@ const graphNodes = computed<GraphNode[]>(() => {
       name: step.name,
       subtitle: stepSubtitle(step),
       type: step.type,
+      handoffEnabled: Boolean(step.handoff_enabled),
       x: position.x,
       y: position.y
     } satisfies GraphNode
@@ -479,6 +497,7 @@ const graphNodes = computed<GraphNode[]>(() => {
     name: outcome.name,
     subtitle: outcome.next_package_id ? `转入 ${outcome.next_package_id}` : '流程结束',
     type: 'outcome' as const,
+    handoffEnabled: false,
     x: outcomeX,
     y: 50 + index * 112
   }))
@@ -598,6 +617,27 @@ const selectTransition = (transitionId: string) => {
   selectedNodeKey.value = ''
 }
 
+const updateNodeHandoff = async (value: string | number | boolean) => {
+  const step = selectedStep.value
+  if (!step?.node_id) return
+  const previous = Boolean(step.handoff_enabled)
+  const enabled = Boolean(value)
+  step.handoff_enabled = enabled
+  savingNodeId.value = step.node_id
+  try {
+    const result = await updateWorkbenchSopNodeHandoff({
+      node_id: step.node_id,
+      handoff_enabled: enabled
+    })
+    step.handoff_enabled = result.handoff_enabled
+    ElMessage.success(`${step.name}已切换为${result.handoff_enabled ? '转人工' : 'AI 回复'}`)
+  } catch {
+    step.handoff_enabled = previous
+  } finally {
+    savingNodeId.value = ''
+  }
+}
+
 const openCapability = (capabilityId: string) => {
   selectedCapabilityId.value = capabilityId
   capabilityDrawerVisible.value = true
@@ -606,7 +646,10 @@ const openCapability = (capabilityId: string) => {
 const jumpToUsage = (usage: CapabilityUsage) => {
   activeTab.value = 'flow'
   selectPackage(usage.package_id)
-  selectedNodeKey.value = `step:${usage.step_id}`
+  const targetPackage = packages.value.find((item) => item.package_id === usage.package_id)
+  selectedNodeKey.value = targetPackage?.steps.some((step) => step.step_id === usage.step_id)
+    ? `step:${usage.step_id}`
+    : `step:${targetPackage?.entry.start_step_id || ''}`
   capabilityDrawerVisible.value = false
 }
 
@@ -617,6 +660,7 @@ const transitionTargetName = (transition: ExperienceTransition) =>
   transition.to_step ? stepName(transition.to_step) : outcomeName(transition.outcome || '')
 
 const stepSubtitle = (step: ExperienceStep) => {
+  if (step.node_id) return step.description || ''
   if (step.type === 'action') return capabilityName(step.capability_id || '')
   if (step.type === 'wait') return `等待 ${step.resume_events?.length || 0} 类事件`
   if (step.type === 'decision') return step.strategy === 'hybrid' ? '规则 + AI 判断' : `${step.strategy} 判断`
@@ -738,7 +782,10 @@ onMounted(load)
 .graph-node { position: absolute; width: 190px; height: 84px; padding: 10px 12px; border: 2px solid transparent; border-radius: 11px; color: #263c35; background: #fff; box-shadow: 0 5px 16px rgb(33 76 63 / 10%); text-align: left; cursor: pointer; z-index: 2; }
 .graph-node:hover, .graph-node.active { transform: translateY(-1px); box-shadow: 0 8px 22px rgb(33 76 63 / 18%); }
 .graph-node.active { border-color: var(--el-color-primary); }
+.graph-node.handoff { background: #fff8f5; }
 .graph-node > span { color: var(--el-text-color-secondary); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.graph-node .node-mode { position: absolute; top: 9px; right: 10px; padding: 2px 6px; color: #4d7568; background: #edf7f3; border-radius: 999px; font-size: 10px; font-style: normal; }
+.graph-node.handoff .node-mode { color: #b64f2e; background: #ffebe3; }
 .graph-node strong, .graph-node small { display: block; }
 .graph-node strong { margin-top: 5px; font-size: 15px; }
 .graph-node small { margin-top: 6px; color: var(--el-text-color-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -748,6 +795,9 @@ onMounted(load)
 .graph-node.wait { border-left: 5px solid #aa84c4; }
 .graph-node.outcome { border-left: 5px solid #5d6b66; background: #f0f4f2; }
 .detail-kicker { color: var(--el-color-primary); font-size: 11px; font-weight: 800; letter-spacing: .1em; }
+.detail-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.step-handoff-control { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--el-border-color-light); border-radius: 9px; background: #fff; }
+.step-handoff-control span { color: var(--el-text-color-secondary); font-size: 12px; }
 .detail-panel h2 { margin: 7px 0; font-size: 21px; }
 .detail-panel > p, .detail-panel section > p { color: var(--el-text-color-secondary); line-height: 1.65; }
 .detail-panel section { padding-top: 4px; margin-top: 18px; border-top: 1px solid var(--el-border-color-lighter); }

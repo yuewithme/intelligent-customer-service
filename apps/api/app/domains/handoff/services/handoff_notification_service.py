@@ -114,6 +114,46 @@ def get_sop_node(node_id: str) -> dict[str, str] | None:
     return None
 
 
+def get_sop_node_handoff_settings() -> dict[str, Any]:
+    with _get_session() as session:
+        setting = _get_or_create_setting(session)
+        values = _sop_node_handoff(setting)
+        session.commit()
+        return {
+            "sop_node_handoff": {
+                node_id: bool(values.get(node_id, False))
+                for node_id in sorted(SOP_NODE_IDS)
+            },
+            "updated_at": setting.updated_at.isoformat(),
+        }
+
+
+def update_sop_node_handoff(node_id: str, enabled: bool) -> dict[str, Any]:
+    node = get_sop_node(node_id)
+    if node is None:
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message=f"未知 SOP 节点：{node_id}",
+            status_code=422,
+        )
+    with _get_session() as session:
+        setting = _get_or_create_setting(session)
+        values = _sop_node_handoff(setting)
+        values[node_id] = enabled
+        setting.sop_node_handoff_json = json.dumps(
+            values,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        setting.updated_at = _utcnow()
+        session.commit()
+        return {
+            **node,
+            "handoff_enabled": enabled,
+            "updated_at": setting.updated_at.isoformat(),
+        }
+
+
 def update_handoff_notification_settings(
     request: HandoffNotificationSettingsUpdateRequest,
 ) -> dict[str, Any]:
