@@ -24,6 +24,10 @@ from app.domains.decisioning.services.agent_tools import (
     AgentExecutionContext,
     execute_agent_tool,
 )
+from app.domains.handoff.services.handoff_notification_service import (
+    get_sop_node,
+    is_sop_node_handoff_enabled,
+)
 from app.integrations.ai.services.llm_service import generate_messages_json
 
 
@@ -241,6 +245,8 @@ async def run_sales_agent(
             )
             _merge_usage(usage, raw.get("usage"))
             decision = AgentTurnDecision.model_validate(raw.get("data"))
+            if not decision.sop_node.startswith(f"{sop_scope}."):
+                raise ValueError("sop_node_scope_mismatch")
         except (ValidationError, TypeError, ValueError) as exc:
             logger.warning("Sales Agent returned invalid decision: %s", type(exc).__name__)
             attempt_trace.append(
@@ -268,6 +274,7 @@ async def run_sales_agent(
                     "content": (
                         "上一个输出不符合 Agent JSON 契约。工具调用与最终回复必须二选一："
                         "需要调用工具时 final_response 必须为 null；准备回复客户时 tool_calls 必须为空。"
+                        f"sop_node 必须使用 {sop_scope} 范围内的节点。"
                         "未进入最终回复的文字和卡片都没有发送给客户。请按规定结构重新判断，不要输出解释。"
                     ),
                 }
@@ -307,6 +314,22 @@ async def run_sales_agent(
                 "content": json.dumps(decision.model_dump(mode="json"), ensure_ascii=False),
             }
         )
+        explicit_handoff = any(
+            call.name == "human.handoff" for call in decision.tool_calls
+        ) or bool(decision.final_response and decision.final_response.need_human)
+        if (
+            not explicit_handoff
+            and is_sop_node_handoff_enabled(sop_scope, decision.sop_node)
+        ):
+            diagnostic["outcome"] = "sop_node_handoff"
+            return await _sop_node_handoff_reply(
+                decision=decision,
+                context=context,
+                sop_scope=sop_scope,
+                usage=usage,
+                tool_results=tool_results,
+                attempt_trace=attempt_trace,
+            )
         if decision.tool_calls:
             tool_trajectory_violations = _tool_sales_trajectory_violations(decision)
             diagnostic["trajectory_violations"] = tool_trajectory_violations
@@ -561,6 +584,8 @@ async def _finalize_reply(
                 "trace_id": context.message.trace_id,
                 "commercial_judgment": decision.commercial_judgment,
                 "relationship_purpose": decision.relationship_purpose,
+                "sop_scope": _sop_scope(context.message),
+                "sop_node": decision.sop_node,
                 "customer_signal": decision.customer_signal,
                 "purchase_signal": decision.purchase_signal,
                 "tool_trace": tool_results,
@@ -572,6 +597,54 @@ async def _finalize_reply(
                     if need_human and not outbound
                     else "generated_with_handoff" if need_human else "generated"
                 ),
+            },
+            **({"handoff": context.handoff} if context.handoff else {}),
+        },
+    )
+
+
+async def _sop_node_handoff_reply(
+    *,
+    decision: AgentTurnDecision,
+    context: AgentExecutionContext,
+    sop_scope: str,
+    usage: dict[str, int],
+    tool_results: list[dict[str, Any]],
+    attempt_trace: list[dict[str, Any]],
+) -> FinalReply:
+    node = get_sop_node(decision.sop_node)
+    node_name = str((node or {}).get("name") or decision.sop_node)
+    result = await execute_agent_tool(
+        call_id="system_sop_node_handoff",
+        name="human.handoff",
+        arguments={
+            "reason": f"SOP 节点已配置转人工：{node_name}",
+            "summary": decision.commercial_judgment,
+        },
+        context=context,
+    )
+    return FinalReply(
+        answer="",
+        answer_segments=[],
+        outbound_messages=[],
+        reply_type="human",
+        route="human",
+        usage=usage,
+        need_human=True,
+        next_action="human_handoff",
+        metadata={
+            "agent_runtime": {
+                "version": HARNESS_VERSION,
+                "trace_id": context.message.trace_id,
+                "commercial_judgment": decision.commercial_judgment,
+                "relationship_purpose": decision.relationship_purpose,
+                "sop_scope": sop_scope,
+                "sop_node": decision.sop_node,
+                "customer_signal": decision.customer_signal,
+                "purchase_signal": decision.purchase_signal,
+                "tool_trace": [*tool_results, result.model_dump(mode="json")],
+                "attempt_trace": attempt_trace,
+                "result": "sop_node_handoff",
             },
             **({"handoff": context.handoff} if context.handoff else {}),
         },
@@ -623,6 +696,10 @@ async def _safe_fallback(
                         else "客户当前请求超出 Agent 的执行权限"
                     ),
                     "relationship_purpose": "及时交给有权限的人工负责到底",
+                    "sop_scope": _sop_scope(message),
+                    "sop_node": (
+                        latest_decision.sop_node if latest_decision else None
+                    ),
                     "customer_signal": (
                         latest_decision.customer_signal if latest_decision else "none"
                     ),
@@ -679,6 +756,10 @@ async def _safe_fallback(
                         else "Agent 未形成可安全发送的完整回复"
                     ),
                     "relationship_purpose": "交给人工继续处理当前客户问题",
+                    "sop_scope": _sop_scope(message),
+                    "sop_node": (
+                        latest_decision.sop_node if latest_decision else None
+                    ),
                     "customer_signal": (
                         latest_decision.customer_signal if latest_decision else "none"
                     ),
@@ -714,6 +795,12 @@ async def _safe_fallback(
                 "trace_id": context.message.trace_id,
                 "commercial_judgment": judgment,
                 "relationship_purpose": purpose,
+                "sop_scope": _sop_scope(message),
+                "sop_node": (
+                    latest_decision.sop_node
+                    if latest_decision
+                    else "first_order.opening"
+                ),
                 "customer_signal": (
                     latest_decision.customer_signal if latest_decision else "none"
                 ),
@@ -763,6 +850,7 @@ def _decision_diagnostic(
             "relationship_purpose": _truncate_log_text(
                 decision.relationship_purpose, 400
             ),
+            "sop_node": decision.sop_node,
             "customer_signal": decision.customer_signal,
             "purchase_signal": decision.purchase_signal,
             "tool_calls": [
@@ -812,6 +900,7 @@ def _invalid_attempt_diagnostic(
             "relationship_purpose": _truncate_log_text(
                 data.get("relationship_purpose"), 400
             ),
+            "sop_node": _truncate_log_text(data.get("sop_node"), 128),
             "customer_signal": _truncate_log_text(data.get("customer_signal"), 64),
             "purchase_signal": _truncate_log_text(data.get("purchase_signal"), 64),
             "final_response": _sanitize_raw_final(final),

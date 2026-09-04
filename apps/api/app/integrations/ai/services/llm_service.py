@@ -136,11 +136,19 @@ async def generate_messages_json(
         provider_override=None,
     )
     if config.provider == "mock":
+        system_prompt = str(messages[0].get("content") or "") if messages else ""
+        sop_node = (
+            "first_order.need_discovery"
+            if "first_order.need_discovery" in system_prompt
+            else "service.need_discovery"
+        )
         return {
             "data": {
                 "commercial_judgment": "当前缺少真实模型配置，先保持自然承接",
                 "relationship_purpose": "继续了解客户当前最重要的问题",
+                "sop_node": sop_node,
                 "customer_signal": "none",
+                "purchase_signal": "none",
                 "tool_calls": [],
                 "final_response": {
                     "messages": [

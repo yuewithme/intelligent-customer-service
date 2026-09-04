@@ -51,6 +51,9 @@ from app.domains.customers.services.user_profile_service import (
     append_conversation_memory,
 )
 from app.domains.decisioning.services.service_sop import SERVICE_OPENING
+from app.domains.handoff.services.handoff_notification_service import (
+    is_sop_node_handoff_enabled,
+)
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_risk_control")
@@ -2056,6 +2059,17 @@ def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
 
 
 async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
+    if is_sop_node_handoff_enabled("first_order", "first_order.opening"):
+        await force_handoff(
+            make_conversation_id(
+                "wechat",
+                batch["from_user"] or batch["target_wc_id"],
+                _conversation_session_id(batch),
+            ),
+            operator_id="system",
+            reason="SOP 节点已配置转人工：破冰",
+        )
+        return
     outbound_messages = [{"type": "text", "content": SERVICE_OPENING}]
     opening_answer = SERVICE_OPENING
     await _record_opening_memories(

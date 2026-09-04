@@ -15,6 +15,20 @@ PurchaseSignal = Literal[
     "interest",
     "direct",
 ]
+SopNode = Literal[
+    "first_order.opening",
+    "first_order.need_discovery",
+    "first_order.pain_discovery",
+    "first_order.recommendation",
+    "first_order.value_building",
+    "first_order.trial_close",
+    "first_order.closing",
+    "service.need_discovery",
+    "service.member_benefit",
+    "service.post_service_close",
+    "service.repurchase_discovery",
+    "service.relationship_maintenance",
+]
 
 
 class AgentToolCall(BaseModel):
@@ -47,6 +61,7 @@ class AgentFinalResponse(BaseModel):
 class AgentTurnDecision(BaseModel):
     commercial_judgment: str = Field(min_length=1, max_length=800)
     relationship_purpose: str = Field(min_length=1, max_length=400)
+    sop_node: SopNode
     customer_signal: CustomerSignal = "none"
     purchase_signal: PurchaseSignal = "none"
     tool_calls: list[AgentToolCall] = Field(default_factory=list, max_length=4)

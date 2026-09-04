@@ -5,7 +5,7 @@ import pytest
 
 from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.customers.schemas.state import UserState
-from app.domains.decisioning.schemas.agent import AgentTurnDecision
+from app.domains.decisioning.schemas.agent import AgentToolResult, AgentTurnDecision
 from app.domains.decisioning.services import agent_runtime, agent_tools
 from app.domains.decisioning.services.agent_prompt import (
     build_system_prompt,
@@ -13,6 +13,15 @@ from app.domains.decisioning.services.agent_prompt import (
     build_turn_payload,
 )
 from app.domains.decisioning.services.agent_tools import AgentExecutionContext
+
+
+@pytest.fixture(autouse=True)
+def disable_sop_node_handoff(monkeypatch):
+    monkeypatch.setattr(
+        agent_runtime,
+        "is_sop_node_handoff_enabled",
+        lambda sop_scope, node_id: False,
+    )
 
 
 def _message(text: str = "我想看看建兰") -> NormalizedMessage:
@@ -34,11 +43,13 @@ def _decision(
     judgment="判断",
     purpose="推进关系",
     purchase_signal="none",
+    sop_node="service.need_discovery",
 ):
     return {
         "data": {
             "commercial_judgment": judgment,
             "relationship_purpose": purpose,
+            "sop_node": sop_node,
             "customer_signal": "none",
             "purchase_signal": purchase_signal,
             "tool_calls": tools or [],
@@ -73,6 +84,62 @@ def test_agent_decision_rejects_tool_calls_with_final_response():
                 },
             )["data"]
         )
+
+
+@pytest.mark.asyncio
+async def test_enabled_sop_node_handoff_prevents_business_tool_execution(monkeypatch):
+    calls = []
+
+    async def fake_generate(*args, **kwargs):
+        del args, kwargs
+        return _decision(
+            sop_node="service.member_benefit",
+            tools=[
+                {
+                    "call_id": "material-1",
+                    "name": "material.send",
+                    "arguments": {"material_ref": "material:1"},
+                }
+            ],
+        )
+
+    async def fake_execute(*, call_id, name, arguments, context):
+        del arguments
+        calls.append(name)
+        context.handoff = {
+            "ticket_id": "handoff-node-1",
+            "status": "pending",
+            "reason": "SOP 节点已配置转人工：会员权益交付",
+            "summary": "当前进入权益交付",
+        }
+        return AgentToolResult(
+            call_id=call_id,
+            tool=name,
+            status="pending",
+            data={"handoff": context.handoff},
+        )
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
+    monkeypatch.setattr(agent_runtime, "execute_agent_tool", fake_execute)
+    monkeypatch.setattr(
+        agent_runtime,
+        "is_sop_node_handoff_enabled",
+        lambda sop_scope, node_id: (
+            sop_scope == "service" and node_id == "service.member_benefit"
+        ),
+    )
+
+    reply = await agent_runtime.run_sales_agent(
+        message=_message("请把对应教程发给我"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
+
+    assert calls == ["human.handoff"]
+    assert reply.need_human is True
+    assert reply.outbound_messages == []
+    assert reply.metadata["agent_runtime"]["sop_node"] == "service.member_benefit"
+    assert reply.metadata["agent_runtime"]["result"] == "sop_node_handoff"
 
 
 def test_tool_result_payload_marks_draft_and_prepared_items_as_unsent():
@@ -2330,6 +2397,7 @@ async def test_opening_does_not_execute_agent_tools(monkeypatch):
     responses = iter(
         [
             _decision(
+                sop_node="first_order.opening",
                 tools=[
                     {
                         "call_id": "search-1",
@@ -2339,6 +2407,7 @@ async def test_opening_does_not_execute_agent_tools(monkeypatch):
                 ]
             ),
             _decision(
+                sop_node="first_order.opening",
                 final={
                     "messages": [
                         {

@@ -4,7 +4,10 @@ import pytest
 
 from app.domains.conversations.schemas.chat import ChatRequest
 from app.domains.conversations.services import chat_orchestrator
-from app.domains.conversations.services.chat_orchestrator import _customer_workspace
+from app.domains.conversations.services.chat_orchestrator import (
+    _customer_workspace,
+    _sop_scope_for_workspace,
+)
 from app.domains.customers.schemas.memory import MemoryContext
 from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.schemas.reply import FinalReply
@@ -63,6 +66,16 @@ def test_customer_workspace_includes_resolved_tag_guidance(monkeypatch):
     ]
 
 
+def test_sop_scope_uses_verified_purchase_tags():
+    assert _sop_scope_for_workspace({"profile": {}}) == "first_order"
+    assert _sop_scope_for_workspace(
+        {"profile": {"customer_tags": ["服务中", "抖音已购"]}}
+    ) == "service"
+    assert _sop_scope_for_workspace(
+        {"profile": {"customer_tags": ["微信已购"]}}
+    ) == "service"
+
+
 @pytest.mark.asyncio
 async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
     monkeypatch,
@@ -113,8 +126,9 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
         return {"profile": {}, "recent_memories": []}
 
     async def fake_run_sales_agent(*, message, user_state, workspace):
-        del message, user_state
+        del user_state
         captured["workspace"] = workspace
+        captured["sop_scope"] = message.metadata.get("sop_scope")
         return FinalReply(answer="已记住", reply_type="agent", route="agent")
 
     async def fake_update_user_state(*args, **kwargs):
@@ -173,4 +187,5 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
         "latency_ms": 7,
     }
     assert captured["log"]["stage_latencies"]["memory_v2_ms"] == 7
+    assert captured["sop_scope"] == "first_order"
     assert result["answer"] == "已记住"
