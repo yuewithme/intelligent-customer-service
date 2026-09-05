@@ -220,7 +220,7 @@ import {
 } from '@/api/admin/activities'
 import { getConversationDetail } from '@/api/admin/conversations'
 import { useUserStore } from '@/store/modules/user'
-import { formatChinaTime } from '../workbench/time'
+import { formatChinaTime } from '@/utils/time'
 import { isTestGate } from '@/utils/gate'
 
 defineOptions({ name: 'CurrentActivities' })

@@ -16,7 +16,7 @@ from app.infrastructure.database.models import (
     OrchidVarietyModel,
     OrchidVarietyTraitModel,
 )
-from app.domains.catalog.orchid_products.excel_importer import OrchidImportPayload
+from app.domains.catalog.orchid_products.import_support import OrchidImportPayload
 
 
 _sessionmakers: dict[str, sessionmaker] = {}

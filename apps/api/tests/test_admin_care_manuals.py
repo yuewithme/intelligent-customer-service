@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.core.config import get_settings
+from app.infrastructure.database.product_store import reset_product_store_for_tests
 from app.domains.sales.services.care_manual_service import (
     list_care_manuals,
     reset_care_manual_store_for_tests,
@@ -10,7 +11,6 @@ from app.domains.sales.services.care_manual_service import (
     update_care_manual,
 )
 from app.integrations.youzan.services.youzan_product_sync_service import (
-    reset_product_store_for_tests,
     sync_youzan_products,
 )
 

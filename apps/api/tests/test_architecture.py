@@ -49,3 +49,40 @@ def test_production_modules_do_not_import_legacy_layer_packages():
                 )
 
     assert violations == []
+
+
+def test_backend_dependencies_follow_layer_direction():
+    violations: list[str] = []
+    for path in APP_ROOT.rglob("*.py"):
+        relative = path.relative_to(APP_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                modules = [node.module or ""]
+                modules.extend(f"{node.module}.{alias.name}" for alias in node.names)
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                parts = module.split(".")
+                if not parts or parts[0] != "app":
+                    continue
+                forbidden = (
+                    ("services" in relative.parts and "api" in parts)
+                    or (
+                        relative.parts[0] != "bootstrap"
+                        and relative != Path("main.py")
+                        and (
+                            module in {"app.main", "app.bootstrap"}
+                            or module.startswith(("app.main.", "app.bootstrap."))
+                        )
+                    )
+                    or (
+                        ("schemas" in relative.parts or relative.parts[0] == "infrastructure")
+                        and any(layer in parts for layer in ("services", "api", "bootstrap"))
+                    )
+                )
+                if forbidden:
+                    violations.append(f"{relative}:{node.lineno} imports {module}")
+    assert violations == []

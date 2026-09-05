@@ -6,13 +6,13 @@ import pytest
 from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.schemas.agent import AgentToolResult, AgentTurnDecision
-from app.domains.decisioning.services import agent_runtime, agent_tools
+from app.domains.decisioning.services import agent_reply_policy, agent_runtime, agent_tools
 from app.domains.decisioning.services.agent_prompt import (
     build_system_prompt,
     build_tool_result_payload,
     build_turn_payload,
 )
-from app.domains.decisioning.services.agent_tools import AgentExecutionContext
+from app.domains.decisioning.schemas.execution import AgentExecutionContext
 
 
 @pytest.fixture(autouse=True)
@@ -257,7 +257,7 @@ def test_agent_prompts_do_not_address_customer_by_profile_name():
         assert "不向客户暴露 AI、模型、系统、识别" in prompt
 
     assert "索要照片、询问症状或让客户自行检查都不算回答" in service_prompt
-    assert "先给安全的通用处理步骤" in service_prompt
+    assert "先给安全的起步处理" in service_prompt
 
 
 def test_turn_payload_keeps_latest_full_conversation_within_char_budget():
@@ -1461,7 +1461,7 @@ def test_verified_order_shipment_is_not_mistaken_for_card_delivery_claim():
         )["data"]
     )
 
-    assert agent_runtime._guard_violations(decision, context) == []
+    assert agent_reply_policy.guard_violations(decision, context) == []
 
 
 def test_hard_guard_requires_exact_verified_stock_and_url():
@@ -1509,8 +1509,8 @@ def test_hard_guard_requires_exact_verified_stock_and_url():
         )["data"]
     )
 
-    assert agent_runtime._guard_violations(verified, context) == []
-    assert set(agent_runtime._guard_violations(fabricated, context)) == {
+    assert agent_reply_policy.guard_violations(verified, context) == []
+    assert set(agent_reply_policy.guard_violations(fabricated, context)) == {
         "unverified_stock_count",
         "unverified_url",
     }
@@ -1548,10 +1548,10 @@ def test_video_access_notification_claim_requires_notified_tool_fact():
         },
     )
 
-    assert agent_runtime._guard_violations(decision, unverified) == [
+    assert agent_reply_policy.guard_violations(decision, unverified) == [
         "unverified_video_access_notification"
     ]
-    assert agent_runtime._guard_violations(decision, verified) == []
+    assert agent_reply_policy.guard_violations(decision, verified) == []
 
     wrong_wording = AgentTurnDecision.model_validate(
         _decision(
@@ -1563,7 +1563,7 @@ def test_video_access_notification_claim_requires_notified_tool_fact():
             }
         )["data"]
     )
-    assert agent_runtime._guard_violations(wrong_wording, verified) == [
+    assert agent_reply_policy.guard_violations(wrong_wording, verified) == [
         "incorrect_video_access_wording"
     ]
 
@@ -1583,7 +1583,7 @@ def test_video_access_notification_claim_requires_notified_tool_fact():
         workspace={},
         handoff={"status": "pending", "reason": "discount"},
     )
-    assert agent_runtime._guard_violations(unrelated_decision, unrelated) == []
+    assert agent_reply_policy.guard_violations(unrelated_decision, unrelated) == []
 
 
 def test_style_flags_do_not_become_hard_violations():
@@ -1612,8 +1612,8 @@ def test_style_flags_do_not_become_hard_violations():
         )["data"]
     )
 
-    assert agent_runtime._guard_violations(decision, context) == []
-    assert set(agent_runtime._quality_flags(decision)) == {
+    assert agent_reply_policy.guard_violations(decision, context) == []
+    assert set(agent_reply_policy.quality_flags(decision, context)) == {
         "too_many_customer_questions",
         "non_conversational_list_style",
         "unnecessary_customer_quotes",
@@ -1640,11 +1640,16 @@ def test_style_guard_allows_one_natural_question():
         )["data"]
     )
 
-    assert agent_runtime._guard_violations(decision, context) == []
-    assert agent_runtime._quality_flags(decision) == []
+    assert agent_reply_policy.guard_violations(decision, context) == []
+    assert agent_reply_policy.quality_flags(decision, context) == []
 
 
 def test_natural_compound_question_is_not_counted_by_question_words():
+    context = AgentExecutionContext(
+        message=_message("我主要自己摸索"),
+        user_state=UserState(user_id="customer-1"),
+        workspace={},
+    )
     decision = AgentTurnDecision.model_validate(
         _decision(
             final={
@@ -1659,11 +1664,11 @@ def test_natural_compound_question_is_not_counted_by_question_words():
         )["data"]
     )
 
-    assert agent_runtime._quality_flags(decision) == []
+    assert agent_reply_policy.quality_flags(decision, context) == []
 
 
 @pytest.mark.asyncio
-async def test_runtime_sends_quality_flagged_reply_without_retry(monkeypatch):
+async def test_runtime_limits_quality_rewrite_before_sending_flagged_reply(monkeypatch):
     calls = 0
 
     async def fake_generate(*args, **kwargs):
@@ -1689,9 +1694,12 @@ async def test_runtime_sends_quality_flagged_reply_without_retry(monkeypatch):
         workspace={},
     )
 
-    assert calls == 1
+    assert calls == 2
     assert reply.route == "agent"
     assert "老叶发黄" in reply.answer
+    attempts = reply.metadata["agent_runtime"]["attempt_trace"]
+    assert attempts[0]["outcome"] == "quality_rewrite_requested"
+    assert attempts[1]["outcome"] == "accepted"
     assert set(reply.metadata["agent_runtime"]["quality_flags"]) == {
         "too_many_customer_questions",
         "non_conversational_list_style",
@@ -1780,13 +1788,13 @@ def test_opening_guard_requires_identity_and_one_needs_question():
         )["data"]
     )
 
-    assert agent_runtime._guard_violations(valid, context) == []
-    assert set(agent_runtime._guard_violations(invalid, context)) == {
+    assert agent_reply_policy.guard_violations(valid, context) == []
+    assert set(agent_reply_policy.guard_violations(invalid, context)) == {
         "opening_identity_missing",
         "opening_needs_question_invalid",
         "opening_profile_question_invalid",
     }
-    assert agent_runtime._quality_flags(invalid) == [
+    assert agent_reply_policy.quality_flags(invalid, context) == [
         "too_many_customer_questions"
     ]
 
@@ -1801,7 +1809,7 @@ def test_opening_guard_requires_identity_and_one_needs_question():
             }
         )["data"]
     )
-    assert set(agent_runtime._guard_violations(pushy, context)) == {
+    assert set(agent_reply_policy.guard_violations(pushy, context)) == {
         "opening_profile_question_invalid",
         "opening_sales_push_question",
     }
@@ -1813,7 +1821,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "能否用客户已经说过的事实" in prompt
     assert "也可以主动查询并口头推荐合适商品" in prompt
     assert "先用一句客户收益说明回答后能得到什么" in prompt
-    assert "新建一个 text 消息" in prompt
+    assert "普通咨询整轮默认一到两条 text 消息" in prompt
     assert "客户索要资料是兴趣信号，不是自动发送指令" in prompt
     assert "发送后必须有主动的下一步" in prompt
     assert "资料一旦已经发出，就从后续对话主线退到背景" in prompt
@@ -1935,7 +1943,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     customer_tag = next(
         item for item in agent_tools.CAPABILITIES if item.name == "customer.tag"
     )
-    assert "不要为了把标签精确到某个区间重新追问" in customer_tag.instructions
+    assert "不要为了精确打标追问" in customer_tag.instructions
 
     video_access = next(
         item
@@ -2137,10 +2145,10 @@ def test_specific_brand_service_claim_requires_verified_tool_facts():
         },
     )
 
-    assert "unverified_brand_service_claim" in agent_runtime._guard_violations(
+    assert "unverified_brand_service_claim" in agent_reply_policy.guard_violations(
         decision, unverified
     )
-    assert agent_runtime._guard_violations(decision, verified) == []
+    assert agent_reply_policy.guard_violations(decision, verified) == []
 
 
 @pytest.mark.asyncio
@@ -2217,10 +2225,10 @@ def test_trajectory_guard_stops_non_core_detail_after_customer_cannot_answer():
         )["data"]
     )
 
-    assert agent_runtime._sales_trajectory_violations(drilling, context) == [
+    assert agent_reply_policy.sales_trajectory_violations(drilling, context) == [
         "customer_cannot_answer_non_core_followup"
     ]
-    assert agent_runtime._sales_trajectory_violations(
+    assert agent_reply_policy.sales_trajectory_violations(
         high_value_discovery, context
     ) == []
 
@@ -2250,8 +2258,8 @@ def test_short_affirmative_inherits_service_value_not_unrelated_question():
         },
     )
 
-    assert agent_runtime._affirmed_service_trial_close(accepted_service) is True
-    assert agent_runtime._affirmed_service_trial_close(confirmed_watering) is False
+    assert agent_reply_policy._affirmed_service_trial_close(accepted_service) is True
+    assert agent_reply_policy._affirmed_service_trial_close(confirmed_watering) is False
 
 
 def test_trajectory_guard_catches_repeated_topic_in_visible_reply_and_next_action():
@@ -2299,10 +2307,10 @@ def test_trajectory_guard_catches_repeated_topic_in_visible_reply_and_next_actio
     )
 
     assert "repeated_non_core_topic_followup" in (
-        agent_runtime._sales_trajectory_violations(asks_for_photo, context)
+        agent_reply_policy.sales_trajectory_violations(asks_for_photo, context)
     )
     assert "repeated_non_core_topic_followup" in (
-        agent_runtime._sales_trajectory_violations(
+        agent_reply_policy.sales_trajectory_violations(
             waits_without_visible_question, context
         )
     )
@@ -2328,7 +2336,7 @@ def test_trajectory_guard_allows_core_diagnostic_question_for_active_damage():
         )["data"]
     )
 
-    assert agent_runtime._sales_trajectory_violations(decision, context) == []
+    assert agent_reply_policy.sales_trajectory_violations(decision, context) == []
 
 
 @pytest.mark.asyncio

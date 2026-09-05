@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
@@ -22,6 +22,7 @@ from app.domains.catalog.services.product_knowledge_service import (
     search_catalog_products,
 )
 from app.domains.decisioning.schemas.agent import AgentToolResult
+from app.domains.decisioning.schemas.execution import AgentExecutionContext
 from app.domains.decisioning.schemas.reply import OutboundMessage
 from app.domains.sales.services.care_manual_service import (
     get_care_manual,
@@ -32,17 +33,6 @@ from app.integrations.youzan.services.youzan_ai_tool_service import YouzanAITool
 
 
 logger = logging.getLogger("wechat_rag_bot.sales_agent_tools")
-
-
-@dataclass
-class AgentExecutionContext:
-    message: Any
-    user_state: Any
-    workspace: dict[str, Any]
-    prepared: dict[str, list[OutboundMessage]] = field(default_factory=dict)
-    tool_facts: dict[str, dict[str, Any]] = field(default_factory=dict)
-    sources: list[dict[str, Any]] = field(default_factory=list)
-    handoff: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

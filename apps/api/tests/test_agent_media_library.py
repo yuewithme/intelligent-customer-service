@@ -10,6 +10,7 @@ from app.domains.catalog.services.agent_media_copy_service import (
     media_copy_for,
 )
 from app.domains.decisioning.services import agent_tools
+from app.domains.decisioning.schemas.execution import AgentExecutionContext
 from app.integrations.eyun.services import message_risk_control_service
 
 
@@ -262,7 +263,7 @@ async def test_material_send_prepares_library_video(tmp_path, monkeypatch):
         return False
 
     monkeypatch.setattr(agent_tools, "_material_recently_sent", not_recently_sent)
-    context = agent_tools.AgentExecutionContext(
+    context = AgentExecutionContext(
         message=type("Message", (), {"channel": "wechat", "user_id": "customer"})(),
         user_state=None,
         workspace={},
@@ -287,7 +288,7 @@ async def test_material_search_category_returns_only_library_items(
     tmp_path, monkeypatch
 ):
     _write_library(tmp_path, monkeypatch)
-    context = agent_tools.AgentExecutionContext(
+    context = AgentExecutionContext(
         message=type("Message", (), {"channel": "wechat", "user_id": "customer"})(),
         user_state=None,
         workspace={},

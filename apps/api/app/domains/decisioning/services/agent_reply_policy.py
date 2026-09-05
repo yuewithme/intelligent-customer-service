@@ -1,0 +1,846 @@
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from app.domains.decisioning.schemas.agent import AgentTurnDecision
+from app.domains.decisioning.schemas.execution import AgentExecutionContext
+
+
+_FORBIDDEN_PROMOTION_CLAIMS = (
+    "申请成功",
+    "已经申请到",
+    "给您申请到",
+    "最低价",
+    "全网最低",
+    "仅剩",
+    "最后一个名额",
+    "最后几个名额",
+    "倒计时",
+)
+_INTERNAL_MARKERS = (
+    "commercial_judgment",
+    "relationship_purpose",
+    "tool_results",
+    "customer_workspace",
+    "system prompt",
+    "系统提示词",
+    "用户画像字段",
+    "销售阶段",
+    "reply_plan",
+)
+_SENT_SUCCESS_PATTERNS = (
+    re.compile(r"(?:已经|已)(?:给您)?(?:把)?(?:资料|卡片|链接)(?:发|发送)"),
+    re.compile(r"(?:资料|卡片|链接)(?:已经|已)(?:给您)?(?:发|发送)"),
+    re.compile(r"(?:已经|已)(?:给您)?发送(?:成功|过去|好了)"),
+)
+_PRICE_PATTERN = re.compile(r"(?<!\d)(\d+(?:\.\d{1,2})?)\s*(?:元|块)(?!\d)")
+_STOCK_PATTERN = re.compile(r"(?:库存|还剩|剩余)\s*(\d+)\s*(?:件|盆|株|个)")
+_URL_PATTERN = re.compile(r"https?://[^\s<>\"，。！、；：）)\]}]+")
+_LIST_STYLE_PATTERN = re.compile(
+    r"(?m)^\s*(?:[-*•·]|(?:\d+|[一二三四五六七八九十]+)[.、．)）])\s*"
+)
+_MARKDOWN_HEADING_PATTERN = re.compile(r"(?m)^\s*#{1,6}\s+")
+_CUSTOMER_QUOTE_MARKERS = "“”‘’「」『』《》【】\"'"
+_OPENING_SALES_PUSH_MARKERS = (
+    "购买",
+    "想买",
+    "下单",
+    "价格",
+    "预算",
+    "看花",
+    "选花",
+    "挑花",
+    "商品",
+    "产品",
+)
+_LOW_INFORMATION_MARKERS = (
+    "不懂",
+    "不太懂",
+    "不知道",
+    "不清楚",
+    "不记得",
+    "记不清",
+    "没注意",
+    "没看",
+    "看不出来",
+    "说不准",
+    "商家给什么",
+    "商家给的",
+)
+_UNCERTAIN_ANSWER_MARKERS = ("好像", "可能", "大概", "应该", "估计")
+_ACTIVE_CARE_RISK_MARKERS = (
+    "烂根",
+    "腐苗",
+    "软腐",
+    "发臭",
+    "枯萎",
+    "倒苗",
+    "病斑",
+    "黑斑",
+    "虫害",
+    "大量黄叶",
+    "根发黑",
+)
+_FOLLOWUP_ACTION_MARKERS = (
+    "等待客户",
+    "等客户",
+    "客户反馈",
+    "继续追问",
+    "继续确认",
+    "让客户",
+    "请客户",
+    "进一步了解",
+)
+_TECHNICAL_TOPIC_MARKERS = {
+    "medium": (
+        "植料",
+        "树皮",
+        "石子",
+        "火山石",
+        "颗粒",
+        "粉末",
+        "细土",
+        "盆面",
+        "表层",
+        "拨开",
+        "透气",
+        "沥水",
+    ),
+    "watering": ("浇水", "干湿", "湿度", "干透", "积水"),
+    "environment": ("通风", "光照", "温度", "室内", "室外", "阳台", "朝向"),
+    "fertilizing": ("施肥", "肥料", "缓释肥", "营养液", "肥水"),
+    "symptom_detail": (
+        "叶尖",
+        "叶基",
+        "叶片",
+        "斑点",
+        "叶片颜色",
+        "根的颜色",
+        "软硬",
+        "变化速度",
+        "根系",
+    ),
+}
+_TUTORIAL_DELIVERY_MARKERS = (
+    "单品养护教程",
+    "单品养护手册",
+    "对应品种的养护教程",
+    "对应品种的单品",
+)
+_ONE_TO_ONE_DELIVERY_MARKERS = (
+    "一对一指导",
+    "一对一实操",
+    "师傅一对一",
+    "养兰师傅",
+)
+_VIDEO_ACCESS_NOTIFICATION_CLAIMS = (
+    "已提醒同事",
+    "已经提醒同事",
+    "已通知同事",
+    "已经通知同事",
+    "已联系同事处理",
+    "已经联系同事处理",
+    "已提交权限处理",
+    "已经提交权限处理",
+    "已提交权限申请",
+    "已经提交权限申请",
+    "已提交给同事核对",
+    "已经提交给同事核对",
+)
+_VIDEO_ACCESS_INCORRECT_WORDING = (
+    "提交处理",
+    "提交申请",
+    "提交核对",
+    "提交权限",
+)
+
+
+def guard_violations(
+    decision: AgentTurnDecision,
+    context: AgentExecutionContext,
+) -> list[str]:
+    final = decision.final_response
+    if final is None:
+        return []
+    text = "\n".join(
+        str(item.content or "") for item in final.messages if item.type == "text"
+    )
+    violations: list[str] = []
+    opening_event = is_first_order_opening(context)
+    opening_profile_question = False
+    if opening_event and final is not None:
+        opening_texts = [item for item in final.messages if item.type == "text"]
+        if len(opening_texts) == 2:
+            opening_profile_question = _is_opening_profile_question(
+                str(opening_texts[1].content or "")
+            )
+    if opening_event:
+        text_messages = [item for item in final.messages if item.type == "text"]
+        if len(final.messages) != 2 or len(text_messages) != 2:
+            violations.append("invalid_opening_message_structure")
+        else:
+            intro = str(text_messages[0].content or "")
+            question = str(text_messages[1].content or "")
+            if "萧岚苑" not in intro or "小兰" not in intro:
+                violations.append("opening_identity_missing")
+            if _customer_question_count(intro) != 0:
+                violations.append("opening_intro_contains_question")
+            if _customer_question_count(question) != 1:
+                violations.append("opening_needs_question_invalid")
+            if not opening_profile_question:
+                violations.append("opening_profile_question_invalid")
+            if any(marker in question for marker in _OPENING_SALES_PUSH_MARKERS):
+                violations.append("opening_sales_push_question")
+    lowered = text.casefold()
+    if any(marker.casefold() in lowered for marker in _INTERNAL_MARKERS):
+        violations.append("internal_state_leak")
+    if any(claim in text for claim in _FORBIDDEN_PROMOTION_CLAIMS):
+        violations.append("unverified_promotion_claim")
+    if (
+        _contains_specific_brand_service_claim(text)
+        and not _has_found_tool(context, "brand.service_facts")
+    ):
+        violations.append("unverified_brand_service_claim")
+    if (
+        _is_video_access_context(text, str(context.message.message or ""))
+        and any(claim in text for claim in _VIDEO_ACCESS_NOTIFICATION_CLAIMS)
+        and not _has_tool_status(context, "video_access.request", "notified")
+    ):
+        violations.append("unverified_video_access_notification")
+    if _is_video_access_context(
+        text, str(context.message.message or "")
+    ) and any(wording in text for wording in _VIDEO_ACCESS_INCORRECT_WORDING):
+        violations.append("incorrect_video_access_wording")
+    if any(pattern.search(text) for pattern in _SENT_SUCCESS_PATTERNS):
+        violations.append("unverified_delivery_success")
+    required_handoff = required_handoff_reason(str(context.message.message or ""))
+    if required_handoff and context.handoff is None and not final.need_human:
+        violations.append(f"required_handoff:{required_handoff}")
+    prices = {round(float(value), 2) for value in _PRICE_PATTERN.findall(text)}
+    if prices:
+        verified = _verified_prices(context)
+        if not prices.issubset(verified):
+            violations.append("unverified_price")
+    if any(
+        marker in text
+        for marker in (
+            "有货",
+            "现货",
+            "库存充足",
+            "库存不足",
+            "缺货",
+            "没货",
+            "无货",
+            "售罄",
+        )
+    ):
+        if not _has_found_tool(context, "product.search", "product.get"):
+            violations.append("unverified_inventory")
+    stock_values = {int(value) for value in _STOCK_PATTERN.findall(text)}
+    if stock_values and not stock_values.issubset(_verified_stocks(context)):
+        violations.append("unverified_stock_count")
+    if any(
+        marker in text
+        for marker in (
+            "待付款",
+            "已付款",
+            "已经付款",
+            "已发货",
+            "已经发出",
+            "运输中",
+            "派送中",
+            "物流显示",
+            "已签收",
+            "已完成",
+        )
+    ):
+        if not _has_found_tool(context, "order.search", "order.get"):
+            violations.append("unverified_order_status")
+    urls = set(_URL_PATTERN.findall(text))
+    if urls and not urls.issubset(_verified_urls(context)):
+        violations.append("unverified_url")
+    for item in final.messages:
+        if item.type == "prepared" and str(item.ref or "") not in context.prepared:
+            violations.append("unknown_prepared_ref")
+    return list(dict.fromkeys(violations))
+
+
+def quality_flags(
+    decision: AgentTurnDecision,
+    context: AgentExecutionContext,
+) -> list[str]:
+    final = decision.final_response
+    if final is None:
+        return []
+    text_messages = [
+        str(item.content or "").strip()
+        for item in final.messages
+        if item.type == "text" and str(item.content or "").strip()
+    ]
+    text = "\n".join(text_messages)
+    flags: list[str] = []
+    customer_text = re.sub(r"\s+", "", str(context.message.message or ""))
+    visible_chars = len(re.sub(r"\s+", "", text))
+    if len(text_messages) > 2:
+        flags.append("too_many_text_messages")
+    if len(customer_text) <= 20 and visible_chars > 180:
+        flags.append("overexplained_short_turn")
+    if _customer_question_count(text) > 1:
+        flags.append("too_many_customer_questions")
+    if _LIST_STYLE_PATTERN.search(text) or _MARKDOWN_HEADING_PATTERN.search(text):
+        flags.append("non_conversational_list_style")
+    if any(marker in text for marker in _CUSTOMER_QUOTE_MARKERS):
+        flags.append("unnecessary_customer_quotes")
+    return flags
+
+
+def quality_rewrite_instruction(flags: list[str]) -> str:
+    return (
+        "当前客户可见回复虽然事实边界安全，但聊天质量不合格。"
+        "请保留本轮商业判断和已经取得的工具事实，重新生成 final_response，不要重新调用已经完成的工具。"
+        "只回应客户这一轮新增的信息；不要重启完整知识问答，也不要一次讲完判断、修剪、消毒、植料、浇水和后续养护等全部阶段。"
+        "普通咨询只发一到两条自然微信消息：先给客户现在最需要执行的一个关键动作；"
+        "只有确实会改变下一步处理时才补一个容易回答的问题。删除重复解释、隐形清单、客服腔和说明书式收尾。"
+        "若客户明确要求完整步骤，才允许在不重复、不堆砌的前提下适度展开。"
+        f"本次质量问题：{', '.join(flags)}"
+    )
+
+
+def tool_sales_trajectory_violations(
+    decision: AgentTurnDecision,
+) -> list[str]:
+    if decision.purchase_signal != "none":
+        return []
+    if any(call.name == "product.send_card" for call in decision.tool_calls):
+        return ["premature_product_card_without_customer_interest"]
+    return []
+
+
+def sales_trajectory_violations(
+    decision: AgentTurnDecision,
+    context: AgentExecutionContext,
+) -> list[str]:
+    """Detect repeated low-value technical discovery before it reaches customers."""
+    final = decision.final_response
+    if final is None:
+        return []
+    visible_text = "\n".join(
+        str(item.content or "") for item in final.messages if item.type == "text"
+    )
+    violations: list[str] = []
+    if _repeats_recent_assistant_content(visible_text, context):
+        violations.append("repeats_recent_assistant_content")
+    if decision.purchase_signal == "none" and _affirmed_service_trial_close(context):
+        violations.append("missed_affirmed_service_trial_close")
+    if decision.purchase_signal == "none" and any(
+        item.type == "prepared"
+        and str(
+            (context.tool_facts.get(str(item.ref or "")) or {}).get("tool") or ""
+        )
+        == "product.send_card"
+        for item in final.messages
+    ):
+        violations.append("premature_product_card_without_customer_interest")
+    if _missing_recommended_product_cards(visible_text, final, context):
+        violations.append("missing_recommended_product_cards")
+    question_text = "\n".join(
+        re.findall(r"[^。！!；;，,？?\n]*[？?]", visible_text)
+    )
+    next_action = str(final.next_action or "")
+    action_is_followup = any(
+        marker in next_action for marker in _FOLLOWUP_ACTION_MARKERS
+    )
+    candidate = "\n".join(
+        part for part in (question_text, next_action if action_is_followup else "") if part
+    )
+    candidate_topics = _technical_topics(candidate)
+    if not candidate_topics:
+        return list(dict.fromkeys(violations))
+
+    recent = context.workspace.get("recent_turns")
+    recent = recent if isinstance(recent, list) else []
+    recent = [item for item in recent[-8:] if isinstance(item, dict)]
+    current_user_text = str(context.message.message or "")
+    user_texts = [
+        str(item.get("content") or "")
+        for item in recent
+        if str(item.get("role") or "").lower() in {"user", "customer"}
+    ]
+    user_texts.append(current_user_text)
+    recent_user_context = "\n".join(user_texts[-4:])
+    active_care_risk = any(
+        marker in recent_user_context for marker in _ACTIVE_CARE_RISK_MARKERS
+    )
+
+    low_information_topics: set[str] = set()
+    for text in user_texts[-4:]:
+        if _is_low_information_answer(text):
+            low_information_topics.update(_technical_topics(text))
+
+    prior_topic_questions: dict[str, int] = {}
+    prior_question_texts: list[str] = []
+    for item in recent:
+        if str(item.get("role") or "").lower() not in {"assistant", "agent"}:
+            continue
+        text = str(item.get("content") or "")
+        if _customer_question_count(text) == 0:
+            continue
+        prior_question_texts.append(text)
+        for topic in _technical_topics(text):
+            prior_topic_questions[topic] = prior_topic_questions.get(topic, 0) + 1
+
+    if not active_care_risk and candidate_topics & low_information_topics:
+        violations.append("customer_cannot_answer_non_core_followup")
+    if not active_care_risk and any(
+        prior_topic_questions.get(topic, 0) >= 1 for topic in candidate_topics
+    ):
+        violations.append("repeated_non_core_topic_followup")
+    if any(
+        _questions_are_near_duplicates(question_text, prior)
+        for prior in prior_question_texts
+    ):
+        violations.append("repeated_customer_question")
+    return list(dict.fromkeys(violations))
+
+
+def _contains_specific_brand_service_claim(text: str) -> bool:
+    return any(marker in text for marker in _TUTORIAL_DELIVERY_MARKERS) and any(
+        marker in text for marker in _ONE_TO_ONE_DELIVERY_MARKERS
+    )
+
+
+def _is_video_access_context(reply_text: str, customer_text: str) -> bool:
+    combined = f"{customer_text}\n{reply_text}"
+    return "视频" in combined and any(
+        marker in combined
+        for marker in ("看不了", "打不开", "无法播放", "权限", "开通")
+    )
+
+
+def sales_flow_rewrite_instruction(violations: list[str]) -> str:
+    focused_instructions: list[str] = []
+    if "missed_affirmed_service_trial_close" in violations:
+        focused_instructions.append(
+            "客户当前的短肯定回复，是在认可上一轮关于陪伴服务价值的问题，"
+            "不是再次询问服务内容。将 purchase_signal 判断为 interest，停止重复教程、视频和一对一指导介绍；"
+            "查询并核实真实的陪伴养兰服务，然后发送服务卡片进入试成交。"
+        )
+    if "repeats_recent_assistant_content" in violations:
+        focused_instructions.append(
+            "当前候选回复复述了上一轮已经真实发送的内容。不要再次解释同一病因或重复已经讲过的服务概述；"
+            "先承接客户刚提供的新信息，再推进尚未讲清的价值。若客户刚确认一直自己摸索，"
+            "应说明萧岚苑与部分卖完后缺少持续承接的商家有何不同，并按真实权益讲清单品养护教程、会员百节视频教学和师傅一对一实时指导如何帮助他。"
+        )
+    if "premature_product_card_without_customer_interest" in violations:
+        focused_instructions.append(
+            "客户目前只暴露了养护痛点或服务缺口，还没有表达想进一步了解、愿意试试、询问内容价格、要链接或下单等清晰正向意向。"
+            "不要调用 product.send_card，也不要在 final_response 中放商品卡片。先完成服务价值塑造并自然邀请客户进一步了解；"
+            "本轮商品查询只用于辅助判断，不向客户发送；等客户形成 interest 或 direct 信号后重新核实并发卡试成交。"
+        )
+    if "missing_recommended_product_cards" in violations:
+        focused_instructions.append(
+            "当前回复并列介绍了多款可售商品，却只安排了其中一部分商品卡片。"
+            "如果客户已进入看卡、比较或购买阶段，请为每一款已介绍且卡片可用的商品分别调用 product.send_card，"
+            "再在 final_response 中按介绍顺序放入全部 prepared ref。"
+            "如果某款无法准备卡片，就删除对它的并列购买引导，不能让客户面对不完整的选择。"
+        )
+    if focused_instructions:
+        return (
+            "".join(focused_instructions)
+            + "请基于完整上下文重新做本轮商业判断和客户可见回复，不要只改写个别句子。"
+            f"本次偏离原因：{', '.join(violations)}"
+        )
+    return (
+        "当前方案仍在细化或等待同一个非核心技术问题，偏离了推进成交的目标。"
+        "放弃这个细节，不再追问、索图、让客户检查，也不要把等待该细节写进 next_action。"
+        "保留对客户当前问题的专业回答；然后用已有事实推进更高价值动作："
+        "若已足以说明匹配理由，就查询真实商品或服务并主动推荐；若仍不足，"
+        "只了解盆数与主要品种、明确目标或痛点、经验与失败史、持续指导缺口、"
+        "选择偏好中最接近推荐就绪的一项。请重新做完整商业判断，而不只是改写问句。"
+        f"本次停滞原因：{', '.join(violations)}"
+    )
+
+
+def _repeats_recent_assistant_content(
+    visible_text: str,
+    context: AgentExecutionContext,
+) -> bool:
+    recent = context.workspace.get("recent_turns")
+    recent = recent if isinstance(recent, list) else []
+    prior_chunks: list[str] = []
+    for item in recent[-8:]:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("role") or "").lower() not in {
+            "assistant",
+            "agent",
+            "sales_agent",
+            "ai",
+        }:
+            continue
+        prior_chunks.extend(_repeatable_text_chunks(str(item.get("content") or "")))
+    if not prior_chunks:
+        return False
+    current_chunks = _repeatable_text_chunks(visible_text)
+    return any(
+        current == prior
+        or (len(current) >= 36 and current in prior)
+        or (len(prior) >= 36 and prior in current)
+        for current in current_chunks
+        for prior in prior_chunks
+    )
+
+
+def _missing_recommended_product_cards(
+    visible_text: str,
+    final,
+    context: AgentExecutionContext,
+) -> bool:
+    included_product_refs: set[str] = set()
+    for item in final.messages:
+        if item.type != "prepared":
+            continue
+        fact = context.tool_facts.get(str(item.ref or "")) or {}
+        if fact.get("tool") != "product.send_card" or fact.get("status") != "prepared":
+            continue
+        product = fact.get("data", {}).get("product")
+        if isinstance(product, dict):
+            product_ref = str(product.get("product_ref") or "").strip()
+            if product_ref:
+                included_product_refs.add(product_ref)
+    if not included_product_refs:
+        return False
+
+    mentioned_product_refs: set[str] = set()
+    for fact in context.tool_facts.values():
+        if fact.get("status") not in {"found", "prepared"}:
+            continue
+        data = fact.get("data")
+        data = data if isinstance(data, dict) else {}
+        candidates: list[dict[str, Any]] = []
+        products = data.get("products")
+        if isinstance(products, list):
+            candidates.extend(item for item in products if isinstance(item, dict))
+        product = data.get("product")
+        if isinstance(product, dict):
+            candidates.append(product)
+        for candidate in candidates:
+            if candidate.get("card_available") is False:
+                continue
+            product_ref = str(candidate.get("product_ref") or "").strip()
+            name = str(candidate.get("name") or "").strip()
+            if product_ref and name and name in visible_text:
+                mentioned_product_refs.add(product_ref)
+    return bool(mentioned_product_refs - included_product_refs)
+
+
+def _affirmed_service_trial_close(context: AgentExecutionContext) -> bool:
+    """Recognize a short acceptance of the immediately preceding service offer."""
+    customer_text = _normalize_short_reply(context.message.message)
+    if customer_text not in {
+        "是",
+        "是的",
+        "对",
+        "对的",
+        "嗯",
+        "嗯嗯",
+        "可以",
+        "可以的",
+        "好",
+        "好的",
+        "不错",
+        "愿意",
+        "我愿意",
+    }:
+        return False
+
+    previous = _previous_assistant_turn_text(context)
+    if not previous or not any(marker in previous for marker in ("？", "?")):
+        return False
+    service_context = any(
+        marker in previous
+        for marker in (
+            "陪伴",
+            "服务",
+            "有人带",
+            "师傅",
+            "一对一",
+            "养护教程",
+        )
+    )
+    value_confirmation = any(
+        marker in previous
+        for marker in (
+            "这种方式",
+            "有人带着",
+            "更踏实",
+            "更省心",
+            "有帮助",
+            "适合您",
+            "愿意进一步了解",
+            "想进一步了解",
+        )
+    )
+    return service_context and value_confirmation
+
+
+def _previous_assistant_turn_text(context: AgentExecutionContext) -> str:
+    recent = context.workspace.get("recent_turns")
+    recent = recent if isinstance(recent, list) else []
+    chunks: list[str] = []
+    found_assistant = False
+    for item in reversed(recent[-10:]):
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").lower()
+        if role in {"assistant", "agent", "sales_agent", "ai"}:
+            content = str(item.get("content") or "").strip()
+            if content:
+                chunks.append(content)
+                found_assistant = True
+            continue
+        if found_assistant:
+            break
+    chunks.reverse()
+    return "\n".join(chunks)
+
+
+def _normalize_short_reply(text: str) -> str:
+    return re.sub(r"[\s，。！？、,.!?;；:：]+", "", str(text or "")).casefold()
+
+
+def _repeatable_text_chunks(text: str) -> list[str]:
+    chunks = re.split(r"\n\s*\n+", str(text or ""))
+    normalized = [_normalize_repeat_text(chunk) for chunk in chunks]
+    return [chunk for chunk in normalized if len(chunk) >= 24]
+
+
+def _normalize_repeat_text(text: str) -> str:
+    return re.sub(
+        r"[\s\"'“”‘’《》〈〉，。！？；：、,.!?;:（）()【】\[\]]+",
+        "",
+        str(text or "").casefold(),
+    )
+
+
+def hard_rewrite_instruction(violations: list[str]) -> str:
+    if any(
+        violation in violations
+        for violation in (
+            "unverified_video_access_notification",
+            "incorrect_video_access_wording",
+        )
+    ):
+        return (
+            "视频权限处理的客户口径只使用‘已经联系同事处理了’，"
+            "不要说提交处理、提交申请或提交核对。不能在没有真实工具结果时声称已经联系同事。"
+            "若工作区已有‘抖音已购’验证标签，先调用 video_access.request；"
+            "若还没有，只询问是否在抖音购买并请客户发送能看到店铺与订单状态的截图。"
+            "不要调用 human.handoff，保持 AI 继续回复，也不要声称权限已经开通。"
+            f"本次硬违规：{', '.join(violations)}"
+        )
+    if "unverified_brand_service_claim" in violations:
+        return (
+            "具体的单品养护教程、会员百节视频教学和师傅一对一实时指导属于需要核实的服务事实。"
+            "先调用 brand.service_facts；工具返回 found 后，再基于结果完整保留服务价值说明。"
+            "不要为了修复事实边界而删掉塑品步骤，也不要输出内部说明。"
+            f"本次硬违规：{', '.join(violations)}"
+        )
+    return (
+        "客户可见回复包含不能发送的事实或权限问题。只改写这些问题，"
+        "保留其余已核实且有用的内容，不要输出内部说明，也不要重复调用已经成功的工具。"
+        f"本次硬违规：{', '.join(violations)}"
+    )
+
+
+def _technical_topics(text: str) -> set[str]:
+    normalized = re.sub(r"\s+", "", str(text or ""))
+    return {
+        topic
+        for topic, markers in _TECHNICAL_TOPIC_MARKERS.items()
+        if any(marker in normalized for marker in markers)
+    }
+
+
+def _is_low_information_answer(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(text or ""))
+    if any(marker in normalized for marker in _LOW_INFORMATION_MARKERS):
+        return True
+    if _customer_question_count(normalized) == 0 and any(
+        marker in normalized for marker in _UNCERTAIN_ANSWER_MARKERS
+    ):
+        return True
+    return normalized.endswith("吧") and len(normalized) <= 20
+
+
+def _questions_are_near_duplicates(candidate: str, previous: str) -> bool:
+    left = _question_fingerprint(candidate)
+    right = _question_fingerprint(previous)
+    if min(len(left), len(right)) < 6:
+        return False
+    if left in right or right in left:
+        return True
+    left_pairs = {left[index : index + 2] for index in range(len(left) - 1)}
+    right_pairs = {right[index : index + 2] for index in range(len(right) - 1)}
+    union = left_pairs | right_pairs
+    return bool(union) and len(left_pairs & right_pairs) / len(union) >= 0.45
+
+
+def _question_fingerprint(text: str) -> str:
+    normalized = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "", str(text or ""))
+    for filler in (
+        "您",
+        "请问",
+        "方便",
+        "麻烦",
+        "现在",
+        "之前",
+        "一下",
+        "可以",
+        "能不能",
+        "还是",
+        "看看",
+        "回忆",
+    ):
+        normalized = normalized.replace(filler, "")
+    return normalized
+
+
+def _customer_question_count(text: str) -> int:
+    return text.count("？") + text.count("?")
+
+
+def _is_opening_profile_question(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", text)
+    has_quantity = bool(re.search(r"(?:多少|几|大概|现在).{0,8}盆|盆.{0,6}(?:多少|几)", normalized))
+    has_variety = "品种" in normalized or bool(
+        re.search(r"主要.{0,6}(?:什么|哪类|哪种).{0,4}兰", normalized)
+    )
+    punctuation_count = normalized.count("？") + normalized.count("?")
+    return has_quantity and has_variety and punctuation_count == 1
+
+
+def _is_opening_system_event(context: AgentExecutionContext) -> bool:
+    metadata = context.message.metadata
+    return isinstance(metadata, dict) and metadata.get("system_event") == "first_contact"
+
+
+def sop_scope_for_message(message) -> str:
+    metadata = getattr(message, "metadata", {})
+    requested = metadata.get("sop_scope") if isinstance(metadata, dict) else None
+    return "first_order" if requested == "first_order" else "service"
+
+
+def is_first_order_opening(context: AgentExecutionContext) -> bool:
+    return sop_scope_for_message(context.message) == "first_order" and _is_opening_system_event(
+        context
+    )
+
+
+def required_handoff_reason(text: str) -> str | None:
+    """Enforce authorization boundaries, not sales intent or reply wording."""
+    normalized = re.sub(r"\s+", "", text)
+    if not normalized:
+        return None
+    if re.search(r"(?:转|找|要|叫|联系|换)(?:一下)?(?:人工|真人|客服)", normalized):
+        return "customer_requested_human"
+    if any(
+        marker in normalized
+        for marker in (
+            "退款",
+            "退货",
+            "投诉",
+            "赔偿",
+            "索赔",
+            "改价",
+            "修改订单",
+            "修改地址",
+            "改地址",
+            "取消订单",
+        )
+    ):
+        return "authorized_human_action_required"
+    return None
+
+
+def _verified_prices(context: AgentExecutionContext) -> set[float]:
+    prices: set[float] = set()
+    for fact in context.tool_facts.values():
+        if fact.get("status") not in {"found", "prepared"}:
+            continue
+        _collect_prices(fact.get("data"), prices)
+    return prices
+
+
+def _verified_stocks(context: AgentExecutionContext) -> set[int]:
+    stocks: set[int] = set()
+    for fact in context.tool_facts.values():
+        if fact.get("tool") not in {"product.search", "product.get", "product.send_card"}:
+            continue
+        if fact.get("status") not in {"found", "prepared"}:
+            continue
+        _collect_named_ints(fact.get("data"), "stock", stocks)
+    return stocks
+
+
+def _verified_urls(context: AgentExecutionContext) -> set[str]:
+    urls: set[str] = set()
+    for fact in context.tool_facts.values():
+        if fact.get("status") not in {"found", "prepared"}:
+            continue
+        _collect_urls(fact.get("data"), urls)
+    return urls
+
+
+def _collect_prices(value: Any, output: set[float]) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "price_cent" and isinstance(item, int):
+                output.add(round(item / 100, 2))
+            else:
+                _collect_prices(item, output)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_prices(item, output)
+
+
+def _collect_named_ints(value: Any, target_key: str, output: set[int]) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == target_key and isinstance(item, int):
+                output.add(item)
+            else:
+                _collect_named_ints(item, target_key, output)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_named_ints(item, target_key, output)
+
+
+def _collect_urls(value: Any, output: set[str]) -> None:
+    if isinstance(value, dict):
+        for item in value.values():
+            _collect_urls(item, output)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_urls(item, output)
+    elif isinstance(value, str) and value.startswith(("http://", "https://")):
+        output.add(value)
+
+
+def _has_found_tool(context: AgentExecutionContext, *names: str) -> bool:
+    return any(
+        fact.get("tool") in names and fact.get("status") in {"found", "prepared"}
+        for fact in context.tool_facts.values()
+    )
+
+
+def _has_tool_status(
+    context: AgentExecutionContext,
+    name: str,
+    *statuses: str,
+) -> bool:
+    return any(
+        fact.get("tool") == name and fact.get("status") in statuses
+        for fact in context.tool_facts.values()
+    )

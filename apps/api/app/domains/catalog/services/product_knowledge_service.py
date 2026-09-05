@@ -13,7 +13,7 @@ from app.infrastructure.database.models import (
     YouzanProductModel,
     YouzanProductSkuModel,
 )
-from app.integrations.youzan.services.youzan_product_sync_service import _session
+from app.infrastructure.database.product_store import get_product_session
 
 
 _FIELDS = (
@@ -117,7 +117,7 @@ def list_product_knowledge(
     keyword: str | None = None,
     linked: bool | None = None,
 ) -> dict[str, Any]:
-    with _session() as session:
+    with get_product_session() as session:
         filters = []
         if keyword and keyword.strip():
             value = f"%{keyword.strip()}%"
@@ -167,7 +167,7 @@ def list_product_knowledge(
 
 
 def list_product_options() -> list[dict[str, Any]]:
-    with _session() as session:
+    with get_product_session() as session:
         linked = {
             item_id
             for item_id in session.scalars(
@@ -196,7 +196,7 @@ def list_product_options() -> list[dict[str, Any]]:
 
 def create_product_knowledge(payload: dict[str, Any]) -> dict[str, Any]:
     now = _now()
-    with _session() as session:
+    with get_product_session() as session:
         _validate_link(session, payload.get("item_id"))
         name = _required_name(payload)
         if session.scalar(
@@ -224,7 +224,7 @@ def create_product_knowledge(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def update_product_knowledge(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    with _session() as session:
+    with get_product_session() as session:
         row = session.get(YouzanProductKnowledgeModel, record_id)
         if row is None:
             raise LookupError("产品知识不存在")
@@ -249,7 +249,7 @@ def update_product_knowledge(record_id: int, payload: dict[str, Any]) -> dict[st
 
 
 def delete_product_knowledge(record_id: int) -> None:
-    with _session() as session:
+    with get_product_session() as session:
         row = session.get(YouzanProductKnowledgeModel, record_id)
         if row is None:
             raise LookupError("产品知识不存在")
@@ -259,7 +259,7 @@ def delete_product_knowledge(record_id: int) -> None:
 
 def import_product_knowledge(records: list[dict[str, Any]]) -> dict[str, int]:
     now = _now()
-    with _session() as session:
+    with get_product_session() as session:
         existing = {
             row.product_name: row
             for row in session.scalars(select(YouzanProductKnowledgeModel))
@@ -302,7 +302,7 @@ def import_product_knowledge(records: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def auto_link_knowledge_records() -> int:
-    with _session() as session:
+    with get_product_session() as session:
         count = _auto_link(session)
         session.commit()
         return count
@@ -324,7 +324,7 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
         )
         if len(term) >= 2
     ]
-    with _session() as session:
+    with get_product_session() as session:
         rows = session.execute(
             select(YouzanProductModel, YouzanProductKnowledgeModel)
             .outerjoin(
@@ -694,7 +694,7 @@ def _raw_audience_level_distance(
 
 
 def get_catalog_product(item_id: str) -> dict[str, Any] | None:
-    with _session() as session:
+    with get_product_session() as session:
         row = session.execute(
             select(YouzanProductModel, YouzanProductKnowledgeModel)
             .outerjoin(
@@ -730,7 +730,7 @@ def get_catalog_product(item_id: str) -> dict[str, Any] | None:
 
 
 def list_catalog_products(*, limit: int = 20) -> list[dict[str, Any]]:
-    with _session() as session:
+    with get_product_session() as session:
         rows = session.execute(
             select(YouzanProductModel, YouzanProductKnowledgeModel)
             .outerjoin(

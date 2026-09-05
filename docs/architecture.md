@@ -54,11 +54,12 @@ apps/api/app/
     decisioning/        自主 Agent 决策、工具、结构化回复与兼容评测资产
     handoff/            人工接管与通知
     knowledge/          文档知识、向量检索、RAG 与重排
+    orchestration/      能力目录、经验包契约和能力工作台
     sales/              服务中素材触达、客户标签、活动与养护手册
   infrastructure/
-    database/           SQLAlchemy 会话和持久化模型
+    database/           SQLAlchemy 会话、商品存储初始化和持久化模型
   integrations/
-    ai/ eyun/ mcp/ web/ wechat/ youzan/
+    ai/ eyun/ feishu/ mcp/ web/ wechat/ youzan/
   shared/               少量真正跨领域的稳定契约
   main.py               只保留 ASGI 入口
 ```
@@ -79,6 +80,29 @@ apps/api/app/
 5. 旧的 `app/services`、`app/routers` 与 `app/schemas` 平铺入口已移除；应用与测试都必须从现役领域或集成路径导入。
 6. 数据库模型暂时集中在 `infrastructure/database/models.py`。在引入正式迁移工具前，
    不按领域拆表模型，避免 SQLite 生产结构出现不可控漂移。
+7. schema 和 infrastructure 不反向导入业务 service、API 或 bootstrap。
+   商品知识与有赞同步共用 `infrastructure/database/product_store.py` 的
+   `get_product_session()`，不得通过同步服务的私有函数获取数据库会话。
+   SOP 节点定义由 `handoff/schemas/handoff_notification.py` 提供，供请求校验、
+   通知服务和能力工作台共享，校验过程不再反向加载通知服务。
+
+### 核心调用链与职责
+
+| 链路 | 主要模块与边界 |
+| --- | --- |
+| 应用装配 | `bootstrap/application.py` 创建 FastAPI；`routes.py` 注册业务路由；`lifecycle.py` 管理发送、媒体、同步和记忆等后台任务。 |
+| 统一聊天 | 渠道入口 → `channel_service` 归一化 → `chat_orchestrator` 加载会话状态、画像、记忆并组装客户工作区 → `agent_runtime` 运行 Agent → 更新状态、会话与日志。 |
+| Agent 执行 | `schemas/execution.py` 定义共享执行上下文；`agent_runtime` 负责模型轮次、工具预算、重写和最终回复；`agent_reply_policy` 负责事实、权限、开场、质量与对话推进检查；`agent_tools` 负责工具执行。回复策略模块只依赖 schema，不调用模型、数据库或外部服务。 |
+| 商品与资料 | catalog 维护商品知识与导入；有赞同步负责供应商数据映射和同步；两者通过商品存储入口访问现有表。两套兰花导入器共用 `orchid_products/import_support.py` 的数据结构、表头读取、单元格规范化与知识片段构造。 |
+| 微信收发 | 易云回调处理渠道事件；媒体识别、消息聚合、发送排队和回执确认由 eyun 集成承担；会话服务维护工作台可见消息与人工接管状态。供应商协议与重试语义不由 Agent 校验模块处理。 |
+| 客户记忆 | customers 维护画像、事件、身份、记忆提取与检索；原始会话事件经双写进入持久化任务，读取仍受现有 rollout 配置控制。 |
+| 销售与接管 | sales 管理标签、活动、手册和定时素材触达；handoff 维护接管配置与通知；orchestration 将能力和经验包展示到工作台，并提供现有 SOP 节点接管设置入口。 |
+| 运营前端 | 路由与门禁 → SalesLayout → 业务页面 → `src/api` → Axios。工作台通过会话事件和兜底轮询同步；跨页面时间格式化放在 `src/utils/time.ts`，保留各页面原有的上海时区或浏览器本地时区显示方式。 |
+
+商品存储提取保留原有表初始化、历史别名补齐和按 `database_url` 缓存会话工厂的行为。
+会话及消息发送控制使用的 `chat_log_db_url` 与其他领域存储仍按各自配置访问，不能只因
+都使用 SQLite 就合并。运维导入、数据回填和评测脚本也是有效入口，删除模块时必须一并
+核对 `apps/api/scripts`、`apps/api/app/cli` 与 `apps/api/evaluation` 的引用。
 
 ## 4. 配置契约
 

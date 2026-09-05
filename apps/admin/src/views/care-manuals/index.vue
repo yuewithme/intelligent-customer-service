@@ -185,6 +185,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatLocalTime as formatTime } from '@/utils/time'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProductOptions, type ProductOption } from '@/api/admin/products'
@@ -294,7 +295,6 @@ const runMatch = async () => {
   try { matchResult.value = await testCareManualMatch({ ...matchForm }) } finally { matching.value = false }
 }
 
-const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const matchTypeText = (value: string) => ({ exact_product: '商品精确关联', exact_orchid: '标准品种精确', exact_alias: '人工别名精确', keyword: '人工关键词', candidate: '模糊候选' }[value] || value)
 
 onMounted(async () => { await Promise.all([loadManuals(), loadProductOptions()]) })

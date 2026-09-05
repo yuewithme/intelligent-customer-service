@@ -209,7 +209,7 @@ import {
   type ConversationItem,
   type ConversationMessage
 } from '@/api/admin/conversations'
-import { formatChinaTime } from '../time'
+import { formatChinaTime } from '@/utils/time'
 import SaveActivityDialog from './SaveActivityDialog.vue'
 import { isTestGate } from '@/utils/gate'
 import { createWechatMaterialFromMessage } from '@/api/admin/wechatMaterials'

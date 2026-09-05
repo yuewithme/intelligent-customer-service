@@ -3,10 +3,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.domains.decisioning.services.agent_prompt import build_system_prompt
-from app.domains.decisioning.services.agent_tools import (
-    AgentExecutionContext,
-    execute_agent_tool,
-)
+from app.domains.decisioning.schemas.execution import AgentExecutionContext
+from app.domains.decisioning.services.agent_tools import execute_agent_tool
 
 
 def _context(*, sop_scope: str | None = None) -> AgentExecutionContext:
