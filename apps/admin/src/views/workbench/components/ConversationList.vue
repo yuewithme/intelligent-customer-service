@@ -73,7 +73,7 @@ import {
   groupConversationsByCustomer,
   type ConversationGroupItem
 } from '../conversationGrouping'
-import { formatChinaTime } from '../time'
+import { formatChinaTime } from '@/utils/time'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
 
 defineProps<{ activeKey: string }>()

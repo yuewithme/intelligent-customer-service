@@ -65,7 +65,7 @@ import {
   type ConversationOrders,
   type YouzanOrder
 } from '@/api/admin/conversations'
-import { formatChinaTime } from '../time'
+import { formatChinaTime } from '@/utils/time'
 
 const props = defineProps<{ conversationId: string }>()
 const loading = ref(false)

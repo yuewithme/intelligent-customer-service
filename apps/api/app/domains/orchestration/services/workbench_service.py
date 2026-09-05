@@ -13,8 +13,8 @@ from app.domains.orchestration.schemas.definitions import (
     ActionStep,
     AgentStageStep,
 )
+from app.domains.handoff.schemas.handoff_notification import SOP_NODE_GROUPS
 from app.domains.handoff.services.handoff_notification_service import (
-    SOP_NODE_GROUPS,
     get_sop_node_handoff_settings,
     update_sop_node_handoff,
 )

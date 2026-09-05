@@ -129,13 +129,13 @@ async def test_product_tool_returns_trace_and_read_only_marker(monkeypatch, tmp_
     from app.core.config import get_settings
     from app.infrastructure.database.models import YouzanProductModel
     from app.domains.catalog.services.product_knowledge_service import import_product_knowledge
-    from app.integrations.youzan.services.youzan_product_sync_service import _session, reset_product_store_for_tests
+    from app.infrastructure.database.product_store import get_product_session, reset_product_store_for_tests
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{(tmp_path / 'ai-products.db').as_posix()}")
     get_settings.cache_clear()
     reset_product_store_for_tests()
     now = datetime.now(timezone.utc)
-    with _session() as session:
+    with get_product_session() as session:
         session.add(
             YouzanProductModel(
                 item_id="1",

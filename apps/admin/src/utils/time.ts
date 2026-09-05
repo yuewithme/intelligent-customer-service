@@ -16,3 +16,6 @@ export const formatChinaTime = (value: string) => {
   }
   return chinaTimeFormatter.format(date)
 }
+
+export const formatLocalTime = (value?: string | null) =>
+  value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'

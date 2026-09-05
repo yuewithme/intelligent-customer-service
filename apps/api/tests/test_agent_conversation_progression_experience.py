@@ -4,7 +4,7 @@ from app.domains.conversations.schemas.event import NormalizedMessage
 from app.domains.customers.schemas.state import UserState
 from app.domains.decisioning.services import agent_tools
 from app.domains.decisioning.services.agent_prompt import build_system_prompt
-from app.domains.decisioning.services.agent_tools import AgentExecutionContext
+from app.domains.decisioning.schemas.execution import AgentExecutionContext
 
 
 def _message(text: str) -> NormalizedMessage:

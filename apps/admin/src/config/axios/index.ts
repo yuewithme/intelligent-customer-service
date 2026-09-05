@@ -24,7 +24,7 @@ client.interceptors.response.use(
   }
 )
 
-type RequestOptions = AxiosRequestConfig & { url: string; headersType?: string }
+type RequestOptions = AxiosRequestConfig & { url: string }
 
 const unwrap = async <T>(promise: Promise<any>): Promise<T> => {
   const result = await promise

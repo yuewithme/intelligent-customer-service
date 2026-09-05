@@ -3,10 +3,10 @@ import pytest
 import sqlite3
 
 from app.core.config import get_settings
+from app.infrastructure.database.product_store import reset_product_store_for_tests
 from app.main import app
 from app.integrations.youzan.services.youzan_product_sync_service import (
     list_products,
-    reset_product_store_for_tests,
     sync_youzan_products,
     update_product_note,
     update_product_sort,

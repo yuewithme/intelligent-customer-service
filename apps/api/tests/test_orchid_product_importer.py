@@ -3,6 +3,8 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from app.domains.catalog.orchid_products.excel_importer import build_import_payload
+from app.domains.catalog.orchid_products.import_support import read_records
+from app.domains.catalog.orchid_products.llm_curated_importer import build_llm_curated_payload
 
 
 def _save_workbook(path: Path) -> None:
@@ -141,3 +143,37 @@ def test_sales_copy_is_kept_as_answer_material_not_master_data(tmp_path):
     assert sales_copy["target_audience"] == "新手兰友"
     assert sales_copy["selling_points"] == "好看好养寓意好"
     assert payload.varieties[0]["history_background"] == "建兰八大红花之一。"
+
+
+def test_curated_import_uses_the_same_workbook_sections(tmp_path):
+    path = tmp_path / "orchid.xlsx"
+    _save_workbook(path)
+
+    payload = build_llm_curated_payload(path)
+
+    assert payload.categories == [{"category_name": "建兰", "category_description": None}]
+    assert payload.varieties[0]["variety_name"] == "满堂红"
+    assert payload.varieties[0]["primary_alias"] == "红满堂"
+    assert len(payload.skus) == 2
+    assert payload.skus[1]["variety_name"] == "富贵金龙"
+    assert payload.common_knowledge
+    assert payload.sales_copy
+    assert payload.hot_breakdowns
+    assert all(chunk["source_id"] is None for chunk in payload.knowledge_chunks)
+
+
+def test_record_reader_handles_preamble_empty_rows_and_numeric_cells():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["说明"])
+    sheet.append([" 品种名 ", None, "价格"])
+    sheet.append(["满堂红", "忽略此列", 0])
+    sheet.append([None, "只有无标题列", None])
+    sheet.append(["富贵金龙"])
+
+    assert read_records(sheet, ["品种名", "价格"]) == [
+        {"品种名": "满堂红", "价格": 0},
+        {"品种名": "富贵金龙", "价格": None},
+    ]
+    assert read_records(sheet, ["不存在的标题"]) == []
+    workbook.close()

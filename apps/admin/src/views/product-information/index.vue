@@ -136,6 +136,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatLocalTime as formatTime } from '@/utils/time'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import KnowledgeTab from './KnowledgeTab.vue'
@@ -223,7 +224,6 @@ const openKnowledge = async (product: ProductItem) => {
 }
 
 const money = (cent?: number | null) => cent == null ? '-' : `¥${(cent / 100).toFixed(2)}`
-const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const statusText = (value: ProductItem['status']) => ({ on_sale: '出售中', off_shelf: '已下架', sold_out: '已售罄', missing: '已不存在' }[value])
 const statusType = (value: ProductItem['status']) => ({ on_sale: 'success', off_shelf: 'info', sold_out: 'warning', missing: 'danger' }[value] as 'success' | 'info' | 'warning' | 'danger')
 
