@@ -733,6 +733,9 @@ def sop_scope_for_message(message) -> str:
 
 
 def is_first_order_opening(context: AgentExecutionContext) -> bool:
+    from app.domains.orchestration.services.sop_flow_service import get_saved_flow
+    if get_saved_flow("first_order"):
+        return False
     return sop_scope_for_message(context.message) == "first_order" and _is_opening_system_event(
         context
     )

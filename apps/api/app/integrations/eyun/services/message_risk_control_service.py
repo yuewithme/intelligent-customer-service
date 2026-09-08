@@ -1605,6 +1605,8 @@ async def _process_inbound_batch(batch_id: int) -> None:
             outbound_messages = _outbound_messages(chat_result)
             sales_turn_id = str(chat_result.get("trace_id") or "").strip()
             sales_metadata = {
+                "sop_node": ((chat_result.get("intent") or {}).get("slots") or {}).get("sop_node"),
+                "flow_version": ((chat_result.get("intent") or {}).get("slots") or {}).get("flow_version"),
                 "sop_scope": ((chat_result.get("intent") or {}).get("slots") or {}).get("sop_scope"),
                 "provider": "eyun",
                 "owner_wc_id": batch_data["wc_id"],
@@ -2061,9 +2063,19 @@ def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
 
 
 async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
+    from app.domains.orchestration.services.sop_flow_service import get_saved_flow, dialogue_choices, execution_version
     if not is_sop_enabled("first_order"):
         return
-    if is_sop_node_handoff_enabled("first_order", "first_order.opening"):
+    flow = get_saved_flow("first_order")
+    if flow and not dialogue_choices(flow, None):
+        return
+    if flow:
+        from app.domains.customers.services.user_profile_service import get_profile_bundle
+        from app.domains.sales.services.sop_policy_service import eligible_sop_scopes
+        profile = await get_profile_bundle(batch["from_user"] or batch["target_wc_id"])
+        if "first_order" not in eligible_sop_scopes(profile["profile"].get("customer_tags") or []):
+            return
+    if not flow and is_sop_node_handoff_enabled("first_order", "first_order.opening"):
         await force_handoff(
             make_conversation_id(
                 "wechat",
@@ -2076,6 +2088,21 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
         return
     outbound_messages = [{"type": "text", "content": SERVICE_OPENING}]
     opening_answer = SERVICE_OPENING
+    flow_metadata = {"flow_version": execution_version(flow) if flow else None}
+    if flow:
+        result = await handle_chat(ChatRequest(
+            channel="wechat", user_id=batch["from_user"] or batch["target_wc_id"],
+            session_id=_conversation_session_id(batch), message="新好友已添加，请从当前工作台流程入口开始接待。",
+            kb_id=get_settings().wechat_default_kb_id,
+            metadata={"provider": "eyun", "system_event": "workflow_entry", "tenant_id": _conversation_tenant_id(batch),
+                      "w_id": batch["w_id"], "owner_wc_id": batch.get("wc_id", ""), "batch_key": batch["batch_key"]},
+        ))
+        result = await _finalize_eyun_handoff(batch=batch, chat_result=result)
+        outbound_messages = _outbound_messages(result)
+        opening_answer = str(result.get("answer") or "")
+        slots = (result.get("intent") or {}).get("slots") or {}
+        if slots.get("sop_scope"):
+            flow_metadata.update({key: slots.get(key) for key in ("sop_scope", "sop_node", "flow_version")})
     await _record_opening_memories(
         {**batch, "content": ""},
         opening_answer,
@@ -2105,6 +2132,7 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
                 ),
                 "wc_id": str(batch.get("wc_id") or ""),
                 "tenant_id": _conversation_tenant_id(batch),
+                **flow_metadata,
             },
         )
         kwargs = {
@@ -2618,9 +2646,15 @@ def _validate_outbound_before_send(
         if message and message.route in {"opening", "agent_first_contact"} and not is_sop_enabled("first_order"):
             return False
         if message:
-            scope = _load_message_metadata(message.metadata_json).get("sop_scope")
+            metadata = _load_message_metadata(message.metadata_json)
+            scope = metadata.get("sop_scope") or ("first_order" if message.route in {"opening", "agent_first_contact"} else None)
             if scope in {"first_order", "service", "seeding"} and not is_sop_enabled(scope):
                 return False
+            if scope in {"first_order", "service", "seeding"}:
+                from app.domains.orchestration.services.sop_flow_service import get_saved_flow, execution_version
+                flow = get_saved_flow(scope)
+                if flow and metadata.get("flow_version") != execution_version(flow):
+                    return False
     if _is_service_material_touch_batch_key(row.source_batch_key):
         from app.domains.sales.services.service_material_touch_service import (
             validate_service_material_touch_before_send,

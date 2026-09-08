@@ -6,13 +6,13 @@
           <h1>能力工作台</h1>
           <ElTag type="success" effect="plain">SOP 节点可配置</ElTag>
         </div>
-        <p>查看首单、服务与种草 SOP 的入口和分支，管理流程总开关与对话节点接管方式。</p>
+        <p>编排首单、服务与种草 SOP，编辑节点和连线，保存后同步到实际执行。</p>
       </div>
-      <ElButton :loading="loading" @click="load">刷新数据</ElButton>
+      <ElButton :loading="loading" :disabled="editing" @click="load">刷新数据</ElButton>
     </div>
 
     <ElAlert
-      title="SOP 总开关控制整个流程的对话推进与自动触达；关闭后仍可查看流程。服务与种草可以同时运行。"
+      :title="editing ? '编辑中：拖动可调整布局；节点、入口和连线的修改在保存后生效。' : '点击编辑流程可拖动、增删节点和调整连线。SOP 总开关控制整个流程的对话推进与自动触达。'"
       type="info"
       :closable="false"
       show-icon
@@ -45,7 +45,7 @@
 
       <ElTabs v-model="activeTab" class="workspace-tabs">
         <ElTabPane label="经验包流程" name="flow">
-          <div v-if="activePackage" class="flow-workspace">
+          <div v-if="activePackage" class="flow-workspace" :class="{ 'is-editing': editing, saving: savingFlow }">
             <aside class="package-panel">
               <div class="panel-title">
                 <span>经验包</span>
@@ -57,6 +57,7 @@
                 type="button"
                 class="package-card"
                 :class="{ active: item.package_id === activePackage.package_id }"
+                :disabled="editing"
                 @click="selectPackage(item.package_id)"
               >
                 <span class="package-card-head">
@@ -87,6 +88,7 @@
                 <ElSwitch
                   :model-value="activePackage.enabled"
                   :loading="savingSop"
+                  :disabled="editing"
                   :aria-label="`${activePackage.name} 总开关`"
                   :active-text="activePackage.enabled ? 'SOP 已开启' : 'SOP 已关闭'"
                   @change="toggleSop"
@@ -98,6 +100,18 @@
                   <span><i class="wait" />等待</span>
                   <span><i class="outcome" />结果</span>
                 </div>
+              </div>
+              <div class="flow-tools">
+                <template v-if="!editing">
+                  <ElButton type="primary" plain @click="startEditing">编辑流程</ElButton>
+                  <small>拖动布局 · 增删节点 · 调整连线</small>
+                </template>
+                <template v-else>
+                  <ElButton @click="addNodeVisible = true">新增节点</ElButton>
+                  <ElButton @click="openAddEdge">新增连线</ElButton>
+                  <ElButton type="primary" :loading="savingFlow" @click="saveFlow">保存并生效</ElButton>
+                  <ElButton :disabled="savingFlow" @click="cancelEditing">取消修改</ElButton>
+                </template>
               </div>
               <div class="graph-scroll">
                 <div class="graph-canvas" :style="canvasStyle">
@@ -125,9 +139,14 @@
                     :key="node.key"
                     type="button"
                     class="graph-node"
-                    :class="[node.type, { active: selectedNodeKey === node.key, handoff: node.handoffEnabled }]"
+                    :class="[node.type, { active: selectedNodeKey === node.key, handoff: node.handoffEnabled, draggable: editing && node.type !== 'outcome' }]"
                     :style="{ left: `${node.x}px`, top: `${node.y}px` }"
                     @click="selectNode(node.key)"
+                    @pointerdown="startDrag($event, node)"
+                    @pointermove="moveNode"
+                    @pointerup="stopDrag"
+                    @pointercancel="stopDrag"
+                    @keydown="moveNodeByKey($event, node)"
                   >
                     <span>{{ nodeTypeText(node.type) }}</span>
                     <em v-if="node.type === 'agent_stage'" class="node-mode">
@@ -144,6 +163,17 @@
               <template v-if="selectedTransition">
                 <div class="detail-kicker">流程连线</div>
                 <h2>{{ selectedTransition.label }}</h2>
+                <section v-if="editing" class="node-editor">
+                  <label>连线条件 / 说明</label>
+                  <ElInput v-model="selectedTransition.label" maxlength="128" />
+                  <small>对话按此条件推进；定时分支按节点中配置的时间执行。</small>
+                  <label>目标节点</label>
+                  <ElSelect :model-value="selectedTransition.to_step || ''" @change="changeEdgeTarget">
+                    <ElOption label="结束此分支" value="" />
+                    <ElOption v-for="step in activePackage.steps.filter(s => s.step_id !== selectedTransition?.from_step)" :key="step.step_id" :label="step.name" :value="step.step_id" />
+                  </ElSelect>
+                  <ElButton type="danger" plain @click="deleteEdge">删除连线</ElButton>
+                </section>
                 <p>{{ stepName(selectedTransition.from_step) }} → {{ transitionTargetName(selectedTransition) }}</p>
                 <dl>
                   <dt>优先级</dt>
@@ -166,7 +196,7 @@
                 <div class="detail-kicker">{{ stepTypeText(selectedStep.type) }}</div>
                 <div class="detail-title-row">
                   <h2>{{ selectedStep.name }}</h2>
-                  <div v-if="selectedStep.node_id" class="step-handoff-control">
+                  <div v-if="selectedStep.node_id && !editing" class="step-handoff-control">
                     <span>{{ selectedStep.handoff_enabled ? '转人工' : 'AI 回复' }}</span>
                     <ElSwitch
                       :model-value="Boolean(selectedStep.handoff_enabled)"
@@ -175,6 +205,47 @@
                     />
                   </div>
                 </div>
+                <section v-if="editing" class="node-editor">
+                  <label>节点名称</label>
+                  <ElInput v-model="selectedStep.name" maxlength="80" />
+                  <label>节点说明</label>
+                  <ElInput v-model="selectedStep.description" type="textarea" :rows="2" maxlength="2000" />
+                  <template v-if="selectedStep.type === 'agent_stage'">
+                    <label>执行目标</label>
+                    <ElInput v-model="selectedStep.goal" type="textarea" :rows="3" maxlength="2000" />
+                    <label>补充执行要求（每行一项）</label>
+                    <ElInput :model-value="(selectedStep.directions || []).join('\n')" type="textarea" :rows="3" @update:model-value="setDirections" />
+                    <ElCheckbox v-model="selectedStep.handoff_enabled">此节点转人工</ElCheckbox>
+                    <ElCheckbox v-model="selectedStep.require_product_interest">需要明确的产品了解意向</ElCheckbox>
+                  </template>
+                  <template v-if="selectedStep.schedule">
+                    <label>每日触达时间（北京时间）</label>
+                    <ElTimeSelect :model-value="selectedStep.schedule.time" start="00:00" step="00:05" end="23:55" @update:model-value="setScheduleTime" />
+                    <label>素材文案类型</label>
+                    <ElSelect v-model="selectedStep.schedule.copy_type">
+                      <ElOption v-for="kind in ['名品故事', '养护科普', '话题种草']" :key="kind" :label="kind" :value="kind" />
+                    </ElSelect>
+                    <ElCheckbox v-model="selectedStep.schedule.match_preferences">只发同时匹配两类偏好的视频</ElCheckbox>
+                  </template>
+                  <template v-if="selectedStep.step_id === activePackage.entry.start_step_id">
+                    <label>入口：必须具有的标签</label>
+                    <ElSelect v-model="activePackage.entry_rule.required_tags" multiple filterable>
+                      <ElOption v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
+                    </ElSelect>
+                    <label>入口：以下每类均须有标签</label>
+                    <ElSelect v-model="activePackage.entry_rule.tag_categories" multiple>
+                      <ElOption v-for="category in data?.tag_categories || []" :key="category.id" :label="category.name" :value="category.id" />
+                    </ElSelect>
+                    <label>入口：排除具有这些标签的客户</label>
+                    <ElSelect v-model="activePackage.entry_rule.excluded_tags" multiple filterable>
+                      <ElOption v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
+                    </ElSelect>
+                    <ElCheckbox v-model="activePackage.entry_rule.fallback_only">仅在其他 SOP 未命中时进入</ElCheckbox>
+                    <small>标签条件全部留空时，所有客户均符合入口。</small>
+                  </template>
+                  <ElButton v-else @click="activePackage.entry.start_step_id = selectedStep.step_id">设为流程入口</ElButton>
+                  <ElButton type="danger" plain @click="deleteNode">删除节点及其连线</ElButton>
+                </section>
                 <p>{{ selectedStep.description || '暂无补充说明' }}</p>
                 <section v-if="selectedStep.goal">
                   <h3>步骤目标</h3>
@@ -416,16 +487,48 @@
         </ElCollapse>
       </template>
     </ElDrawer>
+    <ElDialog v-model="addNodeVisible" title="新增流程节点" width="420px">
+      <div class="node-editor">
+        <label>节点类型</label>
+        <ElSelect v-model="newNodeType">
+          <ElOption label="对话节点：由 AI 按目标处理" value="agent_stage" />
+          <ElOption label="定时触达：发送文案与素材" value="action" />
+          <ElOption label="分流节点：连接多个分支" value="decision" />
+          <ElOption label="触达分组：组织定时节点" value="wait" />
+        </ElSelect>
+        <label>节点名称</label>
+        <ElInput v-model="newNodeName" maxlength="80" placeholder="例如：产品咨询" />
+        <ElCheckbox v-model="newNodeAsEntry">设为新入口，并连接原入口</ElCheckbox>
+        <small>新增后在右侧编辑执行目标或触达时间，并检查连线。</small>
+      </div>
+      <template #footer><ElButton @click="addNodeVisible = false">取消</ElButton><ElButton type="primary" @click="addNode">添加节点</ElButton></template>
+    </ElDialog>
+    <ElDialog v-model="addEdgeVisible" title="新增连线" width="420px">
+      <div class="node-editor">
+        <label>起点</label>
+        <ElSelect v-model="edgeSource"><ElOption v-for="step in activePackage?.steps || []" :key="step.step_id" :label="step.name" :value="step.step_id" /></ElSelect>
+        <label>终点</label>
+        <ElSelect v-model="edgeTarget">
+          <ElOption label="结束此分支" value="" />
+          <ElOption v-for="step in (activePackage?.steps || []).filter(s => s.step_id !== edgeSource)" :key="step.step_id" :label="step.name" :value="step.step_id" />
+        </ElSelect>
+        <label>连线条件 / 说明</label>
+        <ElInput v-model="edgeLabel" maxlength="128" placeholder="例如：客户表示想了解产品" />
+      </div>
+      <template #footer><ElButton @click="addEdgeVisible = false">取消</ElButton><ElButton type="primary" @click="addEdge">添加连线</ElButton></template>
+    </ElDialog>
   </ContentWrap>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { onBeforeRouteLeave } from 'vue-router'
 import {
   getCapabilityWorkbench,
   updateWorkbenchSopNodeHandoff,
   updateWorkbenchSopEnabled,
+  saveWorkbenchFlow,
   type CapabilityAiMode,
   type CapabilityCustomerContact,
   type CapabilityItem,
@@ -440,8 +543,8 @@ import {
   type ExperienceTransition
 } from '@/api/admin/capabilityWorkbench'
 
-const NODE_WIDTH = 190
-const NODE_HEIGHT = 84
+const NODE_WIDTH = 208
+const NODE_HEIGHT = 80
 
 interface GraphNode {
   key: string
@@ -489,6 +592,173 @@ const visibilityFilter = ref('business')
 const capabilityDrawerVisible = ref(false)
 const selectedCapabilityId = ref('')
 const savingNodeId = ref('')
+const editing = ref(false)
+const savingFlow = ref(false)
+const draftBackup = ref<ExperiencePackage | null>(null)
+const addNodeVisible = ref(false)
+const newNodeType = ref<ExperienceStep['type']>('agent_stage')
+const newNodeName = ref('')
+const newNodeAsEntry = ref(false)
+const addEdgeVisible = ref(false)
+const edgeSource = ref('')
+const edgeTarget = ref('')
+const edgeLabel = ref('')
+let drag: { id: string; pointer: number; clientX: number; clientY: number; x: number; y: number } | null = null
+
+const availableTags = computed(() => [...new Set((data.value?.tag_categories || []).flatMap(category => category.values))])
+
+function startEditing() {
+  if (!activePackage.value) return
+  draftBackup.value = JSON.parse(JSON.stringify(activePackage.value))
+  editing.value = true
+}
+
+function cancelEditing() {
+  if (draftBackup.value && data.value) {
+    const index = data.value.experience_packages.findIndex(item => item.package_id === draftBackup.value?.package_id)
+    data.value.experience_packages[index] = draftBackup.value
+  }
+  editing.value = false
+  draftBackup.value = null
+  ensureSelectedNode()
+}
+
+async function saveFlow() {
+  if (!activePackage.value || savingFlow.value) return
+  savingFlow.value = true
+  try {
+    await saveWorkbenchFlow(activePackage.value)
+    editing.value = false
+    draftBackup.value = null
+    await load()
+    ElMessage.success('流程已保存，后端执行已同步')
+  } catch (error: unknown) {
+    const response = (error as { response?: { data?: { message?: string; detail?: Array<{ msg: string }> } } }).response?.data
+    ElMessage.error(response?.message || response?.detail?.[0]?.msg || '保存失败，请检查入口、连线和执行配置')
+  } finally {
+    savingFlow.value = false
+  }
+}
+
+function connectNodes(source: string, target: string, label: string) {
+  const current = activePackage.value
+  if (!current || current.transitions.some(edge => edge.from_step === source && (edge.to_step || '') === target)) return
+  current.transitions.push({ transition_id: `edge_${crypto.randomUUID()}`, from_step: source,
+    to_step: target || null, outcome: target ? null : 'complete', label, priority: 100 })
+  if (!target && !current.outcomes.length) current.outcomes.push({ outcome_id: 'complete', name: '本分支结束', terminal: true, result_tags: [] })
+}
+
+function addNode() {
+  const current = activePackage.value
+  if (!current || !newNodeName.value.trim()) return ElMessage.warning('请填写节点名称')
+  const id = `node_${crypto.randomUUID()}`
+  const type = newNodeType.value
+  if (newNodeAsEntry.value && type === 'action') return ElMessage.warning('定时节点不能作为带有后续步骤的新入口')
+  const parent = selectedStep.value?.step_id || current.entry.start_step_id
+  const position = current.layout[parent] || { x: 50, y: 100 }
+  current.steps.push({ step_id: id, name: newNodeName.value.trim(), type, description: '',
+    goal: type === 'agent_stage' ? newNodeName.value.trim() : '', directions: [],
+    node_id: type === 'agent_stage' ? `${current.sop_scope}.${id}` : undefined,
+    handoff_enabled: false, require_product_interest: false,
+    schedule: type === 'action' ? { time: '15:00', copy_type: '话题种草', match_preferences: current.sop_scope === 'seeding' } : null })
+  current.layout[id] = { x: Math.min(position.x + 260, 12000), y: Math.min(position.y + 110, 12000) }
+  if (newNodeAsEntry.value) {
+    connectNodes(id, current.entry.start_step_id, '进入原有分支')
+    current.entry.start_step_id = id
+  } else {
+    connectNodes(parent, id, type === 'action' ? '每日定时触达' : '满足条件时继续')
+  }
+  selectNode(`step:${id}`)
+  addNodeVisible.value = false
+  newNodeName.value = ''
+  newNodeAsEntry.value = false
+}
+
+function deleteNode() {
+  const current = activePackage.value
+  const node = selectedStep.value
+  if (!current || !node) return
+  if (current.steps.length === 1) return ElMessage.warning('流程至少保留一个入口节点')
+  if (node.step_id === current.entry.start_step_id) return ElMessage.warning('请先将其他节点设为入口，再删除此节点')
+  current.steps = current.steps.filter(step => step.step_id !== node.step_id)
+  current.transitions = current.transitions.filter(edge => edge.from_step !== node.step_id && edge.to_step !== node.step_id)
+  delete current.layout[node.step_id]
+  ensureSelectedNode()
+  ElMessage.info('节点及连线已删除，请连接需要保留的后续节点')
+}
+
+function openAddEdge() {
+  edgeSource.value = selectedStep.value?.step_id || activePackage.value?.entry.start_step_id || ''
+  edgeTarget.value = ''
+  edgeLabel.value = '满足条件时继续'
+  addEdgeVisible.value = true
+}
+
+function addEdge() {
+  if (!edgeSource.value || !edgeLabel.value.trim()) return ElMessage.warning('请选择起点并填写连线条件')
+  connectNodes(edgeSource.value, edgeTarget.value, edgeLabel.value.trim())
+  addEdgeVisible.value = false
+}
+
+function deleteEdge() {
+  if (!activePackage.value) return
+  activePackage.value.transitions = activePackage.value.transitions.filter(edge => edge.transition_id !== selectedTransitionId.value)
+  selectedTransitionId.value = ''
+}
+
+function changeEdgeTarget(value: unknown) {
+  if (!selectedTransition.value) return
+  selectedTransition.value.to_step = String(value) || null
+  selectedTransition.value.outcome = value ? null : 'complete'
+  if (!value && activePackage.value && !activePackage.value.outcomes.length) activePackage.value.outcomes.push({ outcome_id: 'complete', name: '本分支结束', terminal: true, result_tags: [] })
+}
+
+function setDirections(value: string) {
+  if (selectedStep.value) selectedStep.value.directions = value.split('\n').filter(line => line.trim())
+}
+
+function setScheduleTime(value: string) {
+  const step = selectedStep.value
+  if (!step?.schedule) return
+  const previous = step.schedule.time
+  step.schedule.time = value
+  if (step.name.startsWith(`${previous} `)) step.name = value + step.name.slice(previous.length)
+  for (const field of ['description', 'goal'] as const) {
+    if (step[field]?.startsWith(`每天 ${previous}`)) step[field] = step[field].replace(`每天 ${previous}`, `每天 ${value}`)
+  }
+  activePackage.value?.transitions.forEach(edge => {
+    if (edge.to_step === step.step_id && edge.label === previous) edge.label = value
+  })
+}
+
+function startDrag(event: PointerEvent, node: GraphNode) {
+  if (!editing.value || savingFlow.value || node.type === 'outcome' || event.button !== 0) return
+  selectNode(node.key)
+  drag = { id: node.id, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: node.x, y: node.y }
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+
+function moveNode(event: PointerEvent) {
+  if (!drag || !activePackage.value) return
+  activePackage.value.layout[drag.id] = { x: Math.max(0, Math.min(12000, Math.round(drag.x + event.clientX - drag.clientX))),
+    y: Math.max(0, Math.min(12000, Math.round(drag.y + event.clientY - drag.clientY))) }
+}
+
+function stopDrag() { drag = null }
+
+function moveNodeByKey(event: KeyboardEvent, node: GraphNode) {
+  if (!editing.value || node.type === 'outcome' || !activePackage.value) return
+  const offsets: Record<string, [number, number]> = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] }
+  const offset = offsets[event.key]
+  if (!offset) return
+  event.preventDefault()
+  activePackage.value.layout[node.id] = { x: Math.max(0, Math.min(12000, node.x + offset[0])), y: Math.max(0, Math.min(12000, node.y + offset[1])) }
+}
+
+onBeforeRouteLeave(() => {
+  if (editing.value) { ElMessage.info('请先保存或取消流程修改'); return false }
+  return true
+})
 
 const packages = computed(() => data.value?.experience_packages || [])
 const capabilities = computed(() => data.value?.capabilities || [])
@@ -655,6 +925,7 @@ const updateNodeHandoff = async (value: string | number | boolean) => {
     })
     step.handoff_enabled = result.handoff_enabled
     ElMessage.success(`${step.name}已切换为${result.handoff_enabled ? '转人工' : 'AI 回复'}`)
+    await load()
   } catch {
     step.handoff_enabled = previous
   } finally {
@@ -684,10 +955,11 @@ const transitionTargetName = (transition: ExperienceTransition) =>
   transition.to_step ? stepName(transition.to_step) : outcomeName(transition.outcome || '')
 
 const stepSubtitle = (step: ExperienceStep) => {
+  if (step.schedule) return `每日 ${step.schedule.time} · ${step.schedule.copy_type} · ${step.schedule.match_preferences ? '偏好视频+文字' : '素材+文字'}`
   if (step.description) return step.description
+  if (step.type === 'agent_stage') return step.goal || '按执行目标回复'
+  if (step.type === 'wait' || step.type === 'decision') return '按所连分支执行'
   if (step.type === 'action') return capabilityName(step.capability_id || '')
-  if (step.type === 'wait') return `等待 ${step.resume_events?.length || 0} 类事件`
-  if (step.type === 'decision') return step.strategy === 'hybrid' ? '规则 + AI 判断' : `${step.strategy} 判断`
   return `${step.capabilities?.length || 0} 项可用能力`
 }
 
@@ -794,7 +1066,15 @@ onMounted(load)
 .graph-legend i.action { background: #e5a74f; }
 .graph-legend i.wait { background: #aa84c4; }
 .graph-legend i.outcome { background: #5d6b66; }
-.graph-scroll { height: 598px; overflow: auto; }
+.graph-scroll { height: 560px; overflow: auto; }
+.flow-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--el-border-color-lighter); background: white; }
+.flow-tools small, .node-editor small { color: var(--el-text-color-secondary); font-size: 11px; line-height: 1.5; }
+.node-editor { display: flex; flex-direction: column; gap: 7px; }
+.node-editor label { margin-top: 5px; font-size: 12px; color: #56665f; }
+.node-editor :deep(.el-select), .node-editor :deep(.el-input) { width: 100%; }
+.node-editor :deep(.el-checkbox) { margin-right: 0; height: auto; white-space: normal; }
+.node-editor :deep(.el-checkbox__label) { white-space: normal; font-size: 12px; }
+.flow-workspace.saving { pointer-events: none; }
 .graph-canvas { position: relative; background-image: radial-gradient(#cfdad6 1px, transparent 1px); background-size: 22px 22px; }
 .graph-lines { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
 .edge-group { color: #9eb2aa; }
@@ -803,16 +1083,18 @@ onMounted(load)
 .edge-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
 .edge-label { fill: #70817b; font-size: 10px; paint-order: stroke; stroke: #f7faf9; stroke-width: 5px; stroke-linejoin: round; pointer-events: none; }
 #capability-arrow path { fill: currentColor; }
-.graph-node { position: absolute; width: 190px; height: 84px; padding: 10px 12px; border: 2px solid transparent; border-radius: 11px; color: #263c35; background: #fff; box-shadow: 0 5px 16px rgb(33 76 63 / 10%); text-align: left; cursor: pointer; z-index: 2; }
+.graph-node { position: absolute; display: flex; flex-direction: column; justify-content: flex-start; width: 208px; height: 80px; padding: 6px 10px; border: 2px solid transparent; border-radius: 9px; color: #263c35; background: #fff; box-shadow: 0 4px 12px rgb(33 76 63 / 9%); text-align: left; cursor: pointer; z-index: 2; }
+.graph-node.draggable { cursor: grab; touch-action: none; user-select: none; }
+.graph-node.draggable:active { cursor: grabbing; }
 .graph-node:hover, .graph-node.active { transform: translateY(-1px); box-shadow: 0 8px 22px rgb(33 76 63 / 18%); }
 .graph-node.active { border-color: var(--el-color-primary); }
 .graph-node.handoff { background: #fff8f5; }
-.graph-node > span { color: var(--el-text-color-secondary); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
-.graph-node .node-mode { position: absolute; top: 9px; right: 10px; padding: 2px 6px; color: #4d7568; background: #edf7f3; border-radius: 999px; font-size: 10px; font-style: normal; }
+.graph-node > span { color: #8b9690; font-size: 9px; line-height: 10px; font-weight: 500; }
+.graph-node .node-mode { position: absolute; top: 5px; right: 8px; padding: 1px 4px; color: #4d7568; background: #edf7f3; border-radius: 999px; font-size: 8px; line-height: 10px; font-style: normal; }
 .graph-node.handoff .node-mode { color: #b64f2e; background: #ffebe3; }
 .graph-node strong, .graph-node small { display: block; }
-.graph-node strong { margin-top: 5px; font-size: 15px; }
-.graph-node small { margin-top: 6px; color: var(--el-text-color-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-node strong { margin-top: 2px; font-size: 17px; line-height: 21px; font-weight: 700; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; flex-shrink: 0; }
+.graph-node small { width: 100%; margin-top: 2px; font-size: 10px; line-height: 12px; color: #8b9690; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .graph-node.agent_stage { border-left: 5px solid #67b79a; }
 .graph-node.decision { border-left: 5px solid #7c91cf; }
 .graph-node.action { border-left: 5px solid #e5a74f; }
@@ -872,4 +1154,5 @@ pre { max-height: 360px; padding: 12px; overflow: auto; color: #d8eee6; backgrou
 @media (max-width: 1480px) { .flow-workspace { grid-template-columns: 210px minmax(520px, 1fr) 290px; } .capability-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 1120px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .flow-workspace { grid-template-columns: 210px minmax(560px, 1fr); overflow: auto; } .detail-panel { display: none; } .capability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .page-head, .capability-toolbar { align-items: flex-start; flex-direction: column; } .metrics, .capability-grid, .business-grid, .schema-grid { grid-template-columns: 1fr; } .workspace-tabs { padding: 0 10px 12px; } .capability-toolbar :deep(.el-select) { width: 100%; } .flow-workspace { grid-template-columns: 1fr; } .package-panel { border-right: 0; border-bottom: 1px solid var(--el-border-color-lighter); } .graph-head { align-items: flex-start; flex-direction: column; gap: 8px; } .graph-legend { justify-content: flex-start; } .graph-panel { min-height: 620px; } }
+@media (max-width: 1120px) { .flow-workspace.is-editing .detail-panel { display: block; grid-column: 1 / -1; border-top: 1px solid var(--el-border-color-lighter); } }
 </style>

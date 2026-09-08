@@ -27,6 +27,11 @@ from app.domains.handoff.services.handoff_notification_service import (
     is_sop_node_handoff_enabled,
 )
 from app.integrations.ai.services.llm_service import generate_messages_json
+from app.domains.orchestration.services.sop_flow_service import (
+    get_saved_flow, dialogue_choices, execution_prompt, load_cursor, save_cursor,
+    execution_version,
+)
+from app.domains.handoff.schemas.handoff_notification import SOP_NODE_IDS
 
 
 logger = logging.getLogger("wechat_rag_bot.sales_agent")
@@ -55,6 +60,9 @@ async def run_sales_agent(
     sop_scope = reply_policy.sop_scope_for_message(message)
     sop_scopes = message.metadata.get("sop_scopes", [sop_scope])
     allowed_scopes = set(sop_scopes) | {"general"}
+    flows = {scope: flow for scope in sop_scopes if (flow := get_saved_flow(scope)) is not None}
+    message.metadata["sop_flow_versions"] = {scope: execution_version(flow) for scope, flow in flows.items()}
+    cursors = {scope: load_cursor(message, scope, flow) for scope, flow in flows.items()}
     context = AgentExecutionContext(
         message=message,
         user_state=user_state,
@@ -87,6 +95,8 @@ async def run_sales_agent(
     tool_budget_exhausted = False
 
     for attempt_number in range(1, MAX_AGENT_MODEL_CALLS + 1):
+        for scope, flow in flows.items():
+            conversation.append({"role": "system", "content": execution_prompt(scope, flow, cursors[scope])})
         raw: dict[str, Any] | None = None
         started = time.perf_counter()
         try:
@@ -100,7 +110,17 @@ async def run_sales_agent(
             decision = AgentTurnDecision.model_validate(raw.get("data"))
             if decision.sop_node.partition(".")[0] not in allowed_scopes:
                 raise ValueError("sop_node_scope_mismatch")
-            if decision.sop_node.startswith("seeding.") and decision.purchase_signal == "none":
+            scope, _, step_id = decision.sop_node.partition(".")
+            flow = flows.get(scope)
+            if flow:
+                if step_id not in dialogue_choices(flow, cursors[scope]):
+                    raise ValueError("node_not_reachable_in_saved_flow")
+                requires_interest = next(node.require_product_interest for node in flow.steps if node.step_id == step_id)
+            else:
+                if decision.sop_node not in SOP_NODE_IDS | {"general.reply"}:
+                    raise ValueError("unknown_sop_node")
+                requires_interest = scope == "seeding"
+            if requires_interest and decision.purchase_signal == "none":
                 raise ValueError("seeding_requires_product_interest")
         except (ValidationError, TypeError, ValueError) as exc:
             logger.warning("Sales Agent returned invalid decision: %s", type(exc).__name__)
@@ -156,6 +176,8 @@ async def run_sales_agent(
             )
 
         latest_decision = decision
+        if scope in flows:
+            cursors[scope] = step_id
         diagnostic = _decision_diagnostic(
             attempt_number=attempt_number,
             raw=raw,
@@ -208,6 +230,7 @@ async def run_sales_agent(
                 continue
             if (
                 sop_scope == "first_order"
+                and "first_order" not in flows
                 and str(event_context.get("system_event") or "") == "first_contact"
             ):
                 diagnostic["outcome"] = "opening_tool_blocked"
@@ -353,6 +376,9 @@ async def run_sales_agent(
                 dict.fromkeys([*quality_flags, *trajectory_violations])
             )
         diagnostic["outcome"] = "accepted"
+        selected_scope, _, selected_step = decision.sop_node.partition(".")
+        if selected_scope in flows:
+            save_cursor(message, selected_scope, flows[selected_scope], selected_step)
         return await _finalize_reply(
             decision=decision,
             context=context,
@@ -444,6 +470,7 @@ async def _finalize_reply(
                 "relationship_purpose": decision.relationship_purpose,
                 "sop_scope": decision.sop_node.partition(".")[0],
                 "eligible_sop_scopes": context.message.metadata.get("sop_scopes", []),
+                "flow_version": context.message.metadata.get("sop_flow_versions", {}).get(decision.sop_node.partition(".")[0]),
                 "sop_node": decision.sop_node,
                 "customer_signal": decision.customer_signal,
                 "purchase_signal": decision.purchase_signal,
@@ -575,7 +602,7 @@ async def _safe_fallback(
             },
         )
     system_event = str((message.metadata or {}).get("system_event") or "")
-    if system_event == "first_contact" and reply_policy.sop_scope_for_message(message) == "first_order":
+    if system_event == "first_contact" and reply_policy.sop_scope_for_message(message) == "first_order" and not get_saved_flow("first_order"):
         intro = "您好，我是萧岚苑的小兰，我们团队平时都在和兰花打交道，后面养护上有什么拿不准都可以找我。"
         question = "为了后面给您更贴合的养护建议和资料，我先了解一下，您家里现在大概养了多少盆，主要都是什么品种呀？"
         texts = [intro, question]
@@ -639,7 +666,7 @@ async def _safe_fallback(
         else "当前模型决策未形成可安全发送的完整回复"
     )
     outbound = [OutboundMessage(type="text", content=content) for content in texts]
-    if system_event == "first_contact" and reply_policy.sop_scope_for_message(message) == "first_order":
+    if system_event == "first_contact" and reply_policy.sop_scope_for_message(message) == "first_order" and not get_saved_flow("first_order"):
         outbound = _insert_opening_image(outbound)
     return FinalReply(
         answer=text,

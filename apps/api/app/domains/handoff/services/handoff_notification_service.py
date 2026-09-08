@@ -64,6 +64,10 @@ def is_global_handoff_enabled() -> bool:
 
 
 def is_sop_node_handoff_enabled(sop_scope: str, node_id: str) -> bool:
+    from app.domains.orchestration.services.sop_flow_service import get_saved_flow
+    flow = get_saved_flow(sop_scope)
+    if flow:
+        return any(f"{sop_scope}.{node.step_id}" == node_id and node.handoff_enabled for node in flow.steps if node.type == "agent_stage")
     if not node_id.startswith(f"{sop_scope}.") or node_id not in SOP_NODE_IDS:
         return False
     with _get_session() as session:
@@ -99,6 +103,12 @@ def update_sop_enabled(scope: str, enabled: bool) -> dict[str, Any]:
 
 
 def get_sop_node(node_id: str) -> dict[str, str] | None:
+    from app.domains.orchestration.services.sop_flow_service import get_saved_flow
+    scope, _, step_id = node_id.partition(".")
+    flow = get_saved_flow(scope)
+    if flow:
+        node = next((node for node in flow.steps if node.step_id == step_id and node.type == "agent_stage"), None)
+        return {"sop_scope": scope, "node_id": node_id, "name": node.name, "description": node.description} if node else None
     for group in SOP_NODE_GROUPS:
         for candidate_id, name, description in group["nodes"]:
             if candidate_id == node_id:
