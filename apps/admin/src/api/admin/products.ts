@@ -52,6 +52,10 @@ export interface ProductKnowledgePayload {
   market_price: string
   highlighted_features: string
   sales_copy: string
+  demand_tags: string[]
+  seeding_scene: string
+  source_demand: string
+  spec_hint: string
 }
 
 export interface ProductKnowledgeItem extends ProductKnowledgePayload {
@@ -64,6 +68,7 @@ export interface ProductKnowledgeItem extends ProductKnowledgePayload {
 export interface ProductKnowledgeListResponse {
   items: ProductKnowledgeItem[]
   total: number
+  knowledge_count: number
   page: number
   page_size: number
   linked_count: number

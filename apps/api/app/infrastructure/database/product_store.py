@@ -13,6 +13,7 @@ from app.infrastructure.database.models import (
     YouzanProductModel,
     YouzanProductSkuModel,
     YouzanProductSyncRunModel,
+    ProductKnowledgeImportModel,
 )
 
 
@@ -21,6 +22,7 @@ _TABLES = [
     YouzanProductSkuModel.__table__,
     YouzanProductSyncRunModel.__table__,
     YouzanProductKnowledgeModel.__table__,
+    ProductKnowledgeImportModel.__table__,
 ]
 
 
@@ -36,6 +38,16 @@ def _session_factory(database_url: str):
                 text("ALTER TABLE youzan_products ADD COLUMN alias VARCHAR(128)")
             )
     _ensure_product_knowledge_aliases(engine)
+    columns = {column["name"] for column in inspect(engine).get_columns("youzan_product_knowledge")}
+    with engine.begin() as connection:
+        for name, sql_type in (
+            ("demand_tags", "JSON"),
+            ("seeding_scene", "VARCHAR(128)"),
+            ("source_demand", "VARCHAR(256)"),
+            ("spec_hint", "VARCHAR(128)"),
+        ):
+            if name not in columns:
+                connection.execute(text(f"ALTER TABLE youzan_product_knowledge ADD COLUMN {name} {sql_type}"))
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

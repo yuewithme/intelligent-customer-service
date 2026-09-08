@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.config import get_settings
+from app.domains.catalog.services.product_recommendation_import import import_recommendation_catalog
 from app.domains.conversations.services.conversation_service import (
     recover_stale_unsupported_handoffs,
 )
@@ -38,6 +39,10 @@ async def lifespan(app: FastAPI):
     if get_settings().evaluation_mode:
         yield
         return
+
+    imported = import_recommendation_catalog()
+    if imported:
+        logger.info("Imported %s approved product recommendation records", imported)
 
     recovered = await recover_stale_unsupported_handoffs()
     if recovered:

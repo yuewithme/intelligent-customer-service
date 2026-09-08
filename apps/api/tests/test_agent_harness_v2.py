@@ -498,7 +498,7 @@ async def test_product_search_adds_profile_tags_and_respects_current_overrides(
     monkeypatch.setattr(
         agent_tools,
         "search_catalog_products",
-        lambda query, limit=3: captured.append((query, limit)) or [],
+        lambda query, limit=3, preference_tags=None: captured.append((query, limit, preference_tags)) or [],
     )
 
     context = AgentExecutionContext(
@@ -517,7 +517,7 @@ async def test_product_search_adds_profile_tags_and_respects_current_overrides(
         context=context,
     )
 
-    assert captured[-1] == ("推荐兰花 建兰 浓香 201-500元 阳台", 3)
+    assert captured[-1] == ("推荐兰花", 3, ["建兰", "浓香", "201-500元", "阳台"])
     assert result.data["applied_customer_tags"] == [
         "建兰",
         "浓香",
@@ -533,8 +533,43 @@ async def test_product_search_adds_profile_tags_and_respects_current_overrides(
         context=context,
     )
 
-    assert captured[-1] == ("推荐清香建兰，预算100元以内，室内", 3)
+    assert captured[-1] == ("推荐清香建兰，预算100元以内，室内", 3, None)
     assert result.data["applied_customer_tags"] == []
+
+    context.message = _message("了解陪伴养兰服务")
+    result = await agent_tools.execute_agent_tool(
+        call_id="service-search", name="product.search",
+        arguments={"query": "陪伴养兰"}, context=context,
+    )
+    assert captured[-1] == ("陪伴养兰", 3, None)
+    assert result.data["applied_customer_tags"] == []
+
+
+@pytest.mark.asyncio
+async def test_product_card_rechecks_recommended_spec_price(monkeypatch):
+    product = {
+        "item_id": "orchid", "title": "兰花", "price_cent": 3000, "stock": 3,
+        "h5_url": "https://example.com/orchid",
+        "skus": [{"sku_id": "eight", "spec_name": "8苗", "price_cent": 8000, "stock": 3}],
+    }
+    monkeypatch.setattr(agent_tools, "get_catalog_product", lambda item_id: product)
+    context = AgentExecutionContext(
+        message=_message("发链接"), user_state=UserState(user_id="customer-1"),
+        workspace={"product_recommendations": {"orchid": [{"sku_id": "eight", "price_cent": 7000}]}},
+    )
+    result = await agent_tools.execute_agent_tool(
+        call_id="changed-price", name="product.send_card",
+        arguments={"product_ref": "product:orchid"}, context=context,
+    )
+    assert result.status == "forbidden"
+    assert not context.prepared
+    product["skus"][0]["price_cent"] = 7000
+    result = await agent_tools.execute_agent_tool(
+        call_id="current-price", name="product.send_card",
+        arguments={"product_ref": "product:orchid"}, context=context,
+    )
+    assert result.status == "prepared"
+    assert result.data["product"]["price_cent"] == 7000
 
 
 @pytest.mark.asyncio

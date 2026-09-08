@@ -92,7 +92,7 @@ async def product_knowledge(
 @router.post("/knowledge", response_model=APIResponse)
 async def create_knowledge(request: ProductKnowledgePayload) -> APIResponse:
     try:
-        result = create_product_knowledge(request.model_dump())
+        result = create_product_knowledge(request.model_dump(exclude_unset=True))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return APIResponse(code=0, message="success", data=result)
@@ -104,7 +104,7 @@ async def update_knowledge(
     request: ProductKnowledgePayload,
 ) -> APIResponse:
     try:
-        result = update_product_knowledge(record_id, request.model_dump())
+        result = update_product_knowledge(record_id, request.model_dump(exclude_unset=True))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -125,7 +125,7 @@ async def delete_knowledge(record_id: int) -> APIResponse:
 async def import_knowledge(request: ProductKnowledgeImportRequest) -> APIResponse:
     try:
         result = import_product_knowledge(
-            [record.model_dump() for record in request.records]
+            [record.model_dump(exclude_unset=True) for record in request.records]
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

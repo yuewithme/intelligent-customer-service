@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -30,6 +30,9 @@ _FIELDS = (
     "market_price",
     "highlighted_features",
     "sales_copy",
+    "seeding_scene",
+    "source_demand",
+    "spec_hint",
 )
 PREFERENCE_TERMS = (
     "好养",
@@ -56,7 +59,8 @@ ORCHID_CATEGORIES = (
     "秋芝",
     "送春",
 )
-SCENE_TERMS = ("阳台", "室内", "室外", "露台", "公司办公室", "办公室")
+SCENE_TERMS = ("阳台", "室内", "室外", "露台", "公司办公室", "办公室", "兰棚")
+DEMAND_TERMS = ("红素", "色花", "素花", "奇花", "艺草", "梅瓣", "荷瓣", "荷型", "水仙瓣", "矮种", "半垂叶", "直立叶", "花大色艳", "好养易活", "勤花易开")
 FRAGRANCE_TERMS = ("浓香", "清香", "幽香", "甜香")
 COLOR_TERMS = {
     "红": ("红色", "红花", "红素"),
@@ -89,6 +93,7 @@ class ProductRecommendationCriteria:
     requires_easy_care: bool = False
     requires_value: bool = False
     requires_long_bloom: bool = False
+    demand_tags: tuple[str, ...] = ()
 
     @property
     def active_count(self) -> int:
@@ -106,6 +111,7 @@ class ProductRecommendationCriteria:
                 self.requires_easy_care or None,
                 self.requires_value or None,
                 self.requires_long_bloom or None,
+                self.demand_tags or None,
             )
         )
 
@@ -153,6 +159,7 @@ def list_product_knowledge(
         return {
             "items": [_serialize(row, products.get(row.item_id or "")) for row in rows],
             "total": int(session.scalar(count_query) or 0),
+            "knowledge_count": int(session.scalar(select(func.count()).select_from(YouzanProductKnowledgeModel)) or 0),
             "page": page,
             "page_size": page_size,
             "linked_count": int(
@@ -308,11 +315,23 @@ def auto_link_knowledge_records() -> int:
         return count
 
 
-def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, Any]]:
+def search_catalog_products(
+    keyword: str, *, limit: int = 3, preference_tags: list[str] | None = None,
+) -> list[dict[str, Any]]:
     normalized_keyword = _normalize_name(keyword)
     if not normalized_keyword:
         return []
     criteria = _parse_recommendation_criteria(keyword)
+    preferences = _parse_recommendation_criteria(" ".join(preference_tags or []))
+    query_has_price = criteria.min_price_cent is not None or criteria.max_price_cent is not None
+    # Stored budget and environment remain constraints; tastes only affect ranking.
+    criteria = replace(
+        criteria,
+        min_price_cent=criteria.min_price_cent if query_has_price else preferences.min_price_cent,
+        max_price_cent=criteria.max_price_cent if query_has_price else preferences.max_price_cent,
+        scene=criteria.scene or preferences.scene,
+        audience_tag=criteria.audience_tag or preferences.audience_tag,
+    )
     query_terms = [
         term
         for term in (
@@ -333,17 +352,28 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
             )
             .where(YouzanProductModel.status == "on_sale")
         ).all()
+        skus_by_item: dict[str, list[YouzanProductSkuModel]] = {}
+        for sku in session.scalars(select(YouzanProductSkuModel)):
+            skus_by_item.setdefault(sku.item_id, []).append(sku)
+        offers_by_item: dict[str, list[dict[str, Any]]] = {}
+        named_items = {
+            product.item_id for product, knowledge in rows
+            if _direct_product_score(normalized_keyword, product, knowledge)
+        }
         ranked = []
         for product, knowledge in rows:
+            if named_items and product.item_id not in named_items:
+                continue
+            offers = _matching_offers(product, skus_by_item.get(product.item_id, []), criteria, knowledge)
+            if not offers:
+                continue
+            offers_by_item[product.item_id] = offers
+            offer_criteria = replace(criteria, min_price_cent=None, max_price_cent=None)
             direct_score = _direct_product_score(
                 normalized_keyword,
                 product,
                 knowledge,
             )
-            # Synced product facts are authoritative even before the optional
-            # recommendation knowledge has been curated. Raw products only
-            # participate on a direct title/alias match; broad recommendations
-            # still require enriched knowledge.
             if knowledge is None:
                 if direct_score:
                     ranked.append((-1, direct_score, product, knowledge))
@@ -351,7 +381,7 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
                     raw_score = _raw_recommendation_score(
                         keyword,
                         product,
-                        criteria,
+                        offer_criteria,
                         query_terms=query_terms,
                     )
                     if raw_score:
@@ -370,7 +400,7 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
             if not direct_score and not _matches_recommendation_criteria(
                 product,
                 knowledge,
-                criteria,
+                offer_criteria,
             ):
                 continue
             score = _match_score(
@@ -380,6 +410,10 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
                 query_terms=query_terms,
             )
             score += _criteria_score(product, criteria)
+            reasons = _preference_reasons(knowledge, preferences)
+            score += len(reasons) * 50
+            if knowledge.seeding_scene and knowledge.seeding_scene in keyword:
+                score += 50
             if criteria.active_count and not direct_score:
                 score = max(score, criteria.active_count * 10)
             if score > 0:
@@ -392,9 +426,7 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
                     )
                 )
                 ranked.append((audience_distance, score, product, knowledge))
-        ranked.sort(
-            key=lambda item: (item[0], -item[1], item[2].sort_order, item[2].id)
-        )
+        ranked.sort(key=lambda item: (-(item[1] + max(0, 30 - item[0] * 10)), item[2].sort_order, item[2].id))
         selected = ranked[:limit]
         item_ids = [product.item_id for _, _, product, _ in selected]
         sku_image_urls: dict[str, list[str]] = {}
@@ -411,17 +443,78 @@ def search_catalog_products(keyword: str, *, limit: int = 3) -> list[dict[str, A
                 value = str(image_url or "").strip()
                 if value:
                     sku_image_urls.setdefault(item_id, []).append(value)
-        return [
-            _serialize_ai_product(
+        result = []
+        for _, _, product, knowledge in selected:
+            offers = offers_by_item[product.item_id]
+            item = _serialize_ai_product(
                 product,
                 knowledge,
                 image_urls=sku_image_urls.get(product.item_id),
+                skus=offers,
             )
-            for _, _, product, knowledge in selected
-        ]
+            item["price_cent"] = offers[0]["price_cent"]
+            item["matching_skus"] = offers
+            item["match_reasons"] = list(dict.fromkeys([
+                "存在符合预算的可售规格" if criteria.min_price_cent is not None or criteria.max_price_cent is not None else "存在可售规格",
+                *_preference_reasons(knowledge, criteria),
+                *_preference_reasons(knowledge, preferences),
+            ]))
+            result.append(item)
+        return result
+
+
+def _matching_offers(
+    product: YouzanProductModel,
+    skus: list[YouzanProductSkuModel],
+    criteria: ProductRecommendationCriteria,
+    knowledge: YouzanProductKnowledgeModel | None = None,
+) -> list[dict[str, Any]]:
+    if product.stock is not None and product.stock <= 0:
+        return []
+    candidates = [
+        {"sku_id": sku.sku_id, "spec_name": sku.spec_name, "price_cent": sku.price_cent, "stock": sku.stock}
+        for sku in skus
+    ] if skus else [{"sku_id": None, "spec_name": "默认规格", "price_cent": product.price_cent, "stock": product.stock}]
+    offers = []
+    for offer in candidates:
+        price = offer["price_cent"]
+        if offer["stock"] is None or offer["stock"] <= 0 or price is None:
+            continue
+        if criteria.min_price_cent is not None and price < criteria.min_price_cent:
+            continue
+        if criteria.max_price_cent is not None and price > criteria.max_price_cent:
+            continue
+        if knowledge and knowledge.spec_hint and not re.search(
+            rf"(?<!\d){re.escape(knowledge.spec_hint)}(?!\d)", offer["spec_name"],
+        ):
+            continue
+        offers.append(offer)
+    return sorted(offers, key=lambda offer: offer["price_cent"])
+
+
+def _preference_reasons(
+    knowledge: YouzanProductKnowledgeModel | None,
+    criteria: ProductRecommendationCriteria,
+) -> list[str]:
+    if knowledge is None:
+        return []
+    reasons = []
+    if criteria.categories and knowledge.category in criteria.categories:
+        reasons.append(f"品类匹配：{knowledge.category}")
+    for tag in criteria.demand_tags:
+        if tag in _known_demands(knowledge):
+            reasons.append(f"需求匹配：{tag}")
+    if criteria.fragrance and knowledge.fragrance == criteria.fragrance:
+        reasons.append(f"香型匹配：{criteria.fragrance}")
+    if criteria.scene and criteria.scene in (knowledge.care_scenes or ""):
+        reasons.append(f"养兰环境匹配：{criteria.scene}")
+    if criteria.audience_tag and _audience_level_distance(criteria.audience_tag, knowledge.audience_tag) == 0:
+        reasons.append(f"客户等级适配：{knowledge.audience_tag}")
+    return reasons
 
 
 def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteria:
+    keyword = re.sub(r"[（(][^）)]*[）)]", "", keyword)
     min_price_cent = None
     max_price_cent = None
     target_price_cent = None
@@ -436,7 +529,7 @@ def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteri
         target_price_cent = round((lower + upper) * 50)
     else:
         price = re.search(
-            r"预算(?:在|是|大概|约)?\s*(\d+(?:\.\d+)?)\s*元?\s*"
+            r"(?:预算(?:在|是|大概|约)?|不超过|最多|上限(?:是|为)?)\s*(\d+(?:\.\d+)?)\s*元?\s*"
             r"(以内|以下|之内|不超过|最多|左右|上下|以上|起)?",
             keyword,
         )
@@ -488,6 +581,8 @@ def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteri
         ),
         None,
     )
+    if sum(value in keyword for value in ("色花", "素花", "红素")) > 1:
+        color_key = None
     return ProductRecommendationCriteria(
         min_price_cent=min_price_cent,
         max_price_cent=max_price_cent,
@@ -498,6 +593,7 @@ def _parse_recommendation_criteria(keyword: str) -> ProductRecommendationCriteri
         flowering_status=flowering_status,
         scene=scene,
         color_key=color_key,
+        demand_tags=tuple(value for value in DEMAND_TERMS if value in keyword),
         requires_easy_care=any(
             value in keyword for value in ("好养", "易养", "易活", "新手")
         ),
@@ -541,8 +637,10 @@ def _matches_recommendation_criteria(
     ):
         return False
     if criteria.color_key and criteria.color_key not in _normalize_name(
-        knowledge.flower_color
+        " ".join([knowledge.flower_color or "", *(knowledge.demand_tags or [])])
     ):
+        return False
+    if not _matches_demands(criteria.demand_tags, _known_demands(knowledge)):
         return False
     knowledge_text = " ".join(
         str(getattr(knowledge, field) or "")
@@ -562,15 +660,44 @@ def _matches_recommendation_criteria(
     return True
 
 
+def _known_demands(knowledge: YouzanProductKnowledgeModel) -> set[str]:
+    if knowledge.demand_tags is not None:
+        return set(knowledge.demand_tags)
+    text = " ".join(str(getattr(knowledge, field) or "") for field in ("flower_color", "highlighted_features"))
+    tags = {tag for tag in DEMAND_TERMS if tag in text}
+    if "素心" in text:
+        tags.add("素花")
+    if "红素" in tags:
+        tags.difference_update({"色花", "素花"})
+    return tags
+
+
+def _matches_demands(requested: tuple[str, ...], actual: set[str]) -> bool:
+    remaining = set(requested)
+    for group in (
+        {"色花", "素花", "红素"},
+        {"奇花", "梅瓣", "荷瓣", "荷型", "水仙瓣"},
+        {"半垂叶", "直立叶"},
+    ):
+        selected = remaining.intersection(group)
+        if selected and not selected.intersection(actual):
+            return False
+        remaining.difference_update(group)
+    return remaining.issubset(actual)
+
+
 def _audience_level_distance(requested: str | None, actual: str | None) -> int:
     """Treat L1-L6 as a ranking preference, never as a recommendation gate."""
     if not requested:
         return 0
     requested_match = re.fullmatch(r"L([1-6])", str(requested).strip(), re.I)
-    actual_match = re.fullmatch(r"L([1-6])", str(actual or "").strip(), re.I)
+    actual_match = re.fullmatch(r"L([1-6])(?:\s*[-~～至]\s*L?([1-6]))?", str(actual or "").strip(), re.I)
     if not requested_match or not actual_match:
         return 99
-    return abs(int(requested_match.group(1)) - int(actual_match.group(1)))
+    low = int(actual_match.group(1))
+    high = int(actual_match.group(2) or low)
+    requested_level = int(requested_match.group(1))
+    return min(abs(requested_level - level) for level in range(min(low, high), max(low, high) + 1))
 
 
 def _has_long_bloom(knowledge: YouzanProductKnowledgeModel) -> bool:
@@ -623,6 +750,8 @@ def _raw_recommendation_score(
         if value
     )
     normalized_searchable = _normalize_name(searchable)
+    if not _matches_demands(criteria.demand_tags, {tag for tag in DEMAND_TERMS if tag in searchable}):
+        return 0
     if not any(
         _normalize_name(marker) in normalized_searchable
         for marker in RAW_ORCHID_PRODUCT_MARKERS
@@ -768,8 +897,11 @@ def _auto_link(session) -> int:
             if product.item_id not in used
             and needle
             and needle in _normalize_name(product.title)
+            and _recommendation_identity_matches(knowledge, product.title)
         ]
         if not candidates:
+            continue
+        if knowledge.source_demand and len(candidates) != 1:
             continue
         candidates.sort(key=lambda product: (len(_normalize_name(product.title)), product.id))
         knowledge.item_id = candidates[0].item_id
@@ -777,6 +909,19 @@ def _auto_link(session) -> int:
         used.add(candidates[0].item_id)
         count += 1
     return count
+
+
+def _recommendation_identity_matches(knowledge, title: str) -> bool:
+    if not knowledge.source_demand:
+        return True
+    identities = re.findall(r"[【「『]([^】」』]+)[】」』]", title)
+    if not identities:
+        return True
+    names = {_normalize_name(knowledge.product_name), *_split_aliases(knowledge.aliases)}
+    for category in ORCHID_CATEGORIES:
+        if knowledge.product_name.startswith(category):
+            names.add(_normalize_name(knowledge.product_name[len(category):]))
+    return bool(names.intersection(_normalize_name(value) for value in identities))
 
 
 def _validate_link(session, item_id: str | None, *, current_id: int | None = None) -> None:
@@ -803,8 +948,12 @@ def _apply_payload(
     keep_empty_item_id: bool = False,
 ) -> None:
     for field in _FIELDS:
+        if field in {"seeding_scene", "source_demand", "spec_hint"} and field not in payload:
+            continue
         value = str(payload.get(field) or "").strip()
         setattr(row, field, value or None)
+    if "demand_tags" in payload:
+        row.demand_tags = list(dict.fromkeys(str(value).strip() for value in payload["demand_tags"] if str(value).strip()))
     if not keep_empty_item_id or payload.get("item_id"):
         row.item_id = str(payload.get("item_id") or "").strip() or None
 
@@ -835,6 +984,7 @@ def _serialize(
         "id": row.id,
         "item_id": row.item_id,
         **{field: getattr(row, field) for field in _FIELDS},
+        "demand_tags": row.demand_tags or [],
         "linked_product": (
             {
                 "item_id": product.item_id,
@@ -884,8 +1034,11 @@ def _serialize_ai_product(
         "h5_url": product.h5_url,
         "skus": list(skus or []),
         "knowledge": {
-            field: getattr(knowledge, field) if knowledge is not None else None
-            for field in _FIELDS
+            "demand_tags": knowledge.demand_tags if knowledge is not None else None,
+            **{
+                field: getattr(knowledge, field) if knowledge is not None else None
+                for field in _FIELDS
+            },
         },
     }
 
