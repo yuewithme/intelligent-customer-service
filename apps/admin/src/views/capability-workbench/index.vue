@@ -724,10 +724,13 @@ function setScheduleTime(value: string) {
   step.schedule.time = value
   if (step.name.startsWith(`${previous} `)) step.name = value + step.name.slice(previous.length)
   for (const field of ['description', 'goal'] as const) {
-    if (step[field]?.startsWith(`每天 ${previous}`)) step[field] = step[field].replace(`每天 ${previous}`, `每天 ${value}`)
+    if (step[field]?.startsWith(`每天 ${previous}`) || step[field]?.startsWith(`北京时间每天 ${previous}`)) {
+      step[field] = step[field].replace(`每天 ${previous}`, `每天 ${value}`)
+    }
   }
   activePackage.value?.transitions.forEach(edge => {
     if (edge.to_step === step.step_id && edge.label === previous) edge.label = value
+    if (edge.to_step === step.step_id && edge.label === `每天 ${previous}`) edge.label = `每天 ${value}`
   })
 }
 
