@@ -85,6 +85,8 @@ export interface ExperienceStepCapability {
 }
 
 export interface ExperienceStep {
+  schedule?: { time: string; copy_type: '名品故事' | '养护科普' | '话题种草'; match_preferences: boolean } | null
+  require_product_interest?: boolean
   step_id: string
   node_id?: string
   name: string
@@ -127,6 +129,8 @@ export interface ExperienceOutcome {
 }
 
 export interface ExperiencePackage {
+  flow_revision: number
+  entry_rule: { required_tags: string[]; tag_categories: string[]; excluded_tags: string[]; fallback_only: boolean }
   sop_scope: 'first_order' | 'service' | 'seeding'
   enabled: boolean
   schema_version: string
@@ -159,6 +163,7 @@ export interface ExperiencePackage {
 }
 
 export interface CapabilityWorkbenchResponse {
+  tag_categories: Array<{ id: string; name: string; values: string[] }>
   read_only: boolean
   source: string
   stats: {
@@ -200,4 +205,24 @@ export const updateWorkbenchSopEnabled = (data: {
 }) => request.put<{ sop_scope: ExperiencePackage['sop_scope']; enabled: boolean }>({
   url: '/api/v1/admin/orchestration/workbench/sop-enabled',
   data
+})
+
+export const saveWorkbenchFlow = (item: ExperiencePackage) => request.put<{ revision: number }>({
+  url: `/api/v1/admin/orchestration/workbench/flows/${item.sop_scope}`,
+  data: {
+    revision: item.flow_revision,
+    start_step_id: item.entry.start_step_id,
+    entry_rule: item.entry_rule,
+    layout: item.layout,
+    steps: item.steps.map(step => ({
+      step_id: step.step_id, name: step.name, type: step.type,
+      description: step.description || '', goal: step.goal || '', directions: step.directions || [],
+      handoff_enabled: Boolean(step.handoff_enabled), require_product_interest: Boolean(step.require_product_interest),
+      schedule: step.schedule || null
+    })),
+    transitions: item.transitions.map(edge => ({
+      transition_id: edge.transition_id, from_step: edge.from_step, to_step: edge.to_step || null,
+      outcome: edge.to_step ? null : 'complete', label: edge.label, priority: edge.priority
+    }))
+  }
 })

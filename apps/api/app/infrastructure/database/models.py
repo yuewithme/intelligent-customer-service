@@ -1226,6 +1226,21 @@ class YouzanToolCallAuditModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class SopFlowModel(Base):
+    __tablename__ = "sop_flows"
+    scope: Mapped[str] = mapped_column(String(32), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    definition_json: Mapped[str] = mapped_column(Text)
+
+
+class SopFlowCursorModel(Base):
+    __tablename__ = "sop_flow_cursors"
+    cursor_key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(32))
+    revision: Mapped[int] = mapped_column(Integer)
+    step_id: Mapped[str] = mapped_column(String(128))
+
+
 class HandoffNotificationSettingModel(Base):
     __tablename__ = "handoff_notification_settings"
 

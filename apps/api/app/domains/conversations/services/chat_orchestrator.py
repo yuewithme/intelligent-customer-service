@@ -427,6 +427,8 @@ def _agent_intent(
         slots={
             "customer_signal": metadata.get("customer_signal", "none"),
             "sop_scope": metadata.get("sop_node", "general.reply").partition(".")[0],
+            "sop_node": metadata.get("sop_node"),
+            "flow_version": metadata.get("flow_version"),
             **(
                 {"system_event": message.metadata.get("system_event")}
                 if message.metadata.get("system_event")

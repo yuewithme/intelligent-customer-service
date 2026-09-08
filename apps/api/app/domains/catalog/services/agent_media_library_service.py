@@ -136,12 +136,13 @@ def select_scheduled_agent_media(
 
 def select_preference_agent_video(
     *, local_date: date, preference_groups: tuple[set[str], set[str]], max_video_bytes: int,
+    copy_type: str = "话题种草",
 ) -> dict[str, Any] | None:
     if not all(preference_groups):
         return None
     candidates = []
     for item in _load_items():
-        if (item.get("media_type") != "video" or item.get("copy_type") != "话题种草"
+        if (item.get("media_type") != "video" or item.get("copy_type") != copy_type
                 or item.get("copy_status") != "ready" or not item.get("thumbnail_path")
                 or not 0 < int(item.get("bytes") or 0) <= max_video_bytes):
             continue
@@ -153,7 +154,7 @@ def select_preference_agent_video(
     if not candidates:
         return None
     cycle, position = divmod(local_date.toordinal(), len(candidates))
-    return _scheduled_cycle_order(candidates, cycle=cycle, category="preference", copy_type="话题种草")[position]
+    return _scheduled_cycle_order(candidates, cycle=cycle, category="preference", copy_type=copy_type)[position]
 
 
 def _video_matches_preference(tag: str, labels: set[str], title: str) -> bool:

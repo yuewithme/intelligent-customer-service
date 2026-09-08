@@ -3,6 +3,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.core.auth import require_api_key
+from app.domains.orchestration.schemas.sop_flow import SopFlowDefinition, SopScope
+from app.domains.orchestration.services.sop_flow_service import save_flow
 from app.domains.handoff.services.handoff_notification_service import update_sop_enabled
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.orchestration.services.workbench_service import (
@@ -36,6 +38,12 @@ async def capability_workbench() -> APIResponse:
 @router.put("/workbench/sop-enabled", response_model=APIResponse)
 async def update_sop_switch(request: SopEnabledUpdateRequest) -> APIResponse:
     return APIResponse(code=0, message="success", data=update_sop_enabled(request.sop_scope, request.enabled))
+
+
+@router.put("/workbench/flows/{scope}", response_model=APIResponse)
+async def update_flow(scope: SopScope, request: SopFlowDefinition) -> APIResponse:
+    saved = save_flow(scope, request)
+    return APIResponse(code=0, message="流程已保存并生效", data={"revision": saved.revision})
 
 
 @router.put("/workbench/sop-node-handoff", response_model=APIResponse)
