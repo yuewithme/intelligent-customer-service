@@ -53,6 +53,7 @@ from app.domains.customers.services.user_profile_service import (
 from app.domains.decisioning.services.service_sop import SERVICE_OPENING
 from app.domains.handoff.services.handoff_notification_service import (
     is_sop_node_handoff_enabled,
+    is_sop_enabled,
 )
 
 
@@ -1604,6 +1605,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
             outbound_messages = _outbound_messages(chat_result)
             sales_turn_id = str(chat_result.get("trace_id") or "").strip()
             sales_metadata = {
+                "sop_scope": ((chat_result.get("intent") or {}).get("slots") or {}).get("sop_scope"),
                 "provider": "eyun",
                 "owner_wc_id": batch_data["wc_id"],
                 "contact_wc_id": (
@@ -2059,6 +2061,8 @@ def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
 
 
 async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
+    if not is_sop_enabled("first_order"):
+        return
     if is_sop_node_handoff_enabled("first_order", "first_order.opening"):
         await force_handoff(
             make_conversation_id(
@@ -2609,6 +2613,14 @@ def _ensure_aware(value: datetime) -> datetime:
 def _validate_outbound_before_send(
     session: Session, row: EyunOutboundMessageModel
 ) -> bool:
+    if row.conversation_message_id:
+        message = session.get(ConversationMessageModel, row.conversation_message_id)
+        if message and message.route in {"opening", "agent_first_contact"} and not is_sop_enabled("first_order"):
+            return False
+        if message:
+            scope = _load_message_metadata(message.metadata_json).get("sop_scope")
+            if scope in {"first_order", "service", "seeding"} and not is_sop_enabled(scope):
+                return False
     if _is_service_material_touch_batch_key(row.source_batch_key):
         from app.domains.sales.services.service_material_touch_service import (
             validate_service_material_touch_before_send,

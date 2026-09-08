@@ -95,6 +95,58 @@ def test_service_tag_schedules_three_fixed_daily_slots(monkeypatch, tmp_path):
     assert [row.due_at.hour for row in rows] == [23, 2, 6]
 
 
+def test_seeding_requires_both_preferences_and_runs_alongside_service(monkeypatch, tmp_path):
+    from app.domains.handoff.services.handoff_notification_service import update_sop_enabled
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 8, 4, 22, 30, tzinfo=timezone.utc)
+    assert service.ensure_service_material_touch_tasks(now=now, sop_scope="seeding") == 0
+    update_sop_enabled("seeding", True)
+    with service._database_session() as session:
+        profile = session.get(UserProfileModel, "customer-1")
+        profile.customer_tags_json = json.dumps(["服务中", "建兰"], ensure_ascii=False)
+        session.commit()
+    assert service.ensure_service_material_touch_tasks(now=now, sop_scope="seeding") == 0
+    with service._database_session() as session:
+        profile = session.get(UserProfileModel, "customer-1")
+        profile.customer_tags_json = json.dumps(["服务中", "建兰", "浓香"], ensure_ascii=False)
+        session.commit()
+    assert service.ensure_service_material_touch_tasks(now=now) == 3
+    assert service.ensure_service_material_touch_tasks(now=now, sop_scope="seeding") == 1
+    assert service.ensure_service_material_touch_tasks(now=now, sop_scope="seeding") == 0
+    with service._database_session() as session:
+        row = session.query(AgentWakeupModel).filter_by(kind="seeding_material_touch").one()
+        assert row.due_at.hour == 7
+        assert row.local_date == "2026-08-05"
+
+
+@pytest.mark.parametrize("scope", ["service", "seeding"])
+@pytest.mark.asyncio
+async def test_sop_off_cancels_pending_and_queued_touches(monkeypatch, tmp_path, scope):
+    from app.domains.handoff.services.handoff_notification_service import update_sop_enabled
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    update_sop_enabled(scope, True)
+    with service._database_session() as session:
+        profile = session.get(UserProfileModel, "customer-1")
+        profile.customer_tags_json = json.dumps(["服务中", "建兰", "浓香"], ensure_ascii=False)
+        session.commit()
+    now = datetime(2026, 8, 5, 6, 0, tzinfo=timezone.utc)
+    assert service.ensure_service_material_touch_tasks(now=now, sop_scope=scope) == 1
+    update_sop_enabled(scope, False)
+    assert service.ensure_service_material_touch_tasks(now=now, sop_scope=scope) == 0
+    assert await service.process_due_service_material_touches(now=now + timedelta(hours=1)) == 0
+    with service._database_session() as session:
+        row = session.query(AgentWakeupModel).one()
+        assert row.status == "cancelled"
+        row.status = "queued"
+        task_id = row.id
+        session.commit()
+    assert service.validate_service_material_touch_before_send(f"service_material_touch:{task_id}") is False
+
+
 def test_global_handoff_does_not_disable_service_touches(monkeypatch, tmp_path):
     from app.domains.handoff.schemas.handoff_notification import (
         HandoffNotificationSettingsUpdateRequest,
@@ -227,6 +279,48 @@ async def test_due_service_touch_queues_copy_before_media(
         }
     else:
         assert queued[1]["content"] == "https://media.example.com/story.jpg"
+
+
+@pytest.mark.asyncio
+async def test_seeding_queues_paired_video_and_rechecks_changed_preferences(monkeypatch, tmp_path):
+    from app.domains.handoff.services.handoff_notification_service import update_sop_enabled
+    from app.integrations.eyun.services import eyun_material_service, message_risk_control_service
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    update_sop_enabled("seeding", True)
+    with service._database_session() as session:
+        profile = session.get(UserProfileModel, "customer-1")
+        profile.customer_tags_json = json.dumps(["建兰", "浓香"], ensure_ascii=False)
+        session.commit()
+    selected = []
+    def select_video(**kwargs):
+        selected.append(kwargs["preference_groups"])
+        return {"format": "video", "url": "https://media.example.com/product.mp4",
+                "thumb_url": "https://media.example.com/product.jpg", "copy_text": "今天分享这款浓香建兰。"}
+    queued = []
+    async def materialize(**kwargs):
+        return {"id": 99}
+    async def enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+    monkeypatch.setattr(service, "select_preference_agent_video", select_video)
+    monkeypatch.setattr(eyun_material_service, "materialize_eyun_outbound_media", materialize)
+    monkeypatch.setattr(message_risk_control_service, "enqueue_wechat_outbound", enqueue)
+    now = datetime(2026, 8, 5, 7, 0, tzinfo=timezone.utc)
+    assert service.ensure_service_material_touch_tasks(now=now, sop_scope="seeding") == 1
+    assert await service.process_due_service_material_touches(now=now) == 1
+    assert selected == [({"建兰"}, {"浓香"})]
+    assert [item["message_type"] for item in queued] == ["text", "video"]
+    assert queued[1]["depends_on_outbound_id"] == 1
+    assert {item["source_type"] for item in queued} == {"seeding_material_touch"}
+    batch = queued[0]["source_batch_key"]
+    assert service.validate_service_material_touch_before_send(batch)
+    with service._database_session() as session:
+        profile = session.get(UserProfileModel, "customer-1")
+        profile.customer_tags_json = json.dumps(["春兰", "浓香"], ensure_ascii=False)
+        session.commit()
+    assert not service.validate_service_material_touch_before_send(batch)
 
 
 @pytest.mark.asyncio

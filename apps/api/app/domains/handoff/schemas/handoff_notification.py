@@ -19,11 +19,19 @@ SOP_NODE_GROUPS = (
         "sop_scope": "service",
         "name": "服务 SOP",
         "nodes": (
-            ("service.need_discovery", "问题处理与服务挖需", "先处理当前问题，再了解会影响后续服务的信息。"),
+            ("service.need_discovery", "问题处理", "客户发来问题时触发，先解决问题，再了解会影响后续服务的信息。"),
             ("service.member_benefit", "会员权益交付", "结合当前问题交付相关教程、资料或指导。"),
             ("service.post_service_close", "服务收口与偏好采集", "问题解决后完成关系承接并采集稳定偏好。"),
             ("service.repurchase_discovery", "复购需求挖掘", "客户出现真实新需求时进行复购匹配。"),
             ("service.relationship_maintenance", "长期关系维护", "围绕回访、养护内容和承诺延续服务关系。"),
+        ),
+    },
+    {
+        "sop_scope": "seeding",
+        "name": "种草 SOP",
+        "nodes": (
+            ("seeding.product_interest", "表达想了解产品信息", "结合上下文识别客户主动想了解产品的意向；普通确认、感谢和偏好标签不等于意向。"),
+            ("seeding.recommendation", "继续推品", "按客户偏好查询真实商品，介绍匹配理由并承接产品咨询。"),
         ),
     },
 )

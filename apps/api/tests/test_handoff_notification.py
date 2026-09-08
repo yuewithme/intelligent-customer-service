@@ -73,6 +73,7 @@ async def test_admin_can_save_handoff_notification_settings(monkeypatch, tmp_pat
     assert [group["sop_scope"] for group in saved["sop_node_groups"]] == [
         "first_order",
         "service",
+        "seeding",
     ]
     assert saved["recipients"][0]["remark_name"] == "小李"
     assert get_handoff_notification_settings()["message_text"] == "请及时接待这位客户。"
@@ -84,7 +85,7 @@ async def test_admin_can_save_handoff_notification_settings(monkeypatch, tmp_pat
     )
 
 
-def test_workbench_exposes_both_sops_and_every_business_node(monkeypatch, tmp_path):
+def test_workbench_exposes_three_sops_and_parallel_branches(monkeypatch, tmp_path):
     _settings(monkeypatch, tmp_path)
 
     workbench = get_capability_workbench()
@@ -93,12 +94,29 @@ def test_workbench_exposes_both_sops_and_every_business_node(monkeypatch, tmp_pa
     assert [package["package_id"] for package in packages] == [
         "orchid.first_order",
         "orchid.service",
+        "orchid.seeding",
     ]
     steps = [step for package in packages for step in package["steps"]]
-    assert len(steps) == 12
-    assert all(step["node_id"] for step in steps)
-    assert all(step["handoff_enabled"] is False for step in steps)
+    business_steps = [step for step in steps if step.get("node_id")]
+    assert len(business_steps) == 14
+    assert all(step["handoff_enabled"] is False for step in business_steps)
+    assert [package["enabled"] for package in packages] == [True, True, False]
+    for package, reply_node in zip(packages[1:], ("need_discovery", "product_interest")):
+        edges = package["transitions"]
+        assert {edge["to_step"] for edge in edges if edge["from_step"] == "entry"} == {"daily_touch", reply_node}
+    assert {edge["to_step"] for edge in packages[1]["transitions"] if edge["from_step"] == "daily_touch"} == {"story", "knowledge", "topic"}
     assert workbench["read_only"] is False
+
+
+def test_sop_switches_persist_independently(monkeypatch, tmp_path):
+    _settings(monkeypatch, tmp_path)
+    service = handoff_notification_service
+    service.update_sop_enabled("service", False)
+    service.update_sop_enabled("seeding", True)
+    service._sessionmakers.clear()
+    assert service.get_sop_settings() == {"first_order": True, "service": False, "seeding": True}
+    packages = get_capability_workbench()["experience_packages"]
+    assert [package["enabled"] for package in packages] == [True, False, True]
 
 
 def test_workbench_updates_shared_sop_handoff_setting(monkeypatch, tmp_path):
@@ -153,6 +171,7 @@ def test_existing_handoff_settings_table_adds_global_switch_column(
     }
     assert "global_handoff_enabled" in columns
     assert "sop_node_handoff_json" in columns
+    assert "sop_enabled_json" in columns
     assert settings["global_handoff_enabled"] is False
     assert not any(settings["sop_node_handoff"].values())
 

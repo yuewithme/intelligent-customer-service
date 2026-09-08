@@ -142,6 +142,50 @@ async def test_enabled_sop_node_handoff_prevents_business_tool_execution(monkeyp
     assert reply.metadata["agent_runtime"]["result"] == "sop_node_handoff"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scopes", [["seeding"], ["service", "seeding"]])
+async def test_seeding_intent_node_intercepts_recommendation_before_tools(monkeypatch, scopes):
+    calls = []
+    async def generate(*args, **kwargs):
+        return _decision(sop_node="seeding.recommendation", purchase_signal="interest", tools=[
+            {"call_id": "product-1", "name": "product.search", "arguments": {"query": "建兰 浓香"}}
+        ])
+    async def execute(*, call_id, name, arguments, context):
+        calls.append(name)
+        context.handoff = {"status": "pending", "reason": "产品了解意向转人工"}
+        return AgentToolResult(call_id=call_id, tool=name, status="pending", data={"handoff": context.handoff})
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    monkeypatch.setattr(agent_runtime, "execute_agent_tool", execute)
+    monkeypatch.setattr(agent_runtime, "is_sop_node_handoff_enabled", lambda scope, node: node == "seeding.product_interest")
+    message = _message("我想了解视频里的这款建兰")
+    message.metadata.update(sop_scope=scopes[0], sop_scopes=scopes)
+    reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id="customer-1"), workspace={})
+    assert calls == ["human.handoff"]
+    assert reply.metadata["agent_runtime"]["sop_node"] == "seeding.product_interest"
+    assert reply.metadata["agent_runtime"]["sop_scope"] == "seeding"
+
+
+@pytest.mark.asyncio
+async def test_inactive_seeding_node_is_rejected_before_tools(monkeypatch):
+    decisions = iter([
+        _decision(sop_node="seeding.recommendation", purchase_signal="interest", tools=[
+            {"call_id": "product-1", "name": "product.search", "arguments": {"query": "建兰"}}
+        ]),
+        _decision(sop_node="general.reply", final={"messages": [{"type": "text", "content": "可以，您想了解哪方面的信息？"}], "need_human": False}),
+    ])
+    async def generate(*args, **kwargs):
+        return next(decisions)
+    async def execute(**kwargs):
+        raise AssertionError("disabled SOP must not execute business tools")
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    monkeypatch.setattr(agent_runtime, "execute_agent_tool", execute)
+    message = _message("介绍一下")
+    message.metadata.update(sop_scope="general", sop_scopes=[])
+    reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id="customer-1"), workspace={})
+    assert reply.metadata["agent_runtime"]["sop_node"] == "general.reply"
+    assert reply.metadata["agent_runtime"]["attempt_trace"][0]["outcome"] == "invalid_schema"
+
+
 def test_tool_result_payload_marks_draft_and_prepared_items_as_unsent():
     payload = json.loads(
         build_tool_result_payload(

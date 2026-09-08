@@ -24,12 +24,23 @@ def risk_control_db(monkeypatch, tmp_path):
 
     db_path = tmp_path / "risk_control.db"
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{db_path.as_posix()}")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{(tmp_path / 'business.db').as_posix()}")
     monkeypatch.setenv("CHAT_LOG_PROVIDER", "sqlite")
     get_settings.cache_clear()
     message_risk_control_service._sessionmakers.clear()
     yield
     get_settings.cache_clear()
     message_risk_control_service._sessionmakers.clear()
+
+
+@pytest.mark.asyncio
+async def test_first_order_master_switch_prevents_opening(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+    monkeypatch.setattr(service, "is_sop_enabled", lambda scope: False)
+    async def unexpected(**kwargs):
+        raise AssertionError("disabled first-order SOP must not send an opening")
+    monkeypatch.setattr(service, "enqueue_eyun_outbound", unexpected)
+    await service._send_opening_for_new_friend({})
 
 
 def test_risk_control_defaults():
