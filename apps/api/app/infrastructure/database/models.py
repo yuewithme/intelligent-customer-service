@@ -21,6 +21,14 @@ class Base(DeclarativeBase):
     pass
 
 
+class EyunAccountSettingModel(Base):
+    __tablename__ = "eyun_account_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    w_id: Mapped[str] = mapped_column(String(256))
+    wc_id: Mapped[str] = mapped_column(String(256))
+
+
 class YouzanCredentialModel(Base):
     __tablename__ = "youzan_credentials"
 

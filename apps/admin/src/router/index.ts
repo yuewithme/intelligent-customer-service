@@ -2,8 +2,6 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import SalesLayout from '@/layouts/SalesLayout.vue'
 import { clearGateRole, setGateRole, type GateRole } from '@/utils/gate'
 
-const PlaceholderPage = () => import('@/views/PlaceholderPage.vue')
-
 const routes: RouteRecordRaw[] = [
   { path: '/demo-chat', component: () => import('@/views/demo-chat/index.vue'), meta: { public: true } },
   { path: '/gate', component: () => import('@/views/Gate/index.vue'), meta: { public: true } },
@@ -26,7 +24,7 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '销售活动' }
       },
       { path: 'settings/handoff', component: () => import('@/views/handoff-settings/index.vue'), meta: { title: '转人工设置' } },
-      { path: 'settings/model-config', component: PlaceholderPage, props: { title: '模型配置' }, meta: { title: '模型配置' } }
+      { path: 'settings/model-config', component: () => import('@/views/model-config/index.vue'), meta: { title: '模型配置' } }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/workbench' }
