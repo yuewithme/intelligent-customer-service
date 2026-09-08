@@ -16,6 +16,9 @@ PurchaseSignal = Literal[
     "direct",
 ]
 SopNode = Literal[
+    "general.reply",
+    "seeding.product_interest",
+    "seeding.recommendation",
     "first_order.opening",
     "first_order.need_discovery",
     "first_order.pain_discovery",

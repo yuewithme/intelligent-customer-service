@@ -53,6 +53,8 @@ async def run_sales_agent(
     workspace: dict[str, Any],
 ) -> FinalReply:
     sop_scope = reply_policy.sop_scope_for_message(message)
+    sop_scopes = message.metadata.get("sop_scopes", [sop_scope])
+    allowed_scopes = set(sop_scopes) | {"general"}
     context = AgentExecutionContext(
         message=message,
         user_state=user_state,
@@ -60,7 +62,7 @@ async def run_sales_agent(
     )
     event_context = _event_context(message)
     conversation: list[dict[str, str]] = [
-        {"role": "system", "content": build_system_prompt(sop_scope=sop_scope)},
+        {"role": "system", "content": build_system_prompt(sop_scope=sop_scope, sop_scopes=sop_scopes)},
         {
             "role": "user",
             "content": build_turn_payload(
@@ -96,8 +98,10 @@ async def run_sales_agent(
             )
             _merge_usage(usage, raw.get("usage"))
             decision = AgentTurnDecision.model_validate(raw.get("data"))
-            if not decision.sop_node.startswith(f"{sop_scope}."):
+            if decision.sop_node.partition(".")[0] not in allowed_scopes:
                 raise ValueError("sop_node_scope_mismatch")
+            if decision.sop_node.startswith("seeding.") and decision.purchase_signal == "none":
+                raise ValueError("seeding_requires_product_interest")
         except (ValidationError, TypeError, ValueError) as exc:
             logger.warning("Sales Agent returned invalid decision: %s", type(exc).__name__)
             attempt_trace.append(
@@ -125,7 +129,7 @@ async def run_sales_agent(
                     "content": (
                         "上一个输出不符合 Agent JSON 契约。工具调用与最终回复必须二选一："
                         "需要调用工具时 final_response 必须为 null；准备回复客户时 tool_calls 必须为空。"
-                        f"sop_node 必须使用 {sop_scope} 范围内的节点。"
+                        f"sop_node 必须使用 {sorted(allowed_scopes)} 范围内的节点；种草节点必须有明确产品了解意向（interest/direct）。"
                         "未进入最终回复的文字和卡片都没有发送给客户。请按规定结构重新判断，不要输出解释。"
                     ),
                 }
@@ -168,15 +172,18 @@ async def run_sales_agent(
         explicit_handoff = any(
             call.name == "human.handoff" for call in decision.tool_calls
         ) or bool(decision.final_response and decision.final_response.need_human)
+        decision_scope = decision.sop_node.partition(".")[0]
+        if decision_scope == "seeding" and is_sop_node_handoff_enabled("seeding", "seeding.product_interest"):
+            decision.sop_node = "seeding.product_interest"
         if (
             not explicit_handoff
-            and is_sop_node_handoff_enabled(sop_scope, decision.sop_node)
+            and is_sop_node_handoff_enabled(decision_scope, decision.sop_node)
         ):
             diagnostic["outcome"] = "sop_node_handoff"
             return await _sop_node_handoff_reply(
                 decision=decision,
                 context=context,
-                sop_scope=sop_scope,
+                sop_scope=decision_scope,
                 usage=usage,
                 tool_results=tool_results,
                 attempt_trace=attempt_trace,
@@ -435,7 +442,8 @@ async def _finalize_reply(
                 "trace_id": context.message.trace_id,
                 "commercial_judgment": decision.commercial_judgment,
                 "relationship_purpose": decision.relationship_purpose,
-                "sop_scope": reply_policy.sop_scope_for_message(context.message),
+                "sop_scope": decision.sop_node.partition(".")[0],
+                "eligible_sop_scopes": context.message.metadata.get("sop_scopes", []),
                 "sop_node": decision.sop_node,
                 "customer_signal": decision.customer_signal,
                 "purchase_signal": decision.purchase_signal,

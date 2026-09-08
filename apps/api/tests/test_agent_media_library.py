@@ -27,6 +27,25 @@ def _copy_fields(title: str, category: str) -> dict:
     }
 
 
+def test_preference_video_requires_both_groups_and_valid_paired_media(monkeypatch):
+    base = dict(id="video-1", category="建兰", title="浓香建兰", relative_path="浓香建兰.mp4",
+                media_type="video", bytes=100, thumbnail_path="thumb.jpg", copy_type="话题种草",
+                copy_status="ready", copy_text="看看这款浓香建兰", copy_ref="copy:1", copy_source="test", copy_version=1)
+    monkeypatch.setattr(library, "_load_items", lambda: (base,))
+    def select(groups):
+        return library.select_preference_agent_video(local_date=date(2026, 9, 8), preference_groups=groups, max_video_bytes=1024)
+    assert select(({"建兰"}, {"浓香"}))["format"] == "video"
+    assert select(({"春兰"}, {"浓香"})) is None
+    assert select(({"建兰"}, {"红素"})) is None
+    assert select(({"建兰"}, set())) is None
+    base["media_type"] = "image"
+    assert select(({"建兰"}, {"浓香"})) is None
+    base["media_type"] = "video"
+    base["thumbnail_path"] = ""
+    assert select(({"建兰"}, {"浓香"})) is None
+    assert not library._video_matches_preference("蕙兰", set(), "浓香大花蕙兰")
+
+
 def _write_library(tmp_path, monkeypatch):
     root = tmp_path / "agent-material-library"
     image = root / "图文解说类" / "2.兰花病害防治" / "2.兰花病害防治1.jpg"

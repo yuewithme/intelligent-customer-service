@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import get_settings
 from app.domains.catalog.services.agent_media_library_service import (
     select_scheduled_agent_media,
+    select_preference_agent_video,
 )
+from app.domains.handoff.services.handoff_notification_service import is_sop_enabled
+from app.domains.sales.services.sop_policy_service import has_product_preferences, preference_tag_groups
 from app.domains.sales.services.tag_catalog import get_tag_categories
 from app.infrastructure.database.models import (
     AgentCustomerStateModel,
@@ -34,6 +37,8 @@ _RETRY_DELAY = timedelta(minutes=15)
 _PROCESSING_LEASE = timedelta(minutes=10)
 _CONTACT_SYNC_RETRY_DELAY = timedelta(minutes=10)
 _SERVICE_MATERIAL_KIND = "service_material_touch"
+_SEEDING_MATERIAL_KIND = "seeding_material_touch"
+_TOUCH_SCOPES = {_SERVICE_MATERIAL_KIND: "service", _SEEDING_MATERIAL_KIND: "seeding"}
 _SERVICE_TAG_CATEGORY_IDS = {"service_status", "service_tag"}
 _INACTIVE_SERVICE_TAG_MARKERS = ("暂停", "停止", "结束", "退订", "禁用")
 _database_factories: dict[str, sessionmaker] = {}
@@ -101,21 +106,22 @@ def get_agent_relationship_state(customer_id: str) -> dict[str, Any]:
         }
 
 
-def ensure_service_material_touch_tasks(*, now: datetime | None = None) -> int:
+def ensure_service_material_touch_tasks(*, now: datetime | None = None, sop_scope: str = "service") -> int:
     settings = get_settings()
-    if not settings.service_material_touch_enabled:
+    if not settings.service_material_touch_enabled or not is_sop_enabled(sop_scope):
         return 0
-    zone = _timezone(settings.service_material_touch_timezone)
+    kind = _SEEDING_MATERIAL_KIND if sop_scope == "seeding" else _SERVICE_MATERIAL_KIND
+    zone = _timezone("Asia/Shanghai" if sop_scope == "seeding" else settings.service_material_touch_timezone)
     utc_now = (now or _utcnow()).astimezone(timezone.utc)
     current = utc_now.astimezone(zone)
     local_date = current.date().isoformat()
     grace = timedelta(minutes=settings.service_material_touch_grace_minutes)
     service_tag_values = _active_service_tag_values()
-    if not service_tag_values:
+    if sop_scope == "service" and not service_tag_values:
         return 0
     created = 0
     with _database_session() as session:
-        service_customer_ids = _service_customer_ids(session, service_tag_values)
+        service_customer_ids = _service_customer_ids(session, service_tag_values, kind=kind)
         if not service_customer_ids:
             return 0
         contacts = list(
@@ -129,13 +135,13 @@ def ensure_service_material_touch_tasks(*, now: datetime | None = None) -> int:
             )
         )
         for contact in contacts:
-            for slot_id, slot_time, _, _ in _service_material_slots():
+            for slot_id, slot_time, _, _ in _touch_slots(kind):
                 due_local = datetime.combine(current.date(), slot_time, tzinfo=zone)
                 if due_local < current - grace:
                     continue
                 due_at = max(due_local.astimezone(timezone.utc), utc_now)
                 dedup_key = (
-                    f"service_material:{contact.tenant_id}:{contact.id}:"
+                    f"{sop_scope}_material:{contact.tenant_id}:{contact.id}:"
                     f"{local_date}:{slot_id}"
                 )
                 if session.scalar(
@@ -153,9 +159,9 @@ def ensure_service_material_touch_tasks(*, now: datetime | None = None) -> int:
                         tenant_id=contact.tenant_id,
                         customer_id=contact.wc_id,
                         contact_id=contact.id,
-                        kind=_SERVICE_MATERIAL_KIND,
+                        kind=kind,
                         local_date=local_date,
-                        reason=f"service_material:{slot_id}",
+                        reason=f"{sop_scope}_material:{slot_id}",
                         checklist_json="[]",
                         status=technical_status,
                         due_at=due_at,
@@ -189,7 +195,7 @@ async def process_due_service_material_touches(
         stale_rows = list(
             session.scalars(
                 select(AgentWakeupModel).where(
-                    AgentWakeupModel.kind == _SERVICE_MATERIAL_KIND,
+                    AgentWakeupModel.kind.in_(_TOUCH_SCOPES),
                     AgentWakeupModel.status == "processing",
                     AgentWakeupModel.updated_at < utc_now - _PROCESSING_LEASE,
                 )
@@ -206,7 +212,7 @@ async def process_due_service_material_touches(
             session.scalars(
                 select(AgentWakeupModel)
                 .where(
-                    AgentWakeupModel.kind == _SERVICE_MATERIAL_KIND,
+                    AgentWakeupModel.kind.in_(_TOUCH_SCOPES),
                     AgentWakeupModel.status == "pending",
                     AgentWakeupModel.due_at <= utc_now,
                 )
@@ -254,11 +260,9 @@ async def _process_service_material_touch(
             row.updated_at = now
             session.commit()
             return False
-        if not _profile_has_active_service_tag(
-            session, row.customer_id, _active_service_tag_values()
-        ):
+        if not _touch_is_eligible(session, row):
             row.status = "cancelled"
-            row.last_error = "客户已无有效服务标签"
+            row.last_error = "SOP 已关闭或客户已不满足标签入口"
             row.updated_at = now
             session.commit()
             return False
@@ -269,9 +273,10 @@ async def _process_service_material_touch(
             row.updated_at = now
             session.commit()
             return False
-        slot_id = row.reason.removeprefix("service_material:")
+        touch_kind = row.kind
+        slot_id = row.reason.partition(":")[2]
         slot = next(
-            (item for item in _service_material_slots() if item[0] == slot_id),
+            (item for item in _touch_slots(touch_kind) if item[0] == slot_id),
             None,
         )
         if slot is None:
@@ -288,15 +293,26 @@ async def _process_service_material_touch(
             scheduled_date = now.astimezone(
                 _timezone(get_settings().service_material_touch_timezone)
             ).date()
-        material = select_scheduled_agent_media(
-            local_date=scheduled_date,
-            category=slot[2],
-            copy_type=slot[3],
-            max_video_bytes=get_settings().service_material_max_video_bytes,
-        )
+        if touch_kind == _SEEDING_MATERIAL_KIND:
+            profile = session.get(UserProfileModel, row.customer_id)
+            tags = _profile_tag_values(profile) if profile else set()
+            material = select_preference_agent_video(
+                local_date=scheduled_date,
+                preference_groups=preference_tag_groups(tags),
+                max_video_bytes=get_settings().service_material_max_video_bytes,
+            )
+            row.checklist_json = json.dumps(sorted(tags), ensure_ascii=False)
+            session.commit()
+        else:
+            material = select_scheduled_agent_media(
+                local_date=scheduled_date,
+                category=slot[2],
+                copy_type=slot[3],
+                max_video_bytes=get_settings().service_material_max_video_bytes,
+            )
         if material is None:
             row.status = "failed"
-            row.last_error = f"素材库无可用的{slot[3]}内容"
+            row.last_error = "无同时匹配两类偏好的可用产品视频，已跳过" if touch_kind == _SEEDING_MATERIAL_KIND else f"素材库无可用的{slot[3]}内容"
             row.updated_at = now
             session.commit()
             return False
@@ -329,7 +345,7 @@ async def _process_service_material_touch(
         return False
 
     delivery_metadata = {
-        "touch_kind": _SERVICE_MATERIAL_KIND,
+        "touch_kind": touch_kind,
         "scheduled_at": scheduled_at,
         "slot_id": slot_id,
         "material_ref": material.get("material_ref"),
@@ -356,16 +372,16 @@ async def _process_service_material_touch(
             content=content,
             message_type=message_type,
             sender_type="system",
-            sender_id=_SERVICE_MATERIAL_KIND,
+            sender_id=touch_kind,
             trace_id=f"{batch_key}:{message_role}",
             delivery_status="queued",
-            route=_SERVICE_MATERIAL_KIND,
+            route=touch_kind,
             reconcile_pending=False,
             metadata={
                 **delivery_metadata,
                 "provider": "eyun",
-                "origin": _SERVICE_MATERIAL_KIND,
-                "source_type": _SERVICE_MATERIAL_KIND,
+                "origin": touch_kind,
+                "source_type": touch_kind,
                 "source_id": str(wakeup_id),
                 "source_batch_key": batch_key,
                 "message_role": message_role,
@@ -436,8 +452,8 @@ async def _process_service_material_touch(
                 session_id="default",
                 tenant_id=tenant_id,
                 sender_type="system",
-                sender_id=_SERVICE_MATERIAL_KIND,
-                source_type=_SERVICE_MATERIAL_KIND,
+                sender_id=touch_kind,
+                source_type=touch_kind,
                 source_id=str(wakeup_id),
                 delivery_metadata={
                     **delivery_metadata,
@@ -489,7 +505,7 @@ def validate_service_material_touch_before_send(source_batch_key: str | None) ->
         row = session.get(AgentWakeupModel, task_id)
         if row is None or row.status not in {"queued", "completed"}:
             return False
-        if row.kind != _SERVICE_MATERIAL_KIND:
+        if row.kind not in _TOUCH_SCOPES:
             row.status = "cancelled"
             row.last_error = "非服务中触达任务已停用"
             row.updated_at = _utcnow()
@@ -507,13 +523,14 @@ def validate_service_material_touch_before_send(source_batch_key: str | None) ->
             row.updated_at = _utcnow()
             session.commit()
             return False
-        service_tagged = _profile_has_active_service_tag(
-            session, row.customer_id, _active_service_tag_values()
-        )
+        service_tagged = _touch_is_eligible(session, row)
+        if service_tagged and row.kind == _SEEDING_MATERIAL_KIND:
+            profile = session.get(UserProfileModel, row.customer_id)
+            service_tagged = preference_tag_groups(_profile_tag_values(profile)) == preference_tag_groups(json.loads(row.checklist_json or "[]"))
         customer_id = row.customer_id
         if not service_tagged:
             row.status = "cancelled"
-            row.last_error = "发送前检查发现服务标签已移除"
+            row.last_error = "发送前检查发现 SOP 已关闭或偏好/服务标签已变更"
             row.updated_at = _utcnow()
             session.commit()
             return False
@@ -531,7 +548,7 @@ def sync_service_material_touch_from_outbound(
     now = _utcnow()
     with _database_session() as session:
         row = session.get(AgentWakeupModel, task_id)
-        if row is None or row.kind != _SERVICE_MATERIAL_KIND:
+        if row is None or row.kind not in _TOUCH_SCOPES:
             return
         if status == "confirmed":
             with _chat_session() as chat_session:
@@ -568,7 +585,7 @@ def reopen_service_material_touch_for_manual_retry(
         return False
     with _database_session() as session:
         row = session.get(AgentWakeupModel, task_id)
-        if row is None or row.kind != _SERVICE_MATERIAL_KIND:
+        if row is None or row.kind not in _TOUCH_SCOPES:
             return False
         if row.status == "completed":
             return True
@@ -585,7 +602,7 @@ def retry_service_material_touch_task_now(source_batch_key: str | None) -> bool:
         return False
     with _database_session() as session:
         row = session.get(AgentWakeupModel, task_id)
-        if row is None or row.kind != _SERVICE_MATERIAL_KIND:
+        if row is None or row.kind not in _TOUCH_SCOPES:
             return False
         if row.status in {"completed", "processing"}:
             return False
@@ -613,7 +630,7 @@ def get_service_material_touch_delivery_stats(
             session.scalars(
                 select(AgentWakeupModel)
                 .where(
-                    AgentWakeupModel.kind == _SERVICE_MATERIAL_KIND,
+                    AgentWakeupModel.kind.in_(_TOUCH_SCOPES),
                     AgentWakeupModel.created_at >= start,
                     AgentWakeupModel.created_at <= end,
                 )
@@ -784,6 +801,7 @@ async def _service_material_touch_worker_tick() -> None:
     if settings.service_material_touch_enabled:
         try:
             ensure_service_material_touch_tasks()
+            ensure_service_material_touch_tasks(sop_scope="seeding")
         except Exception as exc:  # noqa: BLE001
             logger.warning("Service material touch creation failed: %s", exc)
         try:
@@ -879,6 +897,22 @@ def _parse_time(value: str, fallback: time) -> time:
         return fallback
 
 
+def _touch_slots(kind: str) -> tuple[tuple[str, time, str, str], ...]:
+    if kind == _SEEDING_MATERIAL_KIND:
+        return (("preference_video", time(15, 0), "", "话题种草"),)
+    return _service_material_slots()
+
+
+def _touch_is_eligible(session: Session, row: AgentWakeupModel) -> bool:
+    if not get_settings().service_material_touch_enabled or not is_sop_enabled(_TOUCH_SCOPES.get(row.kind, "")):
+        return False
+    profile = session.get(UserProfileModel, row.customer_id)
+    if profile is None:
+        return False
+    tags = _profile_tag_values(profile)
+    return has_product_preferences(tags) if row.kind == _SEEDING_MATERIAL_KIND else "服务中" in tags
+
+
 def _service_material_slots() -> tuple[tuple[str, time, str, str], ...]:
     settings = get_settings()
     return (
@@ -920,8 +954,8 @@ def _active_service_tag_values() -> set[str]:
     return values
 
 
-def _service_customer_ids(session: Session, tag_values: set[str]) -> set[str]:
-    if not tag_values:
+def _service_customer_ids(session: Session, tag_values: set[str], *, kind: str = _SERVICE_MATERIAL_KIND) -> set[str]:
+    if not tag_values and kind == _SERVICE_MATERIAL_KIND:
         return set()
     refused_ids = set(
         session.scalars(
@@ -934,7 +968,7 @@ def _service_customer_ids(session: Session, tag_values: set[str]) -> set[str]:
         profile.user_id
         for profile in session.scalars(select(UserProfileModel))
         if profile.user_id not in refused_ids
-        and bool(_profile_tag_values(profile) & tag_values)
+        and (has_product_preferences(_profile_tag_values(profile)) if kind == _SEEDING_MATERIAL_KIND else "服务中" in _profile_tag_values(profile))
     }
 
 

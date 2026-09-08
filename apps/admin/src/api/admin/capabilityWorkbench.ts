@@ -127,6 +127,8 @@ export interface ExperienceOutcome {
 }
 
 export interface ExperiencePackage {
+  sop_scope: 'first_order' | 'service' | 'seeding'
+  enabled: boolean
   schema_version: string
   package_id: string
   version: string
@@ -181,7 +183,7 @@ export const updateWorkbenchSopNodeHandoff = (data: {
   handoff_enabled: boolean
 }) =>
   request.put<{
-    sop_scope: 'first_order' | 'service'
+    sop_scope: 'first_order' | 'service' | 'seeding'
     node_id: string
     name: string
     description: string
@@ -191,3 +193,11 @@ export const updateWorkbenchSopNodeHandoff = (data: {
     url: '/api/v1/admin/orchestration/workbench/sop-node-handoff',
     data
   })
+
+export const updateWorkbenchSopEnabled = (data: {
+  sop_scope: ExperiencePackage['sop_scope']
+  enabled: boolean
+}) => request.put<{ sop_scope: ExperiencePackage['sop_scope']; enabled: boolean }>({
+  url: '/api/v1/admin/orchestration/workbench/sop-enabled',
+  data
+})

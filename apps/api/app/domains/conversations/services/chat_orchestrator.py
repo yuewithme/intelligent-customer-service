@@ -49,6 +49,7 @@ from app.domains.sales.services.business_tag_prompt_service import (
     get_prompt_blocks,
 )
 from app.shared.schemas.common import AppError, ErrorCode
+from app.domains.sales.services.sop_policy_service import eligible_sop_scopes
 
 
 async def handle_chat(request: ChatRequest) -> dict:
@@ -167,8 +168,10 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_state=user_state,
             profile_bundle=profile_bundle,
         )
-        if not str(message.metadata.get("sop_scope") or "").strip():
-            message.metadata["sop_scope"] = _sop_scope_for_workspace(workspace)
+        profile_tags = (workspace.get("profile") or {}).get("customer_tags") or []
+        scopes = eligible_sop_scopes(profile_tags)
+        message.metadata["sop_scopes"] = scopes
+        message.metadata["sop_scope"] = scopes[0] if scopes else "general"
         user_state.metadata["profile"] = workspace.get("profile", {})
         user_state.metadata["recent_turns"] = workspace.get("recent_turns", [])
         stage_latencies["workspace_ms"] = _elapsed_ms(stage_started)
@@ -397,12 +400,8 @@ def _sop_scope_for_workspace(workspace: dict[str, Any]) -> str:
     profile = profile if isinstance(profile, dict) else {}
     tags = profile.get("customer_tags")
     tags = tags if isinstance(tags, list) else []
-    purchased_tags = {"抖音已购", "微信已购"}
-    return (
-        "service"
-        if {str(tag).strip() for tag in tags}.intersection(purchased_tags)
-        else "first_order"
-    )
+    scopes = eligible_sop_scopes(tags)
+    return scopes[0] if scopes else "general"
 
 
 def _agent_intent(
@@ -427,6 +426,7 @@ def _agent_intent(
         reason="single_agent_runtime",
         slots={
             "customer_signal": metadata.get("customer_signal", "none"),
+            "sop_scope": metadata.get("sop_node", "general.reply").partition(".")[0],
             **(
                 {"system_event": message.metadata.get("system_event")}
                 if message.metadata.get("system_event")

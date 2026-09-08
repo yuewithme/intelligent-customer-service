@@ -348,7 +348,7 @@ async def _capability_search(*, call_id, arguments, context) -> AgentToolResult:
         for item in CAPABILITIES
         if item.kind == "tool"
         or "shared" in item.scopes
-        or sop_scope in item.scopes
+        or any(scope in item.scopes for scope in context.message.metadata.get("sop_scopes", [sop_scope]))
     ]
     ranked = sorted(
         available,
@@ -373,7 +373,7 @@ async def _capability_search(*, call_id, arguments, context) -> AgentToolResult:
 def _sop_scope(context: AgentExecutionContext) -> str:
     metadata = getattr(context.message, "metadata", {})
     requested = metadata.get("sop_scope") if isinstance(metadata, dict) else None
-    return "first_order" if requested == "first_order" else "service"
+    return requested if requested in {"first_order", "service", "seeding", "general"} else "service"
 
 
 async def _customer_context(*, call_id, arguments, context) -> AgentToolResult:

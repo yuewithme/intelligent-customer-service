@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from app.core.config import get_settings
 
 from app.domains.orchestration.schemas import (
     CapabilityCatalog,
@@ -17,6 +18,7 @@ from app.domains.handoff.schemas.handoff_notification import SOP_NODE_GROUPS
 from app.domains.handoff.services.handoff_notification_service import (
     get_sop_node_handoff_settings,
     update_sop_node_handoff,
+    get_sop_settings,
 )
 
 
@@ -129,11 +131,19 @@ def _build_sop_handoff_packages(
         "service": {
             "package_id": "orchid.service",
             "name": "服务 SOP",
-            "description": "面向已购客户，完成养护服务、权益交付、复购挖需和长期关系维护。",
-            "entry_event": "verified_purchase",
+            "description": "打上服务中标签后进入，每日三个时段触达与客户问题处理独立运行。",
+            "entry_event": "打上服务中标签",
             "outcome_name": "服务关系持续",
         },
+        "seeding": {
+            "package_id": "orchid.seeding",
+            "name": "种草 SOP",
+            "description": "喜欢的兰花品类与产品需求分类均有标签时进入；每日 15:00 分享偏好产品视频，客户表达想了解产品信息时继续推品。",
+            "entry_event": "品类偏好且产品需求标签齐备",
+            "outcome_name": "持续种草与产品咨询",
+        },
     }
+    switches = get_sop_settings()
     packages: list[dict[str, Any]] = []
     for group in SOP_NODE_GROUPS:
         scope = str(group["sop_scope"])
@@ -188,6 +198,8 @@ def _build_sop_handoff_packages(
             {
                 "schema_version": "experience_package.v1",
                 "package_id": metadata["package_id"],
+                "sop_scope": scope,
+                "enabled": switches[scope],
                 "version": "1.0.0",
                 "name": metadata["name"],
                 "description": metadata["description"],
@@ -219,4 +231,57 @@ def _build_sop_handoff_packages(
                 "layout": layout,
             }
         )
+        if scope in {"service", "seeding"}:
+            _build_parallel_sop_graph(packages[-1])
     return packages
+
+
+def _build_parallel_sop_graph(package: dict[str, Any]) -> None:
+    scope = package["sop_scope"]
+    steps = package["steps"]
+    layout = package["layout"]
+    transitions = []
+
+    def node(step_id: str, name: str, description: str, kind: str, x: int, y: int) -> None:
+        steps.append({"step_id": step_id, "name": name, "description": description,
+                      "type": kind, "goal": description, "directions": [],
+                      "collect": [], "capabilities": []})
+        layout[step_id] = {"x": x, "y": y}
+
+    def edge(source: str, target: str, label: str) -> None:
+        transitions.append({"transition_id": f"{source}_to_{target}", "from_step": source,
+                            "to_step": target, "outcome": None, "label": label,
+                            "priority": 100, "condition": None})
+
+    entry_name = "服务中标签" if scope == "service" else "两类偏好标签均具备"
+    node("entry", entry_name, package["description"], "decision", 50, 220)
+    node("daily_touch", "每日触达", "总开关开启且标签满足时按日调度；发送前再次校验。", "wait", 330, 80)
+    edge("entry", "daily_touch", "定时分支")
+    package["entry"]["start_step_id"] = "entry"
+    package["outcomes"] = []
+    package["global_rules"] += ["关闭 SOP 后停止该流程对话推进和自动触达，普通问答继续。", "服务与种草可同时命中；两个分支独立触发。"]
+    if scope == "service":
+        settings = get_settings()
+        for index, (slot, at, title) in enumerate((
+            ("story", settings.service_material_story_time, "名品故事"),
+            ("knowledge", settings.service_material_knowledge_time, "养护科普"),
+            ("topic", settings.service_material_topic_time, "话题种草"),
+        )):
+            node(slot, f"{at} {title}", f"每天 {at}（{settings.service_material_touch_timezone}）发送{title}文案与素材。", "action", 620, 20 + index * 125)
+            edge("daily_touch", slot, at)
+        layout["need_discovery"] = {"x": 330, "y": 500}
+        edge("entry", "need_discovery", "客户发来问题")
+        for index, (target, label) in enumerate((
+            ("member_benefit", "需要权益交付"), ("post_service_close", "问题已解决"),
+            ("repurchase_discovery", "出现复购需求"), ("relationship_maintenance", "需要后续服务"),
+        )):
+            layout[target] = {"x": 620, "y": 405 + index * 125}
+            edge("need_discovery", target, label)
+    else:
+        node("video_touch", "15:00 文字＋产品视频", "北京时间每天 15:00；视频同时匹配品类与产品需求，缺少匹配视频则跳过并记录原因。", "action", 620, 80)
+        edge("daily_touch", "video_touch", "每天 15:00")
+        layout["product_interest"] = {"x": 330, "y": 370}
+        layout["recommendation"] = {"x": 620, "y": 370}
+        edge("entry", "product_interest", "回复表达想了解产品")
+        edge("product_interest", "recommendation", "意向成立，继续推品")
+    package["transitions"] = transitions

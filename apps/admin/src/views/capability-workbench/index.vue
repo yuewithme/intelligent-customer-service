@@ -6,13 +6,13 @@
           <h1>能力工作台</h1>
           <ElTag type="success" effect="plain">SOP 节点可配置</ElTag>
         </div>
-        <p>查看首单与服务 SOP，并统一设置每个业务节点由 AI 回复或转人工。</p>
+        <p>查看首单、服务与种草 SOP 的入口和分支，管理流程总开关与对话节点接管方式。</p>
       </div>
       <ElButton :loading="loading" @click="load">刷新数据</ElButton>
     </div>
 
     <ElAlert
-      title="SOP 节点开关会直接影响线上 Agent 接管方式；其他流程和能力信息仍为查看模式。"
+      title="SOP 总开关控制整个流程的对话推进与自动触达；关闭后仍可查看流程。服务与种草可以同时运行。"
       type="info"
       :closable="false"
       show-icon
@@ -61,7 +61,7 @@
               >
                 <span class="package-card-head">
                   <strong>{{ item.name }}</strong>
-                  <em>{{ statusText(item.status) }}</em>
+                  <em>{{ item.enabled ? '已开启' : '已关闭' }}</em>
                 </span>
                 <small>{{ item.steps.length }} 个步骤 · {{ item.transitions.length }} 条连线</small>
                 <p>{{ item.description }}</p>
@@ -71,7 +71,7 @@
                 <ElTag v-for="event in activePackage.entry.events" :key="event" size="small" effect="plain">
                   {{ event }}
                 </ElTag>
-                <span>目标结果</span>
+                <span v-if="activePackage.outcomes.length">目标结果</span>
                 <ElTag v-for="outcome in activePackage.outcomes" :key="outcome.outcome_id" size="small" type="success" effect="plain">
                   {{ outcome.name }}
                 </ElTag>
@@ -80,10 +80,17 @@
 
             <section class="graph-panel">
               <div class="graph-head">
-                <div>
+                <div class="graph-heading">
                   <strong>{{ activePackage.name }}</strong>
                   <span>v{{ activePackage.version }} · {{ statusText(activePackage.status) }}</span>
                 </div>
+                <ElSwitch
+                  :model-value="activePackage.enabled"
+                  :loading="savingSop"
+                  :aria-label="`${activePackage.name} 总开关`"
+                  :active-text="activePackage.enabled ? 'SOP 已开启' : 'SOP 已关闭'"
+                  @change="toggleSop"
+                />
                 <div class="graph-legend">
                   <span><i class="agent" />对话阶段</span>
                   <span><i class="decision" />条件判断</span>
@@ -123,7 +130,7 @@
                     @click="selectNode(node.key)"
                   >
                     <span>{{ nodeTypeText(node.type) }}</span>
-                    <em v-if="node.type !== 'outcome'" class="node-mode">
+                    <em v-if="node.type === 'agent_stage'" class="node-mode">
                       {{ node.handoffEnabled ? '转人工' : 'AI 回复' }}
                     </em>
                     <strong>{{ node.name }}</strong>
@@ -418,6 +425,7 @@ import { ElMessage } from 'element-plus'
 import {
   getCapabilityWorkbench,
   updateWorkbenchSopNodeHandoff,
+  updateWorkbenchSopEnabled,
   type CapabilityAiMode,
   type CapabilityCustomerContact,
   type CapabilityItem,
@@ -454,6 +462,22 @@ interface GraphEdge {
 }
 
 const loading = ref(false)
+const savingSop = ref(false)
+
+async function toggleSop(value: string | number | boolean) {
+  const current = activePackage.value
+  if (!current || savingSop.value) return
+  savingSop.value = true
+  try {
+    const result = await updateWorkbenchSopEnabled({ sop_scope: current.sop_scope, enabled: Boolean(value) })
+    current.enabled = result.enabled
+    ElMessage.success(`${current.name}已${result.enabled ? '开启' : '关闭'}`)
+  } catch {
+    ElMessage.error('SOP 开关保存失败，请重试')
+  } finally {
+    savingSop.value = false
+  }
+}
 const data = ref<CapabilityWorkbenchResponse | null>(null)
 const activeTab = ref('flow')
 const activePackageId = ref('')
@@ -660,7 +684,7 @@ const transitionTargetName = (transition: ExperienceTransition) =>
   transition.to_step ? stepName(transition.to_step) : outcomeName(transition.outcome || '')
 
 const stepSubtitle = (step: ExperienceStep) => {
-  if (step.node_id) return step.description || ''
+  if (step.description) return step.description
   if (step.type === 'action') return capabilityName(step.capability_id || '')
   if (step.type === 'wait') return `等待 ${step.resume_events?.length || 0} 类事件`
   if (step.type === 'decision') return step.strategy === 'hybrid' ? '规则 + AI 判断' : `${step.strategy} 判断`
@@ -760,8 +784,8 @@ onMounted(load)
 .package-meta > span { width: 100%; margin-top: 8px; color: var(--el-text-color-secondary); font-size: 12px; font-weight: 700; }
 .graph-panel { min-width: 0; background: #f7faf9; }
 .graph-head { min-height: 62px; padding: 10px 16px; justify-content: space-between; border-bottom: 1px solid var(--el-border-color-lighter); background: #fff; }
-.graph-head strong, .graph-head span { display: block; }
-.graph-head > div > span { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; }
+.graph-heading strong, .graph-heading span { display: block; }
+.graph-heading > span { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; }
 .graph-legend { flex-wrap: wrap; justify-content: flex-end; font-size: 11px; color: var(--el-text-color-secondary); }
 .graph-legend span { display: flex; align-items: center; gap: 4px; }
 .graph-legend i { width: 9px; height: 9px; border-radius: 3px; }

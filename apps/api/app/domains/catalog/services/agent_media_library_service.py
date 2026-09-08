@@ -134,6 +134,47 @@ def select_scheduled_agent_media(
     return ordered[position]
 
 
+def select_preference_agent_video(
+    *, local_date: date, preference_groups: tuple[set[str], set[str]], max_video_bytes: int,
+) -> dict[str, Any] | None:
+    if not all(preference_groups):
+        return None
+    candidates = []
+    for item in _load_items():
+        if (item.get("media_type") != "video" or item.get("copy_type") != "话题种草"
+                or item.get("copy_status") != "ready" or not item.get("thumbnail_path")
+                or not 0 < int(item.get("bytes") or 0) <= max_video_bytes):
+            continue
+        # Only product labels/title identify the video; promotional copy may mention unrelated products.
+        labels = set(item.get("preference_tags") or [])
+        title = " ".join(str(item.get(key) or "") for key in ("category", "title", "relative_path"))
+        if all(any(_video_matches_preference(tag, labels, title) for tag in group) for group in preference_groups):
+            candidates.append(_public_item(item))
+    if not candidates:
+        return None
+    cycle, position = divmod(local_date.toordinal(), len(candidates))
+    return _scheduled_cycle_order(candidates, cycle=cycle, category="preference", copy_type="话题种草")[position]
+
+
+def _video_matches_preference(tag: str, labels: set[str], title: str) -> bool:
+    if tag in {"品类不限", "需求不限"} or tag in labels:
+        return True
+    aliases = {
+        "大花蕙兰等花大色漂亮的": ("大花蕙兰",),
+        "小众品类（送春、秋芝等）": ("送春", "秋芝"),
+        "色花（红、黄、复色等，不含红素）": ("色花", "红花", "黄花", "复色"),
+        "素花（绿白黄素心，不含红素）": ("素花", "素心"),
+        "奇花（多瓣、蝶瓣、三星蝶）": ("奇花", "多瓣", "蝶瓣", "三星蝶"),
+        "艺草（虎斑、蛇斑、线艺、缟艺）": ("艺草", "虎斑", "蛇斑", "线艺", "缟艺"),
+        "水仙瓣及其他瓣型": ("水仙瓣",),
+    }
+    if tag.startswith(("色花（", "素花（")) and "红素" in title:
+        return False
+    if tag == "蕙兰":
+        title = title.replace("大花蕙兰", "")
+    return any(term in title for term in aliases.get(tag, (tag,)))
+
+
 def _scheduled_cycle_order(
     candidates: list[dict[str, Any]],
     *,
@@ -252,6 +293,7 @@ def _parse_rows(
         ):
             continue
         item = {
+            "preference_tags": [tag.strip() for tag in row.get("preference_tags", []) if isinstance(tag, str)] if isinstance(row.get("preference_tags"), list) else [],
             "id": digest[:24],
             "category": category,
             "relative_path": relative_path,

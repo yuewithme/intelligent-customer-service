@@ -66,14 +66,26 @@ def test_customer_workspace_includes_resolved_tag_guidance(monkeypatch):
     ]
 
 
-def test_sop_scope_uses_verified_purchase_tags():
+def test_sop_scope_uses_service_tag_and_enabled_flows(monkeypatch):
+    from app.domains.sales.services import sop_policy_service as policy
+    switches = {"first_order": True, "service": True, "seeding": False}
+    monkeypatch.setattr(policy, "get_sop_settings", lambda: switches)
     assert _sop_scope_for_workspace({"profile": {}}) == "first_order"
     assert _sop_scope_for_workspace(
         {"profile": {"customer_tags": ["服务中", "抖音已购"]}}
     ) == "service"
     assert _sop_scope_for_workspace(
         {"profile": {"customer_tags": ["微信已购"]}}
-    ) == "service"
+    ) == "general"
+    assert _sop_scope_for_workspace({"profile": {"customer_tags": ["服务中"]}}) == "service"
+    switches["seeding"] = True
+    assert policy.eligible_sop_scopes(["服务中", "建兰", "浓香"]) == ["service", "seeding"]
+    assert policy.eligible_sop_scopes(["建兰", "浓香"]) == ["seeding"]
+    assert "seeding" not in policy.eligible_sop_scopes(["建兰"])
+    assert "seeding" not in policy.eligible_sop_scopes(["浓香"])
+    switches.update(first_order=False, service=False, seeding=False)
+    assert _sop_scope_for_workspace({"profile": {"customer_tags": ["服务中", "建兰", "浓香"]}}) == "general"
+    assert _sop_scope_for_workspace({"profile": {}}) == "general"
 
 
 @pytest.mark.asyncio

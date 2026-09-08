@@ -20,6 +20,7 @@ from app.domains.handoff.schemas.handoff_notification import (
 logger = logging.getLogger("wechat_rag_bot.handoff_notification")
 SETTING_ID = 1
 DEFAULT_MESSAGE_TEXT = "有客户需要转人工处理，请及时跟进。"
+SOP_DEFAULTS = {"first_order": True, "service": True, "seeding": False}
 HANDOFF_REASON_TEXTS = {
     "global_handoff": "转人工总开关已开启",
     "manual_force_handoff": "人工主动转接",
@@ -70,6 +71,31 @@ def is_sop_node_handoff_enabled(sop_scope: str, node_id: str) -> bool:
         enabled = bool(_sop_node_handoff(setting).get(node_id, False))
         session.commit()
         return enabled
+
+
+def get_sop_settings() -> dict[str, bool]:
+    with _get_session() as session:
+        setting = _get_or_create_setting(session)
+        values = json.loads(setting.sop_enabled_json or "{}")
+        session.commit()
+        return {scope: bool(values.get(scope, default)) for scope, default in SOP_DEFAULTS.items()}
+
+
+def is_sop_enabled(scope: str) -> bool:
+    return get_sop_settings().get(scope, False)
+
+
+def update_sop_enabled(scope: str, enabled: bool) -> dict[str, Any]:
+    if scope not in SOP_DEFAULTS:
+        raise AppError(ErrorCode.REQUEST_INVALID, message=f"未知 SOP：{scope}", status_code=422)
+    with _get_session() as session:
+        setting = _get_or_create_setting(session)
+        values = json.loads(setting.sop_enabled_json or "{}")
+        values[scope] = enabled
+        setting.sop_enabled_json = json.dumps(values, ensure_ascii=False)
+        setting.updated_at = _utcnow()
+        session.commit()
+        return {"sop_scope": scope, "enabled": enabled}
 
 
 def get_sop_node(node_id: str) -> dict[str, str] | None:
@@ -445,6 +471,11 @@ def _ensure_handoff_notification_columns(engine) -> None:
         for column in inspect(engine).get_columns("handoff_notification_settings")
     }
     with engine.begin() as connection:
+        if "sop_enabled_json" not in columns:
+            connection.execute(text(
+                "ALTER TABLE handoff_notification_settings "
+                "ADD COLUMN sop_enabled_json TEXT NOT NULL DEFAULT '{}'"
+            ))
         if "global_handoff_enabled" not in columns:
             connection.execute(
                 text(

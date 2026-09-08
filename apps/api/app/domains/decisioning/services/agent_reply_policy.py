@@ -729,7 +729,7 @@ def _is_opening_system_event(context: AgentExecutionContext) -> bool:
 def sop_scope_for_message(message) -> str:
     metadata = getattr(message, "metadata", {})
     requested = metadata.get("sop_scope") if isinstance(metadata, dict) else None
-    return "first_order" if requested == "first_order" else "service"
+    return requested if requested in {"first_order", "service", "seeding", "general"} else "service"
 
 
 def is_first_order_opening(context: AgentExecutionContext) -> bool:
