@@ -1,0 +1,2331 @@
+[
+  {
+    "product_name": "大果冠",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·荷型",
+    "demand_tags": [
+      "色花",
+      "荷型"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "入门福利款",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "四季峨眉",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "入门福利款",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "翠玉荷",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "荷瓣·色花",
+    "demand_tags": [
+      "荷瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "夏皇梅",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "水晶黄梅",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "梅瓣·艺草",
+    "demand_tags": [
+      "梅瓣",
+      "艺草"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "禅月达摩",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "矮种·奇花",
+    "demand_tags": [
+      "矮种",
+      "奇花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "矮种精品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "秋水伊人",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·素心",
+    "demand_tags": [
+      "色花",
+      "素心"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅气质",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红草红荷",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·荷瓣",
+    "demand_tags": [
+      "色花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "贵夫人粉斑艺",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "艺草·色花",
+    "demand_tags": [
+      "艺草",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "室内 / 阳台",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "掌上明珠",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·多瓣",
+    "demand_tags": [
+      "奇花",
+      "多瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "峨眉牡丹",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·牡丹",
+    "demand_tags": [
+      "奇花",
+      "牡丹"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "素君荷",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花·荷瓣",
+    "demand_tags": [
+      "素花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "东方红荷",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·荷瓣",
+    "demand_tags": [
+      "色花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红君荷",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·荷瓣",
+    "demand_tags": [
+      "色花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红宋梅",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "梅瓣·色花",
+    "demand_tags": [
+      "梅瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "天地之华",
+    "aliases": "绿鸟嘴",
+    "category": "建兰",
+    "source_demand": "色花",
+    "demand_tags": [
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "入门福利款",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "紫金彩梅",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "梅瓣·色花",
+    "demand_tags": [
+      "梅瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "彩凤",
+    "aliases": "小凤仙",
+    "category": "建兰",
+    "source_demand": "色花·彩花",
+    "demand_tags": [
+      "色花",
+      "彩花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "入门福利款",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "粉墨星云",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·奇花",
+    "demand_tags": [
+      "色花",
+      "奇花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "漓江雪",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "好日子",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·荷型",
+    "demand_tags": [
+      "色花",
+      "荷型"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "岭南奇蝶",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·蝶花",
+    "demand_tags": [
+      "奇花",
+      "蝶花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "东陵牡丹",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·牡丹",
+    "demand_tags": [
+      "奇花",
+      "牡丹"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "玉环妃",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·荷型",
+    "demand_tags": [
+      "色花",
+      "荷型"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "入门福利款",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "黑水晶",
+    "aliases": "水晶梅蝶",
+    "category": "建兰",
+    "source_demand": "梅蝶·艺草",
+    "demand_tags": [
+      "梅蝶",
+      "艺草"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "至尊红颜",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L3-L5",
+    "care_scenes": "室内 / 有兰棚",
+    "seeding_scene": "高端名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "紫韵荷",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "荷瓣·色花",
+    "demand_tags": [
+      "荷瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红玉荷",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·荷瓣",
+    "demand_tags": [
+      "色花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "市长红梅",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "梅瓣·色花",
+    "demand_tags": [
+      "梅瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "凤舞九天",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·色花",
+    "demand_tags": [
+      "奇花",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红月",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红玉素",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "年年红",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "满堂红",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "梨山狮王",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·蝶花",
+    "demand_tags": [
+      "奇花",
+      "蝶花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "忆香荷",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "荷瓣",
+    "demand_tags": [
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "宜宾荷仙",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "荷瓣",
+    "demand_tags": [
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "云中白鹤",
+    "aliases": "小白龙",
+    "category": "建兰",
+    "source_demand": "素花·奇花",
+    "demand_tags": [
+      "素花",
+      "奇花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "银边大贡",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "艺草·银边",
+    "demand_tags": [
+      "艺草",
+      "银边"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "室内 / 阳台",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "芽黄素",
+    "aliases": "田黄玉",
+    "category": "建兰",
+    "source_demand": "素花·黄素",
+    "demand_tags": [
+      "素花",
+      "黄素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "胭脂",
+    "aliases": "女儿红",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "袖神冠",
+    "aliases": "彩云荷",
+    "category": "建兰",
+    "source_demand": "荷瓣·色花",
+    "demand_tags": [
+      "荷瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "小国魂",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·素心",
+    "demand_tags": [
+      "色花",
+      "素心"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "仙山红",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "五岳麒麟",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·多瓣",
+    "demand_tags": [
+      "奇花",
+      "多瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "市长红",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "青山玉泉",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花·艺草",
+    "demand_tags": [
+      "素花",
+      "艺草"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "扫尾艺",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "艺草·扫尾艺",
+    "demand_tags": [
+      "艺草",
+      "扫尾艺"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "室内 / 有兰棚",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "七仙女",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·多瓣",
+    "demand_tags": [
+      "奇花",
+      "多瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "七彩红梅",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "梅瓣·色花",
+    "demand_tags": [
+      "梅瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "秋雪",
+    "aliases": "圣雪",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "暮山紫",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·紫花",
+    "demand_tags": [
+      "色花",
+      "紫花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "龙岩素",
+    "aliases": "雪莲素，三明鱼",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "兰陵牡丹",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·牡丹",
+    "demand_tags": [
+      "奇花",
+      "牡丹"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "黄金马尔",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·黄花",
+    "demand_tags": [
+      "色花",
+      "黄花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红猫蕊蝶",
+    "aliases": "红三娘，三星蝶",
+    "category": "建兰",
+    "source_demand": "奇花·三星蝶",
+    "demand_tags": [
+      "奇花",
+      "三星蝶"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红草奇花",
+    "aliases": "荭草荷奇",
+    "category": "建兰",
+    "source_demand": "奇花·荷型",
+    "demand_tags": [
+      "奇花",
+      "荷型"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红草",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "国色天香",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·色花",
+    "demand_tags": [
+      "奇花",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "大凤素",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "高山春色",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花·奇花",
+    "demand_tags": [
+      "素花",
+      "奇花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "入门福利款",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "富山奇蝶",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·蝶花",
+    "demand_tags": [
+      "奇花",
+      "蝶花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "佛光红素",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "飞煌腾达",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·奇花",
+    "demand_tags": [
+      "色花",
+      "奇花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "翠衣仙子",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "春雨彩虹",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·复色",
+    "demand_tags": [
+      "色花",
+      "复色"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "赤诚",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "200-500",
+    "audience_tag": "L3-L5",
+    "care_scenes": "有兰棚 / 室内",
+    "seeding_scene": "高端名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "彩云追月",
+    "aliases": "小白菜",
+    "category": "建兰",
+    "source_demand": "色花·素心",
+    "demand_tags": [
+      "色花",
+      "素心"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "八宝奇珍",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "奇花·多瓣",
+    "demand_tags": [
+      "奇花",
+      "多瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "半江红",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "白娘子",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "白孔雀",
+    "aliases": "白雪公主",
+    "category": "建兰",
+    "source_demand": "奇花·色花",
+    "demand_tags": [
+      "奇花",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "春剑素荷",
+    "aliases": "",
+    "category": "春剑",
+    "source_demand": "素花·荷型",
+    "demand_tags": [
+      "素花",
+      "荷型"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "麦纹红荷",
+    "aliases": "",
+    "category": "春剑",
+    "source_demand": "色花·荷瓣",
+    "demand_tags": [
+      "色花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "西蜀道光",
+    "aliases": "",
+    "category": "春剑",
+    "source_demand": "素花·荷型",
+    "demand_tags": [
+      "素花",
+      "荷型"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "春暖花开",
+    "aliases": "",
+    "category": "春剑",
+    "source_demand": "奇花·牡丹",
+    "demand_tags": [
+      "奇花",
+      "牡丹"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "新津胭脂",
+    "aliases": "",
+    "category": "春剑",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "东帝魔荷",
+    "aliases": "",
+    "category": "春剑",
+    "source_demand": "荷瓣·色花",
+    "demand_tags": [
+      "荷瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "大富贵",
+    "aliases": "",
+    "category": "春剑",
+    "source_demand": "荷瓣",
+    "demand_tags": [
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "张荷素",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "素花·荷型",
+    "demand_tags": [
+      "素花",
+      "荷型"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "黄金蕊蝶",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "奇花·蝶花",
+    "demand_tags": [
+      "奇花",
+      "蝶花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "余蝴蝶",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "奇花·多瓣",
+    "demand_tags": [
+      "奇花",
+      "多瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "雪山",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "艺草·白边",
+    "demand_tags": [
+      "艺草",
+      "白边"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "室内 / 阳台",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "星光大道",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "色花·复色",
+    "demand_tags": [
+      "色花",
+      "复色"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "霞光",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "500以上",
+    "audience_tag": "L3-L5",
+    "care_scenes": "有兰棚 / 室内",
+    "seeding_scene": "高端名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "小打梅",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "吴凤",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "色花·奇花",
+    "demand_tags": [
+      "色花",
+      "奇花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "皇帝",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "色花·黄花",
+    "demand_tags": [
+      "色花",
+      "黄花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "宋梅",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "双美人",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "色花·复色",
+    "demand_tags": [
+      "色花",
+      "复色"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "龙字",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "水仙瓣",
+    "demand_tags": [
+      "水仙瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "老种翠盖荷",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "荷瓣",
+    "demand_tags": [
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "老宋梅",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "极红",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "200-500",
+    "audience_tag": "L3-L5",
+    "care_scenes": "有兰棚 / 室内",
+    "seeding_scene": "高端名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "环球荷鼎",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "荷瓣",
+    "demand_tags": [
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "黄素荷",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "素花·荷瓣",
+    "demand_tags": [
+      "素花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "黄荷梅",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "梅瓣·色花",
+    "demand_tags": [
+      "梅瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "鸿运牡丹",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "奇花·牡丹",
+    "demand_tags": [
+      "奇花",
+      "牡丹"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "桂圆梅",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "福荷素8苗",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "素花·荷瓣",
+    "demand_tags": [
+      "素花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": "8苗"
+  },
+  {
+    "product_name": "福荷素",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "素花·荷瓣",
+    "demand_tags": [
+      "素花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "东方龙珠",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "奇花·多瓣",
+    "demand_tags": [
+      "奇花",
+      "多瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "翠一品",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "水仙瓣",
+    "demand_tags": [
+      "水仙瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "翠盖荷",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "荷瓣",
+    "demand_tags": [
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "春兰万字",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "春兰汪字",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "水仙瓣",
+    "demand_tags": [
+      "水仙瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "春兰集圆",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "春兰红豆",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "白雪冰心",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "杨贵妃",
+    "aliases": "",
+    "category": "寒兰",
+    "source_demand": "色花·复色",
+    "demand_tags": [
+      "色花",
+      "复色"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "凤凰传奇",
+    "aliases": "红牡丹",
+    "category": "寒兰",
+    "source_demand": "奇花·牡丹",
+    "demand_tags": [
+      "奇花",
+      "牡丹"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "漓江红梅",
+    "aliases": "",
+    "category": "寒兰",
+    "source_demand": "梅瓣·色花",
+    "demand_tags": [
+      "梅瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "初恋",
+    "aliases": "",
+    "category": "寒兰",
+    "source_demand": "色花·素心",
+    "demand_tags": [
+      "色花",
+      "素心"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅气质",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "蕙兰虎斑",
+    "aliases": "",
+    "category": "寒兰",
+    "source_demand": "艺草·虎斑",
+    "demand_tags": [
+      "艺草",
+      "虎斑"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "室内 / 有兰棚",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "仙绿梅",
+    "aliases": "",
+    "category": "蕙兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "五彩蝶",
+    "aliases": "",
+    "category": "蕙兰",
+    "source_demand": "奇花·蝶花",
+    "demand_tags": [
+      "奇花",
+      "蝶花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "温州素",
+    "aliases": "",
+    "category": "蕙兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "江山素",
+    "aliases": "",
+    "category": "蕙兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "程梅",
+    "aliases": "",
+    "category": "蕙兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "500以上",
+    "audience_tag": "L4-L6",
+    "care_scenes": "有兰棚 / 室内",
+    "seeding_scene": "高端名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "长寿梅",
+    "aliases": "",
+    "category": "蕙兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "朱丝玉荷",
+    "aliases": "",
+    "category": "莲瓣兰",
+    "source_demand": "荷瓣·色花",
+    "demand_tags": [
+      "荷瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "朱金奇蝶",
+    "aliases": "",
+    "category": "莲瓣兰",
+    "source_demand": "奇花·蝶花",
+    "demand_tags": [
+      "奇花",
+      "蝶花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "小雪素",
+    "aliases": "",
+    "category": "莲瓣兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "碧龙玉素",
+    "aliases": "",
+    "category": "莲瓣兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "宇宙殿",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "奇花·多瓣",
+    "demand_tags": [
+      "奇花",
+      "多瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "矮种达摩",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "矮种·艺草",
+    "demand_tags": [
+      "矮种",
+      "艺草"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "室内 / 阳台",
+    "seeding_scene": "矮种精品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "银边",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "艺草·银边",
+    "demand_tags": [
+      "艺草",
+      "银边"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "室内 / 阳台",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "吴字翠",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "桃姬",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "色花·粉花",
+    "demand_tags": [
+      "色花",
+      "粉花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "墨兰兰阳之松",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "艺草·线艺",
+    "demand_tags": [
+      "艺草",
+      "线艺"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L3-L5",
+    "care_scenes": "室内 / 有兰棚",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "金鸟",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "艺草·金边",
+    "demand_tags": [
+      "艺草",
+      "金边"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "室内 / 阳台",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "江山美人",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "色花·复色",
+    "demand_tags": [
+      "色花",
+      "复色"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "东方红神荷",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "色花·荷瓣",
+    "demand_tags": [
+      "色花",
+      "荷瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "白墨",
+    "aliases": "",
+    "category": "墨兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "秋芝七仙女",
+    "aliases": "",
+    "category": "秋芝",
+    "source_demand": "奇花·多瓣",
+    "demand_tags": [
+      "奇花",
+      "多瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "秋芝",
+    "aliases": "",
+    "category": "秋芝",
+    "source_demand": "色花·素心",
+    "demand_tags": [
+      "色花",
+      "素心"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "小众精品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "龙珠",
+    "aliases": "",
+    "category": "送春",
+    "source_demand": "奇花·多瓣",
+    "demand_tags": [
+      "奇花",
+      "多瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "绿云牡丹",
+    "aliases": "",
+    "category": "送春",
+    "source_demand": "奇花·牡丹",
+    "demand_tags": [
+      "奇花",
+      "牡丹"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "有兰棚 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "阳光中透",
+    "aliases": "吉祥如意",
+    "category": "春兰",
+    "source_demand": "艺草·中透",
+    "demand_tags": [
+      "艺草",
+      "中透"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L2-L4",
+    "care_scenes": "室内 / 有兰棚",
+    "seeding_scene": "艺草稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "西神梅",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "梅瓣",
+    "demand_tags": [
+      "梅瓣"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "慈恩素",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "素心美人",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "红袍",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·红素",
+    "demand_tags": [
+      "红素"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "红色喜庆",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "寒兰彩凤",
+    "aliases": "",
+    "category": "寒兰",
+    "source_demand": "色花·彩花",
+    "demand_tags": [
+      "色花",
+      "彩花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "老上海",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·素心",
+    "demand_tags": [
+      "色花",
+      "素心"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "经典名品",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "七彩神通",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "色花·复色",
+    "demand_tags": [
+      "色花",
+      "复色"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "麻壳素",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "素花",
+    "demand_tags": [
+      "素花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50以内",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "素雅经典",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "金樽玉荷",
+    "aliases": "",
+    "category": "建兰",
+    "source_demand": "荷瓣·色花",
+    "demand_tags": [
+      "荷瓣",
+      "色花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "100-200",
+    "audience_tag": "L2-L4",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "名品稀缺",
+    "spec_hint": ""
+  },
+  {
+    "product_name": "锦旗",
+    "aliases": "",
+    "category": "春兰",
+    "source_demand": "色花·奇花",
+    "demand_tags": [
+      "色花",
+      "奇花"
+    ],
+    "fragrance": "浓香",
+    "price_budget": "50-100",
+    "audience_tag": "L1-L3",
+    "care_scenes": "阳台 / 室内",
+    "seeding_scene": "奇花稀缺",
+    "spec_hint": ""
+  }
+]

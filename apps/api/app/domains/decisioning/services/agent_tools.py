@@ -73,7 +73,7 @@ CAPABILITIES = (
         "product.search",
         "tool",
         ("商品", "产品", "购买", "选品", "价格", "库存", "兰苗", "会员", "陪伴养兰"),
-        "输入 {\"query\":\"客户真实需要的商品方向\",\"limit\":3}。只在客户出现明确选购、添花、比较、价格、规格、库存或购买入口需求时查询对应商品；黄叶、烂根、不开花、不会养或缺少指导等服务问题本身不构成购买需求。查询不会发送卡片，不要求固定字段、精确盆数或完整画像。",
+        "输入 {\"query\":\"客户真实需要的商品方向\",\"limit\":3}。只在客户出现明确选购、添花、比较、价格、规格、库存或购买入口需求时查询对应商品；黄叶、烂根、不开花、不会养或缺少指导等服务问题本身不构成购买需求。查询不会发送卡片，不要求固定字段、精确盆数或完整画像。返回 match_reasons 和 matching_skus 时，依据匹配理由优先主推一款，必要时给一款备选；报价必须对应可售规格。种草场景只作介绍切入点，不证明限量、稀缺或升值。品类、需求、香型、环境和等级以产品知识库最新适配字段为准，不照搬与其冲突的旧商品标题、特征描述或塑品话术。标签更新只影响候选排序，不自动触发发送。",
     ),
     CapabilitySpec(
         "product.get",
@@ -523,7 +523,14 @@ async def _product_search(*, call_id, arguments, context) -> AgentToolResult:
     if not query:
         return _result(call_id, "product.search", "invalid_arguments", error="query_required")
     effective_query, applied_tags = _product_query_with_profile_tags(query, context)
-    products = search_catalog_products(effective_query, limit=limit)
+    if applied_tags:
+        products = search_catalog_products(query, limit=limit, preference_tags=[_SEARCH_TAG_TEXT.get(tag, tag) for tag in applied_tags])
+    else:
+        products = search_catalog_products(effective_query, limit=limit)
+    recommendations = context.workspace.setdefault("product_recommendations", {})
+    for item in products:
+        if item.get("matching_skus"):
+            recommendations[str(item["item_id"])] = item["matching_skus"]
     public = [_public_product(item) for item in products if isinstance(item, dict)]
     return _result(
         call_id,
@@ -569,6 +576,8 @@ def _product_query_with_profile_tags(
     query: str,
     context: AgentExecutionContext,
 ) -> tuple[str, list[str]]:
+    if any(term in query for term in ("陪伴养兰", "养护服务", "养护教程")):
+        return query, []
     profile = context.workspace.get("profile")
     profile = profile if isinstance(profile, dict) else {}
     tags = profile.get("customer_tags")
@@ -656,6 +665,16 @@ async def _product_send_card(*, call_id, arguments, context) -> AgentToolResult:
         return _result(call_id, "product.send_card", "not_found")
     if _explicitly_unsellable(product):
         return _result(call_id, "product.send_card", "forbidden", reason="product_not_sellable")
+    offers = context.workspace.get("product_recommendations", {}).get(item_id)
+    if offers:
+        current = product.get("skus") or [{"sku_id": None, "price_cent": product.get("price_cent"), "stock": product.get("stock")}]
+        valid = [sku for sku in current if any(
+            sku.get("sku_id") == offer.get("sku_id") and sku.get("price_cent") == offer.get("price_cent")
+            for offer in offers
+        ) and isinstance(sku.get("stock"), int) and sku["stock"] > 0]
+        if not valid:
+            return _result(call_id, "product.send_card", "forbidden", reason="recommended_spec_changed_search_again")
+        product["price_cent"] = min(sku["price_cent"] for sku in valid)
     message = _product_card(product)
     if message is None:
         return _result(call_id, "product.send_card", "not_found", reason="card_entry_unavailable")
@@ -1048,10 +1067,16 @@ def _public_product(product: dict[str, Any], *, detail: bool = False) -> dict[st
         "audience_tag",
         "highlighted_features",
         "sales_copy",
+        "demand_tags",
+        "seeding_scene",
+        "spec_hint",
     ):
         value = knowledge.get(key)
         if value not in (None, "", []):
             result[key] = value
+    if product.get("match_reasons"):
+        result["match_reasons"] = product["match_reasons"]
+        result["matching_skus"] = product.get("matching_skus", [])
     if detail:
         result["page_path"] = product.get("page_path")
         result["h5_url"] = product.get("h5_url")

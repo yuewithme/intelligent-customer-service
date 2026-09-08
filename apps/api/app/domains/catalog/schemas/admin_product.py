@@ -24,6 +24,10 @@ class ProductKnowledgePayload(BaseModel):
     market_price: str = Field(default="", max_length=1000)
     highlighted_features: str = Field(default="", max_length=12000)
     sales_copy: str = Field(default="", max_length=12000)
+    demand_tags: list[str] = Field(default_factory=list, max_length=32)
+    seeding_scene: str = Field(default="", max_length=128)
+    source_demand: str = Field(default="", max_length=256)
+    spec_hint: str = Field(default="", max_length=128)
 
 
 class ProductKnowledgeImportRequest(BaseModel):

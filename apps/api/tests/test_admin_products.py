@@ -357,15 +357,15 @@ async def test_recommendation_respects_budget_level_and_product_preferences(
     multiple_categories = _parse_recommendation_criteria("推荐春兰和建兰")
     direct = search_catalog_products("建兰皇帝，预算1元")
 
-    assert [item["item_id"] for item in strict] == ["1001", "1003"]
+    assert [item["item_id"] for item in strict] == ["1003"]
     assert [item["item_id"] for item in no_flower] == ["1004"]
     assert [item["item_id"] for item in long_bloom] == ["1001"]
-    assert [item["item_id"] for item in good_value] == ["1001"]
+    assert good_value == []
     assert [item["item_id"] for item in nearby_level] == ["1001"]
     assert exact_level[0]["item_id"] == "1003"
     assert premium == []
     assert set(multiple_categories.categories) == {"春兰", "建兰"}
-    assert direct[0]["item_id"] == "1001"
+    assert direct == []
 
 
 @pytest.mark.asyncio

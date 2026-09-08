@@ -3,15 +3,15 @@
     <div class="page-head">
       <div>
         <h2>产品知识库</h2>
-        <p>AI 商品问答直接读取这里；新增知识会优先按产品名称自动关联有赞商品。</p>
+        <p>客户标签与这里的品类、需求、等级和环境匹配；价格和库存以关联商品的可售规格为准。</p>
       </div>
       <ElButton type="primary" @click="openCreate">新增产品知识</ElButton>
     </div>
 
     <div class="summary">
-      <span>知识总数 <strong>{{ total }}</strong></span>
+      <span>知识总数 <strong>{{ knowledgeCount }}</strong></span>
       <span>已关联 <strong>{{ linkedCount }}</strong></span>
-      <span>待关联 <strong>{{ Math.max(0, total - linkedCount) }}</strong></span>
+      <span>待关联 <strong>{{ Math.max(0, knowledgeCount - linkedCount) }}</strong></span>
     </div>
 
     <div class="toolbar">
@@ -31,7 +31,18 @@
 
     <ElTable v-loading="loading" :data="items" row-key="id">
       <ElTableColumn prop="product_name" label="产品名称" min-width="150" fixed="left" />
-      <ElTableColumn prop="aliases" label="产品别名" min-width="150" show-overflow-tooltip />
+      <ElTableColumn prop="category" label="类别" width="110" />
+      <ElTableColumn label="需求分类" min-width="190">
+        <template #default="scope">
+          <div class="demand-tags"><ElTag v-for="tag in scope.row.demand_tags" :key="tag" size="small">{{ tag }}</ElTag></div>
+        </template>
+      </ElTableColumn>
+      <ElTableColumn prop="fragrance" label="香型" width="100" show-overflow-tooltip />
+      <ElTableColumn prop="price_budget" label="参考价格段" width="130" show-overflow-tooltip />
+      <ElTableColumn prop="audience_tag" label="目标客户等级" width="140" show-overflow-tooltip />
+      <ElTableColumn prop="care_scenes" label="适配养兰环境" min-width="160" show-overflow-tooltip />
+      <ElTableColumn prop="seeding_scene" label="种草场景" width="130" show-overflow-tooltip />
+      <ElTableColumn prop="spec_hint" label="适用规格" width="110" show-overflow-tooltip />
       <ElTableColumn label="关联有赞商品" min-width="240">
         <template #default="scope">
           <div v-if="scope.row.linked_product" class="linked-product">
@@ -41,12 +52,10 @@
           <ElTag v-else type="warning" size="small">待关联</ElTag>
         </template>
       </ElTableColumn>
-      <ElTableColumn prop="category" label="类别" width="110" />
+      <ElTableColumn prop="aliases" label="产品别名" min-width="150" show-overflow-tooltip />
       <ElTableColumn prop="flower_color" label="花色" width="130" show-overflow-tooltip />
-      <ElTableColumn prop="fragrance" label="香味" width="130" show-overflow-tooltip />
       <ElTableColumn prop="flowering_status" label="是否带花" width="110" />
       <ElTableColumn prop="bloom_period" label="花期" width="120" show-overflow-tooltip />
-      <ElTableColumn prop="audience_tag" label="适合人群" width="140" show-overflow-tooltip />
       <ElTableColumn prop="highlighted_features" label="突出特征" min-width="220" show-overflow-tooltip />
       <ElTableColumn prop="sales_copy" label="塑品话术" min-width="300" show-overflow-tooltip />
       <ElTableColumn label="操作" width="120" fixed="right">
@@ -90,7 +99,21 @@
           <ElFormItem v-for="field in shortFields" :key="field.key" :label="field.label">
             <ElInput v-model="form[field.key]" />
           </ElFormItem>
+          <ElFormItem label="需求分类（多选）">
+            <ElSelect v-model="form.demand_tags" multiple filterable allow-create default-first-option>
+              <ElOption v-for="tag in demandOptions" :key="tag" :label="tag" :value="tag" />
+            </ElSelect>
+          </ElFormItem>
+          <ElFormItem label="适配养兰环境（多选）">
+            <ElSelect v-model="environments" multiple filterable allow-create default-first-option>
+              <ElOption v-for="scene in environmentOptions" :key="scene" :label="scene" :value="scene" />
+            </ElSelect>
+          </ElFormItem>
         </div>
+        <p class="field-help">目标客户等级支持 L1-L3 等区间，用于优先排序；红素独立于色花、素花，荷型与荷瓣分别匹配。参考价格段不作为对客报价。</p>
+        <ElFormItem v-if="form.source_demand" label="导入原始需求分类">
+          <ElInput :model-value="form.source_demand" readonly />
+        </ElFormItem>
         <ElFormItem v-for="field in longFields" :key="field.key" :label="field.label">
           <ElInput v-model="form[field.key]" type="textarea" :rows="3" />
         </ElFormItem>
@@ -104,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   createProductKnowledge,
@@ -119,7 +142,7 @@ import {
 
 const emit = defineEmits<{ saved: [] }>()
 
-type KnowledgeTextKey = Exclude<keyof ProductKnowledgePayload, 'item_id' | 'product_name'>
+type KnowledgeTextKey = Exclude<keyof ProductKnowledgePayload, 'item_id' | 'product_name' | 'demand_tags'>
 const emptyForm = (): ProductKnowledgePayload => ({
   item_id: null,
   product_name: '',
@@ -134,7 +157,11 @@ const emptyForm = (): ProductKnowledgePayload => ({
   audience_tag: '',
   market_price: '',
   highlighted_features: '',
-  sales_copy: ''
+  sales_copy: '',
+  demand_tags: [],
+  seeding_scene: '',
+  source_demand: '',
+  spec_hint: ''
 })
 
 const shortFields: Array<{ key: KnowledgeTextKey; label: string }> = [
@@ -144,11 +171,12 @@ const shortFields: Array<{ key: KnowledgeTextKey; label: string }> = [
   { key: 'fragrance', label: '香味' },
   { key: 'flowering_status', label: '是否带花' },
   { key: 'bloom_period', label: '花期' },
-  { key: 'audience_tag', label: '适合人群标签' }
+  { key: 'audience_tag', label: '目标客户等级（例如 L1-L3）' },
+  { key: 'seeding_scene', label: '种草场景' },
+  { key: 'spec_hint', label: '适用规格（例如 8苗，留空表示不限）' }
 ]
 const longFields: Array<{ key: KnowledgeTextKey; label: string }> = [
-  { key: 'price_budget', label: '价格预算' },
-  { key: 'care_scenes', label: '适合养护场景' },
+  { key: 'price_budget', label: '参考价格段' },
   { key: 'market_price', label: '市场价' },
   { key: 'highlighted_features', label: '需要突出的特征' },
   { key: 'sales_copy', label: '塑品话术' }
@@ -157,6 +185,7 @@ const longFields: Array<{ key: KnowledgeTextKey; label: string }> = [
 const items = ref<ProductKnowledgeItem[]>([])
 const productOptions = ref<ProductOption[]>([])
 const total = ref(0)
+const knowledgeCount = ref(0)
 const linkedCount = ref(0)
 const page = ref(1)
 const pageSize = ref(50)
@@ -168,6 +197,12 @@ const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const originalItemId = ref<string | null>(null)
 const form = reactive<ProductKnowledgePayload>(emptyForm())
+const demandOptions = ['色花', '素花', '红素', '奇花', '艺草', '梅瓣', '荷瓣', '荷型', '水仙瓣', '矮种', '半垂叶', '直立叶', '花大色艳', '好养易活', '勤花易开', '多瓣', '蝶花', '牡丹', '三星蝶', '银边', '金边', '白边', '虎斑', '线艺', '中透', '扫尾艺', '素心', '黄素', '黄花', '紫花', '粉花', '复色', '彩花', '梅蝶']
+const environmentOptions = ['阳台', '室内', '庭院', '露台', '室外露养', '有兰棚']
+const environments = computed({
+  get: () => (form.care_scenes || '').split(/\s*\/\s*|[,，、]/).filter(Boolean),
+  set: (values: string[]) => { form.care_scenes = values.join(' / ') }
+})
 
 const loadKnowledge = async () => {
   loading.value = true
@@ -180,6 +215,7 @@ const loadKnowledge = async () => {
     })
     items.value = data.items
     total.value = data.total
+    knowledgeCount.value = data.knowledge_count
     linkedCount.value = data.linked_count
   } finally {
     loading.value = false
@@ -188,7 +224,13 @@ const loadKnowledge = async () => {
 
 const loadOptions = async () => { productOptions.value = await getProductOptions() }
 const applyFilters = () => { page.value = 1; void loadKnowledge() }
-const resetForm = (value: Partial<ProductKnowledgePayload> = {}) => Object.assign(form, emptyForm(), value)
+const resetForm = (value: Partial<ProductKnowledgePayload> = {}) => {
+  const defaults = emptyForm()
+  const normalized = Object.fromEntries(
+    (Object.keys(defaults) as Array<keyof ProductKnowledgePayload>).map(key => [key, value[key] ?? defaults[key]])
+  )
+  Object.assign(form, normalized, { demand_tags: [...(value.demand_tags || [])] })
+}
 
 const openCreate = async () => {
   editingId.value = null
@@ -255,6 +297,8 @@ defineExpose({ openCreateForProduct })
 .summary strong { margin-left: 5px; color: #173d32; }
 .toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) 170px auto; gap: 10px; margin-bottom: 16px; }
 .linked-product { display: flex; align-items: center; gap: 8px; }
+.demand-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.field-help { color: #71827c; font-size: 13px; line-height: 1.6; }
 .pagination { display: flex; justify-content: flex-end; padding-top: 18px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
 .form-grid :deep(.el-select) { width: 100%; }

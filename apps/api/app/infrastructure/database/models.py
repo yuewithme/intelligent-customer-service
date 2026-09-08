@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -153,8 +154,19 @@ class YouzanProductKnowledgeModel(Base):
     market_price: Mapped[str | None] = mapped_column(Text, nullable=True)
     highlighted_features: Mapped[str | None] = mapped_column(Text, nullable=True)
     sales_copy: Mapped[str | None] = mapped_column(Text, nullable=True)
+    demand_tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    seeding_scene: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_demand: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    spec_hint: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ProductKnowledgeImportModel(Base):
+    __tablename__ = "product_knowledge_imports"
+
+    version: Mapped[str] = mapped_column(String(128), primary_key=True)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class CareManualCardModel(Base):
