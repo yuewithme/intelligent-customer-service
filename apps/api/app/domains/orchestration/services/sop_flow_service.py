@@ -100,6 +100,7 @@ def build_workbench_packages(policies: dict[str, bool], switches: dict[str, bool
         package["transitions"] = [edge.model_dump() for edge in flow.transitions]
         if flow.revision:
             package["version"] = f"1.0.{flow.revision}"
+            package["description"] = "按已保存的入口条件、连线和节点配置执行。"
             package["entry"]["events"] = ["按工作台入口条件触发"]
         package["outcomes"] = [{"outcome_id": "complete", "name": "本分支结束", "terminal": True,
                                 "next_package_id": None, "result_tags": []}] if any(edge.outcome for edge in flow.transitions) else []
