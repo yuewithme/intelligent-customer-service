@@ -82,9 +82,10 @@ def _ensure_product_knowledge_aliases(engine) -> None:
             for value in (row["primary_alias"], row["aliases_text"]):
                 values.extend(_alias_values(value))
 
-        knowledge_rows = connection.execute(
+        knowledge_rows = list(connection.execute(
             text("SELECT id, product_name, aliases FROM youzan_product_knowledge")
-        ).mappings()
+        ).mappings())
+        product_names = {_normalize_product_name(row["product_name"]) for row in knowledge_rows}
         for row in knowledge_rows:
             product_name = str(row["product_name"] or "").strip()
             candidates = [
@@ -96,6 +97,9 @@ def _ensure_product_knowledge_aliases(engine) -> None:
             for alias in candidates:
                 normalized = _normalize_product_name(alias)
                 if not normalized or normalized in seen:
+                    continue
+                # A separately named product in the current catalog is not a legacy alias.
+                if normalized in product_names:
                     continue
                 seen.add(normalized)
                 aliases.append(alias)

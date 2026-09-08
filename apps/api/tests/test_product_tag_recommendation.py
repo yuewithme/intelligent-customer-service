@@ -1,3 +1,5 @@
+import sqlite3
+
 from app.core.config import get_settings
 from app.domains.catalog.services.product_knowledge_service import (
     _audience_level_distance, _now, create_product_knowledge,
@@ -35,6 +37,12 @@ def test_approved_table_import_preserves_other_knowledge_and_admin_edits(monkeyp
     filtered = list_product_knowledge(keyword="云中白鹤")
     assert filtered["total"] == 1
     assert filtered["knowledge_count"] == 149
+    with sqlite3.connect(tmp_path / "catalog.db") as connection:
+        connection.execute("CREATE TABLE orchid_varieties (variety_name TEXT, primary_alias TEXT, aliases_text TEXT)")
+        connection.execute("INSERT INTO orchid_varieties VALUES (?, ?, ?)", ("红草红荷", "红草", "红草"))
+    reset_product_store_for_tests()
+    red = list_product_knowledge(keyword="红草红荷")["items"][0]
+    assert "红草" not in (red["aliases"] or "").split("，")
 
 
 def test_matching_requires_affordable_in_stock_spec_and_ranks_profile(monkeypatch, tmp_path):
