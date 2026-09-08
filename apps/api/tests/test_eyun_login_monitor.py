@@ -4,6 +4,14 @@ from app.core.config import get_settings
 from app.integrations.eyun.services import eyun_login_monitor_service as monitor
 
 
+@pytest.fixture(autouse=True)
+def isolated_settings_database(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'monitor.db'}")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 def _configure(monkeypatch):
     monkeypatch.setenv("EYUN_BASE_URL", "https://eyun.example.com")
     monkeypatch.setenv("EYUN_AUTHORIZATION", "Bearer test")

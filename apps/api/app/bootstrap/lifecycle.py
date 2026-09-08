@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.config import get_settings
+from app.integrations.eyun.services.eyun_account_settings_service import load_eyun_account_settings
 from app.domains.catalog.services.product_recommendation_import import import_recommendation_catalog
 from app.domains.conversations.services.conversation_service import (
     recover_stale_unsupported_handoffs,
@@ -39,6 +40,8 @@ async def lifespan(app: FastAPI):
     if get_settings().evaluation_mode:
         yield
         return
+
+    load_eyun_account_settings()
 
     imported = import_recommendation_catalog()
     if imported:

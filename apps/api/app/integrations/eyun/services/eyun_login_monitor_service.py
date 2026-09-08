@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from app.core.config import get_settings
+from app.integrations.eyun.services.eyun_account_settings_service import refresh_eyun_account_wid
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_login_monitor")
@@ -40,6 +41,7 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
     base_url = settings.eyun_base_url.rstrip("/")
     authorization = settings.eyun_authorization.strip()
     configured_wc_id = settings.eyun_wc_id.strip()
+    configured_w_id = settings.eyun_wid
     if not base_url or not authorization:
         return None
 
@@ -51,6 +53,10 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun online-list query failed: %s", exc)
+        return None
+
+    # An admin may change the account while the provider request is in flight.
+    if (settings.eyun_wc_id.strip(), settings.eyun_wid) != (configured_wc_id, configured_w_id):
         return None
 
     if str(result.get("code")) != "1000":
@@ -76,9 +82,9 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
     )
     if matched is not None:
         w_id = str(matched.get("wId") or "").strip()
-        await _apply_status(wc_id=wc_id, w_id=w_id, online=True)
         if w_id and settings.eyun_wid != w_id:
-            settings.eyun_wid = w_id
+            refresh_eyun_account_wid(w_id=w_id, wc_id=wc_id)
+        await _apply_status(wc_id=wc_id, w_id=w_id, online=True)
         return True
 
     reason_known, reason = await _query_offline_reason(
@@ -86,6 +92,8 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
         authorization=authorization,
         wc_id=wc_id,
     )
+    if (settings.eyun_wc_id.strip(), settings.eyun_wid) != (configured_wc_id, configured_w_id):
+        return None
     if not reason_known:
         return None
     if reason is None:
