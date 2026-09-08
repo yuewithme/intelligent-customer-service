@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
 from app.integrations.eyun.services.eyun_account_settings_service import (
+    get_eyun_account_settings_revision,
     get_eyun_account_settings,
     load_eyun_account_settings,
     save_eyun_account_settings,
@@ -95,3 +96,30 @@ async def test_inflight_monitor_cannot_overwrite_manual_save(client, monkeypatch
     monkeypatch.setattr(monitor, "_post_eyun", fake_post)
     assert await monitor.poll_eyun_login_status() is None
     assert get_eyun_account_settings() == {"w_id": "manual-wid", "wc_id": "wxid_manual"}
+
+
+@pytest.mark.asyncio
+async def test_account_switch_resets_state_and_rejects_pending_alert(client, monkeypatch):
+    monitor._status_by_wc_id["wxid_env"] = True
+    monitor._offline_observations_by_wc_id["wxid_env"] = 1
+    old_revision = get_eyun_account_settings_revision()
+    alerts: list[str] = []
+
+    async def fake_send(content):
+        alerts.append(content)
+        return True
+
+    monkeypatch.setattr(monitor, "_send_feishu_alert", fake_send)
+    save_eyun_account_settings(w_id="new-wid", wc_id="wxid_new")
+
+    assert monitor._status_by_wc_id == {}
+    assert monitor._offline_observations_by_wc_id == {}
+    await monitor._apply_status(
+        wc_id="wxid_env",
+        w_id="env-wid",
+        online=False,
+        reason="old account offline",
+        require_offline_confirmation=True,
+        configuration_revision=old_revision,
+    )
+    assert alerts == []

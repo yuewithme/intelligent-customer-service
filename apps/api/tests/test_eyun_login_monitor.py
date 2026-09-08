@@ -162,3 +162,24 @@ async def test_offline_reason_null_keeps_account_online(monkeypatch):
     assert await monitor.poll_eyun_login_status() is True
     assert await monitor.poll_eyun_login_status() is True
     assert alerts == []
+
+
+def test_nested_eyun_reason_is_rendered_as_readable_action():
+    raw_reason = (
+        '{"ret":0,"msg":"success","data":{"baseResponse":{"ret":-100,'
+        '"errMsg":{"string":"<e>\\n<ShowType>1</ShowType>\\n<Content>'
+        '<![CDATA[登录出现错误，请你重新登录。]]></Content>\\n<Action>4</Action>\\n</e>"}}}}'
+    )
+
+    reason = monitor._humanize_offline_reason(raw_reason)
+    message = monitor._render_offline_message(
+        wc_id="wxid_new_account",
+        w_id="new-instance-id",
+        reason=reason,
+    )
+
+    assert reason == "登录出现错误，请你重新登录。"
+    assert "掉线原因：登录出现错误，请你重新登录。" in message
+    assert "重登时继续使用上方 WCID" in message
+    assert "baseResponse" not in message
+    assert "<Content>" not in message
