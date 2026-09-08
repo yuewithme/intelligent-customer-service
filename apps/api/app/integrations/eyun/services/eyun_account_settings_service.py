@@ -7,6 +7,9 @@ from app.core.config import get_settings
 from app.infrastructure.database.models import EyunAccountSettingModel
 
 
+_configuration_revision = 0
+
+
 @lru_cache
 def _session_factory(database_url: str):
     engine = create_engine(database_url)
@@ -28,8 +31,14 @@ def get_eyun_account_settings() -> dict[str, str]:
     return {"w_id": settings.eyun_wid, "wc_id": settings.eyun_wc_id}
 
 
+def get_eyun_account_settings_revision() -> int:
+    return _configuration_revision
+
+
 def save_eyun_account_settings(*, w_id: str, wc_id: str) -> dict[str, str]:
+    global _configuration_revision
     settings = get_settings()
+    previous_account = (settings.eyun_wid, settings.eyun_wc_id)
     with _session_factory(settings.database_url)() as session:
         row = session.get(EyunAccountSettingModel, 1)
         if row is None:
@@ -40,6 +49,14 @@ def save_eyun_account_settings(*, w_id: str, wc_id: str) -> dict[str, str]:
         session.commit()
     settings.eyun_wid = w_id
     settings.eyun_wc_id = wc_id
+    if previous_account != (w_id, wc_id):
+        _configuration_revision += 1
+        # Imported lazily to avoid a module cycle during application startup.
+        from app.integrations.eyun.services.eyun_login_monitor_service import (
+            reset_eyun_login_monitor_state,
+        )
+
+        reset_eyun_login_monitor_state()
     return get_eyun_account_settings()
 
 

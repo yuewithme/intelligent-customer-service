@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import re
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -7,7 +9,10 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from app.core.config import get_settings
-from app.integrations.eyun.services.eyun_account_settings_service import refresh_eyun_account_wid
+from app.integrations.eyun.services.eyun_account_settings_service import (
+    get_eyun_account_settings_revision,
+    refresh_eyun_account_wid,
+)
 
 
 logger = logging.getLogger("wechat_rag_bot.eyun_login_monitor")
@@ -20,6 +25,7 @@ _offline_observations_by_wc_id: dict[str, int] = {}
 _notification_tasks: set[asyncio.Task[None]] = set()
 _state_lock = asyncio.Lock()
 _OFFLINE_CONFIRMATIONS_REQUIRED = 2
+_MAX_REASON_LENGTH = 240
 
 
 def schedule_eyun_offline_notification(payload: dict[str, Any]) -> None:
@@ -42,6 +48,7 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
     authorization = settings.eyun_authorization.strip()
     configured_wc_id = settings.eyun_wc_id.strip()
     configured_w_id = settings.eyun_wid
+    configuration_revision = get_eyun_account_settings_revision()
     if not base_url or not authorization:
         return None
 
@@ -56,7 +63,11 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
         return None
 
     # An admin may change the account while the provider request is in flight.
-    if (settings.eyun_wc_id.strip(), settings.eyun_wid) != (configured_wc_id, configured_w_id):
+    if (
+        get_eyun_account_settings_revision() != configuration_revision
+        or (settings.eyun_wc_id.strip(), settings.eyun_wid)
+        != (configured_wc_id, configured_w_id)
+    ):
         return None
 
     if str(result.get("code")) != "1000":
@@ -84,7 +95,12 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
         w_id = str(matched.get("wId") or "").strip()
         if w_id and settings.eyun_wid != w_id:
             refresh_eyun_account_wid(w_id=w_id, wc_id=wc_id)
-        await _apply_status(wc_id=wc_id, w_id=w_id, online=True)
+        await _apply_status(
+            wc_id=wc_id,
+            w_id=w_id,
+            online=True,
+            configuration_revision=configuration_revision,
+        )
         return True
 
     reason_known, reason = await _query_offline_reason(
@@ -92,7 +108,11 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
         authorization=authorization,
         wc_id=wc_id,
     )
-    if (settings.eyun_wc_id.strip(), settings.eyun_wid) != (configured_wc_id, configured_w_id):
+    if (
+        get_eyun_account_settings_revision() != configuration_revision
+        or (settings.eyun_wc_id.strip(), settings.eyun_wid)
+        != (configured_wc_id, configured_w_id)
+    ):
         return None
     if not reason_known:
         return None
@@ -101,6 +121,7 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
             wc_id=wc_id,
             w_id=_wid_by_wc_id.get(wc_id, settings.eyun_wid),
             online=True,
+            configuration_revision=configuration_revision,
         )
         return True
     if not confirm_offline:
@@ -111,6 +132,7 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
         online=False,
         reason=reason,
         require_offline_confirmation=True,
+        configuration_revision=configuration_revision,
     )
     return False
 
@@ -138,8 +160,14 @@ async def _apply_status(
     online: bool,
     reason: str | None = None,
     require_offline_confirmation: bool = False,
+    configuration_revision: int | None = None,
 ) -> None:
     async with _state_lock:
+        if (
+            configuration_revision is not None
+            and get_eyun_account_settings_revision() != configuration_revision
+        ):
+            return
         if online:
             _offline_observations_by_wc_id.pop(wc_id, None)
         elif require_offline_confirmation:
@@ -166,7 +194,14 @@ async def _apply_status(
                 w_id=w_id,
                 reason=reason,
             )
-        if await _send_feishu_alert(content):
+        alert_sent = await _send_feishu_alert(content)
+        if (
+            alert_sent
+            and (
+                configuration_revision is None
+                or get_eyun_account_settings_revision() == configuration_revision
+            )
+        ):
             _alerted_status_by_wc_id[wc_id] = online
 
 
@@ -194,8 +229,74 @@ async def _query_offline_reason(
     if "reason" not in rows[0]:
         return False, None
     reason = rows[0].get("reason")
-    reason_text = str(reason).strip() if reason is not None else ""
+    reason_text = _humanize_offline_reason(reason)
     return True, reason_text or None
+
+
+def _humanize_offline_reason(reason: Any) -> str:
+    extracted = _extract_reason_text(reason)
+    if extracted:
+        return extracted[:_MAX_REASON_LENGTH]
+    if isinstance(reason, (dict, list)):
+        fallback = json.dumps(reason, ensure_ascii=False, separators=(",", ":"))
+    else:
+        fallback = str(reason or "")
+    fallback = " ".join(fallback.split())
+    if len(fallback) > _MAX_REASON_LENGTH:
+        fallback = f"{fallback[: _MAX_REASON_LENGTH - 1]}…"
+    return fallback
+
+
+def _extract_reason_text(value: Any) -> str:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        if text[:1] in "{[":
+            try:
+                parsed = json.loads(text)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            else:
+                extracted = _extract_reason_text(parsed)
+                if extracted:
+                    return extracted
+        content_match = re.search(
+            r"<Content>\s*(?:<!\[CDATA\[(.*?)\]\]>|(.*?))\s*</Content>",
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        if content_match:
+            text = (content_match.group(1) or content_match.group(2) or "").strip()
+        text = " ".join(re.sub(r"<[^>]+>", " ", text).split())
+        return "" if text.lower() in {"success", "ok"} else text
+    if isinstance(value, dict):
+        for key in ("reason", "errMsg", "error", "errorMessage", "err_msg", "errMessage"):
+            if key in value:
+                extracted = _extract_reason_text(value[key])
+                if extracted:
+                    return extracted
+        for key in ("data", "baseResponse"):
+            if key in value:
+                extracted = _extract_reason_text(value[key])
+                if extracted:
+                    return extracted
+        for key in ("string", "content", "message", "msg"):
+            if key in value:
+                extracted = _extract_reason_text(value[key])
+                if extracted:
+                    return extracted
+        for nested in value.values():
+            if isinstance(nested, (dict, list)):
+                extracted = _extract_reason_text(nested)
+                if extracted:
+                    return extracted
+    if isinstance(value, list):
+        for item in value:
+            extracted = _extract_reason_text(item)
+            if extracted:
+                return extracted
+    return ""
 
 
 async def _post_eyun(
@@ -252,9 +353,16 @@ def _render_offline_message(
         f"微信账号：{wc_id}\n"
         f"实例 ID：{w_id or '未知'}\n"
         f"掉线原因：{reason or 'Eyun 暂未返回明确原因'}\n"
+        f"处理建议：{_offline_action(reason)}\n"
         f"发现时间：{_local_time_text()}\n\n"
         "智能客服可能无法收发微信消息，请尽快检查 Eyun 登录状态。"
     )
+
+
+def _offline_action(reason: str | None) -> str:
+    if reason and "重新登录" in reason:
+        return "请在 Eyun 控制台重新登录该微信；重登时继续使用上方 WCID，成功后的 WID 会自动同步。"
+    return "请在 Eyun 控制台检查该微信的登录状态，必要时使用上方 WCID 重新登录。"
 
 
 def _render_recovery_message(*, wc_id: str, w_id: str) -> str:
@@ -270,8 +378,12 @@ def _local_time_text() -> str:
     return datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _reset_monitor_state() -> None:
+def reset_eyun_login_monitor_state() -> None:
     _status_by_wc_id.clear()
     _alerted_status_by_wc_id.clear()
     _wid_by_wc_id.clear()
     _offline_observations_by_wc_id.clear()
+
+
+def _reset_monitor_state() -> None:
+    reset_eyun_login_monitor_state()
