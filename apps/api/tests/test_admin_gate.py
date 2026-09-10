@@ -52,6 +52,10 @@ def test_username_required_legacy_cookie_rejected_and_no_proxy_bypass(clients):
     client.cookies.set("admin_gate", "admin.invalid-old-cookie")
     assert client.get("/api/v1/admin/conversations", headers={"Authorization": "Bearer service-only-key"}).status_code == 401
     assert admin.get("/api/gate").json()["data"]["account"]["username"] == "admin"
+    response = client.post("/api/gate", json={"username": "admin", "password": "initial-admin-password"}, headers={"X-Forwarded-Proto": "https"})
+    assert response.status_code == 200
+    assert "Secure" in response.headers["set-cookie"]
+    assert "HttpOnly" in response.headers["set-cookie"]
 
 
 def test_credentials_are_hashed_and_sessions_expire_and_logout_revokes(clients):
