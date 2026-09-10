@@ -21,6 +21,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("ADMIN_GATE_ENABLED", "true")
     monkeypatch.setenv("API_KEY", "settings-test-key")
     monkeypatch.setenv("ADMIN_GATE_PASSWORD", "admin-test")
+    monkeypatch.setenv("ADMIN_GATE_USERNAME", "admin")
     monkeypatch.setenv("ADMIN_GATE_TEST_PASSWORD", "readonly-test")
     get_settings.cache_clear()
     monitor._reset_monitor_state()
