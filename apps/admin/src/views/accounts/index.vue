@@ -4,14 +4,14 @@
       <div><h1>账号与权限</h1><p>新增、删除账号，设置登录账密并分配页面和客服微信权限。</p></div>
       <ElButton type="primary" :disabled="loading" @click="openCreate">创建账号</ElButton>
     </div>
-    <ElAlert title="管理员拥有全部权限；测试账号仅观看和使用演示会话；员工仅可操作已分配微信，其他页面为只读。" type="info" :closable="false" />
+    <ElAlert title="管理员拥有全部权限；测试账号仅观看和使用演示会话；员工未选择微信时可访问全部微信，选择后仅可操作所选微信，其他页面为只读。" type="info" :closable="false" />
     <ElTable v-loading="loading" :data="accounts" class="account-table">
       <ElTableColumn prop="username" label="账号" min-width="140" />
       <ElTableColumn prop="display_name" label="姓名" min-width="110" />
       <ElTableColumn label="角色" width="100"><template #default="{ row }">{{ roleLabel(row.role) }}</template></ElTableColumn>
       <ElTableColumn label="状态" width="90"><template #default="{ row }"><ElTag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</ElTag></template></ElTableColumn>
       <ElTableColumn label="页面权限" min-width="220"><template #default="{ row }">{{ row.role === 'admin' ? '全部页面' : row.pages.map((path: string) => pageTitle(path)).join('、') || '未分配' }}</template></ElTableColumn>
-      <ElTableColumn label="可操作微信" min-width="200"><template #default="{ row }">{{ row.role === 'admin' ? '全部微信' : row.wechat_ids.map((id: string) => wechatTitle(id)).join('、') || '未分配' }}</template></ElTableColumn>
+      <ElTableColumn label="可操作微信" min-width="200"><template #default="{ row }">{{ row.role === 'test' ? '仅演示会话' : row.role === 'admin' || !row.wechat_ids.length ? '全部微信' : row.wechat_ids.map((id: string) => wechatTitle(id)).join('、') }}</template></ElTableColumn>
       <ElTableColumn label="操作" width="200" fixed="right"><template #default="{ row }">
         <ElButton link type="primary" @click="openEdit(row)">编辑账号</ElButton>
         <ElButton link type="danger" :disabled="row.id === currentAccount?.id" @click="removeAccount(row)">删除账号</ElButton>
@@ -31,7 +31,7 @@
           <ElCheckboxGroup v-model="form.pages" class="page-options"><ElCheckbox v-for="page in options.pages" :key="page.path" :value="page.path">{{ page.title }}</ElCheckbox></ElCheckboxGroup>
         </ElFormItem>
         <ElFormItem v-if="form.role === 'employee'" label="允许操作的客服微信">
-          <ElSelect v-model="form.wechat_ids" multiple filterable placeholder="未分配时无法查看或操作微信会话" style="width: 100%">
+          <ElSelect v-model="form.wechat_ids" multiple filterable placeholder="不选择则默认全部微信" style="width: 100%">
             <ElOption v-for="wechat in options.wechats" :key="wechat.wc_id" :value="wechat.wc_id" :label="wechatTitle(wechat.wc_id)" />
           </ElSelect>
         </ElFormItem>

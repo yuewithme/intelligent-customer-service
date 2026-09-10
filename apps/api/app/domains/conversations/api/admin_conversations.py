@@ -132,7 +132,7 @@ async def conversations(
 async def conversation_tenants(request: Request) -> APIResponse:
     data = await list_conversation_tenants()
     account = get_account(request)
-    if account and account["role"] == "employee":
+    if account and account["role"] == "employee" and account["wechat_ids"]:
         data["items"] = [item for item in data["items"] if item["wc_id"] in account["wechat_ids"]]
     return APIResponse(
         code=0,

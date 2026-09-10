@@ -137,7 +137,9 @@ async def list_conversations(
         if tenant_id:
             filters.append(ConversationModel.tenant_id == tenant_id)
         if allowed_owner_wc_ids is not None:
-            filters.extend((ConversationModel.channel == "wechat", ConversationModel.owner_wc_id.in_(allowed_owner_wc_ids)))
+            filters.append(ConversationModel.channel == "wechat")
+            if allowed_owner_wc_ids:
+                filters.append(ConversationModel.owner_wc_id.in_(allowed_owner_wc_ids))
         if user_id_prefix:
             filters.append(ConversationModel.user_id.like(f"{user_id_prefix}%"))
         if excluded_user_id_prefix:
