@@ -90,6 +90,10 @@ deploy:production:
     - |
       set -eu
       SSH="ssh $SSHOPT"
+      if [ -n "${FEISHU_HANDOFF_WEBHOOK_URL:-}" ]; then
+        set +x
+        printf '%s' "$FEISHU_HANDOFF_WEBHOOK_URL" | $SSH "$PROD_HOST" "flock -w 1200 /tmp/intelligent-customer-service-deploy.lock sudo -n python3 -c \"\$(git -C '$PROD_DIR' show '$CI_COMMIT_SHA:deploy/update-feishu-webhook.py')\""
+      fi
       $SSH "$PROD_HOST" "cd '$PROD_DIR' && bash deploy/auto-deploy.sh --force"
 
 verify:production:
@@ -105,6 +109,10 @@ verify:production:
       if [ "$deployed_revision" != "$CI_COMMIT_SHA" ]; then
         echo "ERROR: deployed revision $deployed_revision does not match $CI_COMMIT_SHA"
         exit 1
+      fi
+      if [ -n "${FEISHU_HANDOFF_WEBHOOK_URL:-}" ]; then
+        set +x
+        printf '%s' "$FEISHU_HANDOFF_WEBHOOK_URL" | $SSH "$PROD_HOST" "sudo -n python3 '$PROD_DIR/deploy/update-feishu-webhook.py' --verify"
       fi
       health_body="$(curl -fsS --retry 6 --retry-delay 5 --max-time 15 https://sales-agent.hzwohu.com/health)"
       printf 'health=%s\n' "$health_body"
