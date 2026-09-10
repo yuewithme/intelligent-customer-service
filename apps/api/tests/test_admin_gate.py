@@ -78,7 +78,7 @@ def test_credentials_are_hashed_and_sessions_expire_and_logout_revokes(clients):
     assert client.get("/api/v1/admin/conversations").status_code == 401
 
 
-def test_employee_lists_only_assigned_wechat_and_empty_scope_is_empty(clients):
+def test_employee_lists_only_assigned_wechat_and_empty_scope_allows_all(clients):
     admin, employee = clients
     created = create_employee(admin, employee)
     result = employee.get("/api/v1/admin/conversations").json()["data"]
@@ -88,7 +88,20 @@ def test_employee_lists_only_assigned_wechat_and_empty_scope_is_empty(clients):
     assert employee.get("/api/v1/admin/conversations", params={"tenant_id": "wx_denied"}).json()["data"]["total"] == 0
     payload = {**created["account"], "wechat_ids": []}
     assert admin.put(f'/api/v1/admin/accounts/{payload["id"]}', json=payload).status_code == 200
-    assert employee.get("/api/v1/admin/conversations").json()["data"]["total"] == 0
+    assert employee.get("/api/v1/admin/conversations").json()["data"]["total"] == 2
+    assert {item["wc_id"] for item in employee.get("/api/v1/admin/conversations/tenants").json()["data"]["items"]} == {"wx_allowed", "wx_denied"}
+    assert employee.get("/api/v1/admin/conversations/wechat:customer_wx_denied:wx_denied").status_code == 200
+    assert employee.get("/api/v1/users/customer_wx_denied/profile").status_code == 200
+    from app.domains.access.permissions import can_access_conversation
+    assert can_access_conversation(payload, "wechat:customer_wx_denied:wx_denied")
+    now = datetime.now(timezone.utc)
+    with _get_session() as db:
+        db.add(ConversationModel(conversation_id="demo:customer", channel="demo", user_id="demo_customer", status="handoff_pending", created_at=now, updated_at=now))
+        db.commit()
+    assert not can_access_conversation(payload, "demo:customer")
+    assert employee.get("/api/v1/admin/conversations").json()["data"]["total"] == 2
+    assert employee.get("/api/v1/admin/conversations/demo:customer").status_code == 403
+    assert employee.get("/api/v1/admin/accounts").status_code == 403
 
 
 def test_employee_object_scope_and_forged_source_messages(clients):
