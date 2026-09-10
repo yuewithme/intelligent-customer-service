@@ -25,7 +25,7 @@
     </div>
 
     <div ref="timelineRef" v-loading="loading" class="timeline">
-      <div v-if="selectionMode && !readOnly" class="selection-toolbar">
+      <div v-if="selectionMode && isAdmin()" class="selection-toolbar">
         <span>已选 {{ selectedMessageIds.size }} 条</span>
         <div>
           <ElButton size="small" @click="clearSelection">取消</ElButton>
@@ -59,7 +59,7 @@
           { selectable: canSelectMessage(message), selected: selectedMessageIds.has(message.id), focused: focusedMessageId === message.id }
         ]"
         @click="toggleSelectedMessage(message)"
-        @contextmenu.prevent="!readOnly && startSelection(message)"
+        @contextmenu.prevent="isAdmin() && startSelection(message)"
       >
         <div class="bubble">
           <span v-if="selectedMessageIds.has(message.id)" class="selected-mark">✓</span>
@@ -211,7 +211,7 @@ import {
 } from '@/api/admin/conversations'
 import { formatChinaTime } from '@/utils/time'
 import SaveActivityDialog from './SaveActivityDialog.vue'
-import { isTestGate } from '@/utils/gate'
+import { isTestGate, isAdmin } from '@/utils/gate'
 import { createWechatMaterialFromMessage } from '@/api/admin/wechatMaterials'
 
 interface MediaMetadata {

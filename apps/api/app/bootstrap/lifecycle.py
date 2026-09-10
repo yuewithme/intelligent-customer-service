@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.config import get_settings
+from app.domains.access.accounts import account_session
 from app.integrations.eyun.services.eyun_account_settings_service import load_eyun_account_settings
 from app.domains.catalog.services.product_recommendation_import import import_recommendation_catalog
 from app.domains.conversations.services.conversation_service import (
@@ -37,6 +38,8 @@ logger = logging.getLogger("wechat_rag_bot.lifecycle")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    with account_session():
+        pass
     if get_settings().evaluation_mode:
         yield
         return

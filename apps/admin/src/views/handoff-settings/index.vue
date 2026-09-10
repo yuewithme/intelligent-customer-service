@@ -11,10 +11,10 @@
             <strong>全部转人工（紧急开关）</strong>
             <span>开启后，除系统开场事件外的客户新消息直接转人工</span>
           </div>
-          <ElSwitch v-model="form.global_handoff_enabled" />
+          <ElSwitch :disabled="!isAdmin()" v-model="form.global_handoff_enabled" />
         </div>
-        <ElButton :loading="syncing" @click="syncContacts">同步联系人</ElButton>
-        <ElButton type="primary" :loading="saving" @click="saveSettings">保存设置</ElButton>
+        <ElButton v-if="isAdmin()" :loading="syncing" @click="syncContacts">同步联系人</ElButton>
+        <ElButton v-if="isAdmin()" type="primary" :loading="saving" @click="saveSettings">保存设置</ElButton>
       </div>
     </div>
 
@@ -29,6 +29,7 @@
         </div>
         <ElSelect
           v-model="form.recipient_contact_ids"
+          :disabled="!isAdmin()"
           multiple
           filterable
           remote
@@ -67,6 +68,7 @@
         </div>
         <ElInput
           v-model="form.message_text"
+          :disabled="!isAdmin()"
           type="textarea"
           :rows="8"
           maxlength="2000"
@@ -87,6 +89,7 @@
 </template>
 
 <script setup lang="ts">
+import { isAdmin } from '@/utils/gate'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {

@@ -28,7 +28,7 @@
       </ElSelect>
       <ElAlert
         v-if="!sendMode"
-        :title="readOnly ? '测试身份为只读模式' : '新活动请先在销售工作台中右键选择消息，再点击“存为活动”'"
+        :title="readOnly ? '当前账号为只读模式' : '新活动请先在销售工作台中右键选择消息，再点击“存为活动”'"
         type="info"
         :closable="false"
       />
@@ -115,7 +115,7 @@
             >
               重新启动
             </ElButton>
-            <ElButton size="small" @click="openLogs(activity)">发送记录</ElButton>
+            <ElButton v-if="isAdmin()" size="small" @click="openLogs(activity)">发送记录</ElButton>
             <ElButton
               v-if="!readOnly && activity.status !== 'archived'"
               size="small"
@@ -130,7 +130,7 @@
             v-else
             size="small"
             type="primary"
-            :disabled="readOnly || selectedActivityId !== activity.id"
+            :disabled="isTestGate() || selectedActivityId !== activity.id"
             @click="confirmSend(activity)"
           >
             预览并发送
@@ -221,14 +221,14 @@ import {
 import { getConversationDetail } from '@/api/admin/conversations'
 import { useUserStore } from '@/store/modules/user'
 import { formatChinaTime } from '@/utils/time'
-import { isTestGate } from '@/utils/gate'
+import { isTestGate, isAdmin } from '@/utils/gate'
 
 defineOptions({ name: 'CurrentActivities' })
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
-const readOnly = isTestGate()
+const readOnly = !isAdmin()
 const conversationId = computed(() =>
   typeof route.query.conversation_id === 'string' ? route.query.conversation_id : ''
 )

@@ -8,7 +8,7 @@
       @click="closeMobileNav"
     ></button>
     <aside class="sidebar" :class="{ open: mobileNavOpen }">
-      <RouterLink class="brand" to="/workbench" @click="closeMobileNav">
+      <RouterLink class="brand" :to="firstAllowedPage()" @click="closeMobileNav">
         <span class="brand-mark">兰</span>
         <span><strong>小兰 Agent</strong><small>萧岚苑销售运营台</small></span>
       </RouterLink>
@@ -86,7 +86,10 @@
           <button type="button" @click="logout">退出</button>
         </div>
       </header>
-      <main><RouterView /></main>
+      <main>
+        <ElAlert v-if="!isAdmin() && route.path !== '/workbench' && route.path !== '/no-access'" title="此页面为观看权限，修改操作由管理员执行" type="info" :closable="false" />
+        <RouterView :key="route.path" />
+      </main>
     </div>
   </div>
 </template>
@@ -95,7 +98,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/modules/user'
-import { clearGateRole, isTestGate } from '@/utils/gate'
+import { clearGateRole, isTestGate, canViewPage, firstAllowedPage, isAdmin } from '@/utils/gate'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
 import type { ConversationTenant } from '@/api/admin/conversations'
 
@@ -131,7 +134,7 @@ watch(showTenantSwitcher, (visible) => {
   if (visible) void tenantStore.loadTenants()
 })
 
-const navigation = [
+const allNavigation = [
   {
     title: '销售执行',
     items: [{ label: '小兰工作台', to: '/workbench' }]
@@ -156,10 +159,13 @@ const navigation = [
     title: '系统',
     items: [
       { label: '转人工设置', to: '/settings/handoff' },
-      { label: '模型配置', to: '/settings/model-config' }
+      { label: '模型配置', to: '/settings/model-config' },
+      { label: '账号与权限', to: '/settings/accounts' }
     ]
   }
 ]
+
+const navigation = computed(() => allNavigation.map(group => ({ ...group, items: group.items.filter(item => canViewPage(item.to)) })).filter(group => group.items.length))
 
 const logout = async () => {
   closeMobileNav()

@@ -1,17 +1,12 @@
+import { computed } from 'vue'
 import { defineStore } from 'pinia'
+import { clearGateRole, currentAccount } from '@/utils/gate'
 
-const NAME_KEY = 'sales-agent-operator-name'
-
-export const useUserStore = defineStore('sales-agent-user', {
-  state: () => ({ user: { id: 1, nickname: localStorage.getItem(NAME_KEY) || '管理员' } }),
-  actions: {
-    setNickname(nickname: string) {
-      this.user.nickname = nickname
-      localStorage.setItem(NAME_KEY, nickname)
-    },
-    reset() {
-      this.user = { id: 1, nickname: '管理员' }
-      localStorage.removeItem(NAME_KEY)
-    }
-  }
+export const useUserStore = defineStore('sales-agent-user', () => {
+  const user = computed(() => ({
+    id: currentAccount.value?.id || 0,
+    nickname: currentAccount.value?.display_name || '',
+    username: currentAccount.value?.username || ''
+  }))
+  return { user, reset: clearGateRole }
 })

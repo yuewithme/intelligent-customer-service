@@ -5,7 +5,7 @@
         <h1>标签管理</h1>
         <p>统一维护客户画像、销售阶段、对话意图、情绪、风险及策略标签；AI 只能使用此处已配置的标签。</p>
       </div>
-      <ElButton type="primary" @click="openCategoryCreate">新增分类</ElButton>
+      <ElButton v-if="isAdmin()" type="primary" @click="openCategoryCreate">新增分类</ElButton>
     </div>
 
     <div class="metrics">
@@ -45,9 +45,9 @@
             </span>
           </button>
           <div class="category-actions">
-            <ElButton @click="openTagCreate(category)">新增标签</ElButton>
-            <ElButton @click="openCategoryEdit(category)">编辑分类</ElButton>
-            <ElButton type="danger" plain @click="removeCategory(category)">删除分类</ElButton>
+            <ElButton v-if="isAdmin()" @click="openTagCreate(category)">新增标签</ElButton>
+            <ElButton v-if="isAdmin()" @click="openCategoryEdit(category)">编辑分类</ElButton>
+            <ElButton v-if="isAdmin()" type="danger" plain @click="removeCategory(category)">删除分类</ElButton>
           </div>
         </div>
 
@@ -117,8 +117,8 @@
       </template>
       <template #footer>
         <ElButton @click="detailDialog.visible = false">关闭</ElButton>
-        <ElButton v-if="selectedTag" type="danger" plain @click="removeSelectedTag">删除标签</ElButton>
-        <ElButton v-if="selectedTag" type="primary" @click="editSelectedTag">编辑标签与提示词</ElButton>
+        <ElButton v-if="isAdmin() && selectedTag" type="danger" plain @click="removeSelectedTag">删除标签</ElButton>
+        <ElButton v-if="isAdmin() && selectedTag" type="primary" @click="editSelectedTag">编辑标签与提示词</ElButton>
       </template>
     </ElDialog>
 
@@ -178,6 +178,7 @@
 </template>
 
 <script setup lang="ts">
+import { isAdmin } from '@/utils/gate'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { promptTitleText, tagValueText } from '@/utils/tagDisplay'

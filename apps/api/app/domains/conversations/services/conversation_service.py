@@ -114,6 +114,7 @@ async def list_conversations(
     wechat_group_allowlist: tuple[str, ...] | None = None,
     test_data: bool | None = None,
     tenant_id: str | None = None,
+    allowed_owner_wc_ids: list[str] | None = None,
 ) -> dict:
     page = max(page, 1)
     page_size = max(min(page_size, 200), 1)
@@ -135,6 +136,8 @@ async def list_conversations(
             filters.append(ConversationModel.channel.in_(channels))
         if tenant_id:
             filters.append(ConversationModel.tenant_id == tenant_id)
+        if allowed_owner_wc_ids is not None:
+            filters.extend((ConversationModel.channel == "wechat", ConversationModel.owner_wc_id.in_(allowed_owner_wc_ids)))
         if user_id_prefix:
             filters.append(ConversationModel.user_id.like(f"{user_id_prefix}%"))
         if excluded_user_id_prefix:

@@ -1,12 +1,21 @@
-export type GateRole = 'admin' | 'test'
+import { ref } from 'vue'
 
-const GATE_ROLE_KEY = 'sales-agent-gate-role'
-
-export const getGateRole = (): GateRole | '' => {
-  const role = sessionStorage.getItem(GATE_ROLE_KEY)
-  return role === 'admin' || role === 'test' ? role : ''
+export type GateRole = 'admin' | 'test' | 'employee'
+export interface Account {
+  id: number
+  username: string
+  display_name: string
+  role: GateRole
+  enabled: boolean
+  pages: string[]
+  wechat_ids: string[]
 }
 
-export const setGateRole = (role: GateRole) => sessionStorage.setItem(GATE_ROLE_KEY, role)
-export const clearGateRole = () => sessionStorage.removeItem(GATE_ROLE_KEY)
+export const currentAccount = ref<Account | null>(null)
+export const getGateRole = (): GateRole | '' => currentAccount.value?.role || ''
+export const setAccount = (account: Account) => { currentAccount.value = account }
+export const clearGateRole = () => { currentAccount.value = null }
 export const isTestGate = () => getGateRole() === 'test'
+export const isAdmin = () => getGateRole() === 'admin'
+export const canViewPage = (path: string) => isAdmin() || Boolean(currentAccount.value?.pages.includes(path))
+export const firstAllowedPage = () => isAdmin() ? '/workbench' : currentAccount.value?.pages[0] || '/no-access'

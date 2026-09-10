@@ -5,7 +5,7 @@
         <h1>养护手册</h1>
         <p>同步有赞已发布的“养护注意事项”笔记，只管理卡片元数据，不读取或写入笔记正文。</p>
       </div>
-      <ElButton type="primary" :loading="syncing" @click="runSync">立即同步</ElButton>
+      <ElButton v-if="isAdmin()" type="primary" :loading="syncing" @click="runSync">立即同步</ElButton>
     </div>
 
     <div class="stats-grid">
@@ -45,7 +45,7 @@
         <ElOption label="未绑定品种" value="unbound" />
       </ElSelect>
       <ElButton @click="applyFilters">查询</ElButton>
-      <ElButton @click="openMatchDialog()">测试匹配</ElButton>
+      <ElButton v-if="isAdmin()" @click="openMatchDialog()">测试匹配</ElButton>
     </div>
 
     <ElTable v-loading="loading" :data="items" row-key="id" class="manual-table">
@@ -94,8 +94,8 @@
       </ElTableColumn>
       <ElTableColumn label="操作" width="150" fixed="right">
         <template #default="scope">
-          <ElButton link type="primary" @click="openEdit(scope.row)">编辑</ElButton>
-          <ElButton link type="primary" @click="openMatchDialog(scope.row)">测试匹配</ElButton>
+          <ElButton v-if="isAdmin()" link type="primary" @click="openEdit(scope.row)">编辑</ElButton>
+          <ElButton v-if="isAdmin()" link type="primary" @click="openMatchDialog(scope.row)">测试匹配</ElButton>
         </template>
       </ElTableColumn>
       <template #empty><ElEmpty description="暂无养护手册；可先执行安全全量同步" /></template>
@@ -185,6 +185,7 @@
 </template>
 
 <script setup lang="ts">
+import { isAdmin } from '@/utils/gate'
 import { formatLocalTime as formatTime } from '@/utils/time'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -297,7 +298,7 @@ const runMatch = async () => {
 
 const matchTypeText = (value: string) => ({ exact_product: '商品精确关联', exact_orchid: '标准品种精确', exact_alias: '人工别名精确', keyword: '人工关键词', candidate: '模糊候选' }[value] || value)
 
-onMounted(async () => { await Promise.all([loadManuals(), loadProductOptions()]) })
+onMounted(async () => { await Promise.all([loadManuals(), isAdmin() ? loadProductOptions() : Promise.resolve()]) })
 </script>
 
 <style scoped>
