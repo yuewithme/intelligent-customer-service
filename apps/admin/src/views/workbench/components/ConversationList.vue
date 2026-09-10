@@ -8,7 +8,7 @@
         <ElOption label="已结束" value="resolved" />
       </ElSelect>
       <ElButton
-        v-if="!testGate"
+        v-if="isAdmin()"
         :type="testView ? 'primary' : 'default'"
         @click="toggleTestView"
       >
@@ -68,7 +68,7 @@ import {
   type ConversationItem,
   type ConversationStatus
 } from '@/api/admin/conversations'
-import { isTestGate } from '@/utils/gate'
+import { isTestGate, isAdmin } from '@/utils/gate'
 import {
   groupConversationsByCustomer,
   type ConversationGroupItem

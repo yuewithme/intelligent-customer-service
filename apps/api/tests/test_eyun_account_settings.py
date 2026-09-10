@@ -59,10 +59,10 @@ def test_account_settings_require_admin(client):
     client.headers.pop("Authorization")
     assert client.get("/api/v1/admin/eyun-settings").status_code == 401
     assert client.put("/api/v1/admin/eyun-settings", json={"w_id": "a", "wc_id": "b"}).status_code == 401
-    assert client.post("/api/gate", json={"password": "readonly-test"}).status_code == 200
+    assert client.post("/api/gate", json={"username": "test", "password": "readonly-test"}).status_code == 200
     assert client.get("/api/v1/admin/eyun-settings").status_code == 403
     assert client.put("/api/v1/admin/eyun-settings", json={"w_id": "a", "wc_id": "b"}).status_code == 403
-    assert client.post("/api/gate", json={"password": "admin-test"}).status_code == 200
+    assert client.post("/api/gate", json={"username": "admin", "password": "admin-test"}).status_code == 200
     assert client.put("/api/v1/admin/eyun-settings", json={"w_id": "a", "wc_id": "b"}).status_code == 200
 
 

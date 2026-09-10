@@ -88,7 +88,7 @@
                 <ElSwitch
                   :model-value="activePackage.enabled"
                   :loading="savingSop"
-                  :disabled="editing"
+                  :disabled="editing || !isAdmin()"
                   :aria-label="`${activePackage.name} 总开关`"
                   :active-text="activePackage.enabled ? 'SOP 已开启' : 'SOP 已关闭'"
                   @change="toggleSop"
@@ -103,7 +103,7 @@
               </div>
               <div class="flow-tools">
                 <template v-if="!editing">
-                  <ElButton type="primary" plain @click="startEditing">编辑流程</ElButton>
+                  <ElButton v-if="isAdmin()" type="primary" plain @click="startEditing">编辑流程</ElButton>
                   <small>拖动布局 · 增删节点 · 调整连线</small>
                 </template>
                 <template v-else>
@@ -201,6 +201,7 @@
                     <ElSwitch
                       :model-value="Boolean(selectedStep.handoff_enabled)"
                       :loading="savingNodeId === selectedStep.node_id"
+                      :disabled="!isAdmin()"
                       @change="updateNodeHandoff"
                     />
                   </div>
@@ -521,6 +522,7 @@
 </template>
 
 <script setup lang="ts">
+import { isAdmin } from '@/utils/gate'
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { onBeforeRouteLeave } from 'vue-router'

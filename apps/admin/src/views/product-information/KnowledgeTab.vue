@@ -5,7 +5,7 @@
         <h2>产品知识库</h2>
         <p>客户标签与这里的品类、需求、等级和环境匹配；价格和库存以关联商品的可售规格为准。</p>
       </div>
-      <ElButton type="primary" @click="openCreate">新增产品知识</ElButton>
+      <ElButton v-if="isAdmin()" type="primary" @click="openCreate">新增产品知识</ElButton>
     </div>
 
     <div class="summary">
@@ -60,8 +60,8 @@
       <ElTableColumn prop="sales_copy" label="塑品话术" min-width="300" show-overflow-tooltip />
       <ElTableColumn label="操作" width="120" fixed="right">
         <template #default="scope">
-          <ElButton link type="primary" @click="openEdit(scope.row)">编辑</ElButton>
-          <ElPopconfirm title="确定删除这条产品知识吗？" @confirm="remove(scope.row)">
+          <ElButton v-if="isAdmin()" link type="primary" @click="openEdit(scope.row)">编辑</ElButton>
+          <ElPopconfirm v-if="isAdmin()" title="确定删除这条产品知识吗？" @confirm="remove(scope.row)">
             <template #reference><ElButton link type="danger">删除</ElButton></template>
           </ElPopconfirm>
         </template>
@@ -127,6 +127,7 @@
 </template>
 
 <script setup lang="ts">
+import { isAdmin } from '@/utils/gate'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {

@@ -7,7 +7,7 @@
         <h1>产品信息</h1>
         <p>仅展示有赞中在售、有库存且名称为具体花品的商品；每天自动同步一次。</p>
       </div>
-      <ElButton type="primary" :loading="syncing" @click="runSync">立即同步有赞</ElButton>
+      <ElButton v-if="isAdmin()" type="primary" :loading="syncing" @click="runSync">立即同步有赞</ElButton>
     </div>
 
     <div class="sync-state">
@@ -98,6 +98,7 @@
         <template #default="scope">
           <ElInput
             v-model="scope.row.internal_note"
+            :disabled="!isAdmin()"
             maxlength="2000"
             placeholder="如：带花苞、3苗、带盆"
             @change="saveNote(scope.row)"
@@ -109,7 +110,7 @@
       </ElTableColumn>
       <ElTableColumn label="操作" width="180" fixed="right">
         <template #default="scope">
-          <ElButton v-if="!scope.row.has_knowledge" link type="warning" @click="openKnowledge(scope.row)">
+          <ElButton v-if="isAdmin() && !scope.row.has_knowledge" link type="warning" @click="openKnowledge(scope.row)">
             补充知识
           </ElButton>
           <ElLink v-if="scope.row.h5_url" :href="scope.row.h5_url" target="_blank" type="primary">查看商品</ElLink>
@@ -136,6 +137,7 @@
 </template>
 
 <script setup lang="ts">
+import { isAdmin } from '@/utils/gate'
 import { formatLocalTime as formatTime } from '@/utils/time'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'

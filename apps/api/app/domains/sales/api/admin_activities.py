@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.domains.sales.schemas.activity import (
     ActivityActionRequest,
@@ -19,7 +19,7 @@ from app.domains.sales.services.activity_service import (
     update_activity,
     update_activity_switches,
 )
-from app.core.auth import require_api_key
+from app.core.auth import require_api_key, operator_identity
 
 
 router = APIRouter(
@@ -98,14 +98,14 @@ async def archive(activity_id: int, request: ActivityActionRequest) -> APIRespon
 
 
 @router.post("/{activity_id}/send", response_model=APIResponse)
-async def send(activity_id: int, request: ActivitySendRequest) -> APIResponse:
+async def send(activity_id: int, request: ActivitySendRequest, http_request: Request) -> APIResponse:
     return APIResponse(
         code=0,
         message="success",
         data=await send_activity(
             activity_id,
             conversation_id=request.conversation_id,
-            operator_id=request.operator_id,
+            operator_id=operator_identity(http_request, request.operator_id),
         ),
     )
 

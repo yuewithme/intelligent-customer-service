@@ -37,7 +37,9 @@ from app.domains.conversations.services.conversation_service import (
     resolve_conversation,
     unhide_conversation,
 )
-from app.core.auth import require_admin_access
+from app.core.auth import require_admin_access, get_account, operator_identity
+from app.domains.access.accounts import session_account
+from app.domains.access.permissions import can_access_conversation
 from app.domains.customers.services.user_profile_service import get_profile_bundle
 from app.integrations.youzan.services.youzan_order_sync_service import (
     list_conversation_orders,
@@ -68,12 +70,20 @@ async def conversation_events(request: Request) -> StreamingResponse:
             while not await request.is_disconnected():
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15)
+                    account = session_account(request.cookies.get("admin_gate", ""))
+                    if "admin_gate" in request.cookies and (not account or "/workbench" not in account["pages"]):
+                        break
+                    if account and account["role"] != "admin" and not can_access_conversation(account, event.get("conversation_id", "")):
+                        continue
                     payload = json.dumps(
                         {"type": "conversation.changed", **event},
                         ensure_ascii=False,
                     )
                     yield f"data: {payload}\n\n"
                 except TimeoutError:
+                    account = session_account(request.cookies.get("admin_gate", ""))
+                    if "admin_gate" in request.cookies and (not account or "/workbench" not in account["pages"] or account["role"] == "test"):
+                        break
                     yield ": keep-alive\n\n"
         finally:
             conversation_event_broker.unsubscribe(queue)
@@ -91,6 +101,7 @@ async def conversation_events(request: Request) -> StreamingResponse:
 
 @router.get("", response_model=APIResponse)
 async def conversations(
+    request: Request,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     status: str | None = None,
@@ -112,16 +123,21 @@ async def conversations(
         wechat_group_allowlist=(material_group_wc_id,) if material_group_wc_id else (),
         test_data=test_only,
         tenant_id=tenant_id,
+        allowed_owner_wc_ids=(get_account(request)["wechat_ids"] if get_account(request) and get_account(request)["role"] == "employee" else None),
     )
     return APIResponse(code=0, message="success", data=data)
 
 
 @router.get("/tenants", response_model=APIResponse)
-async def conversation_tenants() -> APIResponse:
+async def conversation_tenants(request: Request) -> APIResponse:
+    data = await list_conversation_tenants()
+    account = get_account(request)
+    if account and account["role"] == "employee":
+        data["items"] = [item for item in data["items"] if item["wc_id"] in account["wechat_ids"]]
     return APIResponse(
         code=0,
         message="success",
-        data=await list_conversation_tenants(),
+        data=data,
     )
 
 
@@ -207,15 +223,15 @@ async def retry_message_delivery(message_id: int) -> APIResponse:
 
 
 @router.post("/{conversation_id:path}/claim", response_model=APIResponse)
-async def claim(conversation_id: str, request: ClaimRequest) -> APIResponse:
-    data = await claim_conversation(conversation_id, request.operator_id)
+async def claim(conversation_id: str, request: ClaimRequest, http_request: Request) -> APIResponse:
+    data = await claim_conversation(conversation_id, operator_identity(http_request, request.operator_id))
     return APIResponse(code=0, message="success", data=data)
 
 
 @router.post("/{conversation_id:path}/reply", response_model=APIResponse)
-async def reply(conversation_id: str, request: ReplyRequest) -> APIResponse:
+async def reply(conversation_id: str, request: ReplyRequest, http_request: Request) -> APIResponse:
     data = await reply_conversation(
-        conversation_id, request.operator_id, request.content
+        conversation_id, operator_identity(http_request, request.operator_id), request.content
     )
     return APIResponse(code=0, message="success", data=data)
 
@@ -230,7 +246,7 @@ async def reply_image(
     image = await store_workbench_image(request, file)
     data = await reply_conversation_image(
         conversation_id,
-        operator_id,
+        operator_identity(request, operator_id),
         image["url"],
     )
     return APIResponse(code=0, message="success", data=data)
@@ -238,11 +254,11 @@ async def reply_image(
 
 @router.post("/{conversation_id:path}/reply-care-manual", response_model=APIResponse)
 async def reply_care_manual(
-    conversation_id: str, request: ReplyCareManualRequest
+    conversation_id: str, request: ReplyCareManualRequest, http_request: Request
 ) -> APIResponse:
     data = await reply_conversation_care_manual(
         conversation_id,
-        request.operator_id,
+        operator_identity(http_request, request.operator_id),
         request.care_manual_id,
     )
     return APIResponse(code=0, message="success", data=data)
@@ -256,11 +272,11 @@ async def conversation_emojis(conversation_id: str) -> APIResponse:
 
 @router.post("/{conversation_id:path}/reply-emoji", response_model=APIResponse)
 async def reply_emoji(
-    conversation_id: str, request: ReplyEmojiRequest
+    conversation_id: str, request: ReplyEmojiRequest, http_request: Request
 ) -> APIResponse:
     data = await reply_conversation_emoji(
         conversation_id,
-        request.operator_id,
+        operator_identity(http_request, request.operator_id),
         request.source_message_id,
     )
     return APIResponse(code=0, message="success", data=data)
@@ -311,26 +327,26 @@ async def conversation_orders(conversation_id: str) -> APIResponse:
 
 @router.post("/{conversation_id:path}/force-handoff", response_model=APIResponse)
 async def force_handoff_route(
-    conversation_id: str, request: StatusActionRequest
+    conversation_id: str, request: StatusActionRequest, http_request: Request
 ) -> APIResponse:
-    data = await force_handoff(conversation_id, request.operator_id, request.reason)
+    data = await force_handoff(conversation_id, operator_identity(http_request, request.operator_id), request.reason)
     return APIResponse(code=0, message="success", data=data)
 
 
 @router.post("/{conversation_id:path}/release-to-ai", response_model=APIResponse)
 async def release_to_ai_route(
-    conversation_id: str, request: StatusActionRequest
+    conversation_id: str, request: StatusActionRequest, http_request: Request
 ) -> APIResponse:
-    data = await release_to_ai(conversation_id, request.operator_id)
+    data = await release_to_ai(conversation_id, operator_identity(http_request, request.operator_id))
     return APIResponse(code=0, message="success", data=data)
 
 
 @router.post("/{conversation_id:path}/resolve", response_model=APIResponse)
 async def resolve_route(
-    conversation_id: str, request: StatusActionRequest
+    conversation_id: str, request: StatusActionRequest, http_request: Request
 ) -> APIResponse:
     data = await resolve_conversation(
-        conversation_id, request.operator_id, request.reason
+        conversation_id, operator_identity(http_request, request.operator_id), request.reason
     )
     return APIResponse(code=0, message="success", data=data)
 

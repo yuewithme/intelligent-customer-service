@@ -31,9 +31,9 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getEyunAccountSettings, updateEyunAccountSettings } from '@/api/admin/modelConfig'
-import { isTestGate } from '@/utils/gate'
+import { isAdmin } from '@/utils/gate'
 
-const readonly = isTestGate()
+const readonly = !isAdmin()
 const loading = ref(false)
 const saving = ref(false)
 const loaded = ref(false)

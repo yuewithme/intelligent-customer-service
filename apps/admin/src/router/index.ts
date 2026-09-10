@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import SalesLayout from '@/layouts/SalesLayout.vue'
-import { clearGateRole, setGateRole, type GateRole } from '@/utils/gate'
+import { clearGateRole, setAccount, canViewPage, firstAllowedPage } from '@/utils/gate'
 
 const routes: RouteRecordRaw[] = [
   { path: '/demo-chat', component: () => import('@/views/demo-chat/index.vue'), meta: { public: true } },
@@ -11,6 +11,8 @@ const routes: RouteRecordRaw[] = [
     component: SalesLayout,
     redirect: '/workbench',
     children: [
+      { path: 'no-access', component: () => import('@/views/accounts/NoAccess.vue'), meta: { title: '暂无页面权限' } },
+      { path: 'settings/accounts', component: () => import('@/views/accounts/index.vue'), meta: { title: '账号与权限' } },
       { path: 'workbench', component: () => import('@/views/workbench/index.vue'), meta: { title: '小兰工作台' } },
       { path: 'operations/conversation-cases', component: () => import('@/views/conversation-cases/index.vue'), meta: { title: '销售案例库' } },
       { path: 'operations/capability-workbench', component: () => import('@/views/capability-workbench/index.vue'), meta: { title: '能力工作台' } },
@@ -37,10 +39,11 @@ router.beforeEach(async (to) => {
   try {
     const response = await fetch('/api/gate', { credentials: 'same-origin' })
     const result = await response.json()
-    const role = result?.data?.role as GateRole | null
-    if (result?.data?.unlocked && (role === 'admin' || role === 'test')) {
-      setGateRole(role)
-      return true
+    const account = result?.data?.account
+    if (result?.data?.unlocked && account) {
+      setAccount(account)
+      if (to.path === '/no-access' || canViewPage(to.path)) return true
+      return firstAllowedPage()
     }
   } catch {
     // Fall through to the gate page.
