@@ -17,6 +17,7 @@ def clients(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'accounts.db'}")
     monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{tmp_path / 'chat.db'}")
     monkeypatch.setenv("ADMIN_GATE_PASSWORD", "initial-admin-password")
+    monkeypatch.setenv("ADMIN_GATE_USERNAME", "admin")
     monkeypatch.setenv("ADMIN_GATE_TEST_PASSWORD", "initial-test-password")
     monkeypatch.setenv("API_KEY", "service-only-key")
     monkeypatch.setenv("API_AUTH_ENABLED", "true")
@@ -239,3 +240,63 @@ async def test_demo_events_stop_when_account_is_disabled(clients):
     conversation_event_broker.publish({"conversation_id": "web_demo:demo:customer:default"})
     with pytest.raises(StopAsyncIteration):
         await anext(stream)
+
+
+def test_edit_login_credentials_persists_and_revokes_old_session(clients):
+    admin, employee = clients
+    created = create_employee(admin, employee)
+    account = created["account"]
+    payload = {**account, "username": "renamed_employee", "password": "sixsix"}
+    result = admin.put(f'/api/v1/admin/accounts/{account["id"]}', json=payload)
+    assert result.status_code == 200, result.text
+    assert result.json()["data"]["username"] == "renamed_employee"
+    assert employee.get("/api/v1/admin/conversations").status_code == 401
+    assert employee.post("/api/gate", json={"username": "employee", "password": created["password"]}).status_code == 401
+    assert employee.post("/api/gate", json={"username": "renamed_employee", "password": created["password"]}).status_code == 401
+    assert employee.post("/api/gate", json={"username": "renamed_employee", "password": "sixsix"}).status_code == 200
+    with account_session() as db:
+        assert db.get(Account, account["id"]).password_hash != "sixsix"
+
+
+def test_edit_preserves_password_and_duplicate_login_is_atomic(clients):
+    admin, employee = clients
+    account = create_employee(admin, employee)["account"]
+    endpoint = f'/api/v1/admin/accounts/{account["id"]}'
+    token = employee.cookies.get("admin_gate")
+    assert admin.put(endpoint, json={**account, "display_name": "新姓名", "password": None}).status_code == 200
+    assert session_account(token)["display_name"] == "新姓名"
+    result = admin.put(endpoint, json={**account, "username": "ADMIN", "password": "sixsix"})
+    assert result.status_code == 409, result.text
+    assert session_account(token)["username"] == "employee"
+
+
+def test_delete_account_revokes_login_and_requires_admin(clients):
+    admin, employee = clients
+    created = create_employee(admin, employee)
+    account_id = created["account"]["id"]
+    endpoint = f"/api/v1/admin/accounts/{account_id}"
+    assert employee.delete(endpoint).status_code == 403
+    own_id = admin.get("/api/gate").json()["data"]["account"]["id"]
+    assert admin.delete(f"/api/v1/admin/accounts/{own_id}").status_code == 400
+    assert admin.delete(endpoint).status_code == 200
+    assert employee.get("/api/v1/admin/conversations").status_code == 401
+    assert employee.post("/api/gate", json={"username": "employee", "password": created["password"]}).status_code == 401
+    with account_session() as db:
+        assert db.get(Account, account_id) is None
+        assert db.scalar(select(LoginSession).where(LoginSession.account_id == account_id)) is None
+    with _get_session() as db:
+        assert db.scalar(select(ConversationModel.id).limit(1)) is not None
+
+
+def test_default_initial_administrator_name(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'initial.db'}")
+    monkeypatch.delenv("ADMIN_GATE_USERNAME", raising=False)
+    monkeypatch.setenv("ADMIN_GATE_PASSWORD", "bootstrap-example")
+    get_settings.cache_clear()
+    try:
+        client = TestClient(app)
+        result = client.post("/api/gate", json={"username": "wohukeji", "password": "bootstrap-example"})
+        assert result.status_code == 200
+        assert result.json()["data"]["account"]["role"] == "admin"
+    finally:
+        get_settings.cache_clear()

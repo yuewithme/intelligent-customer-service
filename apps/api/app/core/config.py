@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     ]
     mcp_allowed_origins: list[str] = []
     admin_gate_enabled: bool = True
+    admin_gate_username: str = "wohukeji"
     admin_gate_password: str = ""
     admin_gate_test_password: str = ""
     admin_gate_secret: str = ""

@@ -82,7 +82,7 @@ def _factory(database_url: str):
             settings = get_settings()
             password = settings.admin_gate_password or settings.api_key
             if password and password != "change_me":
-                db.add(Account(username="admin", display_name="管理员", password_hash=hash_password(password), role="admin", pages=list(PAGES), wechat_ids=[]))
+                db.add(Account(username=settings.admin_gate_username.strip().lower(), display_name="管理员", password_hash=hash_password(password), role="admin", pages=list(PAGES), wechat_ids=[]))
                 if settings.admin_gate_test_password:
                     db.add(Account(username="test", display_name="测试账号", password_hash=hash_password(settings.admin_gate_test_password), role="test", pages=list(PAGES), wechat_ids=[]))
                 try:

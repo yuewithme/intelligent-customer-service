@@ -35,13 +35,13 @@ class AccountPermissions(BaseModel):
         return list(dict.fromkeys(value))
 
 
-class AccountCreate(AccountPermissions):
+class AccountWrite(AccountPermissions):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
-    password: str | None = Field(default=None, min_length=12, max_length=256)
+    password: str | None = Field(default=None, min_length=6, max_length=256)
 
 
 class PasswordReset(BaseModel):
-    password: str | None = Field(default=None, min_length=12, max_length=256)
+    password: str | None = Field(default=None, min_length=6, max_length=256)
 
 
 def invalid(message, status=400):
@@ -69,7 +69,7 @@ async def options():
 
 
 @router.post("")
-async def create_account(payload: AccountCreate, response: Response):
+async def create_account(payload: AccountWrite, response: Response):
     await validate_wechat(payload)
     password = payload.password or secrets.token_urlsafe(18)
     account = Account(**payload.model_dump(exclude={"password", "username"}), username=payload.username.lower(), password_hash=hash_password(password))
@@ -85,7 +85,7 @@ async def create_account(payload: AccountCreate, response: Response):
 
 
 @router.put("/{account_id}")
-async def update_account(account_id: int, payload: AccountPermissions, actor: dict = Depends(require_account_admin)):
+async def update_account(account_id: int, payload: AccountWrite, actor: dict = Depends(require_account_admin)):
     await validate_wechat(payload)
     if account_id == actor["id"] and (payload.role != "admin" or not payload.enabled):
         invalid("不能停用自己或移除自己的管理员身份")
@@ -93,12 +93,39 @@ async def update_account(account_id: int, payload: AccountPermissions, actor: di
         account = db.get(Account, account_id)
         if account is None:
             invalid("账号不存在", 404)
-        for key, value in payload.model_dump().items():
-            setattr(account, key, value)
-        if not payload.enabled:
+        old_username = account.username
+        username = payload.username.lower()
+        credentials_changed = username != old_username or payload.password is not None
+        if not payload.enabled or credentials_changed:
             revoke_sessions(db, account_id)
-        db.commit()
+        if credentials_changed:
+            db.execute(delete(LoginAttempt).where(LoginAttempt.key.in_([token_hash(old_username), token_hash(username)])))
+        for key, value in payload.model_dump(exclude={"username", "password"}).items():
+            setattr(account, key, value)
+        account.username = username
+        if payload.password is not None:
+            account.password_hash = hash_password(payload.password)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            invalid("账号已存在", 409)
         return {"code": 0, "data": public_account(account)}
+
+
+@router.delete("/{account_id}")
+def delete_account(account_id: int, actor: dict = Depends(require_account_admin)):
+    if account_id == actor["id"]:
+        invalid("不能删除当前登录的管理员账号")
+    with account_session() as db:
+        account = db.get(Account, account_id)
+        if account is None:
+            invalid("账号不存在", 404)
+        revoke_sessions(db, account_id)
+        db.execute(delete(LoginAttempt).where(LoginAttempt.key == token_hash(account.username)))
+        db.delete(account)
+        db.commit()
+    return {"code": 0, "data": {"deleted": True}}
 
 
 @router.post("/{account_id}/password")

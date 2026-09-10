@@ -1,7 +1,7 @@
 <template>
   <section class="accounts-page">
     <div class="page-head">
-      <div><h1>账号与权限</h1><p>创建账号并分配页面观看权限、员工可操作的客服微信。</p></div>
+      <div><h1>账号与权限</h1><p>新增、删除账号，设置登录账密并分配页面和客服微信权限。</p></div>
       <ElButton type="primary" :disabled="loading" @click="openCreate">创建账号</ElButton>
     </div>
     <ElAlert title="管理员拥有全部权限；测试账号仅观看和使用演示会话；员工仅可操作已分配微信，其他页面为只读。" type="info" :closable="false" />
@@ -13,16 +13,16 @@
       <ElTableColumn label="页面权限" min-width="220"><template #default="{ row }">{{ row.role === 'admin' ? '全部页面' : row.pages.map((path: string) => pageTitle(path)).join('、') || '未分配' }}</template></ElTableColumn>
       <ElTableColumn label="可操作微信" min-width="200"><template #default="{ row }">{{ row.role === 'admin' ? '全部微信' : row.wechat_ids.map((id: string) => wechatTitle(id)).join('、') || '未分配' }}</template></ElTableColumn>
       <ElTableColumn label="操作" width="200" fixed="right"><template #default="{ row }">
-        <ElButton link type="primary" @click="openEdit(row)">分配权限</ElButton>
-        <ElButton link type="primary" @click="resetPassword(row)">重置密码</ElButton>
+        <ElButton link type="primary" @click="openEdit(row)">编辑账号</ElButton>
+        <ElButton link type="danger" :disabled="row.id === currentAccount?.id" @click="removeAccount(row)">删除账号</ElButton>
       </template></ElTableColumn>
     </ElTable>
 
     <ElDialog v-model="editing" :title="editingId ? '编辑账号与权限' : '创建账号'" width="min(640px, 94vw)" :close-on-click-modal="false">
       <ElForm label-position="top" :disabled="saving">
-        <ElFormItem label="账号" required><ElInput v-model="form.username" :disabled="Boolean(editingId)" placeholder="3–64 位字母、数字、点、下划线或短横线" autocomplete="off" /></ElFormItem>
+        <ElFormItem label="账号" required><ElInput v-model="form.username" placeholder="3–64 位字母、数字、点、下划线或短横线" autocomplete="off" maxlength="64" /></ElFormItem>
         <ElFormItem label="姓名" required><ElInput v-model="form.display_name" maxlength="64" /></ElFormItem>
-        <ElFormItem v-if="!editingId" label="初始密码"><ElInput v-model="form.password" show-password autocomplete="new-password" placeholder="留空自动生成，手动设置至少 12 位" /></ElFormItem>
+        <ElFormItem :label="editingId ? '设置新密码' : '初始密码'"><ElInput v-model="form.password" show-password type="password" autocomplete="new-password" maxlength="256" :placeholder="editingId ? '留空保留原密码，设置时至少 6 位' : '留空自动生成，手动设置至少 6 位'" /></ElFormItem>
         <ElFormItem label="角色"><ElRadioGroup v-model="form.role" :disabled="editingId === currentAccount?.id">
           <ElRadioButton value="employee">员工</ElRadioButton><ElRadioButton value="test">测试</ElRadioButton><ElRadioButton value="admin">管理员</ElRadioButton>
         </ElRadioGroup></ElFormItem>
@@ -62,7 +62,6 @@ const editing = ref(false)
 const editingId = ref<number | null>(null)
 const showCredentials = ref(false)
 const credentials = ref<{ username: string; password: string } | null>(null)
-const ownPasswordReset = ref(false)
 const form = reactive({ username: '', display_name: '', password: '', role: 'employee' as GateRole, enabled: true, pages: ['/workbench'], wechat_ids: [] as string[] })
 const roleLabel = (role: GateRole) => ({ admin: '管理员', test: '测试', employee: '员工' })[role]
 const pageTitle = (path: string) => options.value.pages.find(page => page.path === path)?.title || path
@@ -90,15 +89,21 @@ const openEdit = (account: Account) => {
 }
 const save = async () => {
   if (!form.display_name.trim() || !/^[a-zA-Z0-9_.-]{3,64}$/.test(form.username)) return ElMessage.warning('请填写姓名与有效账号')
-  if (form.password && form.password.length < 12) return ElMessage.warning('密码至少 12 位')
+  if (form.password && form.password.length < 6) return ElMessage.warning('密码至少 6 位')
   saving.value = true
   try {
-    const data = { display_name: form.display_name.trim(), role: form.role, enabled: form.enabled, pages: form.pages, wechat_ids: form.role === 'employee' ? form.wechat_ids : [] }
+    const data = { username: form.username, password: form.password || null, display_name: form.display_name.trim(), role: form.role, enabled: form.enabled, pages: form.pages, wechat_ids: form.role === 'employee' ? form.wechat_ids : [] }
     if (editingId.value) {
+      const ownCredentialsChanged = editingId.value === currentAccount.value?.id && (form.username.toLowerCase() !== currentAccount.value.username || Boolean(form.password))
       const account = await request.put<Account>({ url: `${base}/${editingId.value}`, data })
+      if (ownCredentialsChanged) {
+        ElMessage.success('账密已保存，请使用新账密重新登录')
+        window.location.assign('/gate')
+        return
+      }
       if (account.id === currentAccount.value?.id) setAccount(account)
     } else {
-      const result = await request.post<{ account: Account; password: string }>({ url: base, data: { ...data, username: form.username, password: form.password || null } })
+      const result = await request.post<{ account: Account; password: string }>({ url: base, data })
       credentials.value = { username: result.account.username, password: result.password }
       showCredentials.value = true
     }
@@ -108,11 +113,11 @@ const save = async () => {
     await load()
   } finally { saving.value = false }
 }
-const resetPassword = async (account: Account) => {
-  try { await ElMessageBox.confirm(`为 ${account.username} 生成新密码？此账号已登录的会话将全部退出。`, '重置密码', { type: 'warning' }) } catch { return }
-  credentials.value = await request.post<{ username: string; password: string }>({ url: `${base}/${account.id}/password`, data: {} })
-  ownPasswordReset.value = account.id === currentAccount.value?.id
-  showCredentials.value = true
+const removeAccount = async (account: Account) => {
+  try { await ElMessageBox.confirm(`确定删除账号 ${account.username}？删除后该账号立即退出并无法登录，历史业务记录保留。`, '删除账号', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
+  await request.delete({ url: `${base}/${account.id}` })
+  ElMessage.success('账号已删除')
+  await load()
 }
 const copyCredentials = async () => {
   if (!credentials.value) return
@@ -123,7 +128,6 @@ const copyCredentials = async () => {
 }
 const finishCredentials = () => {
   showCredentials.value = false
-  if (ownPasswordReset.value) window.location.assign('/gate')
 }
 onMounted(load)
 </script>
