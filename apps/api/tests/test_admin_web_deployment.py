@@ -13,6 +13,12 @@ def test_admin_proxy_does_not_grant_service_credentials():
     assert "./apps/admin/nginx.conf:/etc/nginx/templates/default.conf.template:ro" in admin_service
     assert '${API_KEY}' not in nginx
     assert nginx.count('proxy_set_header Authorization $http_authorization;') == 2
+    assert 'map $http_x_forwarded_proto $admin_forwarded_proto' in nginx
+    assert 'https https;' in nginx
+    assert nginx.count('proxy_set_header X-Forwarded-Proto $admin_forwarded_proto;') == 2
+    for location in ('location /api/ {', 'location = /api/v1/admin/conversations/events {'):
+        block = nginx.split(location, 1)[1].split('\n  }', 1)[0]
+        assert 'proxy_set_header X-Forwarded-Proto $admin_forwarded_proto;' in block
 
 
 def test_production_data_and_model_cache_are_externalized():
