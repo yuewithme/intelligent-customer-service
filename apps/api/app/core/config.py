@@ -158,9 +158,6 @@ class Settings(BaseSettings):
     feishu_handoff_webhook_url: str = Field(
         default="", alias="FEISHU_HANDOFF_WEBHOOK_URL"
     )
-    feishu_alert_webhook_url: str = Field(
-        default="", alias="FEISHU_ALERT_WEBHOOK_URL"
-    )
     evaluation_mode: bool = Field(default=False, alias="EVALUATION_MODE")
     memory_v2_write_enabled: bool = Field(
         default=False, alias="MEMORY_V2_WRITE_ENABLED"

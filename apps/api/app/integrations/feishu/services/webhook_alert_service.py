@@ -11,10 +11,7 @@ logger = logging.getLogger("wechat_rag_bot.feishu_alert")
 async def send_feishu_webhook_alert(content: str) -> bool:
     """Send one text alert without ever logging the webhook URL."""
     settings = get_settings()
-    webhook_url = (
-        settings.feishu_alert_webhook_url.strip()
-        or settings.feishu_handoff_webhook_url.strip()
-    )
+    webhook_url = settings.feishu_handoff_webhook_url.strip()
     if not webhook_url:
         logger.warning("Skip Feishu alert because webhook is not configured")
         return False

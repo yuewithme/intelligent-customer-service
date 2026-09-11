@@ -13,7 +13,7 @@ def update(path: Path, value: str) -> None:
     original = path.read_text(encoding="utf-8")
     stat = path.stat()
     key = "FEISHU_HANDOFF_WEBHOOK_URL"
-    lines = [line for line in original.splitlines() if not re.match(rf"^\s*(?:export\s+)?{key}\s*=", line)]
+    lines = [line for line in original.splitlines() if not re.match(r"^\s*(?:export\s+)?FEISHU_(?:HANDOFF|ALERT)_WEBHOOK_URL\s*=", line)]
     lines.append(f"{key}={value}")
     fd, temporary = tempfile.mkstemp(prefix=".backend.env-", dir=path.parent)
     try:
@@ -38,10 +38,13 @@ def verify(value: str) -> None:
         raise RuntimeError("Expected one running API container")
     actual = subprocess.check_output([
         "docker", "exec", containers[0], "python", "-c",
-        "import hashlib,os; print(hashlib.sha256(os.environ.get('FEISHU_HANDOFF_WEBHOOK_URL','').encode()).hexdigest())",
+        "import hashlib,os; assert 'FEISHU_ALERT_WEBHOOK_URL' not in os.environ, 'Obsolete alert webhook still present'; print(hashlib.sha256(os.environ.get('FEISHU_HANDOFF_WEBHOOK_URL','').encode()).hexdigest())",
     ], text=True).strip()
     if actual != hashlib.sha256(value.encode()).hexdigest():
         raise RuntimeError("API webhook configuration does not match deployment input")
+    environment = Path("/etc/intelligent-customer-service/backend.env").read_text(encoding="utf-8")
+    if re.search(r"^\s*(?:export\s+)?FEISHU_ALERT_WEBHOOK_URL\s*=", environment, re.MULTILINE):
+        raise RuntimeError("Obsolete alert webhook remains in environment file")
 
 
 if __name__ == "__main__":
