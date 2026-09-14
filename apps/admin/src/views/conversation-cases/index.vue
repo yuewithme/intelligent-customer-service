@@ -176,10 +176,8 @@ onMounted(load)
 </script>
 
 <style scoped>
-.page-head, .head-actions, .drawer-meta { display: flex; align-items: center; gap: 12px; }
-.page-head { justify-content: space-between; }
-.page-head h1 { margin: 0 0 6px; font-size: 24px; }
-.page-head p, .drawer-meta span, small { color: var(--el-text-color-secondary); }
+.head-actions, .drawer-meta { display: flex; align-items: center; gap: 12px; }
+.drawer-meta span, small { color: var(--el-text-color-secondary); }
 .notice { margin: 18px 0; }
 .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
 .metrics button { padding: 16px; border: 1px solid var(--el-border-color-light); border-radius: 10px; background: var(--el-bg-color); color: inherit; text-align: left; cursor: pointer; }

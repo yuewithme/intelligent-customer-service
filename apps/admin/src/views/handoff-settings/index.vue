@@ -197,18 +197,15 @@ onMounted(() => { void loadSettings() })
 </script>
 
 <style scoped>
-.page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
-.page-head h1 { margin: 0; color: #193c32; font-size: 26px; }
-.page-head p { margin: 7px 0 0; color: #718079; }
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .global-handoff-control { display: flex; min-width: 390px; align-items: center; justify-content: space-between; gap: 24px; padding: 11px 16px; background: #f5f9f7; border: 1px solid #dfe8e4; border-radius: 10px; }
 .global-handoff-control strong, .global-handoff-control span { display: block; }
 .global-handoff-control strong { color: #213e35; font-size: 14px; }
 .global-handoff-control span { margin-top: 3px; color: #7b8984; font-size: 12px; }
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
-.setting-card { min-height: 360px; padding: 24px; background: #fff; border: 1px solid #e2e9e6; border-radius: 14px; box-shadow: 0 8px 24px rgb(18 63 51 / 6%); }
+.setting-card { min-height: 360px; padding: 24px; background: var(--app-surface); border: 1px solid var(--app-border); border-radius: 12px; }
 .card-title { display: flex; gap: 13px; margin-bottom: 24px; }
-.card-title .step { display: grid; flex: 0 0 34px; height: 34px; place-items: center; color: #fff; font-weight: 700; background: #258460; border-radius: 10px; }
+.card-title .step { display: grid; flex: 0 0 34px; height: 34px; place-items: center; color: var(--app-accent); font-weight: 600; background: var(--app-accent-soft); border-radius: 8px; }
 .card-title h2 { margin: 1px 0 5px; color: #213e35; font-size: 18px; }
 .card-title p { margin: 0; color: #7b8984; font-size: 13px; }
 .selected-list { display: grid; gap: 10px; margin-top: 18px; }

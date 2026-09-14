@@ -302,13 +302,10 @@ onMounted(async () => { await Promise.all([loadManuals(), isAdmin() ? loadProduc
 </script>
 
 <style scoped>
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
-.page-head h1 { margin: 0; color: #163d32; font-size: 25px; }
-.page-head p { margin: 7px 0 0; color: #71827c; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-.stats-grid article { padding: 17px 18px; background: #fff; border: 1px solid #dfe8e4; border-radius: 11px; box-shadow: 0 2px 10px rgb(28 66 53 / 4%); }
+.stats-grid article { padding: 20px; background: var(--app-surface); border: 1px solid var(--app-border); border-radius: 12px; }
 .stats-grid article.attention { background: #fffaf0; border-color: #efd8a8; }
-.stats-grid span, .stats-grid small { display: block; color: #71827c; }
+.stats-grid span, .stats-grid small { display: block; color: var(--app-text-secondary); }
 .stats-grid strong { display: block; margin: 7px 0 5px; color: #173d32; font-size: 28px; }
 .stats-grid .sync-label { font-size: 20px; }
 .sync-alert, .sync-summary { margin-bottom: 16px; }
@@ -318,7 +315,7 @@ onMounted(async () => { await Promise.all([loadManuals(), isAdmin() ? loadProduc
 .manual-cell { display: flex; align-items: center; gap: 12px; }
 .manual-cell .el-image, .edit-title .el-image { flex: 0 0 auto; width: 66px; height: 66px; background: #eef3f1; border-radius: 9px; }
 .manual-cell strong, .manual-cell small, .source-status, .match-result small, .edit-title small { display: block; }
-.manual-cell small { margin: 5px 0 3px; color: #8b9994; }
+.manual-cell small { margin: 5px 0 3px; color: var(--app-text-secondary); }
 .image-fallback { display: grid; width: 100%; height: 100%; place-items: center; color: #9aaba5; font-size: 12px; }
 .orchid-name { color: #254f42; }
 .tag-list, .product-links { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
@@ -338,7 +335,8 @@ onMounted(async () => { await Promise.all([loadManuals(), isAdmin() ? loadProduc
 @media (max-width: 640px) {
   .page-head { align-items: flex-start; flex-direction: column; }
   .page-head h1 { font-size: 22px; }
-  .stats-grid, .toolbar, .form-row, .match-form { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .toolbar, .form-row, .match-form { grid-template-columns: 1fr; }
   .stats-grid article { padding: 14px; }
   .match-result { align-items: flex-start; grid-template-columns: 1fr; }
   .match-result .el-table { grid-column: 1; }

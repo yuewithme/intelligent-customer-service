@@ -233,10 +233,7 @@ onMounted(loadProducts)
 </script>
 
 <style scoped>
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
-.page-head h1 { margin: 0; color: #163d32; font-size: 25px; }
-.page-head p { margin: 7px 0 0; color: #71827c; }
-.sync-state { display: flex; align-items: center; gap: 20px; padding: 14px 18px; margin-bottom: 16px; background: #f4f8f6; border: 1px solid #dfe9e5; border-radius: 10px; }
+.sync-state { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; padding: 16px 20px; margin-bottom: 20px; background: var(--app-surface); border: 1px solid var(--app-border); border-radius: 12px; }
 .sync-state span { color: #64756f; }
 .sync-state strong { margin-left: 5px; color: #173d32; }
 .sync-state .warning { color: #b26a00; }
@@ -245,7 +242,7 @@ onMounted(loadProducts)
 .product-cell { display: flex; align-items: center; gap: 12px; }
 .product-cell .el-image { flex: 0 0 auto; width: 58px; height: 58px; background: #eef3f1; border-radius: 8px; }
 .product-cell strong, .product-cell small { display: block; }
-.product-cell small { margin-top: 6px; color: #8b9994; }
+.product-cell small { margin-top: 6px; color: var(--app-text-secondary); }
 .image-fallback { display: grid; width: 100%; height: 100%; place-items: center; color: #9aaba5; font-size: 12px; }
 .sku-panel { padding: 12px 24px 20px 70px; }
 .sku-panel > strong { display: block; margin-bottom: 10px; color: #31584c; }

@@ -41,7 +41,7 @@
         :class="{ active: mobileView === 'conversations' }"
         @click="mobileView = 'conversations'"
       >
-        <span>☰</span>会话
+        <ElIcon aria-hidden="true"><List /></ElIcon>会话
       </button>
       <button
         type="button"
@@ -49,7 +49,7 @@
         :class="{ active: mobileView === 'messages' }"
         @click="mobileView = 'messages'"
       >
-        <span>▣</span>聊天回复
+        <ElIcon aria-hidden="true"><ChatDotRound /></ElIcon>聊天回复
       </button>
       <button
         type="button"
@@ -57,7 +57,7 @@
         :class="{ active: mobileView === 'details' }"
         @click="mobileView = 'details'"
       >
-        <span>◇</span>客户资料
+        <ElIcon aria-hidden="true"><User /></ElIcon>客户资料
       </button>
     </nav>
   </div>
@@ -65,6 +65,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { List, ChatDotRound, User } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import {
   getConversationDetail,
@@ -304,39 +305,42 @@ onBeforeUnmount(() => {
 <style scoped>
 .workbench {
   display: grid;
-  grid-template-columns: 320px minmax(420px, 1fr) 360px;
+  grid-template-columns: clamp(240px, 21vw, 296px) minmax(0, 1fr) clamp(280px, 24vw, 344px);
   gap: 12px;
-  height: calc(100vh - 96px);
-  padding: 12px;
+  height: calc(100dvh - var(--app-header-height));
+  padding: 16px;
   overflow: hidden;
-  background: #f5f7fb;
+  background: var(--app-background);
 }
 
 .panel {
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
 }
 
 .panel.side {
   box-sizing: border-box;
   overflow: hidden;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
 }
 
 .mobile-workbench-nav { display: none; }
 
 @media (max-width: 1100px) {
   .workbench {
-    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-columns: 248px minmax(0, 1fr);
+    grid-template-rows: minmax(480px, calc(100dvh - var(--app-header-height) - 32px)) 520px;
+    height: auto;
+    overflow: visible;
   }
 
   .side {
     grid-column: 1 / -1;
-    min-height: 360px;
+    min-height: 0;
   }
 }
 
@@ -345,7 +349,7 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    height: calc(100dvh - 56px);
+    height: calc(100dvh - var(--app-header-height));
     padding: 8px 8px max(8px, env(safe-area-inset-bottom));
   }
 
@@ -379,8 +383,8 @@ onBeforeUnmount(() => {
     padding: 10px;
     overflow: visible;
     background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
+    border: 1px solid var(--app-border);
+    border-radius: var(--app-radius);
   }
 
   .mobile-workbench-nav {
@@ -392,7 +396,6 @@ onBeforeUnmount(() => {
     background: #fff;
     border: 1px solid #dfe6e3;
     border-radius: 10px;
-    box-shadow: 0 -4px 18px rgb(15 23 42 / 7%);
   }
 
   .mobile-workbench-nav button {
@@ -410,8 +413,8 @@ onBeforeUnmount(() => {
     border: 0;
   }
 
-  .mobile-workbench-nav button span { font-size: 17px; line-height: 1; }
-  .mobile-workbench-nav button.active { color: #1f7559; font-weight: 700; }
+  .mobile-workbench-nav button .el-icon { font-size: 18px; line-height: 1; }
+  .mobile-workbench-nav button.active { color: var(--app-accent); font-weight: 600; }
   .mobile-workbench-nav button:disabled { color: #b9c3bf; }
 }
 

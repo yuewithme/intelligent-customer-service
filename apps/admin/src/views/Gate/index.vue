@@ -4,8 +4,8 @@
       <div class="brand"><span>SA</span><strong>销售 Agent 后台</strong></div>
       <h1>账号登录</h1>
       <p>请使用管理员分配的账号和密码登录。</p>
-      <ElInput v-model="username" autofocus autocomplete="username" placeholder="账号" size="large" maxlength="64" />
-      <ElInput v-model="password" autocomplete="current-password" placeholder="密码" maxlength="256" show-password size="large" type="password" />
+      <ElInput v-model="username" autofocus autocomplete="username" aria-label="账号" placeholder="账号" size="large" maxlength="64" />
+      <ElInput v-model="password" autocomplete="current-password" aria-label="密码" placeholder="密码" maxlength="256" show-password size="large" type="password" />
       <ElButton :loading="loading" native-type="submit" size="large" type="primary">进入后台</ElButton>
     </form>
   </main>
@@ -46,10 +46,10 @@ const unlock = async () => {
 </script>
 
 <style scoped>
-.gate-page { display: grid; min-height: 100vh; padding: 24px; place-items: center; background: #eef5f2; }
-.gate-card { display: grid; width: min(410px, 100%); gap: 18px; padding: 38px; background: #fff; border: 1px solid #dce7e3; border-radius: 18px; box-shadow: 0 22px 70px rgb(18 63 51 / 12%); }
+.gate-page { display: grid; min-height: 100dvh; padding: 24px; place-items: center; background: var(--app-background); }
+.gate-card { display: grid; width: min(440px, 100%); gap: 22px; padding: 40px; background: var(--app-surface); border: 1px solid var(--app-border); border-radius: 12px; box-shadow: 0 16px 48px rgb(36 59 50 / 6%); }
 .brand { display: flex; align-items: center; gap: 11px; }
-.brand span { display: grid; width: 40px; height: 40px; place-items: center; color: #fff; font-weight: 800; background: #207457; border-radius: 11px; }
-h1 { margin: 8px 0 -10px; } p { margin: 0; color: #6d7d77; }
+.brand span { display: grid; width: 40px; height: 40px; place-items: center; color: #fff; font-weight: 700; background: var(--app-accent); border-radius: 10px; }
+h1 { margin: 12px 0 -12px; font-size: 26px; font-weight: 600; } p { margin: 0; color: var(--app-text-secondary); font-size: 13px; line-height: 1.7; }
 @media (max-width: 640px) { .gate-page { min-height: 100dvh; padding: 14px; } .gate-card { gap: 16px; padding: 24px; border-radius: 14px; } }
 </style>
