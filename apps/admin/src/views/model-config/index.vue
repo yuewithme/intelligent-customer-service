@@ -1,8 +1,10 @@
 <template>
   <ContentWrap>
     <div class="page-head">
-      <h1>模型配置</h1>
-      <p>管理智能客服使用的服务配置。</p>
+      <div>
+        <h1>模型配置</h1>
+        <p>管理智能客服使用的服务配置。</p>
+      </div>
     </div>
 
     <ElAlert v-if="readonly" title="仅管理员可查看和修改微信接入配置" type="info" :closable="false" />
@@ -78,13 +80,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-head { margin-bottom: 24px; }
-.page-head h1 { margin: 0 0 8px; font-size: 24px; }
-.page-head p, .description, .field-help, .monitor-help { color: var(--el-text-color-secondary); }
-.setting-card { max-width: 720px; padding: 28px; border: 1px solid var(--el-border-color-light); border-radius: 16px; background: var(--el-bg-color); }
+.description, .field-help, .monitor-help { color: var(--el-text-color-secondary); }
+.setting-card { max-width: 760px; padding: 28px; border: 1px solid var(--el-border-color-light); border-radius: 12px; background: var(--el-bg-color); }
 .setting-card h2 { margin: 0 0 12px; font-size: 18px; }
 .description { margin-bottom: 28px; line-height: 1.7; }
 .field-help { margin-top: 6px; font-size: 12px; line-height: 1.6; }
 .monitor-help { font-size: 13px; line-height: 1.7; }
 .reload-button { margin-top: 12px; }
+@media (max-width: 640px) { .setting-card { padding: 20px; } }
 </style>

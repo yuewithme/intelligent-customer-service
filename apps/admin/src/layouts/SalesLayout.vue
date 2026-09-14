@@ -40,7 +40,8 @@
             :to="item.to"
             @click="closeMobileNav"
           >
-            {{ item.label }}
+            <ElIcon aria-hidden="true"><component :is="item.icon" /></ElIcon>
+            <span>{{ item.label }}</span>
           </RouterLink>
         </section>
       </nav>
@@ -97,6 +98,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { ChatDotRound, Connection, Collection, PriceTag, Goods, Reading, Calendar, Service, Setting, User } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/modules/user'
 import { clearGateRole, isTestGate, canViewPage, firstAllowedPage, isAdmin } from '@/utils/gate'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
@@ -137,30 +139,30 @@ watch(showTenantSwitcher, (visible) => {
 const allNavigation = [
   {
     title: '销售执行',
-    items: [{ label: '小兰工作台', to: '/workbench' }]
+    items: [{ label: '小兰工作台', to: '/workbench', icon: ChatDotRound }]
   },
   {
     title: '智能编排',
     items: [
-      { label: '能力工作台', to: '/operations/capability-workbench' }
+      { label: '能力工作台', to: '/operations/capability-workbench', icon: Connection }
     ]
   },
   {
     title: '销售资产',
     items: [
-      { label: '销售案例库', to: '/operations/conversation-cases' },
-      { label: '客户标签', to: '/operations/tags' },
-      { label: '产品信息', to: '/operations/products' },
-      { label: '养护手册', to: '/operations/care-manuals' },
-      { label: '销售活动', to: '/knowledge-ops/current-activities' }
+      { label: '销售案例库', to: '/operations/conversation-cases', icon: Collection },
+      { label: '客户标签', to: '/operations/tags', icon: PriceTag },
+      { label: '产品信息', to: '/operations/products', icon: Goods },
+      { label: '养护手册', to: '/operations/care-manuals', icon: Reading },
+      { label: '销售活动', to: '/knowledge-ops/current-activities', icon: Calendar }
     ]
   },
   {
     title: '系统',
     items: [
-      { label: '转人工设置', to: '/settings/handoff' },
-      { label: '模型配置', to: '/settings/model-config' },
-      { label: '账号与权限', to: '/settings/accounts' }
+      { label: '转人工设置', to: '/settings/handoff', icon: Service },
+      { label: '模型配置', to: '/settings/model-config', icon: Setting },
+      { label: '账号与权限', to: '/settings/accounts', icon: User }
     ]
   }
 ]
@@ -177,32 +179,39 @@ const logout = async () => {
 </script>
 
 <style scoped>
-.sales-layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
-.sidebar { position: sticky; top: 0; height: 100vh; padding: 20px 14px; color: #d7e7e1; background: #123f33; }
+.sales-layout { display: grid; grid-template-columns: 208px minmax(0, 1fr); min-height: 100dvh; }
+.sidebar { position: sticky; top: 0; height: 100dvh; padding: 24px 12px; overflow-y: auto; color: var(--app-text); background: #fcfdfc; border-right: 1px solid var(--app-border); }
 .nav-backdrop, .nav-close, .nav-trigger, .mobile-tenant-switcher, .mobile-operator { display: none; }
-.brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px 22px; color: #fff; text-decoration: none; }
-.brand-mark { display: grid; width: 38px; height: 38px; place-items: center; font-weight: 800; background: #35a37a; border-radius: 11px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 24px; color: var(--app-text); text-decoration: none; }
+.brand-mark { display: grid; flex: 0 0 36px; width: 36px; height: 36px; place-items: center; color: #fff; font-size: 18px; font-weight: 600; background: var(--app-accent); border-radius: 10px; }
 .brand strong, .brand small { display: block; }
-.brand small { margin-top: 3px; color: #9bc2b4; font-size: 11px; }
-nav section { margin: 15px 0 22px; }
-nav p { padding: 0 12px; margin: 0 0 7px; color: #80ab9b; font-size: 11px; letter-spacing: .12em; }
-nav a { display: block; padding: 10px 12px; margin: 3px 0; color: #cce0d8; text-decoration: none; border-radius: 8px; }
-nav a:hover, nav a.router-link-active { color: #fff; background: #23634f; }
+.brand strong { font-size: 16px; font-weight: 600; }
+.brand small { margin-top: 2px; color: var(--app-text-secondary); font-size: 11px; }
+nav section { margin: 10px 0 24px; }
+nav p { padding: 0 12px; margin: 0 0 8px; color: var(--app-text-secondary); font-size: 11px; }
+nav a { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 9px 12px; margin: 4px 0; color: #52685c; font-size: 14px; text-decoration: none; border-radius: 8px; transition: background .15s ease, color .15s ease; }
+nav a .el-icon { font-size: 18px; }
+nav a:hover { color: var(--app-text); background: var(--app-surface-soft); }
+nav a.router-link-active { color: var(--app-accent); font-weight: 600; background: var(--app-accent-soft); }
 .page-area { min-width: 0; }
-header { display: flex; align-items: center; justify-content: space-between; min-height: 64px; padding: 0 22px; background: #fff; border-bottom: 1px solid #e5e7eb; }
-header strong, header span { display: block; }
-header span { margin-top: 3px; color: #84918c; font-size: 12px; }
-.tenant-switcher { display: flex; align-items: center; gap: 10px; width: min(440px, 38vw); }
+header { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: var(--app-header-height); padding: 0 32px; background: var(--app-surface); border-bottom: 1px solid var(--app-border); }
+.page-title { min-width: 0; }
+.page-title strong, .page-title > span { display: block; }
+.page-title strong { font-size: 15px; font-weight: 600; }
+.page-title > span { margin-top: 3px; color: var(--app-text-secondary); font-size: 12px; }
+.tenant-switcher { display: flex; align-items: center; gap: 10px; width: min(380px, 34vw); margin-left: auto; }
 .tenant-switcher .tenant-label { flex: 0 0 auto; margin: 0; color: #50645d; font-size: 13px; }
 .tenant-switcher :deep(.el-select) { flex: 1; }
 .tenant-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .tenant-option small { color: #84918c; font-size: 12px; }
-.operator { display: flex; align-items: center; gap: 12px; }
+.operator { display: flex; flex-shrink: 0; align-items: center; gap: 12px; }
 .operator span { color: #33443e; font-size: 14px; }
 .operator .test-badge { padding: 4px 9px; color: #9a4f00; font-weight: 700; background: #fff2d8; border-radius: 999px; }
-.operator button { padding: 6px 10px; color: #50645d; cursor: pointer; background: transparent; border: 1px solid #cfdad6; border-radius: 7px; }
+.operator button { padding: 6px 10px; color: var(--app-text-secondary); cursor: pointer; background: transparent; border: 1px solid var(--app-border); border-radius: 8px; }
+.operator button:hover { color: var(--app-accent); background: var(--app-accent-soft); }
 main { min-width: 0; }
-@media (max-width: 1100px) { .tenant-switcher { width: min(340px, 34vw); } .tenant-label { display: none; } }
+@media (max-width: 1280px) { header { padding: 0 24px; gap: 16px; } .page-title > span { display: none; } }
+@media (max-width: 1100px) { .sales-layout { grid-template-columns: 188px minmax(0, 1fr); } .tenant-switcher { width: min(320px, 34vw); } .tenant-label { display: none; } }
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .sales-layout { display: block; min-height: 100dvh; }
   .sidebar {
@@ -215,7 +224,7 @@ main { min-width: 0; }
     height: 100dvh;
     padding: 18px 14px max(18px, env(safe-area-inset-bottom));
     overflow-y: auto;
-    box-shadow: 12px 0 36px rgb(2 20 14 / 26%);
+    box-shadow: 12px 0 36px rgb(36 59 50 / 12%);
     transform: translateX(-105%);
     transition: transform .2s ease;
   }
@@ -238,7 +247,7 @@ main { min-width: 0; }
     height: 36px;
     padding: 0;
     place-items: center;
-    color: #d7e7e1;
+    color: var(--app-text-secondary);
     font-size: 26px;
     line-height: 1;
     cursor: pointer;
@@ -254,21 +263,21 @@ main { min-width: 0; }
     gap: 7px;
     padding: 12px;
     margin-bottom: 8px;
-    background: rgb(255 255 255 / 7%);
-    border-radius: 9px;
+    background: var(--app-surface-soft);
+    border-radius: 8px;
   }
-  .mobile-tenant-switcher > span { color: #b7d4ca; font-size: 12px; }
+  .mobile-tenant-switcher > span { color: var(--app-text-secondary); font-size: 12px; }
   .mobile-operator {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 14px 10px 0;
     margin-top: 12px;
-    border-top: 1px solid rgb(255 255 255 / 12%);
+    border-top: 1px solid var(--app-border);
   }
-  .mobile-operator > span { color: #d7e7e1; font-size: 13px; }
-  .mobile-operator .test-badge { padding: 3px 7px; color: #ffd99c; background: rgb(255 207 128 / 12%); border-radius: 999px; }
-  .mobile-operator button { margin-left: auto; padding: 7px 9px; color: #d7e7e1; background: transparent; border: 1px solid rgb(255 255 255 / 22%); border-radius: 7px; }
+  .mobile-operator > span { color: var(--app-text-secondary); font-size: 13px; }
+  .mobile-operator .test-badge { padding: 3px 7px; color: var(--el-color-warning); background: var(--el-color-warning-light-9); border-radius: 6px; }
+  .mobile-operator button { margin-left: auto; padding: 7px 9px; color: var(--app-text-secondary); background: transparent; border: 1px solid var(--app-border); border-radius: 8px; }
   header {
     position: sticky;
     top: 0;

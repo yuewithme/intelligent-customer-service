@@ -291,9 +291,7 @@ defineExpose({ openCreateForProduct })
 </script>
 
 <style scoped>
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin: 8px 0 18px; }
-.page-head h2 { margin: 0; color: #163d32; font-size: 22px; }
-.page-head p { margin: 7px 0 0; color: #71827c; }
+.page-head h2 { margin: 0; color: var(--app-text); font-size: 24px; font-weight: 600; line-height: 1.4; }
 .summary { display: flex; gap: 24px; padding: 14px 18px; margin-bottom: 16px; background: #f4f8f6; border: 1px solid #dfe9e5; border-radius: 10px; color: #64756f; }
 .summary strong { margin-left: 5px; color: #173d32; }
 .toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) 170px auto; gap: 10px; margin-bottom: 16px; }

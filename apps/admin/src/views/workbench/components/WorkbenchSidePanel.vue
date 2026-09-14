@@ -85,23 +85,25 @@ const activeTab = ref<(typeof tabs)[number]['value']>('supervision')
   display: grid;
   flex: 0 0 auto;
   grid-template-columns: repeat(3, 1fr);
-  padding: 8px 12px 0;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 12px 12px 0;
+  border-bottom: 1px solid var(--app-border);
 }
 
 .side-switch button {
   padding: 9px 8px 10px;
-  color: #6b7280;
+  min-width: 0;
+  white-space: nowrap;
+  color: var(--app-text-secondary);
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
 }
 
 .side-switch button.active {
-  color: #256d59;
-  border-bottom-color: #256d59;
+  color: var(--app-accent);
+  border-bottom-color: var(--app-accent);
   font-weight: 600;
 }
 

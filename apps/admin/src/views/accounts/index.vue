@@ -1,5 +1,5 @@
 <template>
-  <section class="accounts-page">
+  <ContentWrap>
     <div class="page-head">
       <div><h1>账号与权限</h1><p>新增、删除账号，设置登录账密并分配页面和客服微信权限。</p></div>
       <ElButton type="primary" :disabled="loading" @click="openCreate">创建账号</ElButton>
@@ -44,7 +44,7 @@
       <dl v-if="credentials"><dt>账号</dt><dd>{{ credentials.username }}</dd><dt>密码</dt><dd class="password">{{ credentials.password }}</dd></dl>
       <template #footer><ElButton @click="copyCredentials">复制账密</ElButton><ElButton type="primary" @click="finishCredentials">已保存，关闭</ElButton></template>
     </ElDialog>
-  </section>
+  </ContentWrap>
 </template>
 
 <script setup lang="ts">
@@ -133,14 +133,11 @@ onMounted(load)
 </script>
 
 <style scoped>
-.accounts-page { padding: 28px; }
-.page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
-h1 { margin: 0 0 8px; font-size: 24px; }
 p, dt { color: #687d74; }
 p { margin: 0; }
 .account-table { margin-top: 20px; }
 .page-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 dt { margin-top: 20px; } dd { margin: 8px 0; overflow-wrap: anywhere; }
 .password { font-family: monospace; font-size: 18px; user-select: all; }
-@media (max-width: 640px) { .accounts-page { padding: 16px; } .page-head { align-items: flex-start; } }
+@media (max-width: 640px) { .page-options { grid-template-columns: 1fr; } }
 </style>

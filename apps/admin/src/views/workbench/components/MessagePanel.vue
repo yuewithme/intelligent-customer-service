@@ -21,10 +21,10 @@
           >
         </div>
       </div>
-      <ElButton :disabled="!conversationIds.length" :icon="Refresh" circle @click="load()" />
+      <ElButton :disabled="!conversationIds.length" :icon="Refresh" circle aria-label="刷新聊天记录" @click="load()" />
     </div>
 
-    <div ref="timelineRef" v-loading="loading" class="timeline">
+    <div ref="timelineRef" v-loading="loading" class="timeline" :class="{ 'is-empty': !detail?.messages.length }">
       <div v-if="selectionMode && isAdmin()" class="selection-toolbar">
         <span>已选 {{ selectedMessageIds.size }} 条</span>
         <div>
@@ -571,9 +571,13 @@ defineExpose({ load })
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid #e5e7eb;
+  gap: 12px;
+  min-height: 78px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--app-border);
 }
+.header > .el-button { flex-shrink: 0; }
+.customer-title > div { min-width: 0; }
 
 .customer-title {
   display: flex;
@@ -604,10 +608,11 @@ p {
 .timeline {
   flex: 1;
   min-height: 0;
-  padding: 18px;
+  padding: 24px;
   overflow: auto;
-  background: #f9fafb;
+  background: #f7f9f8;
 }
+.timeline.is-empty { display: grid; align-content: center; }
 
 .mobile-back { display: none; }
 
@@ -621,14 +626,14 @@ p {
   padding: 10px 12px;
   margin: -8px -8px 14px;
   background: #fff;
-  border: 1px solid #bfdbfe;
-  border-radius: 6px;
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 8px;
   box-shadow: 0 4px 12px rgb(15 23 42 / 8%);
 }
 
 .message-row {
   display: flex;
-  margin-bottom: 14px;
+  margin-bottom: 20px;
 }
 
 .message-row.ai,
@@ -641,8 +646,8 @@ p {
 }
 
 .message-row.selected .bubble {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgb(37 99 235 / 16%);
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-8);
 }
 
 .message-row.focused .bubble {
@@ -652,12 +657,12 @@ p {
 
 .bubble {
   position: relative;
-  max-width: min(70%, 680px);
-  padding: 10px 12px;
+  max-width: min(88%, 640px);
+  padding: 12px 14px;
   white-space: pre-wrap;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
 }
 
 .selected-mark {
@@ -669,27 +674,28 @@ p {
   height: 20px;
   color: #fff;
   font-size: 12px;
-  background: #2563eb;
+  background: var(--app-accent);
   border-radius: 50%;
   place-items: center;
 }
 
 .ai .bubble {
-  background: #eef2ff;
-  border-color: #c7d2fe;
+  background: var(--app-accent-soft);
+  border-color: #d5e6dc;
 }
 
 .human .bubble {
   color: #fff;
-  background: #2563eb;
-  border-color: #2563eb;
+  background: var(--app-accent);
+  border-color: var(--app-accent);
 }
 
 .sender,
 .time {
   font-size: 12px;
-  opacity: 0.75;
+  color: var(--app-text-secondary);
 }
+.human .sender, .human .time { color: #e0eee8; }
 
 .sender {
   display: flex;
@@ -710,9 +716,14 @@ p {
 }
 
 .content {
-  margin: 4px 0;
-  line-height: 1.6;
+  margin: 6px 0;
+  font-size: 14px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
 }
+
+.message-image, .message-video, .message-audio, .commerce-card { max-width: 100%; }
+.human .commerce-card { color: var(--app-text); }
 
 .message-image {
   display: block;

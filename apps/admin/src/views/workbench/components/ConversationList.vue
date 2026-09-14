@@ -1,5 +1,6 @@
 <template>
   <aside class="conversation-list">
+    <div class="list-heading"><h2>会话列表</h2><span>{{ items.length }} 个会话</span></div>
     <div class="toolbar">
       <ElSelect v-model="status" clearable placeholder="全部状态" @change="load()">
         <ElOption label="AI 自动回复" value="ai_waiting" />
@@ -9,12 +10,13 @@
       </ElSelect>
       <ElButton
         v-if="isAdmin()"
+        class="test-toggle"
         :type="testView ? 'primary' : 'default'"
         @click="toggleTestView"
       >
         {{ testView ? '返回正式对话' : '测试对话' }}
       </ElButton>
-      <ElButton :icon="Refresh" circle @click="load()" />
+      <ElButton :icon="Refresh" circle aria-label="刷新会话列表" @click="load()" />
     </div>
     <ElInput
       v-model="keyword"
@@ -209,16 +211,23 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
   flex-direction: column;
   gap: 12px;
   height: 100%;
-  padding: 12px;
+  padding: 16px 12px 8px;
 }
+
+.list-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 4px; }
+.list-heading h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.list-heading span { color: var(--app-text-secondary); font-size: 12px; }
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 32px;
+  grid-template-columns: minmax(0, 1fr) 36px;
   gap: 8px;
 }
+.toolbar:has(.test-toggle) :deep(.el-select) { grid-column: 1 / -1; }
+.toolbar :deep(.el-button + .el-button) { margin-left: 0; }
 
 .items {
+  flex: 1;
   min-height: 0;
   overflow: auto;
 }
@@ -228,18 +237,20 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
   grid-template-columns: 36px minmax(0, 1fr);
   gap: 10px;
   width: 100%;
-  padding: 12px;
-  margin-bottom: 8px;
+  padding: 14px 10px;
+  margin-bottom: 4px;
   text-align: left;
   cursor: pointer;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition: background .15s ease, border-color .15s ease;
 }
+.item:hover { background: var(--app-surface-soft); }
 
 .item.active {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 1px #2563eb inset;
+  background: var(--app-accent-soft);
+  border-color: var(--el-color-primary-light-7);
 }
 
 .item-main {
@@ -255,6 +266,9 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
 }
 
 .item-head strong {
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 600;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -262,22 +276,24 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
 }
 
 .preview {
-  margin: 8px 0;
+  margin: 6px 0 10px;
   overflow: hidden;
-  color: #4b5563;
+  color: var(--app-text-secondary);
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .meta {
-  font-size: 12px;
-  color: #6b7280;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 11px;
+  color: var(--app-text-secondary);
 }
 
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .conversation-list { padding: 10px; }
   .toolbar { grid-template-columns: minmax(0, 1fr) 36px; }
-  .toolbar :deep(.el-select) { grid-column: 1 / -1; }
   .toolbar :deep(.el-button + .el-button) { margin-left: 0; }
   .item { min-height: 76px; padding: 11px 10px; }
 }

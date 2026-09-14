@@ -400,7 +400,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-head,
 .card-head,
 .head-actions,
 .switches,
@@ -409,7 +408,6 @@ onMounted(() => {
   align-items: center;
 }
 
-.page-head,
 .card-head {
   justify-content: space-between;
   gap: 16px;
@@ -429,7 +427,6 @@ h2 {
   font-size: 17px;
 }
 
-.page-head p,
 .card-head p {
   margin-top: 6px;
   color: #6b7280;
@@ -450,29 +447,29 @@ h2 {
 
 .activity-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
   gap: 16px;
   min-height: 220px;
 }
 
 .activity-card {
-  padding: 18px;
+  padding: 22px;
   cursor: default;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
 }
 
 .activity-card.selected {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgb(37 99 235 / 12%);
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-8);
 }
 
 .message-preview {
   min-height: 86px;
   padding: 10px;
   margin: 14px 0;
-  background: #f8fafc;
+  background: var(--app-background);
   border-radius: 6px;
 }
 
@@ -490,8 +487,8 @@ h2 {
   display: inline-grid;
   flex: 0 0 20px;
   height: 20px;
-  color: #2563eb;
-  background: #dbeafe;
+  color: var(--app-accent);
+  background: var(--app-accent-soft);
   border-radius: 50%;
   place-items: center;
 }

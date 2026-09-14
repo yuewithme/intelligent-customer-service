@@ -280,18 +280,18 @@ watch(
   }
   .reception-label { display: flex; align-items: center; min-width: 0; }
   .mobile-switch-button { flex: 0 0 auto; margin-left: 0; }
-  .mobile-reception-status strong { color: #167452; }
+  .mobile-reception-status strong { color: var(--app-accent); }
   .mobile-reception-status .status-dot {
     width: 7px;
     height: 7px;
     margin-right: 7px;
     border-radius: 50%;
-    background: #20a06b;
+    background: var(--app-accent);
   }
   .mobile-reception-status.is-ai_active strong,
-  .mobile-reception-status.is-ai_waiting strong { color: #2563a5; }
+  .mobile-reception-status.is-ai_waiting strong { color: var(--app-accent); }
   .mobile-reception-status.is-ai_active .status-dot,
-  .mobile-reception-status.is-ai_waiting .status-dot { background: #409eff; }
+  .mobile-reception-status.is-ai_waiting .status-dot { background: var(--app-accent); }
   .mobile-reception-status.is-handoff_pending strong { color: #b66a13; }
   .mobile-reception-status.is-handoff_pending .status-dot { background: #e6a23c; }
   .mobile-reception-status.is-resolved strong { color: #7b8581; }

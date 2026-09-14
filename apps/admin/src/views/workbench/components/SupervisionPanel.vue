@@ -312,6 +312,7 @@ dd {
   flex-wrap: wrap;
   gap: 8px;
 }
+.actions :deep(.el-button + .el-button) { margin-left: 0; }
 
 .agent-section {
   padding-top: 4px;
