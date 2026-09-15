@@ -180,19 +180,20 @@ const logout = async () => {
 
 <style scoped>
 .sales-layout { display: grid; grid-template-columns: 208px minmax(0, 1fr); min-height: 100dvh; }
-.sidebar { position: sticky; top: 0; height: 100dvh; padding: 24px 12px; overflow-y: auto; color: var(--app-text); background: #fcfdfc; border-right: 1px solid var(--app-border); }
+.sidebar { position: sticky; top: 0; height: 100dvh; padding: 24px 12px; overflow-y: auto; color: var(--app-nav-text); background: var(--app-nav-background); border-right: 1px solid var(--app-nav-background); }
 .nav-backdrop, .nav-close, .nav-trigger, .mobile-tenant-switcher, .mobile-operator { display: none; }
-.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 24px; color: var(--app-text); text-decoration: none; }
-.brand-mark { display: grid; flex: 0 0 36px; width: 36px; height: 36px; place-items: center; color: #fff; font-size: 18px; font-weight: 600; background: var(--app-accent); border-radius: 10px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 24px; color: #fff; text-decoration: none; }
+.brand-mark { display: grid; flex: 0 0 36px; width: 36px; height: 36px; place-items: center; color: #fff; font-size: 18px; font-weight: 600; background: #397a59; border-radius: 10px; }
 .brand strong, .brand small { display: block; }
 .brand strong { font-size: 16px; font-weight: 600; }
-.brand small { margin-top: 2px; color: var(--app-text-secondary); font-size: 11px; }
+.brand small { margin-top: 2px; color: var(--app-nav-muted); font-size: 11px; }
 nav section { margin: 10px 0 24px; }
-nav p { padding: 0 12px; margin: 0 0 8px; color: var(--app-text-secondary); font-size: 11px; }
-nav a { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 9px 12px; margin: 4px 0; color: #52685c; font-size: 14px; text-decoration: none; border-radius: 8px; transition: background .15s ease, color .15s ease; }
+nav p { padding: 0 12px; margin: 0 0 8px; color: var(--app-nav-muted); font-size: 11px; }
+nav a { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 9px 12px; margin: 4px 0; color: var(--app-nav-text); font-size: 14px; text-decoration: none; border-radius: 8px; transition: background .15s ease, color .15s ease; }
 nav a .el-icon { font-size: 18px; }
-nav a:hover { color: var(--app-text); background: var(--app-surface-soft); }
-nav a.router-link-active { color: var(--app-accent); font-weight: 600; background: var(--app-accent-soft); }
+nav a:hover { color: #fff; background: var(--app-nav-surface); }
+nav a.router-link-active { color: #fff; font-weight: 600; background: #32684e; box-shadow: inset 3px 0 #a5d4ad; }
+.sidebar :focus-visible { outline-color: #c6e1cc; }
 .page-area { min-width: 0; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: var(--app-header-height); padding: 0 32px; background: var(--app-surface); border-bottom: 1px solid var(--app-border); }
 .page-title { min-width: 0; }
@@ -247,7 +248,7 @@ main { min-width: 0; }
     height: 36px;
     padding: 0;
     place-items: center;
-    color: var(--app-text-secondary);
+    color: var(--app-nav-text);
     font-size: 26px;
     line-height: 1;
     cursor: pointer;
@@ -263,21 +264,21 @@ main { min-width: 0; }
     gap: 7px;
     padding: 12px;
     margin-bottom: 8px;
-    background: var(--app-surface-soft);
+    background: var(--app-nav-surface);
     border-radius: 8px;
   }
-  .mobile-tenant-switcher > span { color: var(--app-text-secondary); font-size: 12px; }
+  .mobile-tenant-switcher > span { color: var(--app-nav-muted); font-size: 12px; }
   .mobile-operator {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 14px 10px 0;
     margin-top: 12px;
-    border-top: 1px solid var(--app-border);
+    border-top: 1px solid #40634e;
   }
-  .mobile-operator > span { color: var(--app-text-secondary); font-size: 13px; }
+  .mobile-operator > span { color: var(--app-nav-text); font-size: 13px; }
   .mobile-operator .test-badge { padding: 3px 7px; color: var(--el-color-warning); background: var(--el-color-warning-light-9); border-radius: 6px; }
-  .mobile-operator button { margin-left: auto; padding: 7px 9px; color: var(--app-text-secondary); background: transparent; border: 1px solid var(--app-border); border-radius: 8px; }
+  .mobile-operator button { margin-left: auto; padding: 7px 9px; color: var(--app-nav-text); background: transparent; border: 1px solid #6a8c77; border-radius: 8px; }
   header {
     position: sticky;
     top: 0;
@@ -285,6 +286,9 @@ main { min-width: 0; }
     justify-content: flex-start;
     min-height: 56px;
     padding: 0 12px;
+    color: #fff;
+    background: var(--app-nav-background);
+    border-bottom-color: var(--app-nav-background);
   }
   .nav-trigger {
     display: grid;
@@ -299,7 +303,8 @@ main { min-width: 0; }
     border: 0;
     border-radius: 8px;
   }
-  .nav-trigger span { height: 2px; margin: 0; background: #36534a; border-radius: 999px; }
+  .nav-trigger span { height: 2px; margin: 0; background: var(--app-nav-text); border-radius: 999px; }
+  .nav-trigger:focus-visible { outline-color: #c6e1cc; }
   .page-title { min-width: 0; }
   .page-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .page-title > span { display: none; }
