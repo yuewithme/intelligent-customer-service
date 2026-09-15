@@ -2,22 +2,21 @@
 
 ## 任务目标
 
-重写中文 README，使用层级标题、强调、表格、引用和折叠内容提升阅读体验；同步本项目全部本地 Git 分支和标签到 GitHub，将 README 同步到 GitLab，并更新 GitLab 项目简介。
+重写中文 README，使用层级标题、强调、表格、引用和折叠内容提升阅读体验；同步本项目全部本地 Git 分支和标签到 GitHub，将 README 同步到 GitLab。用户最终确认不修改 GitLab 项目简介。
 
 ## 实施计划
 
 1. 根据现役代码、配置和架构文档核实功能、启动方式与部署边界。
 2. 重写 README，检查相对链接、命令与配置说明。
 3. 检查待推送提交和敏感信息，确认远程可快进，提交并推送。
-4. 更新 GitLab 简介，回读确认；核对两端 main 与本地提交一致。
+4. 按最终要求保留 GitLab 简介，核对两端 main 与本地提交一致。
 
 ## 完成结果
 
 - 已重写中文 README，补充功能表格、技术架构、环境配置、账号说明、折叠检查命令与文档导航。
 - 已将 README 提交 9758e895 及此前 GitHub 缺少的 4 个提交推送到 GitHub，并同步全部本地分支（main）与标签（pre-agent-harness-v2）；同一 README 提交已推送 GitLab main。
-- GitLab CLI 与 Git 凭据的 API 请求均返回 401；用户恢复浏览器登录后，项目接口确认 huangguijie 仅具备组级 Developer 权限（access_level=30），项目设置页不可访问。简介更新等待 Maintainer/Owner 权限。
-- 已核实当前简介仍是 Gitea 时代的待命副本说明，需要替换。
-- 待保存简介：面向微信私域的智能销售与客户服务平台，集成 AI Agent、知识库检索、客户画像、商品与订单查询、人工接管和销售运营，采用 FastAPI + Vue 3 构建。
+- GitLab CLI 与 Git 凭据的 API 请求均返回 401；用户恢复浏览器登录后，项目接口确认 huangguijie 仅具备组级 Developer 权限（access_level=30），项目设置页不可访问。
+- 用户最终明确取消简介修改，保留现状，此项不再是待办或完成阻塞。
 
 ## 验证情况
 
