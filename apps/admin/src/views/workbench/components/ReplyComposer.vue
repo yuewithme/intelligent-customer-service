@@ -236,7 +236,7 @@ watch(
 .received-emojis > span {
   flex: 0 0 auto;
   color: #6b7280;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .received-emojis button {
@@ -260,7 +260,7 @@ watch(
 }
 
 .received-emojis button span {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {
@@ -276,7 +276,7 @@ watch(
     border: 1px solid #dfe8e4;
     border-radius: 6px;
     background: #f7faf9;
-    font-size: 13px;
+    font-size: 14px;
   }
   .reception-label { display: flex; align-items: center; min-width: 0; }
   .mobile-switch-button { flex: 0 0 auto; margin-left: 0; }

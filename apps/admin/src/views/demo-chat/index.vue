@@ -395,7 +395,7 @@ onBeforeUnmount(() => {
 
 .chat-header .eyebrow {
   color: #bfe8d7;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.16em;
 }
@@ -421,7 +421,7 @@ onBeforeUnmount(() => {
   grid-column: 1 / -1;
   margin: 0;
   color: #6d7d77;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .message-list {
@@ -531,11 +531,11 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
 }
 
-.message-card strong { font-size: 14px; }
+.message-card strong { font-size: 15px; }
 .message-card small { margin-top: 5px; color: #6d7d77; line-height: 1.45; }
 
 .sender {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   opacity: 0.72;
 }
@@ -546,7 +546,7 @@ onBeforeUnmount(() => {
   padding: 10px 24px;
   overflow: auto;
   color: #4b6259;
-  font-size: 13px;
+  font-size: 14px;
   border-top: 1px solid #e8ecea;
 }
 

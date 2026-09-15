@@ -1,7 +1,32 @@
+@font-face {
+  font-family: "Alibaba PuHuiTi";
+  src: url("../assets/fonts/AlibabaPuHuiTi-3-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Alibaba PuHuiTi";
+  src: url("../assets/fonts/AlibabaPuHuiTi-3-Medium.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Alibaba PuHuiTi";
+  src: url("../assets/fonts/AlibabaPuHuiTi-3-SemiBold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
 :root {
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 14px;
-  line-height: 1.6;
+  --app-font-family: "Alibaba PuHuiTi", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--app-font-family);
+  font-size: 16px;
+  line-height: 1.65;
   color: var(--app-text);
   background: var(--app-background);
   font-synthesis: none;
@@ -20,8 +45,13 @@
   --app-accent-soft: #eaf4ee;
   --app-header-height: 72px;
   --app-radius: 12px;
-  --el-font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --el-font-size-base: 14px;
+  --el-font-family: var(--app-font-family);
+  --el-font-size-extra-small: 13px;
+  --el-font-size-small: 14px;
+  --el-font-size-base: 16px;
+  --el-font-size-medium: 16px;
+  --el-font-size-large: 18px;
+  --el-font-size-extra-large: 20px;
   --el-color-primary: var(--app-accent);
   --el-color-primary-light-3: #659e8c;
   --el-color-primary-light-5: #91b9ad;
@@ -87,6 +117,7 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:not(input, textarea, .el-s
 }
 ::selection { color: var(--app-text); background: #d3e9dc; }
 .el-button { font-weight: 500; }
+.el-tag { --el-tag-font-size: 13px; }
 .el-button--primary:not(.is-plain, .is-text, .is-link) {
   --el-button-hover-bg-color: #1e654e;
   --el-button-hover-border-color: #1e654e;
@@ -121,7 +152,7 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:not(input, textarea, .el-s
 .el-form-item__label { font-weight: 500; }
 .el-tabs__item { height: 46px; font-weight: 500; }
 .el-table { --el-table-header-bg-color: #dce7df; --el-table-header-text-color: #324e40; }
-.el-table th.el-table__cell { padding: 12px 0; font-size: 12px; font-weight: 600; }
+.el-table th.el-table__cell { padding: 12px 0; font-size: 14px; font-weight: 500; }
 .el-table td.el-table__cell { padding: 14px 0; }
 .el-table--small td.el-table__cell { padding: 8px 0; }
 .el-table .cell { line-height: 1.6; }
@@ -131,7 +162,7 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:not(input, textarea, .el-s
 .el-dialog__header { padding-bottom: 20px; }
 .el-dialog__title { font-weight: 600; }
 .el-dialog__footer { padding-top: 20px; }
-.el-empty__description p { color: var(--app-text-secondary); font-size: 13px; }
+.el-empty__description p { color: var(--app-text-secondary); font-size: 14px; }
 .el-avatar { color: var(--app-accent); background: var(--app-accent-soft); }
 
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {

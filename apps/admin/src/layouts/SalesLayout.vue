@@ -185,11 +185,11 @@ const logout = async () => {
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 24px; color: #fff; text-decoration: none; }
 .brand-mark { display: grid; flex: 0 0 36px; width: 36px; height: 36px; place-items: center; color: #fff; font-size: 18px; font-weight: 600; background: #397a59; border-radius: 10px; }
 .brand strong, .brand small { display: block; }
-.brand strong { font-size: 16px; font-weight: 600; }
-.brand small { margin-top: 2px; color: var(--app-nav-muted); font-size: 11px; }
+.brand strong { font-size: 18px; font-weight: 600; }
+.brand small { margin-top: 2px; color: var(--app-nav-muted); font-size: 13px; }
 nav section { margin: 10px 0 24px; }
-nav p { padding: 0 12px; margin: 0 0 8px; color: var(--app-nav-muted); font-size: 11px; }
-nav a { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 9px 12px; margin: 4px 0; color: var(--app-nav-text); font-size: 14px; text-decoration: none; border-radius: 8px; transition: background .15s ease, color .15s ease; }
+nav p { padding: 0 12px; margin: 0 0 8px; color: var(--app-nav-muted); font-size: 13px; }
+nav a { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 9px 12px; margin: 4px 0; color: var(--app-nav-text); font-size: 16px; font-weight: 500; text-decoration: none; border-radius: 8px; transition: background .15s ease, color .15s ease; }
 nav a .el-icon { font-size: 18px; }
 nav a:hover { color: #fff; background: var(--app-nav-surface); }
 nav a.router-link-active { color: #fff; font-weight: 600; background: #32684e; box-shadow: inset 3px 0 #a5d4ad; }
@@ -198,21 +198,21 @@ nav a.router-link-active { color: #fff; font-weight: 600; background: #32684e; b
 header { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: var(--app-header-height); padding: 0 32px; background: var(--app-surface); border-bottom: 1px solid var(--app-border); }
 .page-title { min-width: 0; }
 .page-title strong, .page-title > span { display: block; }
-.page-title strong { font-size: 15px; font-weight: 600; }
-.page-title > span { margin-top: 3px; color: var(--app-text-secondary); font-size: 12px; }
+.page-title strong { font-size: 17px; font-weight: 600; }
+.page-title > span { margin-top: 3px; color: var(--app-text-secondary); font-size: 13px; }
 .tenant-switcher { display: flex; align-items: center; gap: 10px; width: min(380px, 34vw); margin-left: auto; }
-.tenant-switcher .tenant-label { flex: 0 0 auto; margin: 0; color: #50645d; font-size: 13px; }
+.tenant-switcher .tenant-label { flex: 0 0 auto; margin: 0; color: #50645d; font-size: 14px; }
 .tenant-switcher :deep(.el-select) { flex: 1; }
 .tenant-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.tenant-option small { color: #84918c; font-size: 12px; }
+.tenant-option small { color: #84918c; font-size: 13px; }
 .operator { display: flex; flex-shrink: 0; align-items: center; gap: 12px; }
-.operator span { color: #33443e; font-size: 14px; }
+.operator span { color: #33443e; font-size: 15px; }
 .operator .test-badge { padding: 4px 9px; color: #9a4f00; font-weight: 700; background: #fff2d8; border-radius: 999px; }
 .operator button { padding: 6px 10px; color: var(--app-text-secondary); cursor: pointer; background: transparent; border: 1px solid var(--app-border); border-radius: 8px; }
 .operator button:hover { color: var(--app-accent); background: var(--app-accent-soft); }
 main { min-width: 0; }
 @media (max-width: 1280px) { header { padding: 0 24px; gap: 16px; } .page-title > span { display: none; } }
-@media (max-width: 1100px) { .sales-layout { grid-template-columns: 188px minmax(0, 1fr); } .tenant-switcher { width: min(320px, 34vw); } .tenant-label { display: none; } }
+@media (max-width: 1100px) { .tenant-switcher { width: min(320px, 34vw); } .tenant-label { display: none; } }
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .sales-layout { display: block; min-height: 100dvh; }
   .sidebar {
@@ -267,7 +267,7 @@ main { min-width: 0; }
     background: var(--app-nav-surface);
     border-radius: 8px;
   }
-  .mobile-tenant-switcher > span { color: var(--app-nav-muted); font-size: 12px; }
+  .mobile-tenant-switcher > span { color: var(--app-nav-muted); font-size: 13px; }
   .mobile-operator {
     display: flex;
     align-items: center;
@@ -276,7 +276,7 @@ main { min-width: 0; }
     margin-top: 12px;
     border-top: 1px solid #40634e;
   }
-  .mobile-operator > span { color: var(--app-nav-text); font-size: 13px; }
+  .mobile-operator > span { color: var(--app-nav-text); font-size: 14px; }
   .mobile-operator .test-badge { padding: 3px 7px; color: var(--el-color-warning); background: var(--el-color-warning-light-9); border-radius: 6px; }
   .mobile-operator button { margin-left: auto; padding: 7px 9px; color: var(--app-nav-text); background: transparent; border: 1px solid #6a8c77; border-radius: 8px; }
   header {

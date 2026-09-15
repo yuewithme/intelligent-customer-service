@@ -215,8 +215,8 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
 }
 
 .list-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 4px; }
-.list-heading h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.list-heading span { color: var(--app-text-secondary); font-size: 12px; }
+.list-heading h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.list-heading span { color: var(--app-text-secondary); font-size: 13px; }
 
 .toolbar {
   display: grid;
@@ -267,7 +267,7 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
 
 .item-head strong {
   color: var(--app-text);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   min-width: 0;
   overflow: hidden;
@@ -279,7 +279,7 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
   margin: 6px 0 10px;
   overflow: hidden;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -287,7 +287,7 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
 .meta {
   flex-wrap: wrap;
   gap: 4px 8px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--app-text-secondary);
 }
 

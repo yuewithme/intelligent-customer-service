@@ -293,7 +293,7 @@ dl {
   grid-template-columns: 88px 1fr;
   gap: 8px;
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 dt {

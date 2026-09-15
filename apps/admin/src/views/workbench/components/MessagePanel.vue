@@ -593,7 +593,7 @@ p {
 
 h2 {
   overflow: hidden;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -601,7 +601,7 @@ h2 {
 
 p {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 13px;
   color: #6b7280;
 }
 
@@ -673,7 +673,7 @@ p {
   width: 20px;
   height: 20px;
   color: #fff;
-  font-size: 12px;
+  font-size: 13px;
   background: var(--app-accent);
   border-radius: 50%;
   place-items: center;
@@ -692,7 +692,7 @@ p {
 
 .sender,
 .time {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--app-text-secondary);
 }
 .human .sender, .human .time { color: #e0eee8; }
@@ -717,7 +717,7 @@ p {
 
 .content {
   margin: 6px 0;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
@@ -807,7 +807,7 @@ p {
 
 .commerce-card strong {
   overflow: hidden;
-  font-size: 14px;
+  font-size: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -817,7 +817,7 @@ p {
   margin-top: 5px;
   overflow: hidden;
   color: #6b7280;
-  font-size: 12px;
+  font-size: 13px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -826,7 +826,7 @@ p {
   display: block;
   margin-top: 6px;
   color: inherit;
-  font-size: 12px;
+  font-size: 13px;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
