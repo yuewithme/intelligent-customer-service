@@ -6,12 +6,16 @@
   background: var(--app-background);
   font-synthesis: none;
   color-scheme: light;
-  --app-background: #f5f7f6;
+  --app-background: #e9eeeb;
   --app-surface: #ffffff;
   --app-surface-soft: #f0f4f2;
-  --app-text: #243b32;
-  --app-text-secondary: #607269;
-  --app-border: #dfe7e2;
+  --app-text: #19382b;
+  --app-text-secondary: #52685c;
+  --app-border: #cdd9d1;
+  --app-nav-background: #173c2e;
+  --app-nav-surface: #254f3e;
+  --app-nav-text: #e4efe7;
+  --app-nav-muted: #aec7b7;
   --app-accent: #23745b;
   --app-accent-soft: #eaf4ee;
   --app-header-height: 72px;
@@ -77,7 +81,7 @@ body { min-height: 100dvh; }
 button, input, textarea { font: inherit; }
 a { color: inherit; }
 button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
+button:focus-visible, a:focus-visible, [tabindex="0"]:not(input, textarea, .el-select__wrapper, .el-input__wrapper):focus-visible {
   outline: 2px solid var(--app-accent);
   outline-offset: 3px;
 }
@@ -106,9 +110,17 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
 .el-button--small.is-circle { width: 28px; }
 .el-button--large.is-circle { width: 40px; }
 .el-textarea__inner { line-height: 1.7; }
+.el-input, .el-textarea, .el-date-editor {
+  --el-input-focus-border-color: var(--el-input-border-color);
+  --el-input-hover-border-color: var(--el-input-border-color);
+}
+.el-select { --el-border-color-hover: var(--el-border-color); }
+.el-select__wrapper.is-focused { box-shadow: 0 0 0 1px var(--el-border-color) inset; }
+.el-input__inner:focus, .el-textarea__inner:focus, .el-select__input:focus,
+.el-input__wrapper:focus, .el-select__wrapper:focus { outline: none; }
 .el-form-item__label { font-weight: 500; }
 .el-tabs__item { height: 46px; font-weight: 500; }
-.el-table { --el-table-header-bg-color: #f4f7f5; --el-table-header-text-color: #607269; }
+.el-table { --el-table-header-bg-color: #dce7df; --el-table-header-text-color: #324e40; }
 .el-table th.el-table__cell { padding: 12px 0; font-size: 12px; font-weight: 600; }
 .el-table td.el-table__cell { padding: 14px 0; }
 .el-table--small td.el-table__cell { padding: 8px 0; }
