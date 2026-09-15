@@ -156,7 +156,7 @@ onMounted(() => void loadManuals())
 .manual-header p {
   margin-top: 5px;
   color: #8a949f;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .manual-list {
@@ -186,7 +186,7 @@ onMounted(() => void loadManuals())
   height: 100%;
   place-items: center;
   color: #9ca3af;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .manual-info {
@@ -201,7 +201,7 @@ onMounted(() => void loadManuals())
   display: -webkit-box;
   overflow: hidden;
   color: #1f2937;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.45;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;

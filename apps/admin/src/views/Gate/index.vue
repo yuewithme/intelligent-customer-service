@@ -50,6 +50,6 @@ const unlock = async () => {
 .gate-card { display: grid; width: min(440px, 100%); gap: 22px; padding: 40px; background: var(--app-surface); border: 1px solid var(--app-border); border-radius: 12px; box-shadow: 0 16px 48px rgb(36 59 50 / 6%); }
 .brand { display: flex; align-items: center; gap: 11px; }
 .brand span { display: grid; width: 40px; height: 40px; place-items: center; color: #fff; font-weight: 700; background: var(--app-accent); border-radius: 10px; }
-h1 { margin: 12px 0 -12px; font-size: 26px; font-weight: 600; } p { margin: 0; color: var(--app-text-secondary); font-size: 13px; line-height: 1.7; }
+h1 { margin: 12px 0 -12px; font-size: 26px; font-weight: 600; } p { margin: 0; color: var(--app-text-secondary); font-size: 14px; line-height: 1.7; }
 @media (max-width: 640px) { .gate-page { min-height: 100dvh; padding: 14px; } .gate-card { gap: 16px; padding: 24px; border-radius: 14px; } }
 </style>

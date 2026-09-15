@@ -243,7 +243,7 @@ onMounted(loadProducts)
 .product-cell .el-image { flex: 0 0 auto; width: 58px; height: 58px; background: #eef3f1; border-radius: 8px; }
 .product-cell strong, .product-cell small { display: block; }
 .product-cell small { margin-top: 6px; color: var(--app-text-secondary); }
-.image-fallback { display: grid; width: 100%; height: 100%; place-items: center; color: #9aaba5; font-size: 12px; }
+.image-fallback { display: grid; width: 100%; height: 100%; place-items: center; color: #9aaba5; font-size: 13px; }
 .sku-panel { padding: 12px 24px 20px 70px; }
 .sku-panel > strong { display: block; margin-bottom: 10px; color: #31584c; }
 .pagination { display: flex; justify-content: flex-end; padding-top: 18px; }

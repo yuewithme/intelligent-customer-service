@@ -297,7 +297,7 @@ defineExpose({ openCreateForProduct })
 .toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) 170px auto; gap: 10px; margin-bottom: 16px; }
 .linked-product { display: flex; align-items: center; gap: 8px; }
 .demand-tags { display: flex; flex-wrap: wrap; gap: 4px; }
-.field-help { color: #71827c; font-size: 13px; line-height: 1.6; }
+.field-help { color: #71827c; font-size: 14px; line-height: 1.6; }
 .pagination { display: flex; justify-content: flex-end; padding-top: 18px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
 .form-grid :deep(.el-select) { width: 100%; }

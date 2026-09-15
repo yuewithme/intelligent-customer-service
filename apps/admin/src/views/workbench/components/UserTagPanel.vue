@@ -199,7 +199,7 @@ onMounted(loadCatalog)
 .category-card p {
   margin: 0;
   color: #6b7280;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.55;
 }
 
@@ -253,6 +253,6 @@ onMounted(loadCatalog)
 
 .panel-actions span {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 13px;
 }
 </style>

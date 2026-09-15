@@ -105,13 +105,13 @@ watch(() => props.conversationId, () => void load(), { immediate: true })
 .orders { display: grid; gap: 9px; }
 .order-card { padding: 10px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa; }
 .order-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.order-head time,.sync-time { color: #9ca3af; font-size: 12px; }
+.order-head time,.sync-time { color: #9ca3af; font-size: 13px; }
 .order-item { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .order-item div { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: space-between; gap: 8px; }
-.order-item strong { overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.order-item span { flex: 0 0 auto; color: #6b7280; font-size: 12px; }
+.order-item strong { overflow: hidden; font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.order-item span { flex: 0 0 auto; color: #6b7280; font-size: 13px; }
 .item-image { width: 34px; height: 34px; border-radius: 6px; background: #eef2f1; }
-.order-card p { margin: 4px 0 8px; font-size: 13px; }
-.order-card dl { grid-template-columns: 48px 1fr; gap: 4px 8px; font-size: 12px; }
+.order-card p { margin: 4px 0 8px; font-size: 14px; }
+.order-card dl { grid-template-columns: 48px 1fr; gap: 4px 8px; font-size: 13px; }
 .sync-time { margin: 9px 0 0; }
 </style>

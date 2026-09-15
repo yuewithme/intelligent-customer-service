@@ -501,7 +501,7 @@ h2 {
 
 .more {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 dl {
@@ -509,7 +509,7 @@ dl {
   grid-template-columns: 72px 1fr;
   gap: 8px;
   margin: 0 0 14px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 dt {
@@ -554,7 +554,7 @@ dd {
 .error-text {
   margin-top: 4px;
   color: #dc2626;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 @media (max-width: 900px) {

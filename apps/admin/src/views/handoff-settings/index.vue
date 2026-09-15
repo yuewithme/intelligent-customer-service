@@ -200,22 +200,22 @@ onMounted(() => { void loadSettings() })
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .global-handoff-control { display: flex; min-width: 390px; align-items: center; justify-content: space-between; gap: 24px; padding: 11px 16px; background: #f5f9f7; border: 1px solid #dfe8e4; border-radius: 10px; }
 .global-handoff-control strong, .global-handoff-control span { display: block; }
-.global-handoff-control strong { color: #213e35; font-size: 14px; }
-.global-handoff-control span { margin-top: 3px; color: #7b8984; font-size: 12px; }
+.global-handoff-control strong { color: #213e35; font-size: 15px; }
+.global-handoff-control span { margin-top: 3px; color: #7b8984; font-size: 13px; }
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
 .setting-card { min-height: 360px; padding: 24px; background: var(--app-surface); border: 1px solid var(--app-border); border-radius: 12px; }
 .card-title { display: flex; gap: 13px; margin-bottom: 24px; }
 .card-title .step { display: grid; flex: 0 0 34px; height: 34px; place-items: center; color: var(--app-accent); font-weight: 600; background: var(--app-accent-soft); border-radius: 8px; }
 .card-title h2 { margin: 1px 0 5px; color: #213e35; font-size: 18px; }
-.card-title p { margin: 0; color: #7b8984; font-size: 13px; }
+.card-title p { margin: 0; color: #7b8984; font-size: 14px; }
 .selected-list { display: grid; gap: 10px; margin-top: 18px; }
 .selected-contact { display: flex; align-items: center; gap: 11px; padding: 10px 12px; background: #f5f9f7; border-radius: 10px; }
 .selected-contact strong, .selected-contact small { display: block; }
-.selected-contact strong { color: #2c443c; font-size: 14px; }
+.selected-contact strong { color: #2c443c; font-size: 15px; }
 .selected-contact small { margin-top: 3px; color: #829089; }
 .auto-fields { display: grid; gap: 8px; margin-top: 18px; padding: 14px; background: #f5f9f7; border-radius: 10px; }
-.auto-fields span { color: #678078; font-size: 12px; }
-.auto-fields code { color: #2d5b4c; font-family: inherit; font-size: 13px; }
+.auto-fields span { color: #678078; font-size: 13px; }
+.auto-fields code { color: #2d5b4c; font-family: inherit; font-size: 14px; }
 @media (max-width: 1100px) { .page-head { align-items: flex-start; flex-direction: column; } .head-actions { width: 100%; flex-wrap: wrap; } .global-handoff-control { min-width: min(100%, 390px); } }
 @media (max-width: 960px) { .settings-grid { grid-template-columns: 1fr; } }
 @media (max-width: 640px) {

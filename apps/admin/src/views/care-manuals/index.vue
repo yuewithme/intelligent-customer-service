@@ -316,11 +316,11 @@ onMounted(async () => { await Promise.all([loadManuals(), isAdmin() ? loadProduc
 .manual-cell .el-image, .edit-title .el-image { flex: 0 0 auto; width: 66px; height: 66px; background: #eef3f1; border-radius: 9px; }
 .manual-cell strong, .manual-cell small, .source-status, .match-result small, .edit-title small { display: block; }
 .manual-cell small { margin: 5px 0 3px; color: var(--app-text-secondary); }
-.image-fallback { display: grid; width: 100%; height: 100%; place-items: center; color: #9aaba5; font-size: 12px; }
+.image-fallback { display: grid; width: 100%; height: 100%; place-items: center; color: #9aaba5; font-size: 13px; }
 .orchid-name { color: #254f42; }
 .tag-list, .product-links { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .muted, .source-status { color: #899792; }
-.source-status { margin-top: 7px; font-size: 11px; }
+.source-status { margin-top: 7px; font-size: 13px; }
 .pagination { display: flex; justify-content: flex-end; padding-top: 18px; }
 .edit-title { display: flex; align-items: center; gap: 14px; padding: 12px; margin-bottom: 16px; background: #f4f8f6; border-radius: 10px; }
 .edit-title small { margin-top: 5px; color: #74857f; }

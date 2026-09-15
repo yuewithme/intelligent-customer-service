@@ -24,7 +24,7 @@
 .content-wrap :deep(.page-head h1) {
   margin: 0;
   color: var(--app-text);
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: -.5px;
@@ -33,7 +33,7 @@
   max-width: 72ch;
   margin: 8px 0 0;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.7;
 }
 .content-wrap :deep(.page-head > .el-button) { flex-shrink: 0; }
@@ -49,6 +49,6 @@
     padding: 20px 16px 28px;
   }
   .content-wrap :deep(.page-head) { gap: 14px; margin-bottom: 20px; }
-  .content-wrap :deep(.page-head h1) { font-size: 22px; }
+  .content-wrap :deep(.page-head h1) { font-size: 24px; }
 }
 </style>

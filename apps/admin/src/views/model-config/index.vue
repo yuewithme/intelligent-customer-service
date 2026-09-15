@@ -84,8 +84,8 @@ onMounted(() => {
 .setting-card { max-width: 760px; padding: 28px; border: 1px solid var(--el-border-color-light); border-radius: 12px; background: var(--el-bg-color); }
 .setting-card h2 { margin: 0 0 12px; font-size: 18px; }
 .description { margin-bottom: 28px; line-height: 1.7; }
-.field-help { margin-top: 6px; font-size: 12px; line-height: 1.6; }
-.monitor-help { font-size: 13px; line-height: 1.7; }
+.field-help { margin-top: 6px; font-size: 13px; line-height: 1.6; }
+.monitor-help { font-size: 14px; line-height: 1.7; }
 .reload-button { margin-top: 12px; }
 @media (max-width: 640px) { .setting-card { padding: 20px; } }
 </style>
