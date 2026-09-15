@@ -24,6 +24,7 @@ from app.domains.catalog.services.product_knowledge_service import (
 from app.domains.decisioning.schemas.agent import AgentToolResult
 from app.domains.decisioning.schemas.execution import AgentExecutionContext
 from app.domains.decisioning.schemas.reply import OutboundMessage
+from app.domains.decisioning.services.service_sop import SERVICE_COLLECTION_DIRECTIONS
 from app.domains.sales.services.care_manual_service import (
     get_care_manual,
     test_match_care_manuals,
@@ -264,8 +265,8 @@ CAPABILITIES = (
     CapabilitySpec(
         "experience.service_need_discovery",
         "experience",
-        ("服务挖需", "养护追问", "客户情况", "盆数", "品种", "环境", "长期服务"),
-        "服务型挖需先服从当前问题。先给客户可执行的回答，再只问一个真正会改变判断或后续陪伴的信息，例如问题变化、养护环境、品种、盆数或既往处理。客户无法回答非关键细节时不重复追问。获得的稳定事实用于后续服务和记忆；只有客户主动出现添花、选品或交易兴趣时，才把相关偏好用于复购匹配。",
+        ("服务挖需", "基础信息", "主动采集", "标签", "槽位", "养护追问", "客户情况", "盆数", "品种", "环境", "长期服务"),
+        "\n".join(SERVICE_COLLECTION_DIRECTIONS),
         ("service",),
     ),
     CapabilitySpec(
@@ -279,7 +280,7 @@ CAPABILITIES = (
         "experience.post_service_repurchase_seed",
         "experience",
         ("已购", "问题解决", "服务收口", "种心智", "引导咨询", "会员福利", "挖产品需求", "鉴赏偏好", "花色", "瓣型"),
-        "适用于已验证已购客户的养护或品种问题已经得到有效解决，客户用‘好的、谢谢、明白了、知道了’等表示认可并自然结束的节点。此时不是马上卖货，而是把一次满意服务转成三个长期关系结果。强烈建议在这次收口中完整覆盖三个方向：一是告诉客户后续仍可带着照片和具体问题来咨询；二是说明每周会上新多款铭品供鉴赏、有会员专属折扣活动、以后有实拍图和优惠会主动分享；三是轻量询问一个尚未知的花色、瓣型、香味或品种鉴赏偏好，并说明是为了以后针对性分享、买不买都没关系。通常按语义拆成两到三条短消息，让三个方向各自清楚且符合微信聊天节奏；不要背固定模板，也不按关键词、固定句式或消息数量机械执行。客户追问具体上新日、数量、品种、折扣、金额、条件或有效期时不编造；简短说明每期安排不同，有合适内容会按其喜好分享，顺势转问一个尚未知的鉴赏偏好。这叫长期偏好采集，不等于客户已有购买意向，不触发 product.search、商品推荐或卡片。客户回答后，用 memory.record 保存有原话证据的稳定偏好，后续分享时使用，不能反复再问。若当前问题未解决、仍需观察变化、存在投诉售后或权限待办、客户明确拒绝或表现不耐烦、上一问题尚未回答，则先完成服务或尊重拒绝。没有可信会员身份时称已购兰友，不擅自称专属会员。",
+        "适用于已验证已购客户的养护或品种问题已经得到有效解决，客户用‘好的、谢谢、明白了、知道了’等表示认可并自然结束的节点。此时不是马上卖货，而是把一次满意服务转成三个长期关系结果。强烈建议在这次收口中完整覆盖三个方向：一是告诉客户后续仍可带着照片和具体问题来咨询；二是说明每周会上新多款铭品供鉴赏、有会员专属折扣活动、以后有实拍图和优惠会主动分享；三是轻量询问一个尚未知的花色、瓣型、香味或品种鉴赏偏好，并说明是为了以后针对性分享、买不买都没关系。通常按语义拆成两到三条短消息，让三个方向各自清楚且符合微信聊天节奏；不要背固定模板，也不按关键词、固定句式或消息数量机械执行。客户追问具体上新日、数量、品种、折扣、金额、条件或有效期时不编造；简短说明每期安排不同，有合适内容会按其喜好分享，顺势转问一个尚未知的鉴赏偏好。这叫长期偏好采集，不等于客户已有购买意向，不触发 product.search、商品推荐或卡片。客户回答后，能映射到现行标签库的品类与产品需求分别调用 customer.tag 写入；无法准确映射的细节用 memory.record 保存有原话证据的稳定偏好，后续分享时使用，不能反复再问。若当前问题未解决、仍需观察变化、存在投诉售后或权限待办、客户明确拒绝或表现不耐烦、上一问题尚未回答，则先完成服务或尊重拒绝。没有可信会员身份时称已购兰友，不擅自称专属会员。",
         ("service",),
     ),
     CapabilitySpec(

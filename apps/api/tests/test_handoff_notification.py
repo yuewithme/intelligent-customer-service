@@ -98,12 +98,15 @@ def test_workbench_exposes_three_sops_and_parallel_branches(monkeypatch, tmp_pat
     ]
     steps = [step for package in packages for step in package["steps"]]
     business_steps = [step for step in steps if step.get("node_id")]
-    assert len(business_steps) == 14
+    assert len(business_steps) == 15
     assert all(step["handoff_enabled"] is False for step in business_steps)
     assert [package["enabled"] for package in packages] == [True, True, False]
     for package, reply_node in zip(packages[1:], ("need_discovery", "product_interest")):
         edges = package["transitions"]
-        assert {edge["to_step"] for edge in edges if edge["from_step"] == "entry"} == {"daily_touch", reply_node}
+        expected = {"daily_touch", reply_node}
+        if package["sop_scope"] == "service":
+            expected.add("basic_info_collection")
+        assert {edge["to_step"] for edge in edges if edge["from_step"] == "entry"} == expected
     assert {edge["to_step"] for edge in packages[1]["transitions"] if edge["from_step"] == "daily_touch"} == {"story", "knowledge", "topic"}
     assert workbench["read_only"] is False
 

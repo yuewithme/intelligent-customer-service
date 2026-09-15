@@ -1,5 +1,6 @@
 from typing import Any
 from app.core.config import get_settings
+from app.domains.decisioning.services.service_sop import SERVICE_COLLECTION_DIRECTIONS
 from app.domains.handoff.schemas.handoff_notification import SOP_NODE_GROUPS
 
 
@@ -17,7 +18,7 @@ def build_default_sop_packages(
         "service": {
             "package_id": "orchid.service",
             "name": "服务 SOP",
-            "description": "打上服务中标签后进入，每日三个时段触达与客户问题处理独立运行。",
+            "description": "打上服务中标签后，在对话中主动逐项采集基础信息并打标；每日三个时段触达与客户问题处理独立运行。",
             "entry_event": "打上服务中标签",
             "outcome_name": "服务关系持续",
         },
@@ -155,13 +156,19 @@ def _build_parallel_sop_graph(package: dict[str, Any]) -> None:
         )):
             node(slot, f"{at} {title}", f"每天 {at}（{settings.service_material_touch_timezone}）发送{title}文案与素材。", "action", 620, 20 + index * 125)
             edge("daily_touch", slot, at)
-        layout["need_discovery"] = {"x": 330, "y": 500}
+        collection = next(step for step in steps if step["step_id"] == "basic_info_collection")
+        collection["directions"] = list(SERVICE_COLLECTION_DIRECTIONS)
+        layout["basic_info_collection"] = {"x": 330, "y": 420}
+        edge("entry", "basic_info_collection", "进入服务，在对话中主动采集")
+        edge("basic_info_collection", "member_benefit", "已有信息足以匹配服务")
+        edge("basic_info_collection", "need_discovery", "客户有问题，优先处理")
+        layout["need_discovery"] = {"x": 330, "y": 625}
         edge("entry", "need_discovery", "客户发来问题")
         for index, (target, label) in enumerate((
             ("member_benefit", "需要权益交付"), ("post_service_close", "问题已解决"),
             ("repurchase_discovery", "出现复购需求"), ("relationship_maintenance", "需要后续服务"),
         )):
-            layout[target] = {"x": 620, "y": 405 + index * 125}
+            layout[target] = {"x": 680, "y": 420 + index * 140}
             edge("need_discovery", target, label)
     else:
         node("video_touch", "15:00 文字＋产品视频", "北京时间每天 15:00；视频同时匹配品类与产品需求，缺少匹配视频则跳过并记录原因。", "action", 620, 80)

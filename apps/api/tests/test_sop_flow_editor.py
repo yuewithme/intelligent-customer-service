@@ -141,6 +141,82 @@ def test_edges_drive_progression_and_layout_does_not_reset_cursor():
 
 
 @pytest.mark.asyncio
+async def test_service_collection_records_tags_and_keeps_daily_touches(monkeypatch):
+    import json
+    from test_agent_harness_v2 import _message, _decision
+    from app.domains.decisioning.services import agent_runtime
+    from app.domains.customers.schemas.state import UserState
+    from app.domains.customers.services.user_profile_service import get_profile_bundle
+
+    _insert_contact()
+    _tag_service_customer()
+    flow = flows.save_flow("service", default())
+    assert flows.dialogue_choices(flow, None) == {"basic_info_collection", "need_discovery"}
+    assert "member_benefit" in flows.dialogue_choices(flow, "basic_info_collection")
+    tags = [("浙江省", "浙江"), ("阳台", "阳台"), ("10-29盆", "12盆"),
+            ("建兰", "最喜欢建兰"), ("浓香", "想要浓香的")]
+    decisions = iter([
+        _decision(sop_node="service.basic_info_collection", tools=[
+            {"call_id": f"tag-{index}", "name": "customer.tag", "arguments": {"tag": tag, "evidence": evidence}}
+            for index, (tag, evidence) in enumerate(tags[:3])
+        ]),
+        _decision(sop_node="service.basic_info_collection", tools=[
+            {"call_id": f"tag-{index}", "name": "customer.tag", "arguments": {"tag": tag, "evidence": evidence}}
+            for index, (tag, evidence) in enumerate(tags[3:], start=3)
+        ]),
+        _decision(sop_node="service.basic_info_collection", final={
+            "messages": [{"type": "text", "content": "了解，您平时养兰大概多久了？"}], "need_human": False,
+        }),
+    ])
+    async def generate(messages, **kwargs):
+        payload = json.loads(messages[1]["content"])
+        collection = payload["customer_workspace"]["service_collection"]
+        assert "growing_environment" in collection["untagged_categories"]
+        assert not {"service_status", "purchase_status"}.intersection(slot["category_id"] for slot in collection["tag_slots"])
+        return next(decisions)
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    monkeypatch.setattr(agent_runtime, "is_sop_node_handoff_enabled", lambda *args: False)
+    message = _message("我在浙江，阳台养了12盆建兰，最喜欢建兰，想要浓香的。")
+    message.metadata.update(sop_scope="service", sop_scopes=["service"])
+    reply = await agent_runtime.run_sales_agent(
+        message=message, user_state=UserState(user_id="customer-1"),
+        workspace={"profile": {"customer_tags": ["服务中"]}},
+    )
+    profile = (await get_profile_bundle("customer-1"))["profile"]
+    assert set(profile["customer_tags"]) == {"服务中", *(tag for tag, _ in tags)}
+    assert reply.metadata["agent_runtime"]["sop_node"] == "service.basic_info_collection"
+    assert flows.load_cursor(message, "service", flow) == "basic_info_collection"
+
+    from app.domains.decisioning.services.service_sop import build_service_collection_context
+    collection = build_service_collection_context(profile)
+    assert not {"province", "growing_environment", "orchid_quantity", "favorite_orchid_type", "product_demand"}.intersection(collection["untagged_categories"])
+    assert "price_range" in collection["untagged_categories"]
+    now = datetime(2026, 8, 4, 22, 30, tzinfo=timezone.utc)
+    assert touches.ensure_service_material_touch_tasks(now=now) == 3
+    assert touches.ensure_service_material_touch_tasks(now=now) == 0
+    with touches._database_session() as session:
+        rows = session.query(AgentWakeupModel).order_by(AgentWakeupModel.due_at).all()
+        assert [row.reason for row in rows] == ["service_material:story", "service_material:knowledge", "service_material:topic"]
+        assert [row.due_at.hour for row in rows] == [23, 2, 6]
+
+
+def test_service_collection_uses_live_assignable_tag_slots(monkeypatch):
+    from app.domains.decisioning.services.service_sop import build_service_collection_context
+    from app.domains.sales.services import tag_catalog
+    monkeypatch.setattr(tag_catalog, "get_profile_tag_categories", lambda: {
+        "environment": tag_catalog.TagCategory("environment", "养护位置", "", (tag_catalog.TagValue("封闭阳台"),)),
+        "preference": tag_catalog.TagCategory("preference", "鉴赏喜好", "", (tag_catalog.TagValue("白花"),)),
+        "protected": tag_catalog.TagCategory("protected", "业务状态", "", (tag_catalog.TagValue("已核验"),), ai_assignable=False),
+        "empty": tag_catalog.TagCategory("empty", "已清空", "", ()),
+    })
+    result = build_service_collection_context({"customer_tags": ["customer_tag:封闭阳台", "旧标签"]})
+    assert result["untagged_categories"] == ["preference"]
+    assert result["tag_slots"][0]["known_tags"] == ["封闭阳台"]
+    assert result["tag_slots"][1]["allowed_tags"] == ["白花"]
+    assert len(result["tag_slots"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_custom_dialogue_is_executed_and_removed_node_is_rejected(monkeypatch):
     from test_agent_harness_v2 import _message, _decision
     from app.domains.decisioning.services import agent_runtime
