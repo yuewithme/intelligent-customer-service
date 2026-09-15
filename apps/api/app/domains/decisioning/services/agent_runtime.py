@@ -22,6 +22,7 @@ from app.domains.decisioning.services.customer_reply_formatter import (
     split_customer_messages,
 )
 from app.domains.decisioning.services.agent_tools import execute_agent_tool
+from app.domains.decisioning.services.service_sop import build_service_collection_context
 from app.domains.handoff.services.handoff_notification_service import (
     get_sop_node,
     is_sop_node_handoff_enabled,
@@ -63,6 +64,8 @@ async def run_sales_agent(
     flows = {scope: flow for scope in sop_scopes if (flow := get_saved_flow(scope)) is not None}
     message.metadata["sop_flow_versions"] = {scope: execution_version(flow) for scope, flow in flows.items()}
     cursors = {scope: load_cursor(message, scope, flow) for scope, flow in flows.items()}
+    if "service" in sop_scopes:
+        workspace["service_collection"] = build_service_collection_context(workspace.get("profile") or {})
     context = AgentExecutionContext(
         message=message,
         user_state=user_state,

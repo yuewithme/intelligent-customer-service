@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 
+from app.domains.decisioning.services.service_sop import SERVICE_COLLECTION_GOAL
+
 
 SOP_NODE_GROUPS = (
     {
@@ -19,6 +21,7 @@ SOP_NODE_GROUPS = (
         "sop_scope": "service",
         "name": "服务 SOP",
         "nodes": (
+            ("service.basic_info_collection", "基础信息采集与打标", SERVICE_COLLECTION_GOAL),
             ("service.need_discovery", "问题处理", "客户发来问题时触发，先解决问题，再了解会影响后续服务的信息。"),
             ("service.member_benefit", "会员权益交付", "结合当前问题交付相关教程、资料或指导。"),
             ("service.post_service_close", "服务收口与偏好采集", "问题解决后完成关系承接并采集稳定偏好。"),
