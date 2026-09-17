@@ -13,6 +13,8 @@
 
 ## Default Git Workflow
 
+- 开发日志必须在实施前写入本地 `docs/development/` 并随进度更新；该目录仅保留本地，不得提交、推送或使用 `git add -f` 强制加入版本库。
+
 - After development and verification are complete, commit the relevant changes and push them to the GitLab `main` branch at `https://git.hzwohu.com/wohu-apps/intelligent-customer-service.git` by default, authenticating as `huangguijie`.
 - Use a concise Conventional Commit message that describes the completed change.
 - Never stage unrelated user changes, local secrets, environment files, databases, generated artifacts, or untracked planning documents unless explicitly requested.
