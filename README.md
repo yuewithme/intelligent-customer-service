@@ -158,7 +158,6 @@ pnpm build:prod
 | --- | --- |
 | [架构与目录契约](docs/architecture.md) | 理解模块边界、调用链、配置归属和数据目录。 |
 | [生产部署指南](docs/deployment.md) | 配置生产环境、了解发布流程、初始化账号和排查部署问题。 |
-| [开发记录](docs/development/) | 查阅各次任务的目标、实现结果与验证记录。 |
 | [后端配置示例](apps/api/.env.example) | 查找应用配置字段及示例值。 |
 | [生产配置模板](deploy/env/backend.prod.env.example) | 准备生产环境所需配置。 |
 
