@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+from time import monotonic
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -22,6 +23,7 @@ _status_by_wc_id: dict[str, bool] = {}
 _alerted_status_by_wc_id: dict[str, bool] = {}
 _wid_by_wc_id: dict[str, str] = {}
 _offline_observations_by_wc_id: dict[str, int] = {}
+_last_reconnect_by_wc_id: dict[str, float] = {}
 _notification_tasks: set[asyncio.Task[None]] = set()
 _state_lock = asyncio.Lock()
 _OFFLINE_CONFIRMATIONS_REQUIRED = 2
@@ -134,7 +136,47 @@ async def poll_eyun_login_status(*, confirm_offline: bool = True) -> bool | None
         require_offline_confirmation=True,
         configuration_revision=configuration_revision,
     )
+    await _reconnect_if_offline(
+        base_url=base_url,
+        authorization=authorization,
+        wc_id=wc_id,
+        configuration_revision=configuration_revision,
+    )
     return False
+
+
+async def _reconnect_if_offline(
+    *, base_url: str, authorization: str, wc_id: str, configuration_revision: int
+) -> None:
+    settings = get_settings()
+    async with _state_lock:
+        if (
+            not settings.eyun_auto_reconnect_enabled
+            or get_eyun_account_settings_revision() != configuration_revision
+            or _status_by_wc_id.get(wc_id) is not False
+            or _offline_observations_by_wc_id.get(wc_id, 0) < _OFFLINE_CONFIRMATIONS_REQUIRED
+        ):
+            return
+        now = monotonic()
+        last_attempt = _last_reconnect_by_wc_id.get(wc_id)
+        if last_attempt is not None and now - last_attempt < settings.eyun_reconnect_interval_seconds:
+            return
+        # Reserve before I/O: failures and ambiguous timeouts must also respect cooldown.
+        _last_reconnect_by_wc_id[wc_id] = now
+    try:
+        result = await _post_eyun(
+            f"{base_url}/reconnectWx",
+            authorization=authorization,
+            payload={"wcId": wc_id},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Eyun auto-reconnect failed for %s: %s", wc_id, exc)
+        return
+    if str(result.get("code")) != "1000":
+        logger.warning("Eyun auto-reconnect rejected for %s: code=%s", wc_id, result.get("code"))
+        return
+    # Reconnect acceptance alone does not prove recovery; the next poll verifies it.
+    logger.info("Eyun auto-reconnect accepted for %s; awaiting online confirmation", wc_id)
 
 
 async def eyun_login_monitor_worker(stop_event: asyncio.Event) -> None:
@@ -383,6 +425,7 @@ def reset_eyun_login_monitor_state() -> None:
     _alerted_status_by_wc_id.clear()
     _wid_by_wc_id.clear()
     _offline_observations_by_wc_id.clear()
+    _last_reconnect_by_wc_id.clear()
 
 
 def _reset_monitor_state() -> None:

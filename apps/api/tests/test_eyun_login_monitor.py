@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from app.core.config import get_settings
@@ -17,6 +19,8 @@ def _configure(monkeypatch):
     monkeypatch.setenv("EYUN_AUTHORIZATION", "Bearer test")
     monkeypatch.setenv("EYUN_WID", "stale-wid")
     monkeypatch.setenv("EYUN_WC_ID", "wxid_bot")
+    monkeypatch.setenv("EYUN_AUTO_RECONNECT_ENABLED", "true")
+    monkeypatch.setenv("EYUN_RECONNECT_INTERVAL_SECONDS", "300")
     monkeypatch.setenv(
         "FEISHU_HANDOFF_WEBHOOK_URL",
         "https://open.feishu.cn/open-apis/bot/v2/hook/test-webhook",
@@ -183,3 +187,88 @@ def test_nested_eyun_reason_is_rendered_as_readable_action():
     assert "重登时继续使用上方 WCID" in message
     assert "baseResponse" not in message
     assert "<Content>" not in message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["accepted", "rejected", "timeout"])
+async def test_auto_reconnect_uses_offline_account_with_cooldown_and_verified_recovery(monkeypatch, outcome):
+    _configure(monkeypatch)
+    now = [1000.0]
+    online_rows = [{"wcId": "wxid_other", "wId": "other-wid"}]
+    attempts = []
+    alerts = []
+
+    async def fake_post(url, *, authorization, payload):
+        assert authorization == "Bearer test"
+        if url.endswith("/queryLoginWx"):
+            return {"code": "1000", "data": list(online_rows)}
+        if url.endswith("/offlineReason"):
+            return {"code": "1000", "data": [{"wcId": "wxid_bot", "reason": "network disconnected"}]}
+        assert url.endswith("/reconnectWx")
+        attempts.append(payload)
+        await asyncio.sleep(0)
+        if outcome == "timeout":
+            raise TimeoutError("provider timeout")
+        return {"code": "1000" if outcome == "accepted" else "1001", "data": None}
+
+    async def fake_send(content):
+        alerts.append(content)
+        return True
+
+    monkeypatch.setattr(monitor, "_post_eyun", fake_post)
+    monkeypatch.setattr(monitor, "_send_feishu_alert", fake_send)
+    monkeypatch.setattr(monitor, "monotonic", lambda: now[0])
+    await monitor.handle_eyun_offline_notification({})
+    await monitor.handle_eyun_offline_notification({})
+    assert attempts == []
+    assert await monitor.poll_eyun_login_status() is False
+    assert attempts == []
+    await asyncio.gather(monitor.poll_eyun_login_status(), monitor.poll_eyun_login_status())
+    assert attempts == [{"wcId": "wxid_bot"}]
+    assert monitor._status_by_wc_id["wxid_bot"] is False
+    assert len(alerts) == 1
+    now[0] += 299
+    await monitor.poll_eyun_login_status()
+    assert len(attempts) == 1
+    now[0] += 1
+    await monitor.poll_eyun_login_status()
+    assert len(attempts) == 2
+    online_rows.append({"wcId": "wxid_bot", "wId": "recovered-wid"})
+    assert await monitor.poll_eyun_login_status() is True
+    assert get_settings().eyun_wid == "recovered-wid"
+    assert len(attempts) == 2
+    assert len(alerts) == 2
+    assert "已恢复在线" in alerts[-1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("block", ["disabled", "account_changed", "unknown"])
+async def test_auto_reconnect_skips_disabled_stale_or_unknown_status(monkeypatch, block):
+    _configure(monkeypatch)
+    if block == "disabled":
+        get_settings().eyun_auto_reconnect_enabled = False
+    revision = [0]
+    attempts = []
+
+    async def fake_post(url, *, authorization, payload):
+        if url.endswith("/queryLoginWx"):
+            return {"code": "1000", "data": []}
+        if url.endswith("/offlineReason"):
+            return {"code": "1001"} if block == "unknown" else {
+                "code": "1000", "data": [{"wcId": "wxid_bot", "reason": "offline"}]
+            }
+        attempts.append(payload)
+        return {"code": "1000"}
+
+    async def fake_send(content):
+        if block == "account_changed":
+            revision[0] += 1
+            monitor.reset_eyun_login_monitor_state()
+        return True
+
+    monkeypatch.setattr(monitor, "_post_eyun", fake_post)
+    monkeypatch.setattr(monitor, "_send_feishu_alert", fake_send)
+    monkeypatch.setattr(monitor, "get_eyun_account_settings_revision", lambda: revision[0])
+    await monitor.poll_eyun_login_status()
+    await monitor.poll_eyun_login_status()
+    assert attempts == []

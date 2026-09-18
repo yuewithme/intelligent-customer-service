@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     eyun_login_monitor_interval_seconds: float = Field(
         default=30.0, ge=5.0, alias="EYUN_LOGIN_MONITOR_INTERVAL_SECONDS"
     )
+    eyun_auto_reconnect_enabled: bool = Field(default=True, alias="EYUN_AUTO_RECONNECT_ENABLED")
+    eyun_reconnect_interval_seconds: float = Field(
+        default=300.0, ge=60.0, alias="EYUN_RECONNECT_INTERVAL_SECONDS"
+    )
     eyun_link_card_default_thumb_url: str = Field(
         default="", alias="EYUN_LINK_CARD_DEFAULT_THUMB_URL"
     )
