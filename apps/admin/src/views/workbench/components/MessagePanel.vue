@@ -636,8 +636,7 @@ p {
   margin-bottom: 20px;
 }
 
-.message-row.ai,
-.message-row.human {
+.message-row:not(.customer) {
   justify-content: flex-end;
 }
 
