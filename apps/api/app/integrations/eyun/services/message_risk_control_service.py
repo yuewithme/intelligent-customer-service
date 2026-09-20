@@ -782,6 +782,11 @@ async def enqueue_wechat_outbound(
             material_id = int(material["id"])
             message_type = f"received_{material['media_type']}"
             content = ""
+        if material_id is None and message_type == "received_video":
+            from app.integrations.eyun.services.eyun_material_service import capture_eyun_material
+
+            material_id = int(capture_eyun_material(media_type="video", raw_xml=content)["id"])
+            content = ""
         if material_id is not None:
             from app.integrations.eyun.services.eyun_material_service import get_ready_material
 
@@ -1206,6 +1211,14 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         },
                     )
                     session.commit()
+            if row.material_id is None:
+                legacy_type, legacy_content = _decode_outbound_content(row.content)
+                if legacy_type == "received_video":
+                    from app.integrations.eyun.services.eyun_material_service import capture_eyun_material
+
+                    row.material_id = int(capture_eyun_material(media_type="video", raw_xml=legacy_content)["id"])
+                    row.content = _encode_outbound_content("received_video", "")
+                    session.commit()
             rate = session.get(EyunSendRateModel, row.w_id)
             allowed_at = _next_allowed_send_at(rate.last_sent_at if rate else None)
             if allowed_at > now:
@@ -1219,10 +1232,10 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             send_result = None
             material_message: tuple[str, str] | None = None
             if row.material_id is not None:
-                from app.integrations.eyun.services.eyun_material_service import get_ready_material
+                from app.integrations.eyun.services.eyun_material_service import ensure_material_sendable
 
                 try:
-                    material = get_ready_material(row.material_id)
+                    material = await ensure_material_sendable(row.material_id, w_id=row.w_id)
                 except Exception as exc:  # noqa: BLE001
                     previous_status = row.status
                     row.status = "waiting_material"

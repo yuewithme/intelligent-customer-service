@@ -435,12 +435,12 @@ async def _process_service_material_touch(
             update_outbound_message_delivery(
                 message_id,
                 status="waiting_material",
-                error=f"定时素材转换失败：{type(exc).__name__}",
+                error=f"定时素材转换失败：{str(exc)[:300]}",
             )
         _retry_service_material_touch(
             wakeup_id,
             now=now,
-            error=f"定时素材转换失败：{type(exc).__name__}",
+            error=f"定时素材转换失败：{str(exc)[:300]}",
         )
         return False
     messages += (

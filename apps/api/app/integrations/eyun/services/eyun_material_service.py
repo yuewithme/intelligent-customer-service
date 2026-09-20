@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
+import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from xml.etree import ElementTree
@@ -20,6 +22,14 @@ from app.infrastructure.database.models import (
     EyunMediaMaterialModel,
     EyunOutboundMessageModel,
 )
+from app.integrations.eyun.services.eyun_video_file_service import (
+    VideoValidationError,
+    prepare_video_bytes,
+    public_media_url,
+    publish_video_file,
+    validate_thumbnail_bytes,
+    validate_video_bytes,
+)
 from app.shared.schemas.common import AppError, ErrorCode
 
 
@@ -27,6 +37,12 @@ _sessionmakers: dict[str, sessionmaker] = {}
 _material_locks: dict[str, asyncio.Lock] = {}
 _source_locks: dict[str, asyncio.Lock] = {}
 _source_cache: dict[str, tuple[int, float]] = {}
+_video_locks: dict[int, asyncio.Lock] = {}
+_video_checks: dict[tuple[int, str, str], float] = {}
+_video_check_failures: dict[tuple[int, str], tuple[float, str]] = {}
+_cdn_download_locks: dict[str, asyncio.Lock] = {}
+_cdn_download_due: dict[str, float] = {}
+_VIDEO_CHECK_SECONDS = 6 * 60 * 60
 
 
 def utcnow() -> datetime:
@@ -53,13 +69,13 @@ async def materialize_eyun_outbound_media(
     if not source_url or (media_type == "video" and not thumb_url):
         raise ValueError(f"{media_type} source URL is required")
 
-    source_key = f"{media_type}\0{source_url}\0{thumb_url}"
+    source_key = f"{w_id}\0{media_type}\0{source_url}\0{thumb_url}"
     source_lock = _source_locks.setdefault(source_key, asyncio.Lock())
     async with source_lock:
         cached = _source_cache.get(source_key)
         if cached is not None and asyncio.get_running_loop().time() - cached[1] < 300:
             try:
-                return get_ready_material(cached[0])
+                return await ensure_material_sendable(cached[0], w_id=w_id)
             except Exception:  # noqa: BLE001 - stale/expired cache falls through
                 _source_cache.pop(source_key, None)
         material = await _materialize_source_urls(
@@ -88,7 +104,7 @@ async def _materialize_source_urls(
     async with lock:
         existing = _find_material_by_hash(fingerprint)
         if existing is not None and existing["status"] == "ready":
-            return get_ready_material(int(existing["id"]))
+            return await ensure_material_sendable(int(existing["id"]), w_id=w_id)
 
         owns_upload = _reserve_generated_material(
             fingerprint=fingerprint,
@@ -103,20 +119,17 @@ async def _materialize_source_urls(
                 image_cdn = await _upload_eyun_cdn_image(w_id=w_id, url=source_url)
                 raw_xml = _build_image_xml(image_cdn, source_bytes)
             else:
-                video_cdn, thumb_cdn = await asyncio.gather(
-                    _upload_eyun_cdn_video(
-                        w_id=w_id, path=source_url, thumb_path=thumb_url
-                    ),
-                    _upload_eyun_cdn_image(w_id=w_id, url=thumb_url),
+                raw_xml, source_url = await _prepare_video_material(
+                    w_id=w_id, source=source_bytes, thumbnail=thumb_bytes
                 )
-                raw_xml = _build_video_xml(
-                    video_cdn, thumb_cdn, source_bytes, thumb_bytes
-                )
-            return _complete_generated_material(
+            material = _complete_generated_material(
                 fingerprint=fingerprint,
                 raw_xml=raw_xml,
                 preview_url=source_url,
             )
+            if media_type == "video":
+                _remember_video_check(material, w_id)
+            return material
         except Exception as exc:
             _fail_generated_material(fingerprint, str(exc))
             raise
@@ -153,7 +166,7 @@ def _source_fingerprint(media_type: str, source: bytes, thumb: bytes) -> str:
     return digest.hexdigest()
 
 
-async def _post_eyun_cdn(endpoint: str, payload: dict[str, str]) -> dict[str, Any]:
+async def _post_eyun_cdn(endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     base_url = settings.eyun_base_url.rstrip("/")
     authorization = settings.eyun_authorization.strip()
@@ -168,7 +181,12 @@ async def _post_eyun_cdn(endpoint: str, payload: dict[str, str]) -> dict[str, An
     response.raise_for_status()
     result = response.json()
     if str(result.get("code")) != "1000" or not isinstance(result.get("data"), dict):
-        raise RuntimeError(f"Eyun {endpoint} failed: {result}")
+        message = str(result.get("message") or "")
+        if endpoint == "cdnDownFile" and any(
+            marker in message.lower() for marker in ("资源过期", "文件过期", "资源不存在", "文件不存在", "cdn expired")
+        ):
+            raise VideoValidationError("微信 CDN 视频资源已失效")
+        raise RuntimeError(f"Eyun {endpoint} failed: code={result.get('code')}, message={message}")
     return result["data"]
 
 
@@ -214,32 +232,183 @@ def _build_image_xml(cdn: dict[str, Any], source: bytes) -> str:
 
 def _build_video_xml(
     video_cdn: dict[str, Any],
-    thumb_cdn: dict[str, Any],
-    source: bytes,
-    thumb: bytes,
+    prepared: dict[str, Any],
 ) -> str:
     video_url = str(video_cdn.get("cdnUrl") or "")
     video_key = str(video_cdn.get("aesKey") or "")
-    thumb_url = str(thumb_cdn.get("cdnUrl") or "")
-    thumb_key = str(thumb_cdn.get("aesKey") or "")
-    if not all((video_url, video_key, thumb_url, thumb_key)):
+    if not video_url or not video_key or int(video_cdn.get("length") or 0) <= 0:
         raise RuntimeError("Eyun CDN video response is missing CDN fields")
+    source = prepared["source"]
+    if int(video_cdn["length"]) != len(source):
+        raise VideoValidationError("微信 CDN 视频长度与上传文件不一致")
+    # sendCdnVideo uploads the cover with the video; verify its fileType=3 resource.
     attributes = {
         "aeskey": video_key,
-        "cdnthumbaeskey": thumb_key,
+        "cdnthumbaeskey": video_key,
         "cdnvideourl": video_url,
-        "cdnthumburl": thumb_url,
-        "length": str(int(video_cdn.get("length") or len(source))),
-        "playlength": "0",
-        "cdnthumblength": str(int(thumb_cdn.get("hdLength") or len(thumb))),
-        "cdnthumbwidth": "0",
-        "cdnthumbheight": "0",
-        "fromusername": "",
+        "cdnthumburl": video_url,
+        "length": str(video_cdn["length"]),
+        "playlength": str(max(1, math.ceil(prepared["duration"]))),
+        "cdnthumblength": str(len(prepared["thumbnail"])),
+        "cdnthumbwidth": str(prepared["thumb_width"]),
+        "cdnthumbheight": str(prepared["thumb_height"]),
         "md5": hashlib.md5(source).hexdigest(),  # noqa: S324 - provider XML field
-        "newmd5": hashlib.md5(source).hexdigest(),  # noqa: S324 - provider XML field
         "isad": "0",
     }
     return _xml_message("videomsg", attributes)
+
+
+async def _prepare_video_material(
+    *, w_id: str, source: bytes, thumbnail: bytes = b""
+) -> tuple[str, str]:
+    prepared = await asyncio.to_thread(prepare_video_bytes, source, thumbnail)
+    video_url = await asyncio.to_thread(publish_video_file, prepared["source"], ".mp4")
+    thumb_url = await asyncio.to_thread(publish_video_file, prepared["thumbnail"], ".jpg")
+    video_cdn = await _upload_eyun_cdn_video(w_id=w_id, path=video_url, thumb_path=thumb_url)
+    raw_xml = _build_video_xml(video_cdn, prepared)
+    await _verify_video_xml(
+        w_id=w_id, raw_xml=raw_xml,
+        expected_md5=hashlib.md5(prepared["source"]).hexdigest(),
+    )
+    return raw_xml, video_url
+
+
+async def _download_cdn_bytes(
+    *, w_id: str, cdn_url: str, aes_key: str, size: int, file_type: int
+) -> bytes:
+    if not cdn_url or not aes_key or size <= 0:
+        raise VideoValidationError("微信视频缺少 CDN 地址、密钥或文件长度")
+    lock = _cdn_download_locks.setdefault(w_id, asyncio.Lock())
+    async with lock:
+        loop = asyncio.get_running_loop()
+        delay = _cdn_download_due.get(w_id, 0) - loop.time()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        try:
+            data = await _post_eyun_cdn("cdnDownFile", {
+                "wId": w_id, "cdnUrl": cdn_url, "aeskey": aes_key,
+                "totalSize": size, "fileType": file_type,
+                "fileName": hashlib.sha256(cdn_url.encode()).hexdigest()[:24] + (".mp4" if file_type == 4 else ".jpg"),
+            })
+        finally:
+            _cdn_download_due[w_id] = loop.time() + random.uniform(3, 10)
+    url = str(data.get("url") or "")
+    if not url:
+        raise RuntimeError("微信 CDN 下载未返回文件地址")
+    try:
+        content = await _fetch_source_bytes(url)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in {404, 410}:
+            raise VideoValidationError("微信 CDN 视频下载地址已失效") from exc
+        raise
+    if len(content) != size:
+        raise VideoValidationError("微信 CDN 下载文件长度不匹配或文件不完整")
+    return content
+
+
+async def _verify_video_xml(*, w_id: str, raw_xml: str, expected_md5: str | None = None) -> None:
+    try:
+        video = ElementTree.fromstring(raw_xml).find(".//videomsg")
+        if video is None:
+            raise ValueError("missing video")
+        duration = int(video.get("playlength") or 0)
+        size = int(video.get("length") or 0)
+        if duration <= 0:
+            raise ValueError("missing duration")
+        thumb_size = int(video.get("cdnthumblength") or 0)
+        expected = (int(video.get("cdnthumbwidth") or 0), int(video.get("cdnthumbheight") or 0))
+    except (ElementTree.ParseError, ValueError) as exc:
+        raise VideoValidationError("微信视频消息缺少有效时长或播放参数") from exc
+    content = await _download_cdn_bytes(
+        w_id=w_id, cdn_url=video.get("cdnvideourl", ""),
+        aes_key=video.get("aeskey", ""), size=size, file_type=4,
+    )
+    metadata = await asyncio.to_thread(validate_video_bytes, content)
+    if abs(metadata["duration"] - duration) > 1:
+        raise VideoValidationError("微信视频消息时长与实际文件不一致")
+    if expected_md5 and hashlib.md5(content).hexdigest() != expected_md5.lower():
+        raise VideoValidationError("微信 CDN 视频校验值与消息不一致")
+    if thumb_size > 0:
+        thumb = await _download_cdn_bytes(
+            w_id=w_id, cdn_url=video.get("cdnthumburl", ""),
+            aes_key=video.get("cdnthumbaeskey") or video.get("aeskey", ""),
+            size=thumb_size, file_type=3,
+        )
+        dimensions = await asyncio.to_thread(validate_thumbnail_bytes, thumb)
+        if all(expected) and dimensions != expected:
+            raise VideoValidationError("微信视频封面尺寸与实际文件不一致")
+
+
+def _video_check_key(material: dict[str, Any], w_id: str) -> tuple[int, str, str]:
+    return int(material["id"]), hashlib.sha256(material["raw_xml"].encode()).hexdigest(), w_id
+
+
+def _remember_video_check(material: dict[str, Any], w_id: str) -> None:
+    _video_checks[_video_check_key(material, w_id)] = asyncio.get_running_loop().time()
+    _video_check_failures.pop((int(material["id"]), w_id), None)
+
+
+def _forget_video_check(material_id: int) -> None:
+    for key in list(_video_checks):
+        if key[0] == material_id:
+            _video_checks.pop(key, None)
+    for key in list(_video_check_failures):
+        if key[0] == material_id:
+            _video_check_failures.pop(key, None)
+
+
+async def ensure_material_sendable(material_id: int, *, w_id: str) -> dict[str, Any]:
+    material = _load_material(material_id)
+    if material["media_type"] != "video":
+        return material if material["status"] == "ready" else get_ready_material(material_id)
+    if material["status"] not in {"ready", "expired"}:
+        return get_ready_material(material_id)
+    lock = _video_locks.setdefault(material_id, asyncio.Lock())
+    async with lock:
+        material = _load_material(material_id)
+        if material["status"] not in {"ready", "expired"}:
+            return get_ready_material(material_id)
+        now = asyncio.get_running_loop().time()
+        checked = _video_checks.get(_video_check_key(material, w_id))
+        if material["status"] == "ready" and checked is not None and now - checked < _VIDEO_CHECK_SECONDS:
+            return material
+        failure = _video_check_failures.get((material_id, w_id))
+        if failure and now - failure[0] < 60:
+            raise RuntimeError(failure[1])
+        original_xml = material["raw_xml"]
+        original_status = material["status"]
+        try:
+            try:
+                if original_status == "expired":
+                    raise VideoValidationError("微信视频素材已失效，需要刷新")
+                await _verify_video_xml(w_id=w_id, raw_xml=original_xml)
+            except VideoValidationError:
+                source_url = str(material.get("preview_url") or "")
+                if source_url.startswith("/static/media/"):
+                    source_url = public_media_url(source_url)
+                if not source_url:
+                    raise
+                source = await _fetch_source_bytes(source_url)
+                material["raw_xml"], material["preview_url"] = await _prepare_video_material(w_id=w_id, source=source)
+            with _get_session() as session:
+                row = session.get(EyunMediaMaterialModel, material_id)
+                if row is None or row.status != original_status or row.raw_xml != original_xml:
+                    raise RuntimeError("视频素材已更新，请重新校验")
+                row.raw_xml = material["raw_xml"]
+                row.preview_url = material["preview_url"]
+                row.status = "ready"
+                row.last_verified_at = utcnow()
+                row.updated_at = utcnow()
+                row.last_error = None
+                session.commit()
+            material = get_ready_material(material_id)
+            _remember_video_check(material, w_id)
+            return material
+        except Exception as exc:
+            if isinstance(exc, VideoValidationError):
+                mark_material_expired(material_id, str(exc))
+            _video_check_failures[(material_id, w_id)] = (asyncio.get_running_loop().time(), str(exc))
+            raise
 
 
 def _xml_message(tag: str, attributes: dict[str, str]) -> str:
@@ -292,8 +461,12 @@ def _reserve_generated_material(
             updated_at = row.updated_at
             if updated_at.tzinfo is None:
                 updated_at = updated_at.replace(tzinfo=timezone.utc)
-            if now - updated_at < timedelta(minutes=2):
+            if now - updated_at < timedelta(minutes=30 if media_type == "video" else 2):
                 return False
+        if row.media_type == "video" and row.status == "failed":
+            updated_at = row.updated_at.replace(tzinfo=timezone.utc) if row.updated_at.tzinfo is None else row.updated_at
+            if now - updated_at < timedelta(minutes=1):
+                raise RuntimeError(row.last_error or "视频素材校验失败，稍后重试")
         row.status = "creating"
         row.last_error = None
         row.preview_url = preview_url
@@ -331,14 +504,16 @@ def _complete_generated_material(
         row.last_error = None
         row.last_verified_at = now
         row.updated_at = now
-        session.execute(
-            update(EyunOutboundMessageModel)
-            .where(
-                EyunOutboundMessageModel.material_id == row.id,
-                EyunOutboundMessageModel.status == "waiting_material",
+        # A refreshed video must not replay historical waiting deliveries.
+        if row.media_type != "video":
+            session.execute(
+                update(EyunOutboundMessageModel)
+                .where(
+                    EyunOutboundMessageModel.material_id == row.id,
+                    EyunOutboundMessageModel.status == "waiting_material",
+                )
+                .values(status="queued", due_at=now, last_error=None, updated_at=now)
             )
-            .values(status="queued", due_at=now, last_error=None, updated_at=now)
-        )
         session.commit()
         session.refresh(row)
         return _material_to_dict(row, include_xml=True)
@@ -396,7 +571,7 @@ def capture_eyun_material(
                 source_wc_id=(source_wc_id or "").strip() or None,
                 source_message_id=(source_message_id or "").strip() or None,
                 status="ready",
-                last_verified_at=now,
+                last_verified_at=now if media_type != "video" else None,
                 created_at=now,
                 updated_at=now,
             )
@@ -408,19 +583,22 @@ def capture_eyun_material(
                 row.name = name.strip()
             row.status = "ready"
             row.last_error = None
-            row.last_verified_at = now
+            row.last_verified_at = now if media_type != "video" else None
             row.updated_at = now
         session.flush()
-        session.execute(
-            update(EyunOutboundMessageModel)
-            .where(
-                EyunOutboundMessageModel.material_id == row.id,
-                EyunOutboundMessageModel.status == "waiting_material",
+        if media_type != "video":
+            session.execute(
+                update(EyunOutboundMessageModel)
+                .where(
+                    EyunOutboundMessageModel.material_id == row.id,
+                    EyunOutboundMessageModel.status == "waiting_material",
+                )
+                .values(status="queued", due_at=now, last_error=None, updated_at=now)
             )
-            .values(status="queued", due_at=now, last_error=None, updated_at=now)
-        )
         session.commit()
         session.refresh(row)
+        if media_type == "video":
+            _forget_video_check(row.id)
         return _material_to_dict(row)
 
 
@@ -469,16 +647,21 @@ def create_material_from_conversation_message(
 
 
 def get_ready_material(material_id: int) -> dict[str, Any]:
+    material = _load_material(material_id)
+    if material["status"] != "ready":
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message=f"微信素材当前不可用：{material['status']}",
+            status_code=409,
+        )
+    return material
+
+
+def _load_material(material_id: int) -> dict[str, Any]:
     with _get_session() as session:
         row = session.get(EyunMediaMaterialModel, material_id)
         if row is None:
             raise AppError(ErrorCode.REQUEST_INVALID, message="微信素材不存在", status_code=404)
-        if row.status != "ready":
-            raise AppError(
-                ErrorCode.REQUEST_INVALID,
-                message=f"微信素材当前不可用：{row.status}",
-                status_code=409,
-            )
         return _material_to_dict(row, include_xml=True)
 
 
@@ -515,7 +698,10 @@ def update_material(material_id: int, *, name: str, status: str) -> dict[str, An
         row.status = status
         now = utcnow()
         row.updated_at = now
-        if status == "ready":
+        if row.media_type == "video":
+            _forget_video_check(row.id)
+            row.last_verified_at = None
+        if status == "ready" and row.media_type != "video":
             session.execute(
                 update(EyunOutboundMessageModel)
                 .where(
@@ -530,6 +716,7 @@ def update_material(material_id: int, *, name: str, status: str) -> dict[str, An
 
 
 def mark_material_expired(material_id: int, error: str) -> None:
+    _forget_video_check(material_id)
     with _get_session() as session:
         row = session.get(EyunMediaMaterialModel, material_id)
         if row is None:
