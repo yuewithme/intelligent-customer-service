@@ -562,3 +562,25 @@ async def test_cdn_download_uses_documented_fields_and_rejects_truncated_file(mo
     assert payload["aeskey"] == "video-key"
     assert payload["totalSize"] == 100
     assert payload["fileType"] == 4
+
+
+@pytest.mark.parametrize("message,resource_error", [
+    ("cdn download packet[0] retcode=-5103059", True),
+    ("cdn download packet[0] retcode=-5103017", True),
+    ("account is offline", False),
+])
+@pytest.mark.asyncio
+async def test_cdn_resource_errors_can_refresh_without_treating_offline_as_expired(monkeypatch, message, resource_error):
+    import httpx
+    from app.integrations.eyun.services import eyun_material_service as materials
+
+    monkeypatch.setenv("EYUN_BASE_URL", "https://eyun.example")
+    monkeypatch.setenv("EYUN_AUTHORIZATION", "token")
+    get_settings.cache_clear()
+
+    async def post(_client, url, **_kwargs):
+        return httpx.Response(200, request=httpx.Request("POST", url), json={"code": "1001", "message": message, "data": None})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    with pytest.raises(materials.VideoValidationError if resource_error else RuntimeError):
+        await materials._post_eyun_cdn("cdnDownFile", {"wId": "wid"})

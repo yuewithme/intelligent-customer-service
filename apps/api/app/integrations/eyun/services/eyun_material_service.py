@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import random
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from xml.etree import ElementTree
@@ -180,10 +181,11 @@ async def _post_eyun_cdn(endpoint: str, payload: dict[str, Any]) -> dict[str, An
     result = response.json()
     if str(result.get("code")) != "1000" or not isinstance(result.get("data"), dict):
         message = str(result.get("message") or "")
-        if endpoint == "cdnDownFile" and any(
-            marker in message.lower() for marker in ("资源过期", "文件过期", "资源不存在", "文件不存在", "cdn expired")
+        if endpoint == "cdnDownFile" and (
+            any(marker in message.lower() for marker in ("资源过期", "文件过期", "资源不存在", "文件不存在", "cdn expired"))
+            or re.search(r"cdn download packet\[\d+\] retcode=-(?:5103017|5103059)\b", message)
         ):
-            raise VideoValidationError("微信 CDN 视频资源已失效")
+            raise VideoValidationError("微信 CDN 媒体资源不可读取，需要刷新")
         raise RuntimeError(f"Eyun {endpoint} failed: code={result.get('code')}, message={message}")
     return result["data"]
 
