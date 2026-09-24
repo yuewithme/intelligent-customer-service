@@ -133,3 +133,13 @@ verify:production:
         exit 1
       fi
       printf 'production_revision=%s frontend_asset=%s\n' "$deployed_revision" "$asset"
+      if [ -n "${WECHAT_VERIFY_MATERIAL_IDS:-}" ]; then
+        case "$WECHAT_VERIFY_MATERIAL_IDS" in *[!0-9,]*) echo 'Invalid material IDs'; exit 1;; esac
+        case "${WECHAT_VERIFY_W_ID:-}" in ''|*[!a-zA-Z0-9-]*) echo 'Invalid online wId'; exit 1;; esac
+        $SSH "$PROD_HOST" "
+          set -eu
+          container_id=\$(sudo -n docker ps --filter label=com.docker.compose.project=intelligent-customer-service --filter label=com.docker.compose.service=api --format '{{.ID}}')
+          test -n \"\$container_id\"
+          sudo -n docker exec -i \"\$container_id\" python - '$WECHAT_VERIFY_W_ID' '$WECHAT_VERIFY_MATERIAL_IDS'
+        " < deploy/verify-wechat-materials.py
+      fi

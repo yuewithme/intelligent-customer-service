@@ -120,4 +120,4 @@ async def test_hundreds_of_messages_queue_without_bypassing_rate_limit(monkeypat
                 .group_by(EyunOutboundMessageModel.status)
             ).all()
         )
-    assert counts == {"queued": 299, "sent": 1}
+    assert counts == {"queued": 299, "accepted": 1}

@@ -25,9 +25,9 @@ def material_db(monkeypatch, tmp_path):
     eyun_material_service._material_locks.clear()
     eyun_material_service._source_locks.clear()
     eyun_material_service._source_cache.clear()
-    eyun_material_service._video_locks.clear()
-    eyun_material_service._video_checks.clear()
-    eyun_material_service._video_check_failures.clear()
+    eyun_material_service._media_locks.clear()
+    eyun_material_service._media_checks.clear()
+    eyun_material_service._media_check_failures.clear()
     eyun_material_service._cdn_download_locks.clear()
     eyun_material_service._cdn_download_due.clear()
     message_risk_control_service._sessionmakers.clear()
@@ -109,6 +109,12 @@ async def test_image_url_is_materialized_once_for_concurrent_sends(monkeypatch):
         await asyncio.sleep(0.01)
         return {"cdnUrl": "image-cdn", "aesKey": "image-key", "hdLength": 18}
 
+    async def download(**kwargs):
+        assert kwargs["verify_size"] is False
+        return b"regular" if kwargs["file_type"] == 2 else b"thumb"
+
+    monkeypatch.setattr(materials, "_download_cdn_bytes", download)
+    monkeypatch.setattr(materials, "validate_thumbnail_bytes", lambda content: (120, 214) if content == b"thumb" else (1440, 2560))
     monkeypatch.setattr(materials, "_fetch_source_bytes", fake_fetch)
     monkeypatch.setattr(materials, "_upload_eyun_cdn_image", fake_upload)
     results = await asyncio.gather(
@@ -130,6 +136,12 @@ async def test_image_url_is_materialized_once_for_concurrent_sends(monkeypatch):
     image = ElementTree.fromstring(results[0]["raw_xml"]).find("img")
     assert image is not None
     assert image.attrib["cdnmidimgurl"] == "image-cdn"
+    assert image.attrib["length"] == "7"
+    assert image.attrib["cdnthumblength"] == "5"
+    assert image.attrib["cdnthumbwidth"] == "120"
+    assert image.attrib["cdnthumbheight"] == "214"
+    assert "cdnbigimgurl" not in image.attrib
+    assert "hdlength" not in image.attrib
 
 
 @pytest.mark.asyncio
@@ -188,8 +200,8 @@ async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch):
     async def fake_fetch(_url):
         return b"legacy-image"
 
-    async def fake_upload(**_kwargs):
-        return {"cdnUrl": "legacy-cdn", "aesKey": "legacy-key", "hdLength": 12}
+    async def prepare(**_kwargs):
+        return '<msg><img cdnmidimgurl="legacy-cdn" /></msg>'
 
     forwarded = []
 
@@ -201,7 +213,7 @@ async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch):
         raise AssertionError("newly enqueued media must not use sendImage2")
 
     monkeypatch.setattr(materials, "_fetch_source_bytes", fake_fetch)
-    monkeypatch.setattr(materials, "_upload_eyun_cdn_image", fake_upload)
+    monkeypatch.setattr(materials, "_prepare_image_material", prepare)
     monkeypatch.setattr(eyun_callback_service, "send_eyun_received_media", fake_forward)
     monkeypatch.setattr(eyun_callback_service, "send_eyun_image", fail_direct)
     outbound = await risk.enqueue_wechat_outbound(
@@ -221,7 +233,7 @@ async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_generated_material_refresh_resumes_waiting_queue(monkeypatch):
+async def test_generated_image_refresh_does_not_resume_waiting_queue(monkeypatch):
     from app.infrastructure.database.models import EyunOutboundMessageModel
     from app.integrations.eyun.services import eyun_material_service as materials
     from app.integrations.eyun.services import message_risk_control_service as risk
@@ -235,17 +247,13 @@ async def test_generated_material_refresh_resumes_waiting_queue(monkeypatch):
 
     upload_count = 0
 
-    async def fake_upload(**_kwargs):
+    async def prepare(**_kwargs):
         nonlocal upload_count
         upload_count += 1
-        return {
-            "cdnUrl": f"cdn-{upload_count}",
-            "aesKey": f"key-{upload_count}",
-            "hdLength": 17,
-        }
+        return f'<msg><img cdnmidimgurl="cdn-{upload_count}" /></msg>'
 
     monkeypatch.setattr(materials, "_fetch_source_bytes", fake_fetch)
-    monkeypatch.setattr(materials, "_upload_eyun_cdn_image", fake_upload)
+    monkeypatch.setattr(materials, "_prepare_image_material", prepare)
     material = await materials.materialize_eyun_outbound_media(
         w_id="wid", message_type="image", content="https://cdn.example/refresh.jpg"
     )
@@ -260,9 +268,9 @@ async def test_generated_material_refresh_resumes_waiting_queue(monkeypatch):
     )
     materials.mark_material_expired(material["id"], "expired")
 
-    assert await risk.process_due_eyun_outbound_messages() == 0
     with risk._get_session() as session:
-        assert session.get(EyunOutboundMessageModel, outbound["id"]).status == "waiting_material"
+        session.get(EyunOutboundMessageModel, outbound["id"]).status = "waiting_material"
+        session.commit()
 
     refreshed = await materials.materialize_eyun_outbound_media(
         w_id="wid", message_type="image", content="https://cdn.example/refresh.jpg"
@@ -270,7 +278,7 @@ async def test_generated_material_refresh_resumes_waiting_queue(monkeypatch):
     assert refreshed["id"] == material["id"]
     assert upload_count == 2
     with risk._get_session() as session:
-        assert session.get(EyunOutboundMessageModel, outbound["id"]).status == "queued"
+        assert session.get(EyunOutboundMessageModel, outbound["id"]).status == "waiting_material"
 
 
 @pytest.mark.asyncio
@@ -290,6 +298,10 @@ async def test_bulk_material_send_stores_one_xml_and_queues_per_recipient(monkey
         sent.append(kwargs)
         return {"code": "1000"}
 
+    async def verify(**_kwargs):
+        return None
+
+    monkeypatch.setattr(materials, "_verify_image_xml", verify)
     monkeypatch.setattr(
         eyun_callback_service, "send_eyun_received_media", fake_received_media
     )
@@ -334,6 +346,10 @@ async def test_expired_material_pauses_and_recapture_resumes_queue(monkeypatch):
     async def expired_send(**_kwargs):
         raise RuntimeError("CDN material expired")
 
+    async def verify(**_kwargs):
+        return None
+
+    monkeypatch.setattr(materials, "_verify_image_xml", verify)
     monkeypatch.setattr(eyun_callback_service, "send_eyun_received_media", expired_send)
     outbound = await risk.enqueue_wechat_outbound(
         w_id="wid",
@@ -361,8 +377,9 @@ async def test_expired_material_pauses_and_recapture_resumes_queue(monkeypatch):
         assert session.get(EyunOutboundMessageModel, outbound["id"]).status == "accepted"
 
 
+@pytest.mark.parametrize("media_type", ["image", "video"])
 @pytest.mark.asyncio
-async def test_old_video_rebuild_is_shared_and_does_not_resume_history(monkeypatch):
+async def test_old_media_rebuild_is_shared_and_does_not_resume_history(monkeypatch, media_type):
     from app.infrastructure.database.models import EyunOutboundMessageModel
     from app.integrations.eyun.services import eyun_material_service as materials
     from app.integrations.eyun.services import message_risk_control_service as risk
@@ -370,10 +387,10 @@ async def test_old_video_rebuild_is_shared_and_does_not_resume_history(monkeypat
     old_xml = '<msg><videomsg playlength="0" /></msg>'
     new_xml = '<msg><videomsg playlength="3" cdnvideourl="fresh" /></msg>'
     material = materials.capture_eyun_material(
-        media_type="video", raw_xml=old_xml, preview_url="https://media.example/source.mp4",
+        media_type=media_type, raw_xml=old_xml, preview_url="https://media.example/source.mp4",
     )
     old_delivery = await risk.enqueue_wechat_outbound(
-        w_id="wid", wc_id="customer", content="", message_type="received_video",
+        w_id="wid", wc_id="customer", content="", message_type=f"received_{media_type}",
         material_id=material["id"], source_batch_key="historical-video",
     )
     with risk._get_session() as session:
@@ -391,11 +408,11 @@ async def test_old_video_rebuild_is_shared_and_does_not_resume_history(monkeypat
 
     async def prepare(**kwargs):
         rebuilt.append(kwargs["source"])
-        return new_xml, "https://media.example/normalized.mp4"
+        return (new_xml, "https://media.example/normalized.mp4") if media_type == "video" else new_xml
 
-    monkeypatch.setattr(materials, "_verify_video_xml", verify)
+    monkeypatch.setattr(materials, f"_verify_{media_type}_xml", verify)
     monkeypatch.setattr(materials, "_fetch_source_bytes", fetch)
-    monkeypatch.setattr(materials, "_prepare_video_material", prepare)
+    monkeypatch.setattr(materials, f"_prepare_{media_type}_material", prepare)
     results = await asyncio.gather(*[
         materials.ensure_material_sendable(material["id"], w_id="wid") for _ in range(10)
     ])
@@ -403,8 +420,8 @@ async def test_old_video_rebuild_is_shared_and_does_not_resume_history(monkeypat
     assert all(item["raw_xml"] == new_xml for item in results)
     with risk._get_session() as session:
         assert session.get(EyunOutboundMessageModel, old_delivery["id"]).status == "waiting_material"
-    key = materials._video_check_key(results[0], "wid")
-    materials._video_checks[key] -= materials._VIDEO_CHECK_SECONDS + 1
+    key = materials._media_check_key(results[0], "wid")
+    materials._media_checks[key] -= materials._MEDIA_CHECK_SECONDS + 1
     await materials.ensure_material_sendable(material["id"], w_id="wid")
     assert verified == [old_xml, new_xml]
     assert len(rebuilt) == 1
@@ -416,14 +433,15 @@ async def test_old_video_rebuild_is_shared_and_does_not_resume_history(monkeypat
         assert session.get(EyunOutboundMessageModel, old_delivery["id"]).status == "waiting_material"
 
 
+@pytest.mark.parametrize("media_type", ["image", "video"])
 @pytest.mark.asyncio
-async def test_video_validation_failure_blocks_send_and_recapture_does_not_replay(monkeypatch):
+async def test_validation_failure_blocks_send(monkeypatch, media_type):
     from app.infrastructure.database.models import EyunOutboundMessageModel
     from app.integrations.eyun.services import eyun_callback_service
     from app.integrations.eyun.services import eyun_material_service as materials
     from app.integrations.eyun.services import message_risk_control_service as risk
 
-    xml = '<msg><videomsg playlength="3" cdnvideourl="expired" /></msg>'
+    xml = '<msg><videomsg playlength="3" cdnvideourl="expired" /></msg>' if media_type == "video" else '<msg><img cdnmidimgurl="expired" /></msg>'
     sent = []
 
     async def verify(**_kwargs):
@@ -432,10 +450,10 @@ async def test_video_validation_failure_blocks_send_and_recapture_does_not_repla
     async def send(**kwargs):
         sent.append(kwargs)
 
-    monkeypatch.setattr(materials, "_verify_video_xml", verify)
+    monkeypatch.setattr(materials, f"_verify_{media_type}_xml", verify)
     monkeypatch.setattr(eyun_callback_service, "send_eyun_received_media", send)
     outbound = await risk.enqueue_wechat_outbound(
-        w_id="wid", wc_id="customer", content=xml, message_type="received_video",
+        w_id="wid", wc_id="customer", content=xml, message_type=f"received_{media_type}",
         source_batch_key="invalid-video", due_at=materials.utcnow(),
     )
     assert await risk.process_due_eyun_outbound_messages() == 0
@@ -445,18 +463,19 @@ async def test_video_validation_failure_blocks_send_and_recapture_does_not_repla
         assert row.material_id is not None
         assert row.status == "waiting_material"
         assert "truncated" in row.last_error
-    materials.capture_eyun_material(media_type="video", raw_xml=xml)
+    materials.capture_eyun_material(media_type=media_type, raw_xml=xml)
     assert await risk.process_due_eyun_outbound_messages() == 0
     assert not sent
 
 
+@pytest.mark.parametrize("media_type", ["image", "video"])
 @pytest.mark.asyncio
-async def test_native_video_xml_is_preserved_and_network_failure_does_not_reupload(monkeypatch):
+async def test_native_xml_is_preserved_and_network_failure_does_not_reupload(monkeypatch, media_type):
     from app.integrations.eyun.services import eyun_material_service as materials
 
     xml = '<msg><videomsg playlength="3" vendorfield="keep-me" /></msg>'
     material = materials.capture_eyun_material(
-        media_type="video", raw_xml=xml, preview_url="https://media.example/source.mp4",
+        media_type=media_type, raw_xml=xml, preview_url="https://media.example/source.mp4",
         source_message_id="native-message",
     )
     calls = []
@@ -466,7 +485,7 @@ async def test_native_video_xml_is_preserved_and_network_failure_does_not_reuplo
         if kwargs["w_id"] == "offline":
             raise RuntimeError("account is offline")
 
-    monkeypatch.setattr(materials, "_verify_video_xml", verify)
+    monkeypatch.setattr(materials, f"_verify_{media_type}_xml", verify)
     with pytest.raises(RuntimeError, match="offline"):
         await materials.ensure_material_sendable(material["id"], w_id="offline")
     with pytest.raises(RuntimeError, match="offline"):
@@ -474,10 +493,30 @@ async def test_native_video_xml_is_preserved_and_network_failure_does_not_reuplo
     ready = await materials.ensure_material_sendable(material["id"], w_id="online")
     assert ready["raw_xml"] == xml
     assert calls == ["offline", "online"]
-    materials.capture_eyun_material(media_type="video", raw_xml=xml)
+    materials.capture_eyun_material(media_type=media_type, raw_xml=xml)
     assert materials.get_ready_material(material["id"])["last_verified_at"] is None
     await materials.ensure_material_sendable(material["id"], w_id="online")
     assert calls == ["offline", "online", "online"]
+
+
+@pytest.mark.asyncio
+async def test_image_xml_rejects_source_size_used_for_cdn_thumbnail(monkeypatch):
+    from app.integrations.eyun.services import eyun_material_service as materials
+
+    xml = '<msg><img aeskey="key" cdnmidimgurl="cdn" length="7" cdnthumburl="cdn" cdnthumblength="100" /></msg>'
+
+    async def post(_endpoint, payload):
+        return {"url": "https://cdn.example/" + str(payload["fileType"])}
+
+    async def fetch(url):
+        return b"regular" if url.endswith("2") else b"thumb"
+
+    monkeypatch.setattr(materials, "_post_eyun_cdn", post)
+    monkeypatch.setattr(materials, "_fetch_source_bytes", fetch)
+    monkeypatch.setattr(materials.random, "uniform", lambda *_: 0)
+    monkeypatch.setattr(materials, "validate_thumbnail_bytes", lambda _: (120, 214))
+    with pytest.raises(materials.VideoValidationError, match="文件不完整"):
+        await materials._verify_image_xml(w_id="wid", raw_xml=xml)
 
 
 @pytest.mark.asyncio
