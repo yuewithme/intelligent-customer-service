@@ -187,6 +187,25 @@ async def test_video_url_builds_reusable_video_and_thumbnail_xml(monkeypatch):
     assert checks[0]["raw_xml"] == result["raw_xml"]
 
 
+def test_prepared_video_and_cover_decode_with_cdn_block_alignment(tmp_path):
+    import subprocess
+    from app.integrations.eyun.services.eyun_video_file_service import (
+        prepare_video_bytes, validate_video_bytes, validate_thumbnail_bytes,
+    )
+
+    source = tmp_path / "source.mp4"
+    subprocess.run([
+        "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=size=32x48:rate=10",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "1",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(source),
+    ], check=True, capture_output=True)
+    prepared = prepare_video_bytes(source.read_bytes())
+    assert len(prepared["source"]) % 16 == 0
+    assert len(prepared["thumbnail"]) % 16 == 0
+    assert validate_video_bytes(prepared["source"])["duration"] == prepared["duration"]
+    assert validate_thumbnail_bytes(prepared["thumbnail"]) == (prepared["thumb_width"], prepared["thumb_height"])
+
+
 @pytest.mark.asyncio
 async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch):
     from app.infrastructure.database.models import EyunOutboundMessageModel

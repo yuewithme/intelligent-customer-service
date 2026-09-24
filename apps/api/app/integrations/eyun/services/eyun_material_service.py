@@ -310,6 +310,7 @@ async def _prepare_video_material(
     await _verify_video_xml(
         w_id=w_id, raw_xml=raw_xml,
         expected_md5=hashlib.md5(prepared["source"]).hexdigest(),
+        expected_thumbnail_md5=hashlib.md5(prepared["thumbnail"]).hexdigest(),
     )
     return raw_xml, video_url
 
@@ -348,7 +349,10 @@ async def _download_cdn_bytes(
     return content
 
 
-async def _verify_video_xml(*, w_id: str, raw_xml: str, expected_md5: str | None = None) -> None:
+async def _verify_video_xml(
+    *, w_id: str, raw_xml: str, expected_md5: str | None = None,
+    expected_thumbnail_md5: str | None = None,
+) -> None:
     try:
         video = ElementTree.fromstring(raw_xml).find(".//videomsg")
         if video is None:
@@ -365,17 +369,19 @@ async def _verify_video_xml(*, w_id: str, raw_xml: str, expected_md5: str | None
         w_id=w_id, cdn_url=video.get("cdnvideourl", ""),
         aes_key=video.get("aeskey", ""), size=size, file_type=4,
     )
+    if expected_md5 and hashlib.md5(content).hexdigest() != expected_md5.lower():
+        raise VideoValidationError("微信 CDN 视频校验值与消息不一致")
     metadata = await asyncio.to_thread(validate_video_bytes, content)
     if abs(metadata["duration"] - duration) > 1:
         raise VideoValidationError("微信视频消息时长与实际文件不一致")
-    if expected_md5 and hashlib.md5(content).hexdigest() != expected_md5.lower():
-        raise VideoValidationError("微信 CDN 视频校验值与消息不一致")
     if thumb_size > 0:
         thumb = await _download_cdn_bytes(
             w_id=w_id, cdn_url=video.get("cdnthumburl", ""),
             aes_key=video.get("cdnthumbaeskey") or video.get("aeskey", ""),
             size=thumb_size, file_type=3,
         )
+        if expected_thumbnail_md5 and hashlib.md5(thumb).hexdigest() != expected_thumbnail_md5.lower():
+            raise VideoValidationError("微信 CDN 视频封面校验值与上传文件不一致")
         dimensions = await asyncio.to_thread(validate_thumbnail_bytes, thumb)
         if all(expected) and dimensions != expected:
             raise VideoValidationError("微信视频封面尺寸与实际文件不一致")

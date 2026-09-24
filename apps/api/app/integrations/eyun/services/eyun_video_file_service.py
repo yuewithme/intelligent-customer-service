@@ -101,10 +101,18 @@ def prepare_video_bytes(source: bytes, thumbnail: bytes = b"") -> dict[str, Any]
             "-frames:v", "1", "-vf", "scale='min(320,iw)':-2", "-q:v", "3", str(cover),
         ])
         cover_stream = _probe(cover)["streams"][0]
+        video_bytes = converted.read_bytes()
+        # Eyun's CDN round trip corrupts a partial final AES block; a free box
+        # aligns the MP4 without changing sample offsets or audio/video bytes.
+        if len(video_bytes) % 16:
+            padding_size = 8 + (-len(video_bytes) - 8) % 16
+            video_bytes += padding_size.to_bytes(4, "big") + b"free" + bytes(padding_size - 8)
+        thumbnail_bytes = cover.read_bytes()
+        thumbnail_bytes += bytes(-len(thumbnail_bytes) % 16)
         return {
             **metadata,
-            "source": converted.read_bytes(),
-            "thumbnail": cover.read_bytes(),
+            "source": video_bytes,
+            "thumbnail": thumbnail_bytes,
             "thumb_width": int(cover_stream["width"]),
             "thumb_height": int(cover_stream["height"]),
         }

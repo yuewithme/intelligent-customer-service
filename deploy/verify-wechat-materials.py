@@ -27,10 +27,17 @@ async def main():
         raise SystemExit("Expected online wId and comma-separated material IDs")
     if not re.fullmatch(r"[0-9]+(?:,[0-9]+){0,19}", sys.argv[2]):
         raise SystemExit("Expected 1 to 20 material IDs")
+    failed = []
     for material_id in dict.fromkeys(map(int, sys.argv[2].split(","))):
-        print(json.dumps({"before": summary(_load_material(material_id))}), flush=True)
-        material = await ensure_material_sendable(material_id, w_id=sys.argv[1])
-        print(json.dumps({"verified": summary(material)}), flush=True)
+        try:
+            print(json.dumps({"before": summary(_load_material(material_id))}), flush=True)
+            material = await ensure_material_sendable(material_id, w_id=sys.argv[1])
+            print(json.dumps({"verified": summary(material)}), flush=True)
+        except Exception as exc:
+            failed.append(material_id)
+            print(json.dumps({"failed": material_id, "error": str(exc)[:300]}), flush=True)
+    if failed:
+        raise SystemExit(f"Material verification failed: {failed}")
 
 
 if __name__ == "__main__":

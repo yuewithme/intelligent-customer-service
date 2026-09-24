@@ -35,6 +35,8 @@
 URL 来源的视频先检查并转换为 MP4/H.264/AAC，读取实际时长和封面尺寸，上传后下载微信
 CDN 视频及封面验证完整性和解码结果。转换文件通过 `VIDEO_TOUCH_PUBLIC_BASE_URL`
 （未设置时使用 `APP_PUBLIC_BASE_URL`）下的 `/static/media/` 提供给 Eyun。
+为避免 CDN 往返改写不完整的末尾 16 字节块，MP4 使用尾部 free box、JPEG 使用结束标记后填充
+完成长度对齐；新上传的视频和封面均核对下载字节的 MD5。
 
 URL 来源的图片上传后分别下载 CDN 普通图和缩略图，解码并填写各自的真实长度、尺寸。
 `uploadCdnImage.hdLength` 不能作为普通图或缩略图长度；不声明未经验证的高清资源。
