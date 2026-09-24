@@ -72,6 +72,12 @@ preflight:production:
           echo 'ERROR: production origin/main does not match this pipeline revision'
           exit 1
         fi
+        if ! git merge-base --is-ancestor HEAD origin/main; then
+          echo 'ERROR: production checkout has commits outside origin/main; refusing deployment'
+          git log --left-right --format='%m %h %s' --max-count=12 origin/main...HEAD
+          git diff --stat origin/main HEAD
+          exit 1
+        fi
         sudo -n docker compose version >/dev/null
         printf 'production_host=%s target_revision=%s\\n' \"\$(hostname)\" \"\$target_revision\"
       "
