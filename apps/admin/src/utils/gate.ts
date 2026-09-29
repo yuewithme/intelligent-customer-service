@@ -2,13 +2,14 @@ import { ref } from 'vue'
 
 export type GateRole = 'admin' | 'test' | 'employee'
 export interface Account {
-  id: number
+  id: string
   username: string
   display_name: string
   role: GateRole
   enabled: boolean
   pages: string[]
   wechat_ids: string[]
+  all_wechat: boolean
 }
 
 export const currentAccount = ref<Account | null>(null)

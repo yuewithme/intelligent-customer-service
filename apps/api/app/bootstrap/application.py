@@ -22,11 +22,13 @@ from app.domains.catalog.services.agent_media_library_service import (
 )
 from app.shared.schemas.common import AppError, ErrorCode
 from app.core.logger import configure_logging
+from app.domains.access.platform import platform_identity
 
 
 def create_app() -> FastAPI:
     configure_logging()
     application = FastAPI(title=get_settings().app_name, lifespan=lifespan)
+    application.middleware("http")(platform_identity)
     _mount_static_files(application)
     register_routes(application)
     _register_exception_handlers(application)

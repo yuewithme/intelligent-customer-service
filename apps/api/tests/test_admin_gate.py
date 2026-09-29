@@ -1,28 +1,32 @@
+import asyncio
 import time
 from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from starlette.requests import Request
 
 from app.core.config import get_settings
-from app.domains.access.accounts import Account, LoginSession, account_session, session_account
+from app.domains.access import platform
+from app.domains.access.api import admin_gate
+from app.domains.access.permissions import can_access_conversation
 from app.domains.conversations.services.conversation_service import _get_session
 from app.infrastructure.database.models import ConversationModel, ConversationMessageModel
 from app.main import app
+from app.shared.schemas.common import AppError, ErrorCode
 
 
 @pytest.fixture
-def clients(monkeypatch, tmp_path):
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'accounts.db'}")
-    monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{tmp_path / 'chat.db'}")
-    monkeypatch.setenv("ADMIN_GATE_PASSWORD", "initial-admin-password")
-    monkeypatch.setenv("ADMIN_GATE_USERNAME", "admin")
-    monkeypatch.setenv("ADMIN_GATE_TEST_PASSWORD", "initial-test-password")
-    monkeypatch.setenv("API_KEY", "service-only-key")
-    monkeypatch.setenv("API_AUTH_ENABLED", "true")
-    monkeypatch.setenv("EYUN_WC_ID", "")
-    monkeypatch.setenv("EYUN_WID", "")
+def context(monkeypatch, tmp_path):
+    for name, value in {
+        "DATABASE_URL": f"sqlite:///{tmp_path / 'accounts.db'}",
+        "CHAT_LOG_DB_URL": f"sqlite:///{tmp_path / 'chat.db'}",
+        "API_KEY": "service-only-key", "API_AUTH_ENABLED": "true",
+        "PLATFORM_SHARED_SECRET": "test-shared-key-" + "x" * 32,
+        "PLATFORM_APP_ORIGIN": "https://sales-agent.hzwohu.com", "EYUN_WC_ID": "", "EYUN_WID": "",
+    }.items():
+        monkeypatch.setenv(name, value)
     get_settings.cache_clear()
     now = datetime.now(timezone.utc)
     with _get_session() as db:
@@ -30,286 +34,109 @@ def clients(monkeypatch, tmp_path):
             cid = f"wechat:customer_{owner}:{owner}"
             db.add(ConversationModel(conversation_id=cid, channel="wechat", user_id=f"customer_{owner}", tenant_id=owner, owner_wc_id=owner, owner_display_name=owner, status="handoff_pending", created_at=now, updated_at=now))
             db.add(ConversationMessageModel(conversation_id=cid, sender_type="user", content=owner, created_at=now))
-        db.commit()
-    admin = TestClient(app)
-    assert admin.post("/api/gate", json={"username": "admin", "password": "initial-admin-password"}).status_code == 200
-    yield admin, TestClient(app)
-    get_settings.cache_clear()
-
-
-def create_employee(admin, client, pages=None, wechats=None):
-    payload = {"username": "employee", "display_name": "员工甲", "pages": pages if pages is not None else ["/workbench"], "wechat_ids": wechats if wechats is not None else ["wx_allowed"]}
-    result = admin.post("/api/v1/admin/accounts", json=payload)
-    assert result.status_code == 200, result.text
-    data = result.json()["data"]
-    assert client.post("/api/gate", json={"username": "employee", "password": data["password"]}).status_code == 200
-    return data
-
-
-def test_username_required_legacy_cookie_rejected_and_no_proxy_bypass(clients):
-    admin, client = clients
-    assert client.post("/api/gate", json={"password": "initial-admin-password"}).status_code == 422
-    assert client.get("/api/v1/admin/conversations").status_code == 401
-    client.cookies.set("admin_gate", "admin.invalid-old-cookie")
-    assert client.get("/api/v1/admin/conversations", headers={"Authorization": "Bearer service-only-key"}).status_code == 401
-    assert admin.get("/api/gate").json()["data"]["account"]["username"] == "admin"
-    response = client.post("/api/gate", json={"username": "admin", "password": "initial-admin-password"}, headers={"X-Forwarded-Proto": "https"})
-    assert response.status_code == 200
-    assert "Secure" in response.headers["set-cookie"]
-    assert "HttpOnly" in response.headers["set-cookie"]
-
-
-def test_credentials_are_hashed_and_sessions_expire_and_logout_revokes(clients):
-    admin, client = clients
-    created = create_employee(admin, client)
-    token = client.cookies.get("admin_gate")
-    with account_session() as db:
-        row = db.get(Account, created["account"]["id"])
-        assert row.password_hash.startswith("scrypt$")
-        assert created["password"] not in row.password_hash
-        assert all(s.token_hash != token for s in db.scalars(select(LoginSession)))
-    client.delete("/api/gate")
-    assert session_account(token) is None
-    assert client.post("/api/gate", json={"username": "employee", "password": created["password"]}).status_code == 200
-    with account_session() as db:
-        for row in db.scalars(select(LoginSession).where(LoginSession.account_id == created["account"]["id"])):
-            row.expires_at = time.time() - 1
-        db.commit()
-    assert client.get("/api/v1/admin/conversations").status_code == 401
-
-
-def test_employee_lists_only_assigned_wechat_and_empty_scope_allows_all(clients):
-    admin, employee = clients
-    created = create_employee(admin, employee)
-    result = employee.get("/api/v1/admin/conversations").json()["data"]
-    assert result["total"] == 1
-    assert {item["owner_wc_id"] for item in result["items"]} == {"wx_allowed"}
-    assert {item["wc_id"] for item in employee.get("/api/v1/admin/conversations/tenants").json()["data"]["items"]} == {"wx_allowed"}
-    assert employee.get("/api/v1/admin/conversations", params={"tenant_id": "wx_denied"}).json()["data"]["total"] == 0
-    payload = {**created["account"], "wechat_ids": []}
-    assert admin.put(f'/api/v1/admin/accounts/{payload["id"]}', json=payload).status_code == 200
-    assert employee.get("/api/v1/admin/conversations").json()["data"]["total"] == 2
-    assert {item["wc_id"] for item in employee.get("/api/v1/admin/conversations/tenants").json()["data"]["items"]} == {"wx_allowed", "wx_denied"}
-    assert employee.get("/api/v1/admin/conversations/wechat:customer_wx_denied:wx_denied").status_code == 200
-    assert employee.get("/api/v1/users/customer_wx_denied/profile").status_code == 200
-    from app.domains.access.permissions import can_access_conversation
-    assert can_access_conversation(payload, "wechat:customer_wx_denied:wx_denied")
-    now = datetime.now(timezone.utc)
-    with _get_session() as db:
         db.add(ConversationModel(conversation_id="demo:customer", channel="demo", user_id="demo_customer", status="handoff_pending", created_at=now, updated_at=now))
         db.commit()
-    assert not can_access_conversation(payload, "demo:customer")
-    assert employee.get("/api/v1/admin/conversations").json()["data"]["total"] == 2
-    assert employee.get("/api/v1/admin/conversations/demo:customer").status_code == 403
-    assert employee.get("/api/v1/admin/accounts").status_code == 403
+    account = {"id": "stable-platform-id", "username": "lanhua/stable-user-sub", "display_name": "员工甲", "enabled": True,
+               "role": "employee", "pages": ["/workbench"], "all_wechat": False, "wechat_ids": ["wx_allowed"]}
+    state = {"account": account, "revoked": False, "calls": []}
 
+    async def remote(path, payload):
+        state["calls"].append((path, payload))
+        if path == "/service/logout":
+            state["revoked"] = True
+            return {"ok": True}
+        if state["revoked"]:
+            raise AppError(ErrorCode.UNAUTHENTICATED, status_code=401)
+        if path == "/service/exchange":
+            return {"account": dict(account), "token": "t" * 43, "expires": time.time() + 3600}
+        return {"account": dict(account)}
 
-def test_employee_object_scope_and_forged_source_messages(clients):
-    admin, employee = clients
-    create_employee(admin, employee)
-    allowed = "wechat:customer_wx_allowed:wx_allowed"
-    denied = "wechat:customer_wx_denied:wx_denied"
-    base = "/api/v1/admin/conversations/"
-    assert employee.get(base + allowed).status_code == 200
-    assert employee.get(base + denied).status_code == 403
-    assert employee.post(base + denied + "/claim", json={"operator_id": "admin"}).status_code == 403
-    result = employee.post(base + allowed + "/claim", json={"operator_id": "forged-admin"})
-    assert result.status_code == 200, result.text
-    with _get_session() as db:
-        assert db.scalar(select(ConversationModel.owner_id).where(ConversationModel.conversation_id == allowed)) == "employee"
-        message_id = db.scalar(select(ConversationMessageModel.id).where(ConversationMessageModel.conversation_id == denied))
-    assert employee.get(base + f"message-media/{message_id}").status_code == 403
-    assert employee.post(base + f"messages/{message_id}/retry-delivery").status_code == 403
-    assert employee.post(base + allowed + "/reply-emoji", json={"operator_id": "employee", "source_message_id": message_id}).status_code == 403
-    assert employee.get("/api/v1/users/customer_wx_denied/profile").status_code == 403
-    assert employee.get(base + "message-recognition-stats").status_code == 403
-    assert employee.get(base, params={"test_only": True}).status_code == 403
-
-
-def test_page_permissions_admin_management_and_permission_change(clients):
-    admin, employee = clients
-    created = create_employee(admin, employee, pages=["/operations/tags"])
-    assert employee.get("/api/v1/admin/tags").status_code == 200
-    assert employee.get("/api/v1/admin/products").status_code == 403
-    assert employee.get("/api/v1/admin/conversations").status_code == 403
-    assert employee.get("/api/v1/admin/accounts").status_code == 403
-    assert employee.get("/api/v1/admin/accounts/options").status_code == 403
-    assert employee.post("/api/v1/admin/accounts", json={"username": "intruder", "display_name": "x"}).status_code == 403
-    assert employee.post("/api/v1/admin/tags/categories", json={}).status_code == 403
-    assert employee.get("/api/v1/demo-admin/conversations").status_code == 403
-    payload = {**created["account"], "pages": []}
-    assert admin.put(f'/api/v1/admin/accounts/{payload["id"]}', json=payload).status_code == 200
-    assert employee.get("/api/v1/admin/tags").status_code == 403
-    assert employee.get("/api/gate").json()["data"]["account"]["pages"] == []
-
-
-def test_password_reset_disable_and_bootstrap_never_overwrites(clients):
-    admin, employee = clients
-    created = create_employee(admin, employee)
-    account_id = created["account"]["id"]
-    reset = admin.post(f"/api/v1/admin/accounts/{account_id}/password", json={})
-    assert reset.status_code == 200
-    assert employee.get("/api/v1/admin/conversations").status_code == 401
-    assert employee.post("/api/gate", json={"username": "employee", "password": created["password"]}).status_code == 401
-    assert employee.post("/api/gate", json={"username": "employee", "password": reset.json()["data"]["password"]}).status_code == 200
-    assert admin.put(f"/api/v1/admin/accounts/{account_id}", json={**created["account"], "enabled": False}).status_code == 200
-    assert employee.get("/api/v1/admin/conversations").status_code == 401
-    assert employee.post("/api/gate", json={"username": "employee", "password": reset.json()["data"]["password"]}).status_code == 401
-    admin_id = admin.get("/api/gate").json()["data"]["account"]["id"]
-    reset = admin.post(f"/api/v1/admin/accounts/{admin_id}/password", json={})
-    from app.domains.access.accounts import _factory
-    _factory.cache_clear()
-    assert admin.post("/api/gate", json={"username": "admin", "password": "initial-admin-password"}).status_code == 401
-    assert admin.post("/api/gate", json={"username": "admin", "password": reset.json()["data"]["password"]}).status_code == 200
-
-
-def test_test_role_retains_demo_and_readonly_permissions(clients):
-    _, tester = clients
-    assert tester.post("/api/gate", json={"username": "test", "password": "initial-test-password"}).status_code == 200
-    assert tester.get("/api/v1/demo-admin/conversations").status_code == 200
-    assert tester.get("/api/v1/admin/conversations").status_code == 403
-    assert tester.get("/api/v1/admin/activities").status_code == 200
-    assert tester.post("/api/v1/admin/activities/1/archive", json={"operator_id": "test"}).status_code == 403
-    assert tester.get("/api/v1/admin/accounts").status_code == 403
-
-
-def test_invalid_account_permissions_duplicate_and_self_lockout(clients):
-    admin, employee = clients
-    created = create_employee(admin, employee)
-    assert admin.post("/api/v1/admin/accounts", json={"username": "EMPLOYEE", "display_name": "重复"}).status_code == 409
-    assert admin.post("/api/v1/admin/accounts", json={"username": "other", "display_name": "其他", "pages": ["/settings/accounts"]}).status_code == 422
-    assert admin.post("/api/v1/admin/accounts", json={"username": "other", "display_name": "其他", "wechat_ids": ["invented"]}).status_code == 400
-    me = admin.get("/api/gate").json()["data"]["account"]
-    assert admin.put(f'/api/v1/admin/accounts/{me["id"]}', json={**me, "enabled": False}).status_code == 400
-    assert admin.put(f'/api/v1/admin/accounts/{me["id"]}', json={**me, "role": "employee"}).status_code == 400
-    assert "password_hash" not in admin.get("/api/v1/admin/accounts").text
-
-
-def test_login_throttling(clients):
-    _, client = clients
-    for _ in range(10):
-        assert client.post("/api/gate", json={"username": "admin", "password": "bad"}).status_code == 401
-    assert client.post("/api/gate", json={"username": "admin", "password": "initial-admin-password"}).status_code == 429
-
-
-@pytest.mark.asyncio
-async def test_live_events_filter_other_wechat_and_stop_after_revocation(clients):
-    from fastapi import Request
-    from app.domains.access.accounts import revoke_sessions
-    from app.domains.conversations.api.admin_conversations import conversation_events
-    from app.domains.conversations.services.conversation_event_service import conversation_event_broker
-
-    admin, employee = clients
-    created = create_employee(admin, employee)
-    token = employee.cookies.get("admin_gate")
-
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    request = Request({"type": "http", "headers": [(b"cookie", f"admin_gate={token}".encode())]}, receive)
-    stream = (await conversation_events(request)).body_iterator
-    assert "connected" in await anext(stream)
-    conversation_event_broker.publish({"conversation_id": "wechat:customer_wx_denied:wx_denied"})
-    conversation_event_broker.publish({"conversation_id": "wechat:customer_wx_allowed:wx_allowed"})
-    event = await anext(stream)
-    assert "wx_allowed" in event and "wx_denied" not in event
-    with account_session() as db:
-        revoke_sessions(db, created["account"]["id"])
-        db.commit()
-    conversation_event_broker.publish({"conversation_id": "wechat:customer_wx_allowed:wx_allowed"})
-    with pytest.raises(StopAsyncIteration):
-        await anext(stream)
-    assert conversation_event_broker.subscriber_count == 0
-
-
-def test_shared_customer_profile_does_not_leak_other_wechat(clients):
-    admin, employee = clients
-    create_employee(admin, employee)
-    with _get_session() as db:
-        conversation = db.scalar(select(ConversationModel).where(ConversationModel.owner_wc_id == "wx_denied"))
-        conversation.user_id = "customer_wx_allowed"
-        db.commit()
-    assert employee.get("/api/v1/users/customer_wx_allowed/profile").status_code == 403
-    assert employee.get("/api/v1/admin/conversations/wechat:customer_wx_allowed:wx_allowed/orders").status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_demo_events_stop_when_account_is_disabled(clients):
-    from fastapi import Request
-    from app.domains.conversations.api.demo_admin import conversation_events
-    from app.domains.conversations.services.conversation_event_service import conversation_event_broker
-
-    admin, tester = clients
-    tester.post("/api/gate", json={"username": "test", "password": "initial-test-password"})
-    account = tester.get("/api/gate").json()["data"]["account"]
-
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    request = Request({"type": "http", "headers": [(b"cookie", f'admin_gate={tester.cookies.get("admin_gate")}'.encode())]}, receive)
-    stream = (await conversation_events(request)).body_iterator
-    assert "connected" in await anext(stream)
-    assert admin.put(f'/api/v1/admin/accounts/{account["id"]}', json={**account, "enabled": False}).status_code == 200
-    conversation_event_broker.publish({"conversation_id": "web_demo:demo:customer:default"})
-    with pytest.raises(StopAsyncIteration):
-        await anext(stream)
-
-
-def test_edit_login_credentials_persists_and_revokes_old_session(clients):
-    admin, employee = clients
-    created = create_employee(admin, employee)
-    account = created["account"]
-    payload = {**account, "username": "renamed_employee", "password": "sixsix"}
-    result = admin.put(f'/api/v1/admin/accounts/{account["id"]}', json=payload)
-    assert result.status_code == 200, result.text
-    assert result.json()["data"]["username"] == "renamed_employee"
-    assert employee.get("/api/v1/admin/conversations").status_code == 401
-    assert employee.post("/api/gate", json={"username": "employee", "password": created["password"]}).status_code == 401
-    assert employee.post("/api/gate", json={"username": "renamed_employee", "password": created["password"]}).status_code == 401
-    assert employee.post("/api/gate", json={"username": "renamed_employee", "password": "sixsix"}).status_code == 200
-    with account_session() as db:
-        assert db.get(Account, account["id"]).password_hash != "sixsix"
-
-
-def test_edit_preserves_password_and_duplicate_login_is_atomic(clients):
-    admin, employee = clients
-    account = create_employee(admin, employee)["account"]
-    endpoint = f'/api/v1/admin/accounts/{account["id"]}'
-    token = employee.cookies.get("admin_gate")
-    assert admin.put(endpoint, json={**account, "display_name": "新姓名", "password": None}).status_code == 200
-    assert session_account(token)["display_name"] == "新姓名"
-    result = admin.put(endpoint, json={**account, "username": "ADMIN", "password": "sixsix"})
-    assert result.status_code == 409, result.text
-    assert session_account(token)["username"] == "employee"
-
-
-def test_delete_account_revokes_login_and_requires_admin(clients):
-    admin, employee = clients
-    created = create_employee(admin, employee)
-    account_id = created["account"]["id"]
-    endpoint = f"/api/v1/admin/accounts/{account_id}"
-    assert employee.delete(endpoint).status_code == 403
-    own_id = admin.get("/api/gate").json()["data"]["account"]["id"]
-    assert admin.delete(f"/api/v1/admin/accounts/{own_id}").status_code == 400
-    assert admin.delete(endpoint).status_code == 200
-    assert employee.get("/api/v1/admin/conversations").status_code == 401
-    assert employee.post("/api/gate", json={"username": "employee", "password": created["password"]}).status_code == 401
-    with account_session() as db:
-        assert db.get(Account, account_id) is None
-        assert db.scalar(select(LoginSession).where(LoginSession.account_id == account_id)) is None
-    with _get_session() as db:
-        assert db.scalar(select(ConversationModel.id).limit(1)) is not None
-
-
-def test_default_initial_administrator_name(monkeypatch, tmp_path):
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'initial.db'}")
-    monkeypatch.delenv("ADMIN_GATE_USERNAME", raising=False)
-    monkeypatch.setenv("ADMIN_GATE_PASSWORD", "bootstrap-example")
+    monkeypatch.setattr(platform, "platform_request", remote)
+    monkeypatch.setattr(admin_gate, "platform_request", remote)
+    client = TestClient(app, base_url="https://sales-agent.hzwohu.com")
+    client.cookies.set(platform.COOKIE_NAME, "t" * 43, domain="sales-agent.hzwohu.com", path="/")
+    yield client, state
     get_settings.cache_clear()
-    try:
-        client = TestClient(app)
-        result = client.post("/api/gate", json={"username": "wohukeji", "password": "bootstrap-example"})
-        assert result.status_code == 200
-        assert result.json()["data"]["account"]["role"] == "admin"
-    finally:
-        get_settings.cache_clear()
+
+
+def test_old_credentials_and_account_management_removed(context):
+    client, _ = context
+    assert client.post("/api/gate", json={"username": "admin", "password": "old-password"}).status_code in (404, 405)
+    assert client.get("/api/v1/admin/accounts").status_code == 404
+    client.cookies.clear()
+    assert client.get("/api/v1/admin/conversations").status_code == 401
+    client.cookies.set("admin_gate", "legacy-cookie")
+    assert client.get("/api/v1/admin/conversations", headers={"Authorization": "Bearer service-only-key"}).status_code == 401
+
+
+def test_login_callback_and_browser_binding(context):
+    client, state = context
+    client.cookies.clear()
+    start = client.get("/api/gate/login?redirect=/operations/tags", follow_redirects=False)
+    assert start.status_code == 302
+    query = parse_qs(urlsplit(start.headers["location"]).query)
+    assert query["app"] == [platform.APP_ID] and len(query["challenge"][0]) == 43
+    assert "HttpOnly" in start.headers["set-cookie"] and "Secure" in start.headers["set-cookie"]
+    before = len(state["calls"])
+    assert client.get("/api/gate/callback", params={"code": "c" * 43, "state": "wrong"}).status_code == 401
+    assert len(state["calls"]) == before
+    result = client.get("/api/gate/callback", params={"code": "c" * 43, "state": query["state"][0]}, follow_redirects=False)
+    assert result.status_code == 303 and result.headers["location"] == "/workbench"
+    assert client.cookies.get(platform.COOKIE_NAME) == "t" * 43
+    assert state["calls"][-1][0] == "/service/exchange"
+    assert client.get("/api/gate/callback", params={"code": "c" * 43, "state": query["state"][0]}).status_code == 401
+    assert admin_gate.safe_target("//evil.example") == "/workbench"
+    assert admin_gate.safe_target("/\\evil.example") == "/workbench"
+
+
+def test_employee_scope_empty_and_explicit_all(context):
+    client, state = context
+    assert client.get("/api/v1/admin/conversations").json()["data"]["total"] == 1
+    assert {i["wc_id"] for i in client.get("/api/v1/admin/conversations/tenants").json()["data"]["items"]} == {"wx_allowed"}
+    denied = "wechat:customer_wx_denied:wx_denied"
+    assert client.get("/api/v1/admin/conversations/" + denied).status_code == 403
+    state["account"]["wechat_ids"] = []
+    assert client.get("/api/v1/admin/conversations").json()["data"]["total"] == 0
+    assert client.get("/api/v1/admin/conversations/tenants").json()["data"]["items"] == []
+    assert not can_access_conversation(state["account"], denied)
+    state["account"]["all_wechat"] = True
+    assert client.get("/api/v1/admin/conversations").json()["data"]["total"] == 2
+    assert can_access_conversation(state["account"], denied)
+    assert not can_access_conversation(state["account"], "demo:customer")
+
+
+def test_permissions_and_identity_refresh_without_relogin(context):
+    client, state = context
+    assert client.get("/api/gate").json()["data"]["account"]["username"] == "lanhua/stable-user-sub"
+    state["account"]["pages"] = ["/operations/tags"]
+    assert client.get("/api/v1/admin/conversations").status_code == 403
+    assert client.get("/api/gate").json()["data"]["account"]["pages"] == ["/operations/tags"]
+    state["revoked"] = True
+    assert client.get("/api/v1/admin/conversations", headers={"Authorization": "Bearer service-only-key"}).status_code == 401
+
+
+def test_object_and_customer_scope(context):
+    client, _ = context
+    denied = "wechat:customer_wx_denied:wx_denied"
+    assert client.post("/api/v1/admin/conversations/" + denied + "/claim", json={"operator_id": "admin"}).status_code == 403
+    assert client.get("/api/v1/users/customer_wx_denied/profile").status_code == 403
+    assert client.get("/api/v1/admin/conversations", params={"test_only": True}).status_code == 403
+
+
+def test_csrf_logout_and_stream_revocation(context):
+    client, state = context
+    assert client.delete("/api/gate", headers={"Origin": "https://untrusted.hzwohu.com"}).status_code == 403
+    request = Request({"type": "http", "headers": [(b"cookie", (platform.COOKIE_NAME + "=" + "t" * 43).encode())]})
+    assert asyncio.run(platform.stream_account(request))["id"] == "stable-platform-id"
+    assert client.delete("/api/gate").status_code == 200
+    assert asyncio.run(platform.stream_account(request)) is None
+    assert client.cookies.get(platform.COOKIE_NAME) is None
+
+
+def test_unavailable_platform_fails_closed(context, monkeypatch):
+    client, _ = context
+    async def unavailable(*args, **kwargs):
+        raise AppError(ErrorCode.INTERNAL_ERROR, "服务不可用", status_code=503)
+    monkeypatch.setattr(platform, "platform_request", unavailable)
+    assert client.get("/api/gate").status_code == 503
+    assert client.get("/api/v1/admin/conversations", headers={"Authorization": "Bearer service-only-key"}).status_code == 503

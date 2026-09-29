@@ -30,7 +30,7 @@ def can_access_conversation(account: dict, conversation_id: str) -> bool:
     if account["role"] == "admin":
         return True
     filters = [ConversationModel.conversation_id == conversation_id, ConversationModel.channel == "wechat"]
-    if account["wechat_ids"]:
+    if not account["all_wechat"]:
         filters.append(ConversationModel.owner_wc_id.in_(account["wechat_ids"]))
     with _get_session() as db:
         return db.scalar(select(ConversationModel.id).where(*filters)) is not None
@@ -57,7 +57,7 @@ def check_customer(account: dict, user_id: str):
     with _get_session() as db:
         rows = db.execute(select(ConversationModel.channel, ConversationModel.owner_wc_id).where(ConversationModel.user_id == user_id)).all()
     # Profiles are shared by customer ID, so mixed ownership cannot safely expose a global profile.
-    if not rows or any(channel != "wechat" or (account["wechat_ids"] and owner not in account["wechat_ids"]) for channel, owner in rows):
+    if not rows or any(channel != "wechat" or (not account["all_wechat"] and owner not in account["wechat_ids"]) for channel, owner in rows):
         deny("该客户资料包含未分配微信的数据")
 
 

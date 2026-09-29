@@ -25,7 +25,7 @@ from app.domains.decisioning.services.demo_sales_agent_service import (
 )
 from app.domains.customers.services.user_profile_service import get_profile_bundle
 from app.core.auth import require_gate_access
-from app.domains.access.accounts import session_account
+from app.domains.access.platform import COOKIE_NAME, stream_account
 
 
 router = APIRouter(
@@ -102,8 +102,8 @@ async def conversation_events(request: Request) -> StreamingResponse:
             while not await request.is_disconnected():
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15)
-                    account = session_account(request.cookies.get("admin_gate", ""))
-                    if "admin_gate" in request.cookies and (not account or account["role"] == "employee" or "/workbench" not in account["pages"]):
+                    account = await stream_account(request)
+                    if COOKIE_NAME in request.cookies and (not account or account["role"] == "employee" or "/workbench" not in account["pages"]):
                         break
                     conversation_id = str(event.get("conversation_id") or "")
                     if not conversation_id.startswith(
@@ -119,8 +119,8 @@ async def conversation_events(request: Request) -> StreamingResponse:
                     )
                     yield f"data: {payload}\n\n"
                 except TimeoutError:
-                    account = session_account(request.cookies.get("admin_gate", ""))
-                    if "admin_gate" in request.cookies and (not account or account["role"] == "employee" or "/workbench" not in account["pages"]):
+                    account = await stream_account(request)
+                    if COOKIE_NAME in request.cookies and (not account or account["role"] == "employee" or "/workbench" not in account["pages"]):
                         break
                     yield ": keep-alive\n\n"
         finally:

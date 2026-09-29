@@ -97,15 +97,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { ChatDotRound, Connection, Collection, PriceTag, Goods, Reading, Calendar, Service, Setting, User } from '@element-plus/icons-vue'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { ChatDotRound, Connection, Collection, PriceTag, Goods, Reading, Calendar, Service, Setting } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/modules/user'
 import { clearGateRole, isTestGate, canViewPage, firstAllowedPage, isAdmin } from '@/utils/gate'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
 import type { ConversationTenant } from '@/api/admin/conversations'
 
 const route = useRoute()
-const router = useRouter()
 const userStore = useUserStore()
 const currentTitle = computed(() => String(route.meta.title || '小兰工作台'))
 const testMode = isTestGate()
@@ -161,8 +160,7 @@ const allNavigation = [
     title: '系统',
     items: [
       { label: '转人工设置', to: '/settings/handoff', icon: Service },
-      { label: '模型配置', to: '/settings/model-config', icon: Setting },
-      { label: '账号与权限', to: '/settings/accounts', icon: User }
+      { label: '模型配置', to: '/settings/model-config', icon: Setting }
     ]
   }
 ]
@@ -171,10 +169,12 @@ const navigation = computed(() => allNavigation.map(group => ({ ...group, items:
 
 const logout = async () => {
   closeMobileNav()
-  await fetch('/api/gate', { method: 'DELETE', credentials: 'same-origin' })
+  const response = await fetch('/api/gate', { method: 'DELETE', credentials: 'same-origin' })
+  if (!response.ok) return
+  const result = await response.json()
   clearGateRole()
   userStore.reset()
-  void router.replace('/gate')
+  window.location.assign(result.data.portal_url)
 }
 </script>
 

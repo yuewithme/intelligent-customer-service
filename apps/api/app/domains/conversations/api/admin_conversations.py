@@ -38,7 +38,7 @@ from app.domains.conversations.services.conversation_service import (
     unhide_conversation,
 )
 from app.core.auth import require_admin_access, get_account, operator_identity
-from app.domains.access.accounts import session_account
+from app.domains.access.platform import COOKIE_NAME, stream_account
 from app.domains.access.permissions import can_access_conversation
 from app.domains.customers.services.user_profile_service import get_profile_bundle
 from app.integrations.youzan.services.youzan_order_sync_service import (
@@ -70,8 +70,8 @@ async def conversation_events(request: Request) -> StreamingResponse:
             while not await request.is_disconnected():
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15)
-                    account = session_account(request.cookies.get("admin_gate", ""))
-                    if "admin_gate" in request.cookies and (not account or "/workbench" not in account["pages"]):
+                    account = await stream_account(request)
+                    if COOKIE_NAME in request.cookies and (not account or "/workbench" not in account["pages"] or account["role"] == "test"):
                         break
                     if account and account["role"] != "admin" and not can_access_conversation(account, event.get("conversation_id", "")):
                         continue
@@ -81,8 +81,8 @@ async def conversation_events(request: Request) -> StreamingResponse:
                     )
                     yield f"data: {payload}\n\n"
                 except TimeoutError:
-                    account = session_account(request.cookies.get("admin_gate", ""))
-                    if "admin_gate" in request.cookies and (not account or "/workbench" not in account["pages"] or account["role"] == "test"):
+                    account = await stream_account(request)
+                    if COOKIE_NAME in request.cookies and (not account or "/workbench" not in account["pages"] or account["role"] == "test"):
                         break
                     yield ": keep-alive\n\n"
         finally:
@@ -123,7 +123,8 @@ async def conversations(
         wechat_group_allowlist=(material_group_wc_id,) if material_group_wc_id else (),
         test_data=test_only,
         tenant_id=tenant_id,
-        allowed_owner_wc_ids=(get_account(request)["wechat_ids"] if get_account(request) and get_account(request)["role"] == "employee" else None),
+        allowed_owner_wc_ids=(get_account(request)["wechat_ids"] if get_account(request) and get_account(request)["role"] == "employee" and not get_account(request)["all_wechat"] else None),
+        wechat_only=bool(get_account(request) and get_account(request)["role"] == "employee"),
     )
     return APIResponse(code=0, message="success", data=data)
 
@@ -132,7 +133,7 @@ async def conversations(
 async def conversation_tenants(request: Request) -> APIResponse:
     data = await list_conversation_tenants()
     account = get_account(request)
-    if account and account["role"] == "employee" and account["wechat_ids"]:
+    if account and account["role"] == "employee" and not account["all_wechat"]:
         data["items"] = [item for item in data["items"] if item["wc_id"] in account["wechat_ids"]]
     return APIResponse(
         code=0,

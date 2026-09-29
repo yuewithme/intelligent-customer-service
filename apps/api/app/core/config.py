@@ -41,11 +41,10 @@ class Settings(BaseSettings):
         "150.158.52.233:*",
     ]
     mcp_allowed_origins: list[str] = []
-    admin_gate_enabled: bool = True
-    admin_gate_username: str = "wohukeji"
-    admin_gate_password: str = ""
-    admin_gate_test_password: str = ""
-    admin_gate_secret: str = ""
+    platform_api_url: str = "https://sales-gateway.hzwohu.com/platform-api/v1"
+    platform_portal_url: str = "https://sales-gateway.hzwohu.com/portal"
+    platform_app_origin: str = "https://sales-agent.hzwohu.com"
+    platform_shared_secret: str = ""
     wechat_token: str = "change_me"
     wechat_default_kb_id: str = "kb_default"
     eyun_base_url: str = ""

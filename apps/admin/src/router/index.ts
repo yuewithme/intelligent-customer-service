@@ -11,8 +11,7 @@ const routes: RouteRecordRaw[] = [
     component: SalesLayout,
     redirect: '/workbench',
     children: [
-      { path: 'no-access', component: () => import('@/views/accounts/NoAccess.vue'), meta: { title: '暂无页面权限' } },
-      { path: 'settings/accounts', component: () => import('@/views/accounts/index.vue'), meta: { title: '账号与权限' } },
+      { path: 'no-access', component: () => import('@/views/accounts/NoAccess.vue'), meta: { title: '暂无页面权限', public: true } },
       { path: 'workbench', component: () => import('@/views/workbench/index.vue'), meta: { title: '小兰工作台' } },
       { path: 'operations/conversation-cases', component: () => import('@/views/conversation-cases/index.vue'), meta: { title: '销售案例库' } },
       { path: 'operations/capability-workbench', component: () => import('@/views/capability-workbench/index.vue'), meta: { title: '能力工作台' } },
@@ -38,6 +37,10 @@ router.beforeEach(async (to) => {
   if (to.meta.public) return true
   try {
     const response = await fetch('/api/gate', { credentials: 'same-origin' })
+    if (response.status === 403) {
+      clearGateRole()
+      return '/no-access'
+    }
     const result = await response.json()
     const account = result?.data?.account
     if (result?.data?.unlocked && account) {
