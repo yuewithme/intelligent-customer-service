@@ -24,8 +24,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/current-activities/index.vue'),
         meta: { title: '销售活动' }
       },
-      { path: 'settings/handoff', component: () => import('@/views/handoff-settings/index.vue'), meta: { title: '转人工设置' } },
-      { path: 'settings/model-config', component: () => import('@/views/model-config/index.vue'), meta: { title: '模型配置' } }
+      { path: 'settings/handoff', component: () => import('@/views/handoff-settings/index.vue'), meta: { title: '转人工设置' } }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/workbench' }

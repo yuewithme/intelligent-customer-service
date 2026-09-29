@@ -63,6 +63,8 @@ def test_old_credentials_and_account_management_removed(context):
     client, _ = context
     assert client.post("/api/gate", json={"username": "admin", "password": "old-password"}).status_code in (404, 405)
     assert client.get("/api/v1/admin/accounts").status_code == 404
+    assert client.get("/api/v1/admin/eyun-settings").status_code == 404
+    assert client.put("/api/v1/admin/eyun-settings", json={"w_id": "new-instance", "wc_id": "new-wechat"}).status_code == 404
     client.cookies.clear()
     assert client.get("/api/v1/admin/conversations").status_code == 401
     client.cookies.set("admin_gate", "legacy-cookie")

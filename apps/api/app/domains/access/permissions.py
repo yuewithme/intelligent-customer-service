@@ -15,7 +15,6 @@ PAGE_APIS = {
     "/api/v1/admin/care-manuals": "/operations/care-manuals",
     "/api/v1/admin/activities": "/knowledge-ops/current-activities",
     "/api/v1/admin/handoff-notification": "/settings/handoff",
-    "/api/v1/admin/eyun-settings": "/settings/model-config",
     CONVERSATIONS: "/workbench",
     "/api/v1/users": "/workbench",
     "/api/v1/demo-admin": "/workbench",
@@ -77,7 +76,7 @@ async def authorize_account(request: Request, account: dict, mode: str):
         if mode == "formal" or (not safe and mode != "demo"):
             deny("测试账号仅可观看已授权页面及操作演示会话")
         return
-    if mode == "demo" or path.startswith("/api/v1/admin/eyun-settings"):
+    if mode == "demo":
         deny()
     if path.startswith(CONVERSATIONS):
         if path in (CONVERSATIONS + "/message-recognition-stats", CONVERSATIONS + "/touch-delivery-stats"):

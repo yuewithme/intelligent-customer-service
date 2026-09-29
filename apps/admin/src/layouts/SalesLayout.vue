@@ -98,7 +98,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { ChatDotRound, Connection, Collection, PriceTag, Goods, Reading, Calendar, Service, Setting } from '@element-plus/icons-vue'
+import { ChatDotRound, Connection, Collection, PriceTag, Goods, Reading, Calendar, Service } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/modules/user'
 import { clearGateRole, isTestGate, canViewPage, firstAllowedPage, isAdmin } from '@/utils/gate'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
@@ -159,8 +159,7 @@ const allNavigation = [
   {
     title: '系统',
     items: [
-      { label: '转人工设置', to: '/settings/handoff', icon: Service },
-      { label: '模型配置', to: '/settings/model-config', icon: Setting }
+      { label: '转人工设置', to: '/settings/handoff', icon: Service }
     ]
   }
 ]
