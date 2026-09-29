@@ -17,7 +17,7 @@ client.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       clearGateRole()
-      if (window.location.pathname !== '/demo-chat') window.location.assign(`/gate?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+      if (window.location.pathname !== '/demo-chat' && window.location.pathname !== '/gate') window.location.replace(`/gate?redirect=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`)
     }
     ElMessage.error(error.response?.data?.message || error.message || '网络请求失败')
     return Promise.reject(error)

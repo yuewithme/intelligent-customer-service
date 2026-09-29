@@ -4,7 +4,7 @@ import hmac
 import json
 import secrets
 import time
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import unquote, urlencode, urlsplit
 
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import RedirectResponse
@@ -23,8 +23,15 @@ def status(account):
 
 
 def safe_target(value: str):
-    parsed = urlsplit(value)
-    if not value.startswith("/") or value.startswith("//") or "\\" in value or parsed.netloc or parsed.scheme or any(ord(c) < 32 for c in value):
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return "/workbench"
+    path = unquote(parsed.path)
+    if (not path.startswith("/") or path.startswith("//") or "\\" in unquote(value)
+            or parsed.netloc or parsed.scheme or any(ord(c) < 32 for c in unquote(value))
+            or "//" in path or any(part in {".", ".."} for part in path.split("/"))
+            or path.lower().rstrip("/") in {"/gate", "/login", "/api"} or path.lower().startswith("/api/")):
         return "/workbench"
     return value
 
