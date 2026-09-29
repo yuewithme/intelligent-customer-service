@@ -96,6 +96,10 @@ deploy:production:
     - |
       set -eu
       SSH="ssh $SSHOPT"
+      if [ -n "${PLATFORM_SHARED_SECRET:-}" ]; then
+        set +x
+        printf '%s' "$PLATFORM_SHARED_SECRET" | $SSH "$PROD_HOST" "flock -w 1200 /tmp/intelligent-customer-service-deploy.lock sudo -n python3 -c \"\$(git -C '$PROD_DIR' show '$CI_COMMIT_SHA:deploy/update-platform-config.py')\""
+      fi
       if [ -n "${FEISHU_HANDOFF_WEBHOOK_URL:-}" ]; then
         set +x
         printf '%s' "$FEISHU_HANDOFF_WEBHOOK_URL" | $SSH "$PROD_HOST" "flock -w 1200 /tmp/intelligent-customer-service-deploy.lock sudo -n python3 -c \"\$(git -C '$PROD_DIR' show '$CI_COMMIT_SHA:deploy/update-feishu-webhook.py')\""
@@ -119,6 +123,10 @@ verify:production:
       if [ -n "${FEISHU_HANDOFF_WEBHOOK_URL:-}" ]; then
         set +x
         printf '%s' "$FEISHU_HANDOFF_WEBHOOK_URL" | $SSH "$PROD_HOST" "sudo -n python3 '$PROD_DIR/deploy/update-feishu-webhook.py' --verify"
+      fi
+      if [ -n "${PLATFORM_SHARED_SECRET:-}" ]; then
+        set +x
+        printf '%s' "$PLATFORM_SHARED_SECRET" | $SSH "$PROD_HOST" "sudo -n python3 '$PROD_DIR/deploy/update-platform-config.py' --verify"
       fi
       health_body="$(curl -fsS --retry 6 --retry-delay 5 --max-time 15 https://sales-agent.hzwohu.com/health)"
       printf 'health=%s\n' "$health_body"
