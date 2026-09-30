@@ -30,6 +30,8 @@ async def upload_knowledge(
     tenant_id: str = Form(...),
     permission: str = Form("public"),
 ) -> APIResponse:
+    if get_settings().unified_library_enabled:
+        raise AppError(ErrorCode.REQUEST_INVALID, "请在统一平台产品知识库上传资料", status_code=410)
     original_name = _safe_filename(file.filename or "upload")
     suffix = Path(original_name).suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:

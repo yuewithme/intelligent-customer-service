@@ -25,6 +25,8 @@ async def authorize_consumer(request: Request):
 @router.get("/api/library-export")
 async def export(request: Request, inventory: bool = True):
     await authorize_consumer(request)
+    if get_settings().unified_library_enabled:
+        raise AppError(ErrorCode.REQUEST_INVALID, "迁移已完成，请从统一平台读取资料", status_code=410)
     from app.domains.catalog.services.library_export import export_content, export_search_documents
     from starlette.concurrency import run_in_threadpool
     result = await run_in_threadpool(export_content, inventory=inventory)
@@ -40,6 +42,8 @@ async def export(request: Request, inventory: bool = True):
 @router.post("/api/library-export/freeze")
 async def freeze(request: Request):
     await authorize_consumer(request)
+    if get_settings().unified_library_enabled:
+        raise AppError(ErrorCode.REQUEST_INVALID, "迁移已完成，原库已归档", status_code=410)
     from app.domains.catalog.services.library_export import freeze_content
     from starlette.concurrency import run_in_threadpool
     return await run_in_threadpool(freeze_content)
@@ -66,4 +70,4 @@ async def resources(request: Request, query: str = ""):
     for activity in list_activities(keyword=query, page_size=5, available_only=True)["items"]:
         items.append({"id": f"activity:{activity['id']}", "title": activity["title"], "category": "business",
                       "content": json.dumps(activity, ensure_ascii=False), "nature": "reference"})
-    return {"items": items[:8]}
+    return {"items": items[:8], "source": "unified-platform" if get_settings().unified_library_enabled else "orchid-local"}

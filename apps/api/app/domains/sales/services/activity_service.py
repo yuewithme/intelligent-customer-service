@@ -1,3 +1,4 @@
+from app.domains.knowledge.services.unified_library import remote
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -62,12 +63,16 @@ def create_activity_from_messages(request: ActivityFromMessagesRequest) -> dict:
             updated_at=now,
             published_at=now,
         )
+        from app.domains.knowledge.services.unified_library import call, enabled
+        if enabled():
+            return call("activities.create", record={c.name: getattr(row, c.name) for c in row.__table__.columns if c.name != "id"})
         session.add(row)
         session.commit()
         session.refresh(row)
         return _activity_to_dict(row)
 
 
+@remote("activities.list_activities")
 def list_activities(
     *,
     page: int = 1,
@@ -113,11 +118,13 @@ def list_activities(
         }
 
 
+@remote("activities.get_activity")
 def get_activity(activity_id: int) -> dict:
     with _get_session() as session:
         return _activity_to_dict(_get_activity_or_error(session, activity_id))
 
 
+@remote("activities.update_activity")
 def update_activity(activity_id: int, request: ActivityUpdateRequest) -> dict:
     with _get_session() as session:
         row = _get_activity_or_error(session, activity_id)
@@ -144,6 +151,7 @@ def update_activity(activity_id: int, request: ActivityUpdateRequest) -> dict:
         return _activity_to_dict(row)
 
 
+@remote("activities.publish_activity")
 def publish_activity(activity_id: int, operator_id: str) -> dict:
     with _get_session() as session:
         row = _get_activity_or_error(session, activity_id)
@@ -176,6 +184,7 @@ def publish_activity(activity_id: int, operator_id: str) -> dict:
         return _activity_to_dict(row)
 
 
+@remote("activities.update_activity_switches")
 def update_activity_switches(
     activity_id: int, request: ActivitySwitchesRequest
 ) -> dict:
@@ -197,6 +206,7 @@ def update_activity_switches(
         return _activity_to_dict(row)
 
 
+@remote("activities.archive_activity")
 def archive_activity(activity_id: int, operator_id: str) -> dict:
     with _get_session() as session:
         row = _get_activity_or_error(session, activity_id)
@@ -466,6 +476,13 @@ def _decode_items(value: str) -> list[dict]:
 
 
 def _get_activity_or_error(session: Session, activity_id: int) -> ActivityModel:
+    from app.domains.knowledge.services.unified_library import call, enabled
+    if enabled():
+        data = call("activities.record", activity_id=activity_id)
+        for key in ("valid_from", "valid_until", "created_at", "updated_at", "published_at"):
+            if isinstance(data.get(key), str):
+                data[key] = datetime.fromisoformat(data[key])
+        return ActivityModel(**data)
     row = session.get(ActivityModel, activity_id)
     if row is None:
         raise AppError(
@@ -491,19 +508,20 @@ def _get_session() -> Session:
                 EyunOutboundMessageModel.__table__,
             ],
         )
-        with engine.begin() as connection:
-            connection.execute(
-                update(ActivityModel)
-                .where(ActivityModel.status == "draft")
-                .values(
-                    status="published",
-                    enabled=True,
-                    published_at=func.coalesce(
-                        ActivityModel.published_at,
-                        ActivityModel.updated_at,
-                    ),
+        if not settings.unified_library_enabled:
+            with engine.begin() as connection:
+                connection.execute(
+                    update(ActivityModel)
+                    .where(ActivityModel.status == "draft")
+                    .values(
+                        status="published",
+                        enabled=True,
+                        published_at=func.coalesce(
+                            ActivityModel.published_at,
+                            ActivityModel.updated_at,
+                        ),
+                    )
                 )
-            )
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[settings.chat_log_db_url] = factory
     return factory()

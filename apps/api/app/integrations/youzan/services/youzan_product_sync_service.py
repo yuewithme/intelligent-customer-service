@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.domains.knowledge.services.unified_library import remote
+
 import asyncio
 import logging
 import re
@@ -92,6 +94,7 @@ _NON_FLOWER_PRODUCT_KEYWORDS = (
 )
 
 
+@remote("catalog.list_products")
 def list_products(
     *,
     page: int = 1,
@@ -236,6 +239,7 @@ def _catalog_filters() -> list[Any]:
     return filters
 
 
+@remote("catalog.update_product_sort")
 def update_product_sort(item_id: str, sort_order: int) -> dict[str, Any]:
     with get_product_session() as session:
         row = session.scalar(
@@ -250,6 +254,7 @@ def update_product_sort(item_id: str, sort_order: int) -> dict[str, Any]:
         return _serialize_product(row, [])
 
 
+@remote("catalog.update_product_note")
 def update_product_note(item_id: str, internal_note: str) -> dict[str, Any]:
     with get_product_session() as session:
         row = session.scalar(
@@ -389,6 +394,7 @@ async def _fetch_details(client: Any, item_ids: list[str]) -> dict[str, Any]:
     return dict(await asyncio.gather(*(fetch(item_id) for item_id in item_ids)))
 
 
+@remote("catalog._persist_sync")
 def _persist_sync(
     items: dict[str, dict[str, Any]], detail_results: dict[str, Any]
 ) -> dict[str, int]:
@@ -480,6 +486,7 @@ def _sku_spec_name(sku: dict[str, Any]) -> str:
     return " / ".join(part for part in parts if part) or "默认规格"
 
 
+@remote("catalog._start_sync_run")
 def _start_sync_run(trigger: str) -> int:
     now = _now()
     with get_product_session() as session:
@@ -494,6 +501,7 @@ def _start_sync_run(trigger: str) -> int:
         return row.id
 
 
+@remote("catalog._finish_sync_run")
 def _finish_sync_run(
     run_id: int,
     *,
@@ -516,6 +524,7 @@ def _finish_sync_run(
         session.commit()
 
 
+@remote("catalog._sync_is_due")
 def _sync_is_due(interval_hours: int) -> bool:
     with get_product_session() as session:
         latest = session.scalar(

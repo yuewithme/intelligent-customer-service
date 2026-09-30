@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.domains.knowledge.services.unified_library import remote
+
 import json
 import re
 import unicodedata
@@ -45,6 +47,8 @@ def _session_factory(database_url: str):
 
 
 def _session() -> Session:
+    if get_settings().unified_library_enabled:
+        raise RuntimeError("养护手册已归统一资料库管理")
     return _session_factory(get_settings().database_url)()
 
 
@@ -52,6 +56,7 @@ def reset_care_manual_store_for_tests() -> None:
     _session_factory.cache_clear()
 
 
+@remote("manuals.list_care_manuals")
 def list_care_manuals(
     *,
     page: int = 1,
@@ -138,6 +143,7 @@ def list_care_manuals(
         }
 
 
+@remote("manuals.get_care_manual")
 def get_care_manual(card_id: int) -> dict[str, Any]:
     with _session() as session:
         row = session.get(CareManualCardModel, card_id)
@@ -147,6 +153,7 @@ def get_care_manual(card_id: int) -> dict[str, Any]:
         return _serialize_card(row, links.get(card_id, []))
 
 
+@remote("manuals.update_care_manual")
 def update_care_manual(card_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     now = _now()
     with _session() as session:
@@ -223,6 +230,7 @@ def _product_variety_names(title: str) -> tuple[str, set[str]]:
     return category, names
 
 
+@remote("manuals.suggest_care_manual_product_links")
 def suggest_care_manual_product_links() -> dict[str, Any]:
     with _session() as session:
         cards = [
@@ -283,6 +291,7 @@ def suggest_care_manual_product_links() -> dict[str, Any]:
         return {"items": suggestions}
 
 
+@remote("manuals.add_care_manual_product_links")
 def add_care_manual_product_links(links: list[dict[str, Any]]) -> dict[str, int]:
     pairs = {(link["card_id"], link["youzan_item_id"]) for link in links}
     card_ids = {card_id for card_id, _ in pairs}
@@ -325,6 +334,7 @@ def add_care_manual_product_links(links: list[dict[str, Any]]) -> dict[str, int]
         return {"created_count": len(new_pairs), "manual_count": len({card_id for card_id, _ in new_pairs})}
 
 
+@remote("manuals.test_match_care_manuals")
 def test_match_care_manuals(
     *,
     query: str = "",
@@ -472,6 +482,7 @@ async def _fetch_all_notes(
     return result
 
 
+@remote("manuals._persist_notes")
 def _persist_notes(notes: list[dict[str, Any]]) -> dict[str, int]:
     now = _now()
     qualified_count = created_count = updated_count = disabled_count = 0
@@ -554,6 +565,7 @@ def _persist_notes(notes: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
+@remote("manuals._start_sync_run")
 def _start_sync_run(trigger: str) -> int:
     with _session() as session:
         row = CareManualSyncRunModel(
@@ -567,6 +579,7 @@ def _start_sync_run(trigger: str) -> int:
         return row.id
 
 
+@remote("manuals._finish_sync_run")
 def _finish_sync_run(
     run_id: int,
     *,

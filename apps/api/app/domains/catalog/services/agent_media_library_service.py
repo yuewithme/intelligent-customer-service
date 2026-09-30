@@ -198,6 +198,9 @@ def reset_agent_media_library_cache() -> None:
 
 
 def _load_items() -> tuple[dict[str, Any], ...]:
+    from app.domains.knowledge.services.unified_library import call, enabled
+    if enabled():
+        return tuple(call("records.media_items"))
     remote_base_url = get_settings().agent_media_library_base_url.strip().rstrip("/")
     if remote_base_url:
         return _read_remote_manifest(remote_base_url, int(time.time() // 60))

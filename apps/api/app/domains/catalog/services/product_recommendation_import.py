@@ -27,6 +27,9 @@ def _name_keys(name: str, aliases: str | None) -> set[str]:
 
 
 def import_recommendation_catalog() -> int:
+    from app.domains.knowledge.services.unified_library import enabled
+    if enabled():
+        return 0
     """Apply the approved business table once, preserving later admin edits."""
     records = json.loads(
         (Path(__file__).resolve().parents[1] / "data" / "orchid_recommendation_20260908.json").read_text(encoding="utf-8")

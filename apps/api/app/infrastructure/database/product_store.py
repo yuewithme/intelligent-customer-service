@@ -133,6 +133,8 @@ def _normalize_product_name(value: str | None) -> str:
 
 
 def get_product_session() -> Session:
+    if get_settings().unified_library_enabled:
+        raise RuntimeError("商品数据已归统一资料库管理")
     return _session_factory(get_settings().database_url)()
 
 

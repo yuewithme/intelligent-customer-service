@@ -31,3 +31,14 @@ ORCHID_MATERIAL_ASSET: dict[str, Any] = {
     "use_cases": ["养兰入门", "常见养护问题", "成交后的陪伴服务说明"],
     "card": ORCHID_MATERIAL_CARD,
 }
+
+
+def get_orchid_material():
+    from app.domains.knowledge.services.unified_library import call, enabled
+    if enabled():
+        import json
+        content = call("records.get_source_content", source="fixed_material")
+        if not content:
+            raise LookupError("陪伴养兰资料已停用")
+        return json.loads(content)
+    return ORCHID_MATERIAL_ASSET

@@ -15,6 +15,9 @@ _CASE_DIRS = {
 def load_conversation_cases(
     library_type: str = "complete",
 ) -> list[dict[str, Any]]:
+    from app.domains.knowledge.services.unified_library import call, enabled
+    if enabled():
+        return call("records.load_cases", library_type=library_type)
     case_dir = _case_directory(library_type)
     cases = []
     for path in sorted(case_dir.glob("*.json"), key=_case_sort_key):

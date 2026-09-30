@@ -34,6 +34,8 @@ _TABLES = [
 
 
 def get_session_factory() -> sessionmaker:
+    if get_settings().unified_library_enabled:
+        raise RuntimeError("品种知识已归统一资料库管理，请使用统一平台导入")
     db_url = get_settings().database_url
     factory = _sessionmakers.get(db_url)
     if factory is None:

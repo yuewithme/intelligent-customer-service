@@ -15,6 +15,8 @@ _sessionmakers: dict[str, sessionmaker] = {}
 
 
 def get_session_factory() -> sessionmaker:
+    if get_settings().unified_library_enabled:
+        raise RuntimeError("知识检索已切换统一资料库")
     db_url = get_settings().database_url
     factory = _sessionmakers.get(db_url)
     if factory is None:

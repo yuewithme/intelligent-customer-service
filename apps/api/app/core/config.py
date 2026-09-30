@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     platform_portal_url: str = "https://sales-gateway.hzwohu.com/portal"
     platform_app_origin: str = "https://sales-agent.hzwohu.com"
     platform_shared_secret: str = ""
+    unified_library_enabled: bool = True
     wechat_token: str = "change_me"
     wechat_default_kb_id: str = "kb_default"
     eyun_base_url: str = ""

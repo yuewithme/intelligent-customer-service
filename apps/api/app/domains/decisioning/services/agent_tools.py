@@ -9,8 +9,7 @@ from typing import Any, Awaitable, Callable
 
 from app.core.config import get_settings
 from app.domains.catalog.services.orchid_material_service import (
-    ORCHID_MATERIAL_ASSET,
-    ORCHID_MATERIAL_CARD,
+    get_orchid_material,
     ORCHID_MATERIAL_REF,
 )
 from app.domains.catalog.services.agent_media_library_service import (
@@ -390,6 +389,12 @@ async def _customer_context(*, call_id, arguments, context) -> AgentToolResult:
 
 
 async def _brand_service_facts(*, call_id, arguments, context) -> AgentToolResult:
+    from app.domains.knowledge.services.unified_library import call, enabled
+    if enabled():
+        content = call("records.get_source_content", source="brand_facts")
+        if not content:
+            return _result(call_id, "brand.service_facts", "not_found")
+        return _result(call_id, "brand.service_facts", "found", **json.loads(content))
     del arguments, context
     return _result(
         call_id,
@@ -513,6 +518,14 @@ async def _knowledge_search(*, call_id, arguments, context) -> AgentToolResult:
     from app.domains.knowledge.services.unified_library import search_library
 
     shared = await search_library(query, "knowledge")
+
+    from app.domains.knowledge.services.unified_library import enabled
+    if enabled():
+        sources = [{"doc_id": "unified:" + item["id"], "file_name": item.get("source") or item["title"],
+                    "section": item["title"], "page": None} for item in shared.get("items", [])]
+        context.sources.extend(sources)
+        return _result(call_id, "knowledge.search", "temporarily_unavailable" if shared.get("unavailable") else "found" if sources else "not_found",
+                       resources=shared.get("items", []), sources=sources, answer="", note=shared.get("note", ""))
 
     knowledge_message = context.message.model_copy(update={"message": query})
     result = await answer_knowledge(
@@ -770,15 +783,16 @@ async def _material_search(*, call_id, arguments, context) -> AgentToolResult:
             "found" if materials else "not_found",
             materials=materials,
         )
+    companion = get_orchid_material()
     materials.append(
         {
             "material_ref": ORCHID_MATERIAL_REF,
-            "title": ORCHID_MATERIAL_ASSET["title"],
-            "value": ORCHID_MATERIAL_ASSET["value"],
-            "format": ORCHID_MATERIAL_ASSET["format"],
-            "access": ORCHID_MATERIAL_ASSET["access"],
-            "service_role": ORCHID_MATERIAL_ASSET["service_role"],
-            "use_cases": ORCHID_MATERIAL_ASSET["use_cases"],
+            "title": companion["title"],
+            "value": companion["value"],
+            "format": companion["format"],
+            "access": companion["access"],
+            "service_role": companion["service_role"],
+            "use_cases": companion["use_cases"],
             "match_reason": "综合养兰资料与关系资产",
         }
     )
@@ -797,7 +811,8 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
     if not material_id:
         return _result(call_id, "material.send", "invalid_arguments", error="valid_material_ref_required")
     if material_id == "orchid-companion":
-        card = ORCHID_MATERIAL_CARD
+        companion = get_orchid_material()
+        card = companion["card"]
     elif material_id.startswith("care-manual:"):
         try:
             record = get_care_manual(int(material_id.partition(":")[2]))
@@ -864,9 +879,9 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
         delivery_truth="prepared_not_sent",
         post_send_facts=(
             {
-                "format": ORCHID_MATERIAL_ASSET["format"],
-                "access": ORCHID_MATERIAL_ASSET["access"],
-                "service_role": ORCHID_MATERIAL_ASSET["service_role"],
+                "format": companion["format"],
+                "access": companion["access"],
+                "service_role": companion["service_role"],
             }
             if material_id == "orchid-companion"
             else None

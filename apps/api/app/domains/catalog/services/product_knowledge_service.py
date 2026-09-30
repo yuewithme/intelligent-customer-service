@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.domains.knowledge.services.unified_library import remote
+
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -116,6 +118,7 @@ class ProductRecommendationCriteria:
         )
 
 
+@remote("products.list_product_knowledge")
 def list_product_knowledge(
     *,
     page: int = 1,
@@ -173,6 +176,7 @@ def list_product_knowledge(
         }
 
 
+@remote("products.list_product_options")
 def list_product_options() -> list[dict[str, Any]]:
     with get_product_session() as session:
         linked = {
@@ -201,6 +205,7 @@ def list_product_options() -> list[dict[str, Any]]:
         ]
 
 
+@remote("products.create_product_knowledge")
 def create_product_knowledge(payload: dict[str, Any]) -> dict[str, Any]:
     now = _now()
     with get_product_session() as session:
@@ -230,6 +235,7 @@ def create_product_knowledge(payload: dict[str, Any]) -> dict[str, Any]:
         return _serialize(row, product)
 
 
+@remote("products.update_product_knowledge")
 def update_product_knowledge(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     with get_product_session() as session:
         row = session.get(YouzanProductKnowledgeModel, record_id)
@@ -255,6 +261,7 @@ def update_product_knowledge(record_id: int, payload: dict[str, Any]) -> dict[st
         return _serialize(row, product)
 
 
+@remote("products.delete_product_knowledge")
 def delete_product_knowledge(record_id: int) -> None:
     with get_product_session() as session:
         row = session.get(YouzanProductKnowledgeModel, record_id)
@@ -264,6 +271,7 @@ def delete_product_knowledge(record_id: int) -> None:
         session.commit()
 
 
+@remote("products.import_product_knowledge")
 def import_product_knowledge(records: list[dict[str, Any]]) -> dict[str, int]:
     now = _now()
     with get_product_session() as session:
@@ -308,6 +316,7 @@ def import_product_knowledge(records: list[dict[str, Any]]) -> dict[str, int]:
         }
 
 
+@remote("products.auto_link_knowledge_records")
 def auto_link_knowledge_records() -> int:
     with get_product_session() as session:
         count = _auto_link(session)
@@ -315,6 +324,7 @@ def auto_link_knowledge_records() -> int:
         return count
 
 
+@remote("products.search_catalog_products")
 def search_catalog_products(
     keyword: str, *, limit: int = 3, preference_tags: list[str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -822,6 +832,7 @@ def _raw_audience_level_distance(
     return _audience_level_distance(requested, actual)
 
 
+@remote("products.get_catalog_product")
 def get_catalog_product(item_id: str) -> dict[str, Any] | None:
     with get_product_session() as session:
         row = session.execute(
@@ -858,6 +869,7 @@ def get_catalog_product(item_id: str) -> dict[str, Any] | None:
         )
 
 
+@remote("products.list_catalog_products")
 def list_catalog_products(*, limit: int = 20) -> list[dict[str, Any]]:
     with get_product_session() as session:
         rows = session.execute(

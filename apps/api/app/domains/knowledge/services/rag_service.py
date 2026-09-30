@@ -989,7 +989,7 @@ async def rag_chat(
             or any(marker in message for marker in PRODUCT_RECOMMENDATION_REQUEST_MARKERS)
         )
         vector = []
-        if not product_recommendation:
+        if not product_recommendation and not settings.unified_library_enabled:
             stage_started = time.perf_counter()
             vector = await embedding_service.embed_text(retrieval_question)
             stage_latencies["embedding_ms"] = round(
@@ -1009,6 +1009,15 @@ async def rag_chat(
             # RAG must never perform a second product search or introduce a
             # different product into the model context.
             candidates = []
+        elif settings.unified_library_enabled:
+            from app.domains.knowledge.services.unified_library import search_library
+            shared = await search_library(retrieval_question, "knowledge")
+            if shared.get("unavailable"):
+                raise AppError(ErrorCode.INTERNAL_ERROR, "统一知识库暂不可用", status_code=503)
+            candidates = [{"doc_id": "unified:" + item["id"], "chunk_id": item["id"],
+                           "file_name": item.get("source") or item["title"], "section": item["title"],
+                           "text": item["content"], "page": None, "score": 1.0}
+                          for item in shared.get("items", []) if item.get("kind") not in {"phrase", "case"} and item.get("nature") != "historical"]
         else:
             for search_kb_id in search_kb_ids:
                 candidates.extend(
