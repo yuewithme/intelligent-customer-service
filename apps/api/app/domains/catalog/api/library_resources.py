@@ -25,9 +25,24 @@ async def authorize_consumer(request: Request):
 @router.get("/api/library-export")
 async def export(request: Request, inventory: bool = True):
     await authorize_consumer(request)
-    from app.domains.catalog.services.library_export import export_content
+    from app.domains.catalog.services.library_export import export_content, export_search_documents
     from starlette.concurrency import run_in_threadpool
-    return await run_in_threadpool(export_content, inventory=inventory)
+    result = await run_in_threadpool(export_content, inventory=inventory)
+    result["search_documents"] = await export_search_documents(inventory=inventory)
+    if not inventory:
+        from app.domains.catalog.services.orchid_material_service import ORCHID_MATERIAL_ASSET
+        from app.domains.decisioning.services.agent_tools import _brand_service_facts
+        result["fixed_material"] = ORCHID_MATERIAL_ASSET
+        result["brand_facts"] = (await _brand_service_facts(call_id="migration", arguments={}, context=None)).data
+    return result
+
+
+@router.post("/api/library-export/freeze")
+async def freeze(request: Request):
+    await authorize_consumer(request)
+    from app.domains.catalog.services.library_export import freeze_content
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(freeze_content)
 
 
 @router.get("/api/library-resources")
