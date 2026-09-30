@@ -9,9 +9,8 @@ from app.shared.schemas.common import AppError, ErrorCode
 router = APIRouter()
 
 
-@router.get("/api/library-resources")
-async def resources(request: Request, query: str = ""):
-    if request.headers.get("X-App-Id") != "sales-review" or not 1 <= len(query.strip()) <= 500:
+async def authorize_consumer(request: Request):
+    if request.headers.get("X-App-Id") != "sales-review":
         raise AppError(ErrorCode.UNAUTHENTICATED, status_code=401)
     try:
         response = await request.app.state.platform_client.post(
@@ -21,6 +20,21 @@ async def resources(request: Request, query: str = ""):
             raise AppError(ErrorCode.PERMISSION_DENIED, status_code=403)
     except (httpx.HTTPError, ValueError):
         raise AppError(ErrorCode.INTERNAL_ERROR, "资料授权服务暂不可用", status_code=503) from None
+
+
+@router.get("/api/library-export")
+async def export(request: Request, inventory: bool = True):
+    await authorize_consumer(request)
+    from app.domains.catalog.services.library_export import export_content
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(export_content, inventory=inventory)
+
+
+@router.get("/api/library-resources")
+async def resources(request: Request, query: str = ""):
+    if request.headers.get("X-App-Id") != "sales-review" or not 1 <= len(query.strip()) <= 500:
+        raise AppError(ErrorCode.UNAUTHENTICATED, status_code=401)
+    await authorize_consumer(request)
     from app.domains.catalog.services.product_knowledge_service import list_product_knowledge, search_catalog_products
     from app.domains.sales.services.care_manual_service import test_match_care_manuals
     from app.domains.sales.services.activity_service import list_activities
