@@ -75,7 +75,7 @@ async def callback(request: Request, code: str = Query(min_length=32, max_length
             raise ValueError()
     except (ValueError, KeyError, TypeError):
         raise AppError(ErrorCode.UNAUTHENTICATED, "登录请求已失效，请从工作台重新进入", status_code=401) from None
-    result = await platform_request("/service/exchange", {"code": code, "verifier": flow["verifier"]})
+    result = await platform_request(request, "/service/exchange", {"code": code, "verifier": flow["verifier"]})
     account = result["account"]
     target = safe_target(flow["target"])
     if account["role"] != "admin" and urlsplit(target).path not in account["pages"]:
@@ -92,7 +92,7 @@ async def callback(request: Request, code: str = Query(min_length=32, max_length
 @router.delete("")
 async def logout(request: Request, response: Response):
     if token := request.cookies.get(COOKIE_NAME):
-        await platform_request("/service/logout", {"token": token})
+        await platform_request(request, "/service/logout", {"token": token})
     response.delete_cookie(COOKIE_NAME, path="/")
     response.delete_cookie("admin_gate", path="/")
     response.headers["Cache-Control"] = "no-store"

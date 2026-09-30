@@ -40,7 +40,7 @@ def context(monkeypatch, tmp_path):
                "role": "employee", "pages": ["/workbench"], "all_wechat": False, "wechat_ids": ["wx_allowed"]}
     state = {"account": account, "revoked": False, "calls": []}
 
-    async def remote(path, payload):
+    async def remote(request, path, payload):
         state["calls"].append((path, payload))
         if path == "/service/logout":
             state["revoked"] = True

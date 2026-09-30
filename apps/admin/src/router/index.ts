@@ -34,12 +34,15 @@ const router = createRouter({ history: createWebHistory(import.meta.env.BASE_URL
 
 router.beforeEach(async (to) => {
   if (to.meta.public) return true
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10000)
   try {
-    const response = await fetch('/api/gate', { credentials: 'same-origin' })
+    const response = await fetch('/api/gate', { credentials: 'same-origin', signal: controller.signal })
     if (response.status === 403) {
       clearGateRole()
       return '/no-access'
     }
+    if (!response.ok && response.status !== 401) throw new Error('身份服务暂不可用')
     const result = await response.json()
     const account = result?.data?.account
     if (result?.data?.unlocked && account) {
@@ -48,13 +51,17 @@ router.beforeEach(async (to) => {
       return firstAllowedPage()
     }
   } catch {
-    // Fall through to the gate page.
+    clearGateRole()
+    return { path: '/gate', query: { redirect: to.fullPath, error: 'connection' } }
+  } finally {
+    clearTimeout(timer)
   }
   clearGateRole()
   return { path: '/gate', query: { redirect: to.fullPath } }
 })
 
 router.afterEach((to) => {
+  void import('@/styles/fonts.css').catch(() => undefined)
   document.title = `${String(to.meta.title || '小兰工作台')} - 萧岚苑销售 Agent`
 })
 

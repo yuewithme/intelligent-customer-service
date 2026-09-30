@@ -9,14 +9,13 @@ COOKIE_NAME = "platform_session"
 APP_ID = "orchid-sales-agent"
 
 
-async def platform_request(path: str, payload: dict) -> dict:
+async def platform_request(request: Request, path: str, payload: dict) -> dict:
     settings = get_settings()
     if len(settings.platform_shared_secret) < 32:
         raise AppError(ErrorCode.INTERNAL_ERROR, "统一平台接入尚未配置，请联系管理员", status_code=503)
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.post(settings.platform_api_url.rstrip("/") + path, json=payload,
-                                         headers={"X-App-Id": APP_ID, "X-App-Key": settings.platform_shared_secret})
+        response = await request.app.state.platform_client.post(settings.platform_api_url.rstrip("/") + path, json=payload,
+                                                                headers={"X-App-Id": APP_ID, "X-App-Key": settings.platform_shared_secret})
         if response.status_code in (401, 403):
             raise AppError(ErrorCode.UNAUTHENTICATED if response.status_code == 401 else ErrorCode.PERMISSION_DENIED,
                            "登录已失效或应用权限已被撤销", status_code=response.status_code)
@@ -30,7 +29,7 @@ async def resolve_account(request: Request) -> dict | None:
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return None
-    return (await platform_request("/service/session", {"token": token}))["account"]
+    return (await platform_request(request, "/service/session", {"token": token}))["account"]
 
 
 async def stream_account(request: Request) -> dict | None:
