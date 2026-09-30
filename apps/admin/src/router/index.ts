@@ -9,7 +9,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/login', redirect: '/gate' },
   {
     path: '/',
-    component: SalesLayout,
+    component: libraryApp === 'product-knowledge' ? () => import('@/layouts/ProductLibraryLayout.vue') : SalesLayout,
     redirect: libraryApp ? libraryPages[libraryApp][0] : '/workbench',
     children: [
       { path: 'no-access', component: () => import('@/views/accounts/NoAccess.vue'), meta: { title: '暂无页面权限', public: true } },

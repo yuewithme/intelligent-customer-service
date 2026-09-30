@@ -1,0 +1,163 @@
+/* Match the existing sales-review template; scope tokens on html for teleported dialogs. */
+:root.product-library-review {
+  color-scheme: light;
+  --app-background: #f5f7f5;
+  --app-surface: #fcfdfc;
+  --app-surface-soft: #f5f7f5;
+  --app-text: #273b32;
+  --app-text-secondary: #66736a;
+  --review-secondary: #58665e;
+  --app-border: #e5eae5;
+  --app-accent: #237259;
+  --app-accent-soft: #edf5ef;
+  --review-accent-border: #d4e5da;
+  --review-shadow: 0 3px 12px rgb(41 74 52 / 2%);
+  --app-radius: 12px;
+  --el-font-size-base: 15px;
+  --el-font-size-small: 13px;
+  --el-text-color-primary: var(--app-text);
+  --el-text-color-regular: var(--review-secondary);
+  --el-text-color-secondary: var(--app-text-secondary);
+  --el-text-color-placeholder: var(--app-text-secondary);
+  --el-border-color: var(--app-border);
+  --el-border-color-light: var(--app-border);
+  --el-border-color-lighter: var(--app-border);
+  --el-border-color-extra-light: var(--app-border);
+  --el-border-color-dark: var(--review-accent-border);
+  --el-bg-color: var(--app-surface);
+  --el-bg-color-overlay: var(--app-surface);
+  --el-fill-color: var(--app-surface-soft);
+  --el-fill-color-light: var(--app-surface-soft);
+  --el-fill-color-lighter: var(--app-surface-soft);
+  --el-fill-color-extra-light: var(--app-surface-soft);
+  --el-fill-color-blank: var(--app-surface);
+  --el-color-primary-light-9: var(--app-accent-soft);
+  --el-color-primary-light-8: var(--review-accent-border);
+  --el-mask-color: rgb(245 247 245 / 85%);
+}
+:root.product-library-review[data-theme="dark"] {
+  color-scheme: dark;
+  --app-background: #141c18;
+  --app-surface: #1c2620;
+  --app-surface-soft: #202c24;
+  --app-text: #e1eae3;
+  --app-text-secondary: #9baaa0;
+  --review-secondary: #b5c3b8;
+  --app-border: #334139;
+  --app-accent: #8bcbaa;
+  --app-accent-soft: #263e30;
+  --review-accent-border: #3b5946;
+  --review-shadow: 0 3px 12px rgb(10 25 15 / 8%);
+  --el-color-primary-light-3: #75ae90;
+  --el-color-primary-light-5: #527a65;
+  --el-color-primary-light-7: #3b5946;
+  --el-color-primary-dark-2: #a0d7ba;
+  --el-color-success: #8bcbaa;
+  --el-color-success-light-9: #263e30;
+  --el-color-success-light-8: #3b5946;
+  --el-color-warning: #dfb977;
+  --el-color-warning-light-9: #3d3423;
+  --el-color-warning-light-8: #685637;
+  --el-color-danger: #ef9995;
+  --el-color-danger-light-9: #402b2a;
+  --el-color-danger-light-8: #70413e;
+  --el-color-info: #b5c3b8;
+  --el-color-info-light-8: #334139;
+  --el-mask-color: rgb(20 28 24 / 85%);
+}
+.review-library-shell { min-height: 100dvh; color: var(--app-text); background: var(--app-background); line-height: 1.5; }
+.review-library-shell a { text-decoration: none; }
+.review-topbar { min-height: 78px; display: flex; align-items: center; padding: 0 max(32px, calc((100vw - 1400px) / 2)); gap: 32px; border-bottom: 1px solid var(--app-border); background: var(--app-surface); }
+.review-brand { display: inline-flex; align-items: center; flex-shrink: 0; gap: 12px; font-size: 22px; font-weight: 600; letter-spacing: -.65px; white-space: nowrap; }
+.review-brand-mark { display: grid; place-items: center; width: 39px; height: 39px; color: var(--app-surface); background: var(--app-accent); border-radius: 11px; }
+.review-primary-nav { align-self: stretch; display: flex; align-items: stretch; gap: 24px; min-width: 0; overflow-x: auto; }
+.review-primary-nav a { display: flex; flex-shrink: 0; align-items: center; position: relative; gap: 9px; color: var(--review-secondary); white-space: nowrap; font-size: 17px; font-weight: 550; min-height: 54px; }
+.review-primary-nav a:hover, .review-primary-nav a.router-link-active { color: var(--app-accent); }
+.review-primary-nav a.router-link-active::after { content: ""; position: absolute; height: 3px; bottom: 0; left: 0; right: 0; border-radius: 3px 3px 0 0; background: var(--app-accent); }
+.review-account-nav { display: flex; align-items: center; gap: 17px; margin-left: auto; white-space: nowrap; font-size: 13px; }
+.review-account-nav a, .review-account-nav button { color: var(--review-secondary); }
+.review-account-nav button { display: inline-flex; align-items: center; justify-content: center; padding: 6px 4px; border: 0; background: transparent; cursor: pointer; font-size: 14px; }
+.review-account-nav button:hover, .review-account-nav a:hover { color: var(--app-accent); }
+.review-account-nav button:disabled { opacity: .5; cursor: not-allowed; }
+.review-workspace-wrap { max-width: 1344px; margin: 0 auto; padding: 25px 40px 0; }
+.review-breadcrumb { display: flex; align-items: center; gap: 12px; color: var(--app-text-secondary); font-size: 14px; }
+.review-page-heading { display: flex; justify-content: space-between; align-items: flex-end; margin: 32px 0 29px; gap: 24px; }
+.review-eyebrow { color: var(--app-accent); font-size: 13px; letter-spacing: 2px; font-weight: 600; margin-bottom: 11px; }
+.review-page-heading h1 { margin: 0; color: var(--app-text); font-size: 34px; line-height: 1.4; font-weight: 600; letter-spacing: -1.3px; }
+.review-page-heading p { color: var(--app-text-secondary); font-size: 15px; margin: 10px 0 0; line-height: 1.7; }
+.review-heading-aside { display: flex; flex-direction: column; gap: 9px; padding-bottom: 4px; text-align: right; color: var(--app-text-secondary); font-size: 14px; }
+.review-heading-aside span:last-child { font-size: 15px; }
+.review-project-context { display: flex; align-items: center; gap: 17px; padding: 16px 22px; min-height: 78px; border: 1px solid var(--app-border); background: var(--app-surface); border-radius: 13px; margin-bottom: 23px; }
+.review-project-symbol { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; color: var(--app-accent); background: var(--app-accent-soft); }
+.review-field-caption { display: block; margin-bottom: 4px; color: var(--app-text-secondary); font-size: 14px; }
+.review-project-context strong { font-size: 16px; font-weight: 550; }
+.review-context-note { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--review-secondary); font-size: 14px; }
+.review-context-note i { width: 5px; height: 5px; border-radius: 50%; background: var(--app-accent); }
+.review-alert { margin: 16px 0; }
+.review-page-footer { padding: 30px 0; color: var(--app-text-secondary); text-align: center; font-size: 12px; }
+.review-skip-link { position: fixed; top: 8px; left: 8px; z-index: 10; padding: 12px; background: var(--app-surface); transform: translateY(-150%); border: 1px solid var(--app-accent); border-radius: 8px; }
+.review-skip-link:focus { transform: translateY(0); }
+.product-library-review .review-content .content-wrap { max-width: none; min-height: 0; padding: 24px; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-surface); box-shadow: var(--review-shadow); }
+.product-library-review .review-content .page-head { align-items: center; margin-bottom: 20px; }
+.product-library-review .review-content .page-head h1,
+.product-library-review .review-content .page-head h2 { font-size: 18px; line-height: 1.5; letter-spacing: -.3px; font-weight: 600; }
+.product-library-review .review-content .page-head p { font-size: 15px; }
+.product-library-review .review-content .el-table { --el-table-header-bg-color: var(--app-surface-soft); --el-table-header-text-color: var(--review-secondary); --el-table-row-hover-bg-color: var(--app-accent-soft); border-color: var(--app-border); border-radius: 10px; font-size: 15px; }
+.product-library-review .el-table th.el-table__cell { font-size: 13px; padding: 12px 0; }
+.product-library-review .el-button { border-radius: 8px; }
+.product-library-review .el-button--primary:not(.is-plain, .is-text, .is-link) { --el-button-hover-bg-color: var(--el-color-primary-dark-2); --el-button-hover-border-color: var(--el-color-primary-dark-2); }
+.product-library-review[data-theme="dark"] .el-button--primary:not(.is-plain, .is-text, .is-link) { --el-button-text-color: #183324; --el-button-hover-text-color: #183324; }
+.product-library-review .el-input, .product-library-review .el-textarea { --el-input-focus-border-color: var(--app-accent); }
+.product-library-review .el-select__wrapper.is-focused { box-shadow: 0 0 0 1px var(--app-accent) inset; }
+.product-library-review .el-tabs__item { font-size: 15px; }
+.product-library-review .el-tabs__nav-wrap::after { height: 1px; }
+.product-library-review .el-dialog, .product-library-review .el-message-box { color: var(--app-text); background: var(--app-surface); border: 1px solid var(--app-border); border-radius: 16px; }
+.product-library-review .el-dialog__title { color: var(--app-text); font-size: 20px; }
+.product-library-review .review-content .summary,
+.product-library-review .review-content .sync-state,
+.product-library-review .review-content .sync-summary { color: var(--app-text-secondary); background: var(--app-surface-soft); border-color: var(--app-border); border-radius: 10px; }
+.product-library-review .review-content .stats-grid article { padding: 16px; background: var(--app-surface-soft); border-color: var(--app-border); }
+.product-library-review .review-content .stats-grid article.attention { background: var(--el-color-warning-light-9); border-color: var(--el-color-warning-light-8); }
+.product-library-review .review-content .summary strong,
+.product-library-review .review-content .sync-state strong,
+.product-library-review .review-content .stats-grid strong,
+.product-library-review .review-content .sku-panel > strong,
+.product-library-review .review-content .orchid-name { color: var(--app-text); }
+.product-library-review .review-content .sync-state span,
+.product-library-review .review-content .muted,
+.product-library-review .review-content .source-status,
+.product-library-review .review-content .card-head p,
+.product-library-review .review-content dt,
+.product-library-review .review-content .more,
+.product-library-review .field-help { color: var(--app-text-secondary); }
+.product-library-review .review-content .sync-state .warning { color: var(--el-color-warning); }
+.product-library-review .review-content .activity-card { background: var(--app-surface); border-color: var(--app-border); }
+.product-library-review .review-content .switches,
+.product-library-review .full-item { border-color: var(--app-border); }
+.product-library-review .edit-title { background: var(--app-surface-soft); }
+.product-library-review .edit-title small,
+.product-library-review .match-result small,
+.product-library-review .option-id { color: var(--app-text-secondary); }
+@media (max-width: 1500px) { .review-identity { display: none; } }
+@media (max-width: 1279px) {
+  .review-topbar { flex-wrap: wrap; gap: 16px; padding: 16px 28px 0; }
+  .review-primary-nav { order: 3; width: 100%; gap: 24px; }
+  .review-primary-nav a { min-height: 48px; font-size: 15px; }
+  .review-workspace-wrap { padding-left: 28px; padding-right: 28px; }
+}
+@media (max-width: 1023px) { .review-heading-aside { display: none; } }
+@media (max-width: 760px) {
+  .review-topbar { padding: 14px 16px 0; gap: 12px; }
+  .review-brand { font-size: 20px; gap: 8px; }
+  .review-brand-mark { width: 33px; height: 33px; }
+  .review-account-nav { gap: 12px; flex-wrap: wrap; }
+  .review-workspace-wrap { padding: 21px 16px 0; }
+  .review-breadcrumb { gap: 8px; font-size: 12px; }
+  .review-page-heading { margin: 28px 0 23px; }
+  .review-page-heading h1 { font-size: 28px; letter-spacing: -.9px; }
+  .review-page-heading p { font-size: 14px; max-width: 320px; line-height: 1.8; margin-top: 8px; }
+  .review-eyebrow { font-size: 12px; letter-spacing: 1.5px; }
+  .review-project-context { padding: 14px; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .review-context-note { width: 100%; margin-left: 0; border-top: 1px solid var(--app-border); padding-top: 12px; font-size: 13px; }
+  .product-library-review .review-content .content-wrap { padding: 16px; }
+}
