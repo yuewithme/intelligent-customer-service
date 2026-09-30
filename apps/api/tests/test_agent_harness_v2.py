@@ -36,6 +36,32 @@ def _message(text: str = "我想看看建兰") -> NormalizedMessage:
     )
 
 
+@pytest.mark.asyncio
+async def test_unified_knowledge_preserves_sources_without_legacy_empty_answer(monkeypatch):
+    from app.domains.knowledge.services import unified_library, rag_service
+    async def shared(*args):
+        return {'items': [{'id': 'entry-42', 'title': '浇水方法', 'source': '养护资料', 'content': '根据植料干湿浇水'}]}
+    async def legacy(*args, **kwargs):
+        return {'answer': '__HANDOFF__', 'sources': []}
+    monkeypatch.setattr(unified_library, 'search_library', shared)
+    monkeypatch.setattr(rag_service, 'answer_knowledge', legacy)
+    context = SimpleNamespace(message=_message(), user_state=None, sources=[])
+    result = await agent_tools._knowledge_search(call_id='knowledge', arguments={'query': '浇水'}, context=context)
+    assert result.status == 'found' and result.data['answer'] == ''
+    assert result.data['resources'][0]['id'] == 'entry-42'
+    assert context.sources[0]['doc_id'] == 'unified:entry-42'
+
+
+@pytest.mark.asyncio
+async def test_unified_phrase_outage_returns_valid_tool_status(monkeypatch):
+    from app.domains.knowledge.services import unified_library
+    async def unavailable(*args):
+        return {'items': [], 'unavailable': True}
+    monkeypatch.setattr(unified_library, 'search_library', unavailable)
+    result = await agent_tools._phrases_search(call_id='phrases', arguments={'query': '价格顾虑'}, context=None)
+    assert result.status == 'temporarily_unavailable'
+
+
 def _decision(
     *,
     tools=None,

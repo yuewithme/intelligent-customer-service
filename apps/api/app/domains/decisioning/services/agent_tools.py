@@ -521,9 +521,13 @@ async def _knowledge_search(*, call_id, arguments, context) -> AgentToolResult:
         policy_decision=None,
     )
     answer = str(result.get("answer") or "").strip()
-    if (not answer or answer in {"__HANDOFF__", "知识库中没有找到明确答案。"}) and not shared.get("items"):
-        return _result(call_id, "knowledge.search", "not_found")
+    if answer in {"__HANDOFF__", "知识库中没有找到明确答案。"}:
+        answer = ""
+    if not answer and not shared.get("items"):
+        return _result(call_id, "knowledge.search", "temporarily_unavailable" if shared.get("unavailable") else "not_found")
     sources = [source for source in result.get("sources", []) if isinstance(source, dict)]
+    sources.extend({"doc_id": "unified:" + item["id"], "file_name": item.get("source") or item["title"],
+                    "section": item["title"], "page": None} for item in shared.get("items", []))
     context.sources.extend(sources)
     return _result(call_id, "knowledge.search", "found", answer=answer, sources=sources[:5],
                    resources=shared.get("items", []), library_unavailable=bool(shared.get("unavailable")),
@@ -536,7 +540,7 @@ async def _phrases_search(*, call_id, arguments, context) -> AgentToolResult:
     if not query:
         return _result(call_id, "phrases.search", "invalid_arguments", error="query_required")
     shared = await search_library(query, "phrase")
-    return _result(call_id, "phrases.search", "unavailable" if shared.get("unavailable") else "found" if shared.get("items") else "not_found",
+    return _result(call_id, "phrases.search", "temporarily_unavailable" if shared.get("unavailable") else "found" if shared.get("items") else "not_found",
                    resources=shared.get("items", []), note=shared.get("note", ""))
 
 
