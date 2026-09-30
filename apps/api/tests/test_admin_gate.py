@@ -71,6 +71,35 @@ def test_old_credentials_and_account_management_removed(context):
     assert client.get("/api/v1/admin/conversations", headers={"Authorization": "Bearer service-only-key"}).status_code == 401
 
 
+def test_library_api_has_scoped_identity_and_preserves_read_only(context, monkeypatch):
+    client, state = context
+    from app.domains.catalog.api import admin_products
+    monkeypatch.setattr(admin_products, 'list_product_knowledge', lambda **kwargs: {'items': [{'id': 42}], 'total': 1})
+    state['account']['pages'] = ['/operations/products']
+    path = '/api/library/product-knowledge/v1/admin/products/knowledge'
+    headers = {'X-Library-Session': 'l' * 43}
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=headers).json()['data']['items'] == [{'id': 42}]
+    assert state['calls'][-1][0] == '/service/library-session'
+    assert client.delete(path + '/42', headers=headers).status_code == 403
+    assert client.get('/api/library/phrase-library/v1/admin/products/knowledge', headers=headers).status_code == 403
+    assert client.get('/api/library/product-knowledge/v1/admin/conversations', headers=headers).status_code == 403
+    state['account']['role'] = 'admin'
+    assert client.get('/api/v1/admin/products/knowledge').status_code == 403
+    state['revoked'] = True
+    assert client.get(path, headers=headers).status_code == 401
+
+
+def test_library_manual_selector_can_read_product_options_only(context, monkeypatch):
+    client, state = context
+    from app.domains.catalog.api import admin_products
+    monkeypatch.setattr(admin_products, 'list_product_options', lambda: [{'item_id': 'product-1'}])
+    state['account']['pages'] = ['/operations/care-manuals']
+    headers = {'X-Library-Session': 'l' * 43}
+    assert client.get('/api/library/product-knowledge/v1/admin/products/options', headers=headers).status_code == 200
+    assert client.get('/api/library/product-knowledge/v1/admin/products/knowledge', headers=headers).status_code == 403
+
+
 def test_login_callback_and_browser_binding(context):
     client, state = context
     client.cookies.clear()

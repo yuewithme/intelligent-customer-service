@@ -41,6 +41,12 @@ async def stream_account(request: Request) -> dict | None:
 
 async def platform_identity(request: Request, call_next):
     request.state.account = None
+    from app.domains.access.libraries import resolve_library
+    try:
+        if await resolve_library(request):
+            return await call_next(request)
+    except AppError as error:
+        return JSONResponse({"code": int(error.code), "message": error.message}, status_code=error.status_code)
     if request.url.path.startswith("/api/") and request.url.path not in ("/api/gate/login", "/api/gate/callback", "/api/gate/resources"):
         try:
             if request.method not in {"GET", "HEAD", "OPTIONS"} and COOKIE_NAME in request.cookies:

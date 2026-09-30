@@ -10,7 +10,7 @@
     <aside class="sidebar" :class="{ open: mobileNavOpen }">
       <RouterLink class="brand" :to="firstAllowedPage()" @click="closeMobileNav">
         <span class="brand-mark">兰</span>
-        <span><strong>小兰 Agent</strong><small>萧岚苑销售运营台</small></span>
+        <span><strong>{{ libraryApp ? libraryTitle : '小兰 Agent' }}</strong><small>{{ libraryApp ? '萧兰苑资料管理' : '萧岚苑销售运营台' }}</small></span>
       </RouterLink>
       <button class="nav-close" type="button" aria-label="关闭导航" @click="closeMobileNav">
         ×
@@ -44,6 +44,11 @@
             <span>{{ item.label }}</span>
           </RouterLink>
         </section>
+        <section><p>统一资料</p>
+          <a :href="`${portalOrigin}/product-knowledge/`">产品知识库</a>
+          <a :href="`${portalOrigin}/phrase-library/`">话术库</a>
+          <a :href="`${portalOrigin}/portal/workspace`">统一工作台</a>
+        </section>
       </nav>
       <div class="mobile-operator">
         <span v-if="testMode" class="test-badge">测试模式</span>
@@ -58,7 +63,7 @@
         </button>
         <div class="page-title">
           <strong>{{ currentTitle }}</strong>
-          <span>小兰自主销售 Agent 的实时运营与人工协作</span>
+          <span>{{ libraryApp ? '统一维护，供兰花与复盘共同使用' : '小兰自主销售 Agent 的实时运营与人工协作' }}</span>
         </div>
         <div v-if="showTenantSwitcher" class="tenant-switcher">
           <span class="tenant-label">小兰微信</span>
@@ -103,6 +108,7 @@ import { useUserStore } from '@/store/modules/user'
 import { clearGateRole, isTestGate, canViewPage, firstAllowedPage, isAdmin } from '@/utils/gate'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
 import type { ConversationTenant } from '@/api/admin/conversations'
+import { libraryApp, libraryPages, libraryTitle, migratedPages, portalOrigin } from '@/utils/library'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -164,11 +170,17 @@ const allNavigation = [
   }
 ]
 
-const navigation = computed(() => allNavigation.map(group => ({ ...group, items: group.items.filter(item => canViewPage(item.to)) })).filter(group => group.items.length))
+const navigation = computed(() => allNavigation.map(group => ({ ...group, items: group.items.filter(item => canViewPage(item.to) && (libraryApp ? libraryPages[libraryApp].includes(item.to) : !migratedPages[item.to])) })).filter(group => group.items.length))
 
 const logout = async () => {
   closeMobileNav()
-  const response = await fetch('/api/gate', { method: 'DELETE', credentials: 'same-origin' })
+  if (libraryApp) {
+    const cookie = document.cookie.split(';').map(value => value.trim()).find(value => value.startsWith('csrftoken='))
+    const response = await fetch(`/${libraryApp}/api/auth/logout`, { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': cookie ? decodeURIComponent(cookie.slice(10)) : '' } })
+    if (response.ok) { clearGateRole(); location.assign('/portal/workspace') }
+    return
+  }
+  const response = await fetch('/api/gate' , { method: 'DELETE', credentials: 'same-origin' })
   if (!response.ok) return
   const result = await response.json()
   clearGateRole()

@@ -71,6 +71,12 @@ CAPABILITIES = (
         "输入 {\"query\":\"需要核实的知识问题\"}。返回知识库答案和来源；资料不足时是 not_found，不能把答案扩写成疗效或养活承诺。",
     ),
     CapabilitySpec(
+        "phrases.search",
+        "tool",
+        ("话术", "表达", "异议", "塑品", "成交", "跟进"),
+        "输入 {\"query\":\"客户情境和表达目的\"}。从统一话术库查询启用的参考话术；示例里的价格、权益、活动和历史承诺必须另行核实，不能照搬。",
+    ),
+    CapabilitySpec(
         "product.search",
         "tool",
         ("商品", "产品", "购买", "选品", "价格", "库存", "兰苗", "会员", "陪伴养兰"),
@@ -309,6 +315,7 @@ async def execute_agent_tool(
         "customer.tag": _customer_tag,
         "brand.service_facts": _brand_service_facts,
         "knowledge.search": _knowledge_search,
+        "phrases.search": _phrases_search,
         "product.search": _product_search,
         "product.get": _product_get,
         "product.send_card": _product_send_card,
@@ -503,6 +510,9 @@ async def _knowledge_search(*, call_id, arguments, context) -> AgentToolResult:
     if not query:
         return _result(call_id, "knowledge.search", "invalid_arguments", error="query_required")
     from app.domains.knowledge.services.rag_service import answer_knowledge
+    from app.domains.knowledge.services.unified_library import search_library
+
+    shared = await search_library(query, "knowledge")
 
     knowledge_message = context.message.model_copy(update={"message": query})
     result = await answer_knowledge(
@@ -511,11 +521,23 @@ async def _knowledge_search(*, call_id, arguments, context) -> AgentToolResult:
         policy_decision=None,
     )
     answer = str(result.get("answer") or "").strip()
-    if not answer or answer in {"__HANDOFF__", "知识库中没有找到明确答案。"}:
+    if (not answer or answer in {"__HANDOFF__", "知识库中没有找到明确答案。"}) and not shared.get("items"):
         return _result(call_id, "knowledge.search", "not_found")
     sources = [source for source in result.get("sources", []) if isinstance(source, dict)]
     context.sources.extend(sources)
-    return _result(call_id, "knowledge.search", "found", answer=answer, sources=sources[:5])
+    return _result(call_id, "knowledge.search", "found", answer=answer, sources=sources[:5],
+                   resources=shared.get("items", []), library_unavailable=bool(shared.get("unavailable")),
+                   note=shared.get("note", ""))
+
+
+async def _phrases_search(*, call_id, arguments, context) -> AgentToolResult:
+    from app.domains.knowledge.services.unified_library import search_library
+    query = _text(arguments.get("query"), maximum=500)
+    if not query:
+        return _result(call_id, "phrases.search", "invalid_arguments", error="query_required")
+    shared = await search_library(query, "phrase")
+    return _result(call_id, "phrases.search", "unavailable" if shared.get("unavailable") else "found" if shared.get("items") else "not_found",
+                   resources=shared.get("items", []), note=shared.get("note", ""))
 
 
 async def _product_search(*, call_id, arguments, context) -> AgentToolResult:

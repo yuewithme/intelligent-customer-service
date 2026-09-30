@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { libraryApp, libraryPages } from './library'
 
 export type GateRole = 'admin' | 'test' | 'employee'
 export interface Account {
@@ -18,5 +19,7 @@ export const setAccount = (account: Account) => { currentAccount.value = account
 export const clearGateRole = () => { currentAccount.value = null }
 export const isTestGate = () => getGateRole() === 'test'
 export const isAdmin = () => getGateRole() === 'admin'
-export const canViewPage = (path: string) => isAdmin() || Boolean(currentAccount.value?.pages.includes(path))
-export const firstAllowedPage = () => isAdmin() ? '/workbench' : currentAccount.value?.pages[0] || '/no-access'
+export const canViewPage = (path: string) => (!libraryApp && isAdmin()) || Boolean(currentAccount.value?.pages.includes(path))
+export const firstAllowedPage = () => libraryApp
+  ? libraryPages[libraryApp].find(canViewPage) || '/no-access'
+  : isAdmin() ? '/workbench' : currentAccount.value?.pages[0] || '/no-access'

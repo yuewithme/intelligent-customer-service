@@ -61,6 +61,25 @@ def check_customer(account: dict, user_id: str):
 
 
 async def authorize_account(request: Request, account: dict, mode: str):
+    from app.domains.access.libraries import library_page
+    path = request.url.path.rstrip("/")
+    safe = request.method.upper() in SAFE_METHODS
+    library = getattr(request.state, "library_app", None)
+    if library:
+        page = library_page(path, library)
+        product_options = safe and path == "/api/v1/admin/products/options" and "/operations/care-manuals" in account["pages"]
+        if not product_options and (page is None or page not in account["pages"]):
+            deny()
+        if path.endswith(("/send", "/from-messages")):
+            deny("请在兰花工作台执行会话操作")
+        if account["role"] != "admin" and (not safe or path.endswith("/send-logs")):
+            deny("此页面仅授予观看权限，修改需要管理员")
+        return
+    if library_page(path):
+        workbench_read = safe and path in ("/api/v1/admin/care-manuals", "/api/v1/admin/activities")
+        workbench_action = request.method == "POST" and path.startswith("/api/v1/admin/activities/") and path.endswith(("/send", "/from-messages"))
+        if not ((workbench_read or workbench_action) and (account["role"] == "admin" or "/workbench" in account["pages"])):
+            deny("此资料已迁入统一资料库，请从统一平台进入")
     if account["role"] == "admin":
         return
     path = request.url.path.rstrip("/")

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import SalesLayout from '@/layouts/SalesLayout.vue'
 import { clearGateRole, setAccount, canViewPage, firstAllowedPage } from '@/utils/gate'
+import { libraryApp, libraryBase, libraryPages, libraryTitle, libraryLogin, apiUrl, migratedPages, portalOrigin } from '@/utils/library'
 
 const routes: RouteRecordRaw[] = [
   { path: '/demo-chat', component: () => import('@/views/demo-chat/index.vue'), meta: { public: true } },
@@ -9,7 +10,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: SalesLayout,
-    redirect: '/workbench',
+    redirect: libraryApp ? libraryPages[libraryApp][0] : '/workbench',
     children: [
       { path: 'no-access', component: () => import('@/views/accounts/NoAccess.vue'), meta: { title: '暂无页面权限', public: true } },
       { path: 'workbench', component: () => import('@/views/workbench/index.vue'), meta: { title: '小兰工作台' } },
@@ -30,14 +31,21 @@ const routes: RouteRecordRaw[] = [
   { path: '/:pathMatch(.*)*', redirect: '/workbench' }
 ]
 
-const router = createRouter({ history: createWebHistory(import.meta.env.BASE_URL), routes })
+const router = createRouter({ history: createWebHistory(libraryBase || import.meta.env.BASE_URL), routes })
 
 router.beforeEach(async (to) => {
+  const owner = migratedPages[to.path]
+  const activityPicker = to.path === '/knowledge-ops/current-activities' && Boolean(to.query.conversation_id)
+  if (!libraryApp && owner && !activityPicker) {
+    location.replace(`${portalOrigin}/${owner}/lanhua${to.fullPath}`)
+    return false
+  }
+  if (libraryApp && to.path !== '/no-access' && !libraryPages[libraryApp].includes(to.path)) return '/no-access'
   if (to.meta.public) return true
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 10000)
   try {
-    const response = await fetch('/api/gate', { credentials: 'same-origin', signal: controller.signal })
+    const response = await fetch(apiUrl('/api/gate'), { credentials: 'same-origin', signal: controller.signal })
     if (response.status === 403) {
       clearGateRole()
       return '/no-access'
@@ -52,17 +60,19 @@ router.beforeEach(async (to) => {
     }
   } catch {
     clearGateRole()
+    if (libraryApp) return '/no-access'
     return { path: '/gate', query: { redirect: to.fullPath, error: 'connection' } }
   } finally {
     clearTimeout(timer)
   }
   clearGateRole()
+  if (libraryApp) { location.replace(libraryLogin()); return false }
   return { path: '/gate', query: { redirect: to.fullPath } }
 })
 
 router.afterEach((to) => {
   void import('@/styles/fonts.css').catch(() => undefined)
-  document.title = `${String(to.meta.title || '小兰工作台')} - 萧岚苑销售 Agent`
+  document.title = `${String(to.meta.title || '小兰工作台')} - ${libraryApp ? libraryTitle : '萧岚苑销售 Agent'}`
 })
 
 export default router

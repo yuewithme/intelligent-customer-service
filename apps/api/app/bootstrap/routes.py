@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from app.domains.access.api import admin_gate
-from app.domains.catalog.api import admin_products
+from app.domains.catalog.api import admin_products, library_resources
 from app.domains.conversations.api import (
     admin_conversations,
     admin_logs,
@@ -28,6 +28,7 @@ from app.integrations.youzan.api import admin_youzan, youzan
 
 
 ROUTERS = (
+    library_resources.router,
     admin_activities.router,
     admin_care_manuals.router,
     admin_conversations.router,

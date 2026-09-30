@@ -1,10 +1,20 @@
 import axios, { type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import { clearGateRole } from '@/utils/gate'
+import { apiUrl, libraryApp, libraryLogin } from '@/utils/library'
 
 const client = axios.create({
   baseURL: import.meta.env.VITE_BASE_URL || '',
   timeout: Number(import.meta.env.VITE_REQUEST_TIMEOUT || 180000)
+})
+
+client.interceptors.request.use((config) => {
+  if (libraryApp) {
+    config.url = apiUrl(config.url || '')
+    const cookie = document.cookie.split(';').map(value => value.trim()).find(value => value.startsWith('csrftoken='))
+    if (cookie) config.headers.set('X-CSRFToken', decodeURIComponent(cookie.slice('csrftoken='.length)))
+  }
+  return config
 })
 
 client.interceptors.response.use(
@@ -17,6 +27,7 @@ client.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       clearGateRole()
+      if (libraryApp) { window.location.replace(libraryLogin()); return Promise.reject(error) }
       if (window.location.pathname !== '/demo-chat' && window.location.pathname !== '/gate') window.location.replace(`/gate?redirect=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`)
     }
     ElMessage.error(error.response?.data?.message || error.message || '网络请求失败')
