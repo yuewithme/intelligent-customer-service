@@ -31,3 +31,12 @@ class CareManualMatchRequest(BaseModel):
     @classmethod
     def clean_text(cls, value: str) -> str:
         return value.strip()
+
+
+class CareManualProductLinkRequest(BaseModel):
+    card_id: int = Field(gt=0)
+    youzan_item_id: str = Field(min_length=1, max_length=128)
+
+
+class CareManualBatchLinkRequest(BaseModel):
+    links: list[CareManualProductLinkRequest] = Field(min_length=1, max_length=5000)

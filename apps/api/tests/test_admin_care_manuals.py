@@ -180,7 +180,7 @@ async def test_sync_edit_and_match_preserve_manual_configuration(monkeypatch, tm
     assert edited["product_links"][0]["youzan_item_id"] == "1001"
     assert edited["sort_order"] == -10
     assert missing["youzan_status"] == "missing"
-    assert refreshed["stats"] == {"active": 1, "disabled": 1, "unbound": 0}
+    assert refreshed["stats"] == {"active": 1, "disabled": 1, "unbound": 0, "product_unbound": 1}
 
 
 @pytest.mark.asyncio
@@ -229,3 +229,126 @@ async def test_admin_api_lists_edits_and_tests_match(monkeypatch, tmp_path):
     assert matched.status_code == 200
     assert matched.json()["data"]["decision"] == "unique"
     assert matched.json()["data"]["matches"][0]["match_type"] == "exact_alias"
+
+
+@pytest.mark.asyncio
+async def test_batch_product_links_preview_save_and_preserve_configuration(monkeypatch, tmp_path):
+    from app.main import app
+
+    _configure(monkeypatch, tmp_path)
+    await sync_youzan_products(client=FakeProductClient())
+    await sync_care_manuals(client=FakeCareManualClient())
+    client = TestClient(app)
+    suggestions = client.get("/api/v1/admin/care-manuals/product-links/suggestions")
+    assert suggestions.status_code == 200
+    candidate = suggestions.json()["data"]["items"][0]
+    assert candidate["matched_name"] == "玉白丹红"
+    assert candidate["ambiguous"] is False
+    assert list_care_manuals(match_status="product_unbound")["total"] == 2
+
+    payload = {"links": [{"card_id": candidate["card_id"], "youzan_item_id": "1001"}]}
+    invalid = client.post(
+        "/api/v1/admin/care-manuals/product-links/batch",
+        json={"links": [*payload["links"], {"card_id": candidate["card_id"], "youzan_item_id": "missing"}]},
+    )
+    assert invalid.status_code == 409
+    assert list_care_manuals(match_status="product_bound")["total"] == 0
+    saved = client.post("/api/v1/admin/care-manuals/product-links/batch", json=payload)
+    repeated = client.post("/api/v1/admin/care-manuals/product-links/batch", json=payload)
+    assert saved.status_code == repeated.status_code == 200
+    assert saved.json()["data"] == {"created_count": 1, "manual_count": 1}
+    assert repeated.json()["data"]["created_count"] == 0
+    assert client.get("/api/v1/admin/care-manuals/product-links/suggestions").json()["data"]["items"] == []
+
+    await sync_care_manuals(client=FakeCareManualClient())
+    linked = list_care_manuals(match_status="product_bound")
+    assert linked["total"] == 1
+    assert linked["stats"]["product_unbound"] == 1
+    assert linked["items"][0]["product_links"] == [{"youzan_item_id": "1001", "product_name": "建兰玉白丹红 3苗带盆"}]
+    matched = match_care_manuals(youzan_item_id="1001")
+    assert matched["auto_send_eligible"] is True
+    assert matched["matches"][0]["card_id"] == candidate["card_id"]
+    assert matched["matches"][0]["match_type"] == "exact_product"
+
+
+@pytest.mark.asyncio
+async def test_product_suggestions_flag_conflicts_and_skip_unavailable(monkeypatch, tmp_path):
+    from app.infrastructure.database.models import CareManualCardModel, CareManualProductLinkModel, YouzanProductModel
+    from app.domains.sales.services.care_manual_service import (
+        _session, add_care_manual_product_links, suggest_care_manual_product_links,
+    )
+
+    _configure(monkeypatch, tmp_path)
+    await sync_youzan_products(client=FakeProductClient())
+    await sync_care_manuals(client=FakeCareManualClient())
+    with _session() as session:
+        cards = session.query(CareManualCardModel).order_by(CareManualCardModel.id).all()
+        first_id, second_id = cards[0].id, cards[1].id
+        cards[0].card_description = "保留已关联手册配置"
+        cards[0].sort_order = 8
+        cards[1].aliases_json = '["玉白丹红"]'
+        cards[1].card_description = "保留人工配置"
+        cards[1].sort_order = -10
+        product = session.query(YouzanProductModel).first()
+        product.title = "【玉白丹红】3苗带盆"
+        product.status = "off_shelf"
+        session.commit()
+
+    suggestions = suggest_care_manual_product_links()["items"]
+    assert len(suggestions) == 2
+    assert all(item["ambiguous"] for item in suggestions)
+    assert all(item["matched_name"] == "玉白丹红" for item in suggestions)
+    add_care_manual_product_links([{"card_id": first_id, "youzan_item_id": "1001"}])
+    remaining = suggest_care_manual_product_links()["items"]
+    assert len(remaining) == 1 and remaining[0]["ambiguous"] is True
+
+    with _session() as session:
+        session.get(CareManualCardModel, second_id).enabled = False
+        session.commit()
+    assert suggest_care_manual_product_links()["items"] == []
+    with pytest.raises(ValueError, match="停用"):
+        add_care_manual_product_links([{"card_id": second_id, "youzan_item_id": "1001"}])
+    with _session() as session:
+        product = session.query(YouzanProductModel).first()
+        product.status = "missing"
+        session.commit()
+    with pytest.raises(ValueError, match="商品已失效"):
+        add_care_manual_product_links([{"card_id": first_id, "youzan_item_id": "1001"}])
+    refreshed = list_care_manuals()["items"]
+    first = next(item for item in refreshed if item["id"] == first_id)
+    assert first["card_description"] == "保留已关联手册配置"
+    assert first["sort_order"] == 8
+    second = next(item for item in refreshed if item["id"] == second_id)
+    assert second["card_description"] == "保留人工配置"
+    assert second["sort_order"] == -10
+    with _session() as session:
+        first = session.get(CareManualCardModel, first_id)
+        first.orchid_name = "建兰夏皇梅\\夏黄梅"
+        product = session.query(YouzanProductModel).first()
+        product.title = "建兰【夏黄梅】浓香好养"
+        product.status = "on_sale"
+        session.query(CareManualProductLinkModel).delete()
+        session.commit()
+    assert suggest_care_manual_product_links()["items"][0]["matched_name"] == "夏黄梅"
+
+
+@pytest.mark.asyncio
+async def test_product_suggestions_use_variety_name_instead_of_marketing_text(monkeypatch, tmp_path):
+    from app.infrastructure.database.models import YouzanProductModel
+    from app.domains.sales.services.care_manual_service import _session, suggest_care_manual_product_links
+
+    _configure(monkeypatch, tmp_path)
+    await sync_youzan_products(client=FakeProductClient())
+    await sync_care_manuals(client=FakeCareManualClient())
+    for title, expected in [
+        ("春兰【红宋梅】浓香好养", []),
+        ("建兰【宋梅】浓香好养", []),
+        ("春兰【大富贵】与宋梅并称经典", []),
+        ("【春兰】宋梅 经典梅瓣", ["春兰宋梅"]),
+        ("【建兰玉白丹红】3苗带盆", ["建兰玉白丹红"]),
+    ]:
+        with _session() as session:
+            session.query(YouzanProductModel).first().title = title
+            session.commit()
+        suggestions = suggest_care_manual_product_links()["items"]
+        assert [item["title"].split("】")[0].lstrip("【") for item in suggestions] == expected

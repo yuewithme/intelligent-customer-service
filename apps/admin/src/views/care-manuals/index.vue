@@ -3,15 +3,18 @@
     <div class="page-head">
       <div>
         <h1>养护手册</h1>
-        <p>同步有赞已发布的“养护注意事项”笔记，只管理卡片元数据，不读取或写入笔记正文。</p>
+        <p>关联商品后，可按客户购买的商品匹配对应养护手册并发送卡片。</p>
       </div>
-      <ElButton v-if="isAdmin()" type="primary" :loading="syncing" @click="runSync">立即同步</ElButton>
+      <div v-if="isAdmin()" class="head-actions">
+        <ElButton type="primary" @click="openProductSuggestions">批量关联商品</ElButton>
+        <ElButton :loading="syncing" @click="runSync">立即同步</ElButton>
+      </div>
     </div>
 
     <div class="stats-grid">
       <article><span>有效手册</span><strong>{{ stats.active }}</strong><small>已启用且有赞已发布</small></article>
       <article><span>停用手册</span><strong>{{ stats.disabled }}</strong><small>人工停用或来源不可用</small></article>
-      <article :class="{ attention: stats.unbound > 0 }"><span>未绑定品种</span><strong>{{ stats.unbound }}</strong><small>需要补充标准兰花名称</small></article>
+      <article :class="{ attention: stats.product_unbound > 0 }"><span>未关联商品</span><strong>{{ stats.product_unbound }}</strong><small>关联后可按商品精确匹配手册</small></article>
       <article><span>最近同步</span><strong class="sync-label">{{ syncStatusText }}</strong><small>{{ lastSyncText }}</small></article>
     </div>
 
@@ -41,6 +44,8 @@
         <ElOption label="已停用" value="false" />
       </ElSelect>
       <ElSelect v-model="matchStatus" clearable placeholder="全部匹配状态" @change="applyFilters">
+        <ElOption label="已关联商品" value="product_bound" />
+        <ElOption label="未关联商品" value="product_unbound" />
         <ElOption label="已绑定品种" value="bound" />
         <ElOption label="未绑定品种" value="unbound" />
       </ElSelect>
@@ -80,6 +85,9 @@
             </ElTag>
           </div>
           <span v-else class="muted">未关联</span>
+          <ElButton v-if="isAdmin()" link type="primary" @click="openEdit(scope.row)">
+            {{ scope.row.product_links.length ? '管理关联' : '关联商品' }}
+          </ElButton>
         </template>
       </ElTableColumn>
       <ElTableColumn label="状态" width="120">
@@ -129,8 +137,8 @@
           </ElSelect>
         </ElFormItem>
         <ElFormItem label="关联有赞商品">
-          <ElSelect v-model="form.youzan_item_ids" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择已同步商品">
-            <ElOption v-for="product in productOptions" :key="product.item_id" :label="product.title" :value="product.item_id">
+          <ElSelect v-model="form.youzan_item_ids" multiple filterable collapse-tags collapse-tags-tooltip :loading="productsLoading" placeholder="搜索商品名称或 ID，可关联多个商品">
+            <ElOption v-for="product in productOptions" :key="product.item_id" :label="`${product.title}（${product.item_id}）`" :value="product.item_id">
               <span>{{ product.title }}</span><small class="option-id">ID {{ product.item_id }}</small>
             </ElOption>
           </ElSelect>
@@ -151,6 +159,34 @@
       <template #footer>
         <ElButton @click="editVisible = false">取消</ElButton>
         <ElButton type="primary" :loading="saving" @click="saveEdit">保存</ElButton>
+      </template>
+    </ElDialog>
+
+    <ElDialog v-model="productsVisible" title="按品种批量关联商品" width="960px" destroy-on-close :close-on-click-modal="!linking" :close-on-press-escape="!linking" :show-close="!linking">
+      <ElAlert title="按品种名、简称和别名匹配全部已同步商品，仅新增关联。多本手册匹配同一商品时，请核对后单独勾选。" type="info" :closable="false" show-icon />
+      <div class="suggestion-summary">
+        <span>共 {{ productSuggestions.length }} 条候选，{{ conflictCount }} 条存在冲突，已选 {{ selectedProductLinks.length }} 条</span>
+        <ElButton :disabled="linking" :loading="suggesting" @click="loadProductSuggestions">重新匹配</ElButton>
+      </div>
+      <ElTable v-loading="suggesting" :data="productSuggestions" max-height="460">
+        <ElTableColumn label="关联" width="65">
+          <template #default="scope">
+            <ElCheckbox v-model="scope.row.selected" :disabled="linking" :aria-label="`关联 ${scope.row.title} 与 ${scope.row.product_name}`" />
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="养护手册" prop="title" min-width="240" />
+        <ElTableColumn label="匹配商品" min-width="280">
+          <template #default="scope"><strong>{{ scope.row.product_name }}</strong><small class="source-status">ID {{ scope.row.youzan_item_id }}</small></template>
+        </ElTableColumn>
+        <ElTableColumn label="匹配品种" prop="matched_name" min-width="120" />
+        <ElTableColumn label="核对" width="110">
+          <template #default="scope"><ElTag :type="scope.row.ambiguous ? 'warning' : 'success'">{{ scope.row.ambiguous ? '多手册冲突' : '唯一匹配' }}</ElTag></template>
+        </ElTableColumn>
+        <template #empty><ElEmpty description="暂无新增匹配；可同步商品、补充品种别名或逐本手动关联" /></template>
+      </ElTable>
+      <template #footer>
+        <ElButton :disabled="linking" @click="productsVisible = false">取消</ElButton>
+        <ElButton type="primary" :loading="linking" :disabled="suggesting || !selectedProductLinks.length" @click="saveProductLinks">保存 {{ selectedProductLinks.length }} 条关联</ElButton>
       </template>
     </ElDialog>
 
@@ -191,6 +227,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProductOptions, type ProductOption } from '@/api/admin/products'
 import {
+  addCareManualProductLinks,
+  getCareManualProductSuggestions,
   getCareManuals,
   syncCareManuals,
   testCareManualMatch,
@@ -198,18 +236,26 @@ import {
   type CareManualItem,
   type CareManualMatchResult,
   type CareManualPayload,
+  type CareManualProductSuggestion,
   type CareManualSyncRun
 } from '@/api/admin/careManuals'
 
 const items = ref<CareManualItem[]>([])
 const productOptions = ref<ProductOption[]>([])
+const productsLoading = ref(false)
+const productsVisible = ref(false)
+const suggesting = ref(false)
+const linking = ref(false)
+const productSuggestions = ref<Array<CareManualProductSuggestion & { selected: boolean }>>([])
+const selectedProductLinks = computed(() => productSuggestions.value.filter(item => item.selected))
+const conflictCount = computed(() => productSuggestions.value.filter(item => item.ambiguous).length)
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(50)
 const keyword = ref('')
 const enabledFilter = ref('')
 const matchStatus = ref('')
-const stats = reactive({ active: 0, disabled: 0, unbound: 0 })
+const stats = reactive({ active: 0, disabled: 0, unbound: 0, product_unbound: 0 })
 const lastSync = ref<CareManualSyncRun | null>(null)
 const loading = ref(false)
 const syncing = ref(false)
@@ -246,8 +292,37 @@ const loadManuals = async () => {
   } finally { loading.value = false }
 }
 
-const loadProductOptions = async () => { productOptions.value = await getProductOptions() }
+const loadProductOptions = async () => {
+  productsLoading.value = true
+  try { productOptions.value = await getProductOptions() } finally { productsLoading.value = false }
+}
 const applyFilters = () => { page.value = 1; void loadManuals() }
+
+const loadProductSuggestions = async () => {
+  suggesting.value = true
+  productSuggestions.value = []
+  try {
+    const result = await getCareManualProductSuggestions()
+    productSuggestions.value = result.items.map(item => ({ ...item, selected: !item.ambiguous }))
+  } finally { suggesting.value = false }
+}
+
+const openProductSuggestions = () => {
+  productsVisible.value = true
+  void loadProductSuggestions()
+}
+
+const saveProductLinks = async () => {
+  linking.value = true
+  try {
+    const result = await addCareManualProductLinks(selectedProductLinks.value.map(item => ({
+      card_id: item.card_id, youzan_item_id: item.youzan_item_id
+    })))
+    ElMessage.success(`已为 ${result.manual_count} 本手册新增 ${result.created_count} 条商品关联`)
+    productsVisible.value = false
+    await loadManuals()
+  } finally { linking.value = false }
+}
 
 const runSync = async () => {
   syncing.value = true
@@ -269,6 +344,7 @@ const openEdit = (item: CareManualItem) => {
     enabled: item.enabled, match_keywords: [...item.match_keywords]
   })
   editVisible.value = true
+  void loadProductOptions()
 }
 
 const saveEdit = async () => {
@@ -286,6 +362,7 @@ const openMatchDialog = (item?: CareManualItem) => {
   matchResult.value = null
   Object.assign(matchForm, { query: item?.orchid_name || '', product_name: '', youzan_item_id: item?.product_links[0]?.youzan_item_id || '', limit: 5 })
   matchVisible.value = true
+  void loadProductOptions()
 }
 
 const runMatch = async () => {
@@ -298,10 +375,12 @@ const runMatch = async () => {
 
 const matchTypeText = (value: string) => ({ exact_product: '商品精确关联', exact_orchid: '标准品种精确', exact_alias: '人工别名精确', keyword: '人工关键词', candidate: '模糊候选' }[value] || value)
 
-onMounted(async () => { await Promise.all([loadManuals(), isAdmin() ? loadProductOptions() : Promise.resolve()]) })
+onMounted(() => void loadManuals())
 </script>
 
 <style scoped>
+.head-actions, .suggestion-summary { display: flex; align-items: center; gap: 10px; }
+.suggestion-summary { justify-content: space-between; margin: 16px 0; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .stats-grid article { padding: 20px; background: var(--app-surface); border: 1px solid var(--app-border); border-radius: 12px; }
 .stats-grid article.attention { background: #fffaf0; border-color: #efd8a8; }
@@ -319,6 +398,7 @@ onMounted(async () => { await Promise.all([loadManuals(), isAdmin() ? loadProduc
 .image-fallback { display: grid; width: 100%; height: 100%; place-items: center; color: #9aaba5; font-size: 13px; }
 .orchid-name { color: #254f42; }
 .tag-list, .product-links { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.product-links { margin-bottom: 5px; }
 .muted, .source-status { color: #899792; }
 .source-status { margin-top: 7px; font-size: 13px; }
 .pagination { display: flex; justify-content: flex-end; padding-top: 18px; }

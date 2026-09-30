@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.domains.sales.schemas.care_manual import CareManualMatchRequest, CareManualUpdateRequest
+from app.domains.sales.schemas.care_manual import (
+    CareManualBatchLinkRequest,
+    CareManualMatchRequest,
+    CareManualUpdateRequest,
+)
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.sales.services.care_manual_service import (
+    add_care_manual_product_links,
     get_care_manual,
     list_care_manuals,
+    suggest_care_manual_product_links,
     sync_care_manuals,
     test_match_care_manuals,
     update_care_manual,
@@ -26,7 +32,7 @@ async def care_manuals(
     keyword: str | None = None,
     enabled: bool | None = None,
     match_status: str | None = Query(
-        default=None, pattern="^(bound|unbound)?$"
+        default=None, pattern="^(bound|unbound|product_bound|product_unbound)?$"
     ),
 ) -> APIResponse:
     return APIResponse(
@@ -60,6 +66,22 @@ async def test_match(request: CareManualMatchRequest) -> APIResponse:
         message="success",
         data=test_match_care_manuals(**request.model_dump()),
     )
+
+
+@router.get("/product-links/suggestions", response_model=APIResponse)
+async def product_link_suggestions() -> APIResponse:
+    return APIResponse(code=0, message="success", data=suggest_care_manual_product_links())
+
+
+@router.post("/product-links/batch", response_model=APIResponse)
+async def batch_link_products(request: CareManualBatchLinkRequest) -> APIResponse:
+    try:
+        result = add_care_manual_product_links(
+            [link.model_dump() for link in request.links]
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return APIResponse(code=0, message="success", data=result)
 
 
 @router.get("/{card_id}", response_model=APIResponse)

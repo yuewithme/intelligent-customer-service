@@ -8,6 +8,7 @@ from functools import lru_cache
 from typing import Any
 
 from sqlalchemy import create_engine, delete, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -27,6 +28,7 @@ from app.integrations.youzan.services.youzan_token_service import (
 
 CARE_MANUAL_TITLE_MARKER = "养护注意事项"
 _PUBLISHED_STATUSES = {"published", "publish", "online", "on", "1", "true"}
+_ORCHID_CATEGORIES = ("莲瓣兰", "建兰", "春兰", "蕙兰", "墨兰", "寒兰", "春剑", "秋芝", "送春", "兰花")
 _TABLES = [
     CareManualCardModel.__table__,
     CareManualProductLinkModel.__table__,
@@ -91,6 +93,11 @@ def list_care_manuals(
                     CareManualCardModel.orchid_name == "",
                 )
             )
+        elif match_status in {"product_bound", "product_unbound"}:
+            has_products = CareManualCardModel.id.in_(
+                select(CareManualProductLinkModel.care_manual_card_id)
+            )
+            filters.append(has_products if match_status == "product_bound" else ~has_products)
 
         query = (
             select(CareManualCardModel)
@@ -112,6 +119,7 @@ def list_care_manuals(
             or 0
         )
         all_rows = list(session.scalars(select(CareManualCardModel).where(*base_filters)))
+        linked_card_ids = set(session.scalars(select(CareManualProductLinkModel.care_manual_card_id)))
         latest = session.scalar(
             select(CareManualSyncRunModel).order_by(CareManualSyncRunModel.id.desc())
         )
@@ -124,6 +132,7 @@ def list_care_manuals(
                 "active": sum(_is_available(row) for row in all_rows),
                 "disabled": sum(not _is_available(row) for row in all_rows),
                 "unbound": sum(not (row.orchid_name or "").strip() for row in all_rows),
+                "product_unbound": sum(row.id not in linked_card_ids for row in all_rows),
             },
             "last_sync": _serialize_sync_run(latest),
         }
@@ -184,6 +193,136 @@ def update_care_manual(card_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         session.commit()
         session.refresh(row)
         return _serialize_card(row, _links_by_card(session, [card_id]).get(card_id, []))
+
+
+def _product_variety_names(title: str) -> tuple[str, set[str]]:
+    title = unicodedata.normalize("NFKC", title).replace("连瓣兰", "莲瓣兰")
+    bracket = re.search(r"【([^】]+)】|\[([^\]]+)\]", title)
+    if bracket:
+        label = (bracket.group(1) or bracket.group(2)).strip()
+        prefix = title[:bracket.start()].strip()
+        suffix = title[bracket.end():].strip()
+        if label in _ORCHID_CATEGORIES:
+            sources = [suffix.split()[0]] if suffix else []
+        elif any(marker in label for marker in ("会员", "专用", "专属", "团购", "组合装")):
+            sources = [prefix, suffix.split()[0] if suffix else ""]
+        else:
+            sources = [label, prefix]
+        category_source = prefix + label
+    else:
+        sources = [title.split()[0]] if title.strip() else []
+        category_source = sources[0] if sources else ""
+    category = next((name for name in _ORCHID_CATEGORIES if name != "兰花" and name in category_source), "")
+    names = set()
+    for source in sources:
+        for name in re.split(r"[\s+＋/\\、，,]+", source):
+            name = re.split(r"\d", name, maxsplit=1)[0]
+            name = next((name[len(prefix):] for prefix in _ORCHID_CATEGORIES if name.startswith(prefix)), name)
+            if len(_normalize(name)) >= 2:
+                names.add(_normalize(name))
+    return category, names
+
+
+def suggest_care_manual_product_links() -> dict[str, Any]:
+    with _session() as session:
+        cards = [
+            row for row in session.scalars(
+                select(CareManualCardModel).order_by(CareManualCardModel.id)
+            ) if _is_available(row)
+        ]
+        links = _links_by_card(session, [card.id for card in cards])
+        existing = {
+            (card_id, link.youzan_item_id)
+            for card_id, card_links in links.items() for link in card_links
+        }
+        terms: dict[int, list[str]] = {}
+        for card in cards:
+            names = [
+                name.strip()
+                for value in [card.orchid_name or "", *_load_list(card.aliases_json)]
+                for name in re.split(r"[/\\、]+", value)
+            ]
+            names += [
+                name[len(prefix):] for name in names for prefix in _ORCHID_CATEGORIES
+                if name.startswith(prefix)
+            ]
+            terms[card.id] = sorted(
+                {name for name in names if len(_normalize(name)) >= 2 and name not in _ORCHID_CATEGORIES},
+                key=lambda name: (-len(_normalize(name)), name),
+            )
+        suggestions = []
+        for product in session.scalars(
+            select(YouzanProductModel)
+            .where(YouzanProductModel.status != "missing")
+            .order_by(YouzanProductModel.title, YouzanProductModel.item_id)
+        ):
+            category, product_names = _product_variety_names(product.title)
+            matched = [
+                (card, next((name for name in terms[card.id] if _normalize(name) in product_names), ""))
+                for card in cards
+                if not category or not any(
+                    (card.orchid_name or "").startswith(prefix) and prefix != category
+                    for prefix in _ORCHID_CATEGORIES if prefix != "兰花"
+                )
+            ]
+            matched = [(card, name) for card, name in matched if name]
+            related_cards = {card.id for card, _ in matched} | {
+                card_id for card_id, item_id in existing if item_id == product.item_id
+            }
+            for card, name in matched:
+                if (card.id, product.item_id) in existing:
+                    continue
+                suggestions.append({
+                    "card_id": card.id,
+                    "title": card.title,
+                    "youzan_item_id": product.item_id,
+                    "product_name": product.title,
+                    "matched_name": name,
+                    "ambiguous": len(related_cards) > 1,
+                })
+        return {"items": suggestions}
+
+
+def add_care_manual_product_links(links: list[dict[str, Any]]) -> dict[str, int]:
+    pairs = {(link["card_id"], link["youzan_item_id"]) for link in links}
+    card_ids = {card_id for card_id, _ in pairs}
+    item_ids = {item_id for _, item_id in pairs}
+    now = _now()
+    with _session() as session:
+        cards = {
+            row.id: row for row in session.scalars(
+                select(CareManualCardModel).where(CareManualCardModel.id.in_(card_ids))
+            )
+        }
+        products = {
+            row.item_id: row for row in session.scalars(
+                select(YouzanProductModel).where(YouzanProductModel.item_id.in_(item_ids))
+            )
+        }
+        if any(card_id not in cards or not _is_available(cards[card_id]) for card_id in card_ids):
+            raise ValueError("手册已停用或不存在，请刷新候选后重试")
+        if any(item_id not in products or products[item_id].status == "missing" for item_id in item_ids):
+            raise ValueError("商品已失效或不存在，请刷新候选后重试")
+        existing = {
+            (card_id, link.youzan_item_id)
+            for card_id, card_links in _links_by_card(session, list(card_ids)).items()
+            for link in card_links
+        }
+        new_pairs = pairs - existing
+        for card_id, item_id in sorted(new_pairs):
+            session.add(CareManualProductLinkModel(
+                care_manual_card_id=card_id,
+                youzan_item_id=item_id,
+                product_name_snapshot=products[item_id].title,
+                created_at=now,
+                updated_at=now,
+            ))
+            cards[card_id].updated_at = now
+        try:
+            session.commit()
+        except IntegrityError as exc:
+            raise ValueError("商品关联已发生变化，请刷新后重试") from exc
+        return {"created_count": len(new_pairs), "manual_count": len({card_id for card_id, _ in new_pairs})}
 
 
 def test_match_care_manuals(

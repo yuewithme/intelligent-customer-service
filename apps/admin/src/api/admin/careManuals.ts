@@ -44,7 +44,7 @@ export interface CareManualListResponse {
   total: number
   page: number
   page_size: number
-  stats: { active: number; disabled: number; unbound: number }
+  stats: { active: number; disabled: number; unbound: number; product_unbound: number }
   last_sync?: CareManualSyncRun | null
 }
 
@@ -67,6 +67,26 @@ export interface CareManualPayload {
   enabled: boolean
   match_keywords: string[]
 }
+
+export interface CareManualProductSuggestion {
+  card_id: number
+  title: string
+  youzan_item_id: string
+  product_name: string
+  matched_name: string
+  ambiguous: boolean
+}
+
+export const getCareManualProductSuggestions = () =>
+  request.get<{ items: CareManualProductSuggestion[] }>({
+    url: '/api/v1/admin/care-manuals/product-links/suggestions'
+  })
+
+export const addCareManualProductLinks = (links: Array<{ card_id: number; youzan_item_id: string }>) =>
+  request.post<{ created_count: number; manual_count: number }>({
+    url: '/api/v1/admin/care-manuals/product-links/batch',
+    data: { links }
+  })
 
 export interface CareManualMatchResult {
   decision: 'unique' | 'ambiguous' | 'not_found'
