@@ -12,9 +12,16 @@
       </details>
       <p v-else class="review-hint">尚无已发送的客服回复，先根据客户诉求提供建议。</p>
       <p class="review-analysis">{{ review.analysis }}</p>
-      <div class="suggestion-heading">建议回复 <span class="review-hint">三选一，按需使用</span></div>
+      <div class="suggestion-heading">建议回复 <span class="review-hint">点击填入输入框</span></div>
       <ol class="reply-suggestions">
-        <li v-for="(suggestion, index) in review.suggestions" :key="index">{{ suggestion }}</li>
+        <li v-for="(suggestion, index) in review.suggestions" :key="index">
+          <button
+            type="button"
+            :disabled="disabled"
+            title="点击填入输入框"
+            @click="$emit('use-suggestion', { conversationId, text: suggestion })"
+          >{{ suggestion }}</button>
+        </li>
       </ol>
       <p class="review-hint update-hint">随新消息自动更新</p>
     </template>
@@ -35,6 +42,10 @@ const props = defineProps<{
   conversationId: string
   messages: ConversationMessage[]
   profile?: UserProfile
+  disabled?: boolean
+}>()
+defineEmits<{
+  'use-suggestion': [suggestion: { conversationId: string; text: string }]
 }>()
 const review = ref<ChatReview>()
 const loading = ref(false)
@@ -85,7 +96,10 @@ onBeforeUnmount(() => {
 .review-analysis { margin: 12px 0 16px; line-height: 1.7; overflow-wrap: anywhere; }
 .suggestion-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 600; }
 .reply-suggestions { display: grid; gap: 8px; margin: 10px 0 0; padding-left: 24px; }
-.reply-suggestions li { padding: 10px; border: 1px solid var(--app-border, #dbe5df); border-radius: 8px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reply-suggestions button { width: 100%; padding: 10px; border: 1px solid var(--app-border, #dbe5df); border-radius: 8px; background: #fff; color: inherit; font: inherit; text-align: left; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
+.reply-suggestions button:hover:not(:disabled) { border-color: var(--app-accent, #21765d); background: #f4f7f5; }
+.reply-suggestions button:focus-visible { outline: 2px solid var(--app-accent, #21765d); outline-offset: 2px; }
+.reply-suggestions button:disabled { opacity: 0.6; cursor: not-allowed; }
 .reply-suggestions li::marker { color: var(--app-accent, #21765d); font-weight: 600; }
 .update-hint { margin: 10px 0 0; }
 .review-error { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; color: var(--app-text-secondary, #6b7280); }
