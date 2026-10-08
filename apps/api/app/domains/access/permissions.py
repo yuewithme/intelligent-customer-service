@@ -104,7 +104,7 @@ async def authorize_account(request: Request, account: dict, mode: str):
             deny()
         if conversation_id := request.path_params.get("conversation_id"):
             check_conversation(account, conversation_id)
-            if path.endswith("/orders"):
+            if path.endswith(("/orders", "/chat-review")):
                 with _get_session() as db:
                     user_id = db.scalar(select(ConversationModel.user_id).where(ConversationModel.conversation_id == conversation_id))
                 check_customer(account, user_id)

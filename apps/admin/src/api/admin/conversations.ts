@@ -85,6 +85,16 @@ export interface ConversationDetail {
   agent_relationship: AgentRelationshipState
 }
 
+export interface ChatReview {
+  status: 'ready' | 'empty' | 'unavailable'
+  analysis: string
+  suggestions: string[]
+  round_count: number
+  reviewed_message_ids: number[]
+  reviewed_reply: string
+  generated_at?: string
+}
+
 export interface YouzanOrderItem {
   title: string
   quantity: number
@@ -149,6 +159,12 @@ export const claimConversation = (conversationId: string, operator_id: string) =
   request.post<ConversationItem>({
     url: `${conversationBase()}/${conversationPath(conversationId)}/claim`,
     data: { operator_id }
+  })
+
+export const getChatReview = (conversationId: string) =>
+  request.post<ChatReview>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/chat-review`,
+    timeout: 60_000
   })
 
 export const replyConversation = (conversationId: string, operator_id: string, content: string) =>

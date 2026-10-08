@@ -16,6 +16,7 @@ from app.domains.conversations.schemas.conversation import (
     StatusActionRequest,
 )
 from app.domains.conversations.services.conversation_event_service import conversation_event_broker
+from app.domains.conversations.services.chat_review_service import get_chat_review
 from app.domains.conversations.services.conversation_service import (
     claim_conversation,
     force_handoff,
@@ -221,6 +222,11 @@ async def retry_message_delivery(message_id: int) -> APIResponse:
         message="success",
         data=retry_conversation_message_delivery(message_id),
     )
+
+
+@router.post("/{conversation_id:path}/chat-review", response_model=APIResponse)
+async def chat_review(conversation_id: str) -> APIResponse:
+    return APIResponse(code=0, message="success", data=await get_chat_review(conversation_id))
 
 
 @router.post("/{conversation_id:path}/claim", response_model=APIResponse)

@@ -8,6 +8,7 @@ from app.domains.conversations.schemas.chat import APIResponse
 from app.shared.schemas.common import AppError, ErrorCode
 from app.domains.conversations.schemas.conversation import ClaimRequest, ReplyRequest, StatusActionRequest
 from app.domains.conversations.services.conversation_event_service import conversation_event_broker
+from app.domains.conversations.services.chat_review_service import get_chat_review
 from app.domains.conversations.services.conversation_service import (
     claim_conversation,
     force_handoff,
@@ -139,6 +140,12 @@ async def conversation_detail(conversation_id: str) -> APIResponse:
     return APIResponse(
         code=0, message="success", data=await get_conversation_detail(conversation_id)
     )
+
+
+@router.post("/{conversation_id:path}/chat-review", response_model=APIResponse)
+async def chat_review(conversation_id: str) -> APIResponse:
+    await _ensure_demo_conversation(conversation_id)
+    return APIResponse(code=0, message="success", data=await get_chat_review(conversation_id))
 
 
 @router.post("/{conversation_id:path}/claim", response_model=APIResponse)

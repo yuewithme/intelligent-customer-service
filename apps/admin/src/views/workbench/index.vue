@@ -28,7 +28,7 @@
       }"
       :conversation-id="selectedId"
       :conversation="conversation"
-      :agent-relationship="agentRelationship"
+      :messages="messages"
       :profile="profile"
       :profile-loading="profileLoading"
       :reply-mode="isMobile && mobileView === 'messages'"
@@ -70,7 +70,7 @@ import { useRoute } from 'vue-router'
 import {
   getConversationDetail,
   markConversationRead,
-  type AgentRelationshipState,
+  type ConversationMessage,
   type ConversationDetail,
   type ConversationItem
 } from '@/api/admin/conversations'
@@ -97,7 +97,7 @@ const selectedGroupKey = ref('')
 const selectedUnreadCount = ref(0)
 const focusMessageId = ref<number>()
 const conversation = ref<ConversationItem>()
-const agentRelationship = ref<AgentRelationshipState>()
+const messages = ref<ConversationMessage[]>([])
 const profile = ref<UserProfile>()
 const profileLoading = ref(false)
 const conversationListRef = ref<InstanceType<typeof ConversationList>>()
@@ -109,6 +109,10 @@ let markingReadKey = ''
 let profileRequestKey = 0
 
 const selectConversation = (item: ConversationGroupItem) => {
+  ++profileRequestKey
+  conversation.value = undefined
+  messages.value = []
+  profile.value = undefined
   focusMessageId.value = undefined
   selectedId.value = item.conversation_id
   selectedIds.value = item.conversation_ids
@@ -139,14 +143,15 @@ const clearSelection = () => {
   selectedGroupKey.value = ''
   selectedUnreadCount.value = 0
   conversation.value = undefined
-  agentRelationship.value = undefined
+  messages.value = []
   profile.value = undefined
   mobileView.value = 'conversations'
 }
 
 const handleConversationLoaded = (detail: ConversationDetail | undefined) => {
+  if (detail && detail.conversation.conversation_id !== selectedId.value) return
   conversation.value = detail?.conversation
-  agentRelationship.value = detail?.agent_relationship
+  messages.value = detail?.messages || []
   void loadProfile(detail?.conversation.user_id)
   if (selectedUnreadCount.value > 0) {
     void markSelectedRead()

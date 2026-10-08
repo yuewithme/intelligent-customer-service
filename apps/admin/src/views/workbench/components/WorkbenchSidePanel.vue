@@ -18,7 +18,7 @@
       v-if="replyMode || activeTab === 'supervision'"
       :conversation-id="conversationId"
       :conversation="conversation"
-      :agent-relationship="agentRelationship"
+      :messages="messages"
       :profile="profile"
       :profile-loading="profileLoading"
       :reply-mode="replyMode"
@@ -43,7 +43,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type {
-  AgentRelationshipState,
+  ConversationMessage,
   ConversationItem
 } from '@/api/admin/conversations'
 import type { UserProfile } from '@/api/user-profile'
@@ -54,7 +54,7 @@ import UserTagPanel from './UserTagPanel.vue'
 defineProps<{
   conversationId: string
   conversation?: ConversationItem
-  agentRelationship?: AgentRelationshipState
+  messages: ConversationMessage[]
   profile?: UserProfile
   profileLoading?: boolean
   replyMode?: boolean

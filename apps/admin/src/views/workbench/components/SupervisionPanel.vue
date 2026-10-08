@@ -25,15 +25,12 @@
         </dl>
       </div>
 
-      <div v-if="agentRelationship?.commercial_judgment || agentRelationship?.relationship_purpose" class="agent-section">
-        <div class="title"><span>小兰本轮判断</span></div>
-        <dl class="profile-detail">
-          <dt>商业判断</dt>
-          <dd class="profile-long-text">{{ agentRelationship.commercial_judgment || '-' }}</dd>
-          <dt>关系目的</dt>
-          <dd class="profile-long-text">{{ agentRelationship.relationship_purpose || '-' }}</dd>
-        </dl>
-      </div>
+      <ChatReviewPanel
+        :key="conversationId"
+        :conversation-id="conversationId"
+        :messages="messages"
+        :profile="profile"
+      />
 
       <div class="actions">
         <ElButton
@@ -101,7 +98,7 @@ import {
   replyConversationEmoji,
   replyConversationImage,
   resolveConversation,
-  type AgentRelationshipState,
+  type ConversationMessage,
   type ConversationItem,
   type ConversationStatus
 } from '@/api/admin/conversations'
@@ -111,11 +108,12 @@ import { useUserStore } from '@/store/modules/user'
 import { tagValueText } from '@/utils/tagDisplay'
 import ReplyComposer from './ReplyComposer.vue'
 import YouzanOrderPanel from './YouzanOrderPanel.vue'
+import ChatReviewPanel from './ChatReviewPanel.vue'
 
 const props = defineProps<{
   conversationId: string
   conversation?: ConversationItem
-  agentRelationship?: AgentRelationshipState
+  messages: ConversationMessage[]
   profile?: UserProfile
   profileLoading?: boolean
   replyMode?: boolean
@@ -314,23 +312,10 @@ dd {
 }
 .actions :deep(.el-button + .el-button) { margin-left: 0; }
 
-.agent-section {
-  padding-top: 4px;
-}
-
 .tag-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.profile-detail {
-  grid-template-columns: 88px 1fr;
-}
-
-.profile-long-text {
-  line-height: 1.7;
-  white-space: pre-wrap;
 }
 
 .muted {
