@@ -610,6 +610,15 @@ class ConversationModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class ConversationReplyDraftModel(Base):
+    __tablename__ = "conversation_reply_drafts"
+
+    conversation_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    editor_id: Mapped[str] = mapped_column(String(64))
+    operator_id: Mapped[str] = mapped_column(String(128))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class DemoPlatformStateModel(Base):
     __tablename__ = "demo_platform_state"
 

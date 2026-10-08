@@ -6,9 +6,10 @@ from fastapi.responses import StreamingResponse
 
 from app.domains.conversations.schemas.chat import APIResponse
 from app.shared.schemas.common import AppError, ErrorCode
-from app.domains.conversations.schemas.conversation import ClaimRequest, ReplyRequest, StatusActionRequest
+from app.domains.conversations.schemas.conversation import ClaimRequest, ReplyRequest, ReplyDraftRequest, StatusActionRequest
 from app.domains.conversations.services.conversation_event_service import conversation_event_broker
 from app.domains.conversations.services.chat_review_service import get_chat_review
+from app.domains.conversations.services.reply_draft_service import update_reply_draft
 from app.domains.conversations.services.conversation_service import (
     claim_conversation,
     force_handoff,
@@ -166,6 +167,15 @@ async def reply(conversation_id: str, request: ReplyRequest) -> APIResponse:
         message="success",
         data=await reply_conversation(conversation_id, request.operator_id, request.content),
     )
+
+
+@router.post("/{conversation_id:path}/reply-draft", response_model=APIResponse)
+async def reply_draft(conversation_id: str, request: ReplyDraftRequest) -> APIResponse:
+    await _ensure_demo_conversation(conversation_id)
+    return APIResponse(code=0, message="success", data=await update_reply_draft(
+        conversation_id, request.operator_id, request.editor_id,
+        active=request.active, remaining_seconds=request.remaining_seconds,
+    ))
 
 
 @router.post("/{conversation_id:path}/read", response_model=APIResponse)

@@ -15,14 +15,12 @@
     </div>
 
     <SupervisionPanel
-      v-if="replyMode || activeTab === 'supervision'"
+      v-if="activeTab === 'supervision'"
       :conversation-id="conversationId"
       :conversation="conversation"
       :messages="messages"
       :profile="profile"
       :profile-loading="profileLoading"
-      :reply-mode="replyMode"
-      @changed="forwardChanged"
     />
     <CareManualPanel
       v-else-if="activeTab === 'care-manuals'"
@@ -57,14 +55,11 @@ defineProps<{
   messages: ConversationMessage[]
   profile?: UserProfile
   profileLoading?: boolean
-  replyMode?: boolean
 }>()
 const emit = defineEmits<{
   changed: [conversation?: ConversationItem]
   'profile-changed': [profile: UserProfile]
 }>()
-
-const forwardChanged = (conversation?: ConversationItem) => emit('changed', conversation)
 
 const tabs = [
   { label: '监督面板', value: 'supervision' },

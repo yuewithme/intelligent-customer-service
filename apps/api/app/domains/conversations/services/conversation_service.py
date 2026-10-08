@@ -14,6 +14,7 @@ from app.infrastructure.database.models import (
     ChatLogModel,
     ConversationMessageModel,
     ConversationModel,
+    ConversationReplyDraftModel,
     DemoPlatformStateModel,
 )
 from app.shared.schemas.common import AppError, ErrorCode
@@ -2044,6 +2045,7 @@ def _get_session() -> Session:
             engine,
             tables=[
                 ConversationModel.__table__,
+                ConversationReplyDraftModel.__table__,
                 ConversationMessageModel.__table__,
                 DemoPlatformStateModel.__table__,
                 ChatLogModel.__table__,

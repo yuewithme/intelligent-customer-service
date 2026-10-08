@@ -13,6 +13,7 @@ from app.domains.conversations.services.conversation_service import (
     recover_stale_unsupported_handoffs,
 )
 from app.domains.customers.workers.memory_worker import memory_worker
+from app.domains.conversations.services.reply_draft_service import reply_draft_worker
 from app.domains.sales.services.service_material_touch_service import (
     service_material_touch_worker,
 )
@@ -59,6 +60,7 @@ async def lifespan(app: FastAPI):
 
         stop_event = asyncio.Event()
         app.state.eyun_risk_control_stop_event = stop_event
+        app.state.reply_draft_task = asyncio.create_task(reply_draft_worker(stop_event))
         app.state.eyun_risk_control_task = asyncio.create_task(
             eyun_risk_control_worker(stop_event)
         )
@@ -89,6 +91,7 @@ async def lifespan(app: FastAPI):
                 yield
             finally:
                 stop_event.set()
+                await app.state.reply_draft_task
                 await app.state.eyun_risk_control_task
                 await app.state.eyun_login_monitor_task
                 await app.state.eyun_inbound_media_task

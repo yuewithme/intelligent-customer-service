@@ -167,6 +167,17 @@ export const getChatReview = (conversationId: string) =>
     timeout: 60_000
   })
 
+export const updateReplyDraft = (conversationId: string, data: {
+  operator_id: string
+  editor_id: string
+  active: boolean
+  remaining_seconds?: number
+}) => request.post<ConversationItem>({
+  url: `${conversationBase()}/${conversationPath(conversationId)}/reply-draft`,
+  data,
+  timeout: 10_000
+})
+
 export const replyConversation = (conversationId: string, operator_id: string, content: string) =>
   request.post<ConversationItem>({
     url: `${conversationBase()}/${conversationPath(conversationId)}/reply`,

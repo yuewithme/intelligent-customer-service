@@ -5,6 +5,13 @@ class ClaimRequest(BaseModel):
     operator_id: str
 
 
+class ReplyDraftRequest(BaseModel):
+    operator_id: str
+    editor_id: str = Field(min_length=1, max_length=64)
+    active: bool
+    remaining_seconds: float = Field(default=60, gt=0, le=60)
+
+
 class ReplyRequest(BaseModel):
     operator_id: str
     content: str

@@ -9,29 +9,37 @@
       @hidden="handleHidden"
       @view-change="clearSelection"
     />
-    <MessagePanel
-      ref="messagePanelRef"
-      class="panel messages"
+    <section
+      class="panel chat-column"
       :class="{ 'mobile-active': mobileView === 'messages' }"
-      :conversation-id="selectedId"
-      :conversation-ids="selectedIds"
-      :focus-message-id="focusMessageId"
-      show-mobile-back
-      @mobile-back="mobileView = 'conversations'"
-      @loaded="handleConversationLoaded"
-    />
+    >
+      <MessagePanel
+        ref="messagePanelRef"
+        class="messages"
+        :conversation-id="selectedId"
+        :conversation-ids="selectedIds"
+        :focus-message-id="focusMessageId"
+        show-mobile-back
+        @mobile-back="mobileView = 'conversations'"
+        @loaded="handleConversationLoaded"
+      />
+      <ReplyComposer
+        v-if="conversation && conversation.conversation_id === selectedId"
+        :key="selectedId"
+        :conversation-id="selectedId"
+        :status="conversation.status"
+        @changed="handleChanged()"
+        @reception-changed="handleReceptionChanged"
+      />
+    </section>
     <WorkbenchSidePanel
       class="panel side"
-      :class="{
-        'mobile-active': mobileView === 'details',
-        'mobile-reply-active': mobileView === 'messages' && Boolean(selectedId)
-      }"
+      :class="{ 'mobile-active': mobileView === 'details' }"
       :conversation-id="selectedId"
       :conversation="conversation"
       :messages="messages"
       :profile="profile"
       :profile-loading="profileLoading"
-      :reply-mode="isMobile && mobileView === 'messages'"
       @changed="handleChanged"
       @profile-changed="handleProfileChanged"
     />
@@ -78,6 +86,7 @@ import { getUserProfileBundle, type UserProfile } from '@/api/user-profile'
 import type { ConversationGroupItem } from './conversationGrouping'
 import ConversationList from './components/ConversationList.vue'
 import MessagePanel from './components/MessagePanel.vue'
+import ReplyComposer from './components/ReplyComposer.vue'
 import WorkbenchSidePanel from './components/WorkbenchSidePanel.vue'
 import { isTestGate } from '@/utils/gate'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
@@ -88,8 +97,6 @@ const FALLBACK_SYNC_INTERVAL_MS = 5_000
 
 const selectedId = ref('')
 const mobileView = ref<'conversations' | 'messages' | 'details'>('conversations')
-const isMobile = ref(false)
-const MOBILE_MEDIA_QUERY = '(max-width: 820px), (hover: none) and (pointer: coarse)'
 const route = useRoute()
 const tenantStore = useMessageTenantStore()
 const selectedIds = ref<string[]>([])
@@ -104,11 +111,14 @@ const conversationListRef = ref<InstanceType<typeof ConversationList>>()
 const messagePanelRef = ref<InstanceType<typeof MessagePanel>>()
 let eventSource: EventSource | undefined
 let fallbackTimer: number | undefined
-let mobileMediaQuery: MediaQueryList | undefined
 let markingReadKey = ''
 let profileRequestKey = 0
 
 const selectConversation = (item: ConversationGroupItem) => {
+  if (selectedId.value === item.conversation_id && selectedGroupKey.value === item.group_key) {
+    mobileView.value = 'messages'
+    return
+  }
   ++profileRequestKey
   conversation.value = undefined
   messages.value = []
@@ -130,6 +140,10 @@ const handleChanged = async (updatedConversation?: ConversationItem) => {
 
 const handleProfileChanged = (updatedProfile: UserProfile) => {
   profile.value = updatedProfile
+}
+
+const handleReceptionChanged = (updated: ConversationItem) => {
+  if (updated.conversation_id === selectedId.value) conversation.value = updated
 }
 
 const handleHidden = (conversationIds: string[]) => {
@@ -279,14 +293,7 @@ const handleVisibilityChange = () => {
   }
 }
 
-const syncMobileViewport = () => {
-  isMobile.value = mobileMediaQuery?.matches || false
-}
-
 onMounted(() => {
-  mobileMediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY)
-  syncMobileViewport()
-  mobileMediaQuery.addEventListener('change', syncMobileViewport)
   void restoreRouteConversation()
   connectEvents()
   fallbackTimer = window.setInterval(() => {
@@ -298,7 +305,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  mobileMediaQuery?.removeEventListener('change', syncMobileViewport)
   eventSource?.close()
   if (fallbackTimer) {
     window.clearInterval(fallbackTimer)
@@ -335,6 +341,9 @@ onBeforeUnmount(() => {
 
 .mobile-workbench-nav { display: none; }
 
+.chat-column { display: flex; flex-direction: column; }
+.chat-column > .messages { flex: 1; min-height: 0; height: auto; }
+
 @media (max-width: 1100px) {
   .workbench {
     grid-template-columns: 248px minmax(0, 1fr);
@@ -365,31 +374,8 @@ onBeforeUnmount(() => {
     min-height: 0;
   }
 
-  .panel.mobile-active,
-  .side.mobile-reply-active {
+  .panel.mobile-active {
     display: flex;
-  }
-
-  .side.mobile-reply-active {
-    flex: 0 0 auto;
-    height: auto;
-    max-height: 44dvh;
-    overflow: auto;
-    border: 0;
-  }
-
-  .side.mobile-reply-active :deep(.side-switch),
-  .side.mobile-reply-active :deep(.supervision > :not(.composer)) {
-    display: none;
-  }
-
-  .side.mobile-reply-active :deep(.supervision) {
-    height: auto;
-    padding: 10px;
-    overflow: visible;
-    background: #fff;
-    border: 1px solid var(--app-border);
-    border-radius: var(--app-radius);
   }
 
   .mobile-workbench-nav {

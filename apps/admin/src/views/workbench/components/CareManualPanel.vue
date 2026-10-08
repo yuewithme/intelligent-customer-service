@@ -57,7 +57,7 @@ import { Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getCareManuals, type CareManualItem } from '@/api/admin/careManuals'
 import {
-  claimConversation,
+  updateReplyDraft,
   replyConversationCareManual,
   type ConversationItem
 } from '@/api/admin/conversations'
@@ -80,14 +80,13 @@ const operatorId = computed(() => userStore.user.nickname || 'admin')
 const canSend = computed(
   () =>
     Boolean(props.conversationId) &&
-    ['handoff_pending', 'human_active'].includes(props.conversation?.status || '')
+    Boolean(props.conversation) &&
+    props.conversation?.status !== 'resolved'
 )
 const sendHint = computed(() => {
   if (!props.conversationId) return '请先选择一个会话'
-  if (props.conversation?.status === 'handoff_pending') return '发送时会自动领取当前会话'
-  if (props.conversation?.status === 'human_active') return ''
   if (props.conversation?.status === 'resolved') return '会话已结束，不能发送卡片'
-  return '当前由 AI 自动回复，转人工后可发送卡片'
+  return ''
 })
 const filteredManuals = computed(() => {
   const query = keyword.value.trim().toLocaleLowerCase()
@@ -128,14 +127,26 @@ const loadManuals = async () => {
 const sendManual = async (manual: CareManualItem) => {
   if (!canSend.value || sendingId.value !== null) return
   sendingId.value = manual.id
+  const conversationId = props.conversationId
+  const senderId = operatorId.value
+  const editorId = crypto.randomUUID()
+  let acquiredDraft = false
   try {
-    if (props.conversation?.status === 'handoff_pending') {
-      await claimConversation(props.conversationId, operatorId.value)
+    if (props.conversation?.status !== 'human_active') {
+      await updateReplyDraft(conversationId, {
+        operator_id: senderId, editor_id: editorId, active: true
+      })
+      acquiredDraft = true
     }
-    await replyConversationCareManual(props.conversationId, operatorId.value, manual.id)
+    await replyConversationCareManual(conversationId, senderId, manual.id)
     ElMessage.success('养护手册卡片已进入发送队列')
-    emit('changed')
   } finally {
+    if (acquiredDraft) {
+      await updateReplyDraft(conversationId, {
+        operator_id: senderId, editor_id: editorId, active: false
+      }).catch(() => undefined)
+    }
+    emit('changed')
     sendingId.value = null
   }
 }

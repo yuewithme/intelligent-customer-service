@@ -13,10 +13,12 @@ from app.domains.conversations.schemas.conversation import (
     ReplyCareManualRequest,
     ReplyEmojiRequest,
     ReplyRequest,
+    ReplyDraftRequest,
     StatusActionRequest,
 )
 from app.domains.conversations.services.conversation_event_service import conversation_event_broker
 from app.domains.conversations.services.chat_review_service import get_chat_review
+from app.domains.conversations.services.reply_draft_service import update_reply_draft
 from app.domains.conversations.services.conversation_service import (
     claim_conversation,
     force_handoff,
@@ -232,6 +234,15 @@ async def chat_review(conversation_id: str) -> APIResponse:
 @router.post("/{conversation_id:path}/claim", response_model=APIResponse)
 async def claim(conversation_id: str, request: ClaimRequest, http_request: Request) -> APIResponse:
     data = await claim_conversation(conversation_id, operator_identity(http_request, request.operator_id))
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/reply-draft", response_model=APIResponse)
+async def reply_draft(conversation_id: str, request: ReplyDraftRequest, http_request: Request) -> APIResponse:
+    data = await update_reply_draft(
+        conversation_id, operator_identity(http_request, request.operator_id), request.editor_id,
+        active=request.active, remaining_seconds=request.remaining_seconds,
+    )
     return APIResponse(code=0, message="success", data=data)
 
 

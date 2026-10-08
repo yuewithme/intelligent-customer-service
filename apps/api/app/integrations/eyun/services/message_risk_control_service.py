@@ -1079,6 +1079,8 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
             .limit(limit)
         ).all()
         for row in rows:
+            if _pause_outbound_for_draft(session, row):
+                continue
             opening_control = _opening_control_for_outbound(session, row, now)
             paused_until = _active_opening_pause_until(opening_control, now)
             if paused_until is not None:
@@ -1257,6 +1259,16 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                     f"received_{material['media_type']}",
                     str(material["raw_xml"]),
                 )
+            # Media preparation can await network calls while an operator starts typing.
+            if _pause_outbound_for_draft(session, row):
+                continue
+            if not _validate_outbound_before_send(session, row):
+                row.status = "cancelled"
+                row.last_error = "人工已回复或发送条件已改变"
+                session.commit()
+                if row.conversation_message_id:
+                    _sync_conversation_delivery_from_bundle(row.id)
+                continue
             previous_status = row.status
             row.status = "sending"
             row.attempts = (row.attempts or 0) + 1
@@ -1465,8 +1477,18 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         customer_snapshot = _latest_customer_snapshot(session, batch_data["batch_key"])
         is_first_inbound = is_first_eyun_inbound_message(session, batch_data["batch_key"])
+        latest_input_at = session.scalar(
+            select(EyunInboundMessageModel.created_at)
+            .where(EyunInboundMessageModel.batch_key == batch_data["batch_key"])
+            .order_by(EyunInboundMessageModel.created_at.desc()).limit(1)
+        ) or batch_data["created_at"]
 
     try:
+        if _pause_inbound_for_draft(batch_id, batch_data):
+            return
+        if _human_replied_after(_batch_conversation_id(batch_data), latest_input_at):
+            _mark_batch(batch_id, "skipped")
+            return
         if batch_data["from_group"]:
             _mark_batch(batch_id, "skipped")
             return
@@ -1518,6 +1540,8 @@ async def _process_inbound_batch(batch_id: int) -> None:
             customer_snapshot["customer_tags"] = profile.get("customer_tags", [])
 
         if _conversation_blocks_ai(batch_data):
+            if _pause_inbound_for_draft(batch_id, batch_data):
+                return
             _mark_batch(batch_id, "skipped")
             return
 
@@ -1610,6 +1634,11 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     },
                 )
             )
+        if _pause_inbound_for_draft(batch_id, batch_data):
+            return
+        if _human_replied_after(_batch_conversation_id(batch_data), latest_input_at):
+            _mark_batch(batch_id, "skipped")
+            return
         chat_result = await _finalize_eyun_handoff(
             batch=batch_data,
             chat_result=chat_result,
@@ -1630,6 +1659,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 "tenant_id": _conversation_tenant_id(batch_data),
                 **({"sales_turn_id": sales_turn_id} if sales_turn_id else {}),
                 "source_batch_key": batch_data["batch_key"],
+                "reply_context_at": _ensure_aware(latest_input_at).isoformat(),
             }
             due_at = utcnow() + timedelta(seconds=random_reply_delay_seconds())
             due_slots = []
@@ -1897,12 +1927,56 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
         )
 
 
-def _conversation_blocks_ai(batch: dict[str, Any]) -> bool:
-    conversation_id = make_conversation_id(
+def _batch_conversation_id(batch: dict[str, Any]) -> str:
+    return make_conversation_id(
         "wechat",
         batch["from_user"] or batch["target_wc_id"],
         _conversation_session_id(batch),
     )
+
+
+def _pause_inbound_for_draft(batch_id: int, batch: dict[str, Any]) -> bool:
+    from app.domains.conversations.services.reply_draft_service import reply_draft_deadline
+
+    if not reply_draft_deadline(_batch_conversation_id(batch)):
+        return False
+    with _get_session() as session:
+        row = session.get(EyunInboundBatchModel, batch_id)
+        if row:
+            row.status = "pending"
+            row.due_at = utcnow() + timedelta(seconds=1)
+            session.commit()
+    return True
+
+
+def _human_replied_after(conversation_id: str, since: datetime) -> bool:
+    with _get_session() as session:
+        return session.scalar(select(ConversationMessageModel.id).where(
+            ConversationMessageModel.conversation_id == conversation_id,
+            ConversationMessageModel.sender_type == "human",
+            ConversationMessageModel.created_at >= since,
+            or_(ConversationMessageModel.delivery_status.is_(None),
+                ConversationMessageModel.delivery_status.not_in(("failed", "cancelled"))),
+        ).limit(1)) is not None
+
+
+def _pause_outbound_for_draft(session: Session, row: EyunOutboundMessageModel) -> bool:
+    if not row.conversation_message_id:
+        return False
+    message = session.get(ConversationMessageModel, row.conversation_message_id)
+    if not message or message.sender_type != "ai":
+        return False
+    from app.domains.conversations.services.reply_draft_service import reply_draft_deadline
+
+    if not reply_draft_deadline(message.conversation_id):
+        return False
+    row.due_at = utcnow() + timedelta(seconds=1)
+    session.commit()
+    return True
+
+
+def _conversation_blocks_ai(batch: dict[str, Any]) -> bool:
+    conversation_id = _batch_conversation_id(batch)
     with _get_session() as session:
         conversation = session.scalar(
             select(ConversationModel).where(
@@ -2660,6 +2734,10 @@ def _validate_outbound_before_send(
             return False
         if message:
             metadata = _load_message_metadata(message.metadata_json)
+            if message.sender_type == "ai":
+                context_at = datetime.fromisoformat(metadata["reply_context_at"]) if metadata.get("reply_context_at") else message.created_at
+                if _human_replied_after(message.conversation_id, context_at):
+                    return False
             scope = metadata.get("sop_scope") or ("first_order" if message.route in {"opening", "agent_first_contact"} else None)
             if scope in {"first_order", "service", "seeding"} and not is_sop_enabled(scope):
                 return False
