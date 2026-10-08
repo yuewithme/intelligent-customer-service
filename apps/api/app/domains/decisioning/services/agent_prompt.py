@@ -264,6 +264,9 @@ def build_turn_payload(
             "先处理当前意思。若有冲突，以客户更新的明确表述为准。"
             "customer_workspace.tag_guidance 是后端根据已确认标签生成的内部使用规则：只在与本轮有关时采用，"
             "不得向客户复述标签或规则；已有标签已经回答的信息不重复追问。"
+            "customer_workspace.recent_customer_media 是当前会话中客户已发送媒体的识别内容，按原消息时间排列。"
+            "客户说‘刚才的图片、视频、语音’时结合这些内容理解，不忽略已知画面和转写重复索要相同信息。"
+            "媒体识别是有不确定性的观察，不是客户的原话或已核实诊断；未可靠识别的内容保持未知。"
         ),
         "event_context": event_context,
         "tool_results": tool_results,

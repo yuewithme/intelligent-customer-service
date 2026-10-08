@@ -8,12 +8,14 @@ from app.core.logger import log_event
 from app.core.trace_context import reset_trace_id, set_trace_id
 from app.domains.conversations.schemas.chat import ChatRequest
 from app.domains.conversations.services.channel_service import normalize_chat_request
+from app.domains.conversations.services.media_context_service import get_recent_customer_media
 from app.domains.conversations.services.chat_log_service import record_chat_log
 from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
     conversation_blocks_ai,
     record_ai_turn,
     record_customer_message,
+    make_conversation_id,
     recover_automatic_handoff,
 )
 from app.domains.conversations.services.state_service import (
@@ -168,6 +170,10 @@ async def handle_chat(request: ChatRequest) -> dict:
             user_state=user_state,
             profile_bundle=profile_bundle,
         )
+        if not is_evaluation:
+            workspace["recent_customer_media"] = get_recent_customer_media(
+                make_conversation_id(message.channel, message.user_id, message.session_id)
+            )
         profile_tags = (workspace.get("profile") or {}).get("customer_tags") or []
         scopes = eligible_sop_scopes(profile_tags)
         message.metadata["sop_scopes"] = scopes

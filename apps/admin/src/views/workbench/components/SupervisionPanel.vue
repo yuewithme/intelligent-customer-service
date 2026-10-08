@@ -30,6 +30,7 @@
         :conversation-id="conversationId"
         :messages="messages"
         :profile="profile"
+        :active="reviewActive"
         :disabled="conversation.status === 'resolved'"
         @use-suggestion="$emit('use-suggestion', $event)"
       />
@@ -55,6 +56,7 @@ const props = defineProps<{
   messages: ConversationMessage[]
   profile?: UserProfile
   profileLoading?: boolean
+  reviewActive: boolean
 }>()
 defineEmits<{
   'use-suggestion': [suggestion: { conversationId: string; text: string }]

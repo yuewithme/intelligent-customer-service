@@ -21,6 +21,7 @@
       :messages="messages"
       :profile="profile"
       :profile-loading="profileLoading"
+      :review-active="reviewActive"
       @use-suggestion="$emit('use-suggestion', $event)"
     />
     <CareManualPanel
@@ -56,6 +57,7 @@ defineProps<{
   messages: ConversationMessage[]
   profile?: UserProfile
   profileLoading?: boolean
+  reviewActive: boolean
 }>()
 const emit = defineEmits<{
   changed: [conversation?: ConversationItem]

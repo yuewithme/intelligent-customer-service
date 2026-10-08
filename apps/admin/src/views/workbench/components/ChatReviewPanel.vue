@@ -43,6 +43,7 @@ const props = defineProps<{
   messages: ConversationMessage[]
   profile?: UserProfile
   disabled?: boolean
+  active: boolean
 }>()
 defineEmits<{
   'use-suggestion': [suggestion: { conversationId: string; text: string }]
@@ -53,6 +54,7 @@ let requestVersion = 0
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
 const snapshot = computed(() => JSON.stringify([
+  props.active,
   props.conversationId,
   props.messages.filter(message => message.conversation_id === props.conversationId)
     .map(message => [message.id, message.sender_type, message.content, message.delivery_status,
@@ -65,8 +67,8 @@ const scheduleReview = () => {
   const conversationId = props.conversationId
   clearTimeout(debounceTimer)
   review.value = undefined
-  loading.value = Boolean(conversationId)
-  if (!conversationId) return
+  loading.value = props.active && Boolean(conversationId)
+  if (!props.active || !conversationId) return
   debounceTimer = setTimeout(async () => {
     try {
       const result = await getChatReview(conversationId)

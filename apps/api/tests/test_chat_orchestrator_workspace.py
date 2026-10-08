@@ -117,6 +117,13 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
         ],
     )
     captured = {}
+    media_context = [{"message_id": 10, "type": "video", "content": "[视频识别内容] 阳台有多盆兰花，客户说叶片发黄"}]
+
+    def recent_media(conversation_id):
+        assert conversation_id == "wechat:customer-1:session-1"
+        return media_context
+
+    monkeypatch.setattr(chat_orchestrator, "get_recent_customer_media", recent_media)
 
     async def fake_recover_automatic_handoff(**kwargs):
         del kwargs
@@ -192,6 +199,13 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
 
     expected = memory_context.model_dump(mode="json")
     assert captured["workspace"]["evidence_memory"] == expected
+    from app.domains.decisioning.services.agent_prompt import build_turn_payload
+    import json
+    agent_input = json.loads(build_turn_payload(
+        customer_message="我喜欢白色兰花", customer_workspace=captured["workspace"],
+        event_context={}, tool_results=[],
+    ))
+    assert agent_input["customer_workspace"]["recent_customer_media"] == media_context
     assert state.metadata["memory_v2_context"] == expected
     assert state.metadata["memory_v2_trace"] == {
         "status": "canary",

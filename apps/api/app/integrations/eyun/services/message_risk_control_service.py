@@ -21,6 +21,7 @@ from app.infrastructure.database.models import (
     EyunBulkSendJobModel,
     EyunInboundBatchModel,
     EyunInboundMessageModel,
+    EyunInboundMediaJobModel,
     EyunImagePromptRateModel,
     EyunMediaMaterialModel,
     EyunOpeningControlModel,
@@ -1505,6 +1506,8 @@ async def _process_inbound_batch(batch_id: int) -> None:
         if _human_replied_after(_batch_conversation_id(batch_data), latest_input_at):
             _mark_batch(batch_id, "skipped")
             return
+        if _pause_inbound_for_media(batch_id, batch_data):
+            return
         from app.integrations.eyun.services.eyun_callback_service import (
             is_eyun_new_friend_opening_event,
             is_eyun_group_mention,
@@ -1546,6 +1549,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
             verified_order_count,
             wrong_store_order_count,
         ) = await _prepare_inbound_content(batch_data["content"], inbound_payloads)
+        _save_image_recognitions(_batch_conversation_id(batch_data), inbound_payloads)
         batch_data["content"] = prepared_content
         all_images_failed = image_count > 0 and recognized_image_count == 0
         user_id = batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"]
@@ -1879,6 +1883,7 @@ async def _prepare_inbound_content(
             continue
 
         image_count += 1
+        payload["_image_recognition"] = {"status": "failed"}
         image_source = str(
             data.get("_image_url")
             or data.get("imageUrl")
@@ -1910,6 +1915,10 @@ async def _prepare_inbound_content(
             analysis = await analyze_image(image_source)
         except UnsupportedStoreOrderError as exc:
             wrong_store_order_count += 1
+            payload["_image_recognition"] = {
+                "status": "succeeded",
+                "text": f"客户发送其他店铺的订单截图，店铺：{exc.store_name}。不能作为本店已购依据。",
+            }
             logger.info(
                 "Eyun order screenshot uses an unsupported store: %s",
                 exc.store_name,
@@ -1921,7 +1930,12 @@ async def _prepare_inbound_content(
         recognized_image_count += 1
         if purchase_tag_for_analysis(analysis):
             verified_order_count += 1
-        parts.append(format_analysis_for_chat(analysis, index=image_count))
+        image_text = format_analysis_for_chat(analysis, index=image_count)
+        payload["_image_recognition"] = {
+            "status": "succeeded", "text": image_text,
+            "confidence": analysis.confidence, "needs_clarification": analysis.needs_clarification,
+        }
+        parts.append(image_text)
 
     if not parts and image_count == 0:
         parts.append(stored_content)
@@ -1964,6 +1978,55 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
             owner_external_id=str(batch.get("w_id") or ""),
             source_id=f"{batch['batch_key']}:assistant",
         )
+
+
+def _save_image_recognitions(conversation_id: str, payloads: list[dict[str, Any]]) -> None:
+    updated = False
+    with _get_session() as session:
+        for payload in payloads:
+            recognition = payload.get("_image_recognition")
+            if not isinstance(recognition, dict):
+                continue
+            data = payload.get("data") or {}
+            message_id = str(data.get("newMsgId") or data.get("msgId") or "").strip()
+            if not message_id:
+                continue
+            message = session.scalar(select(ConversationMessageModel).where(
+                ConversationMessageModel.conversation_id == conversation_id,
+                ConversationMessageModel.sender_type == "customer",
+                ConversationMessageModel.message_id == message_id,
+            ))
+            if message is None:
+                continue
+            metadata = _load_message_metadata(message.metadata_json)
+            media = metadata.get("media") or {}
+            media.update(type="image", recognition=recognition)
+            metadata["media"] = media
+            message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+            updated = True
+        session.commit()
+    if updated:
+        from app.domains.conversations.services.conversation_event_service import conversation_event_broker
+        conversation_event_broker.publish({"conversation_id": conversation_id, "reason": "media"})
+
+
+def _pause_inbound_for_media(batch_id: int, batch: dict[str, Any]) -> bool:
+    with _get_session() as session:
+        jobs = session.scalars(select(EyunInboundMediaJobModel).join(
+            ConversationMessageModel,
+            ConversationMessageModel.id == EyunInboundMediaJobModel.conversation_message_id,
+        ).where(
+            ConversationMessageModel.conversation_id == _batch_conversation_id(batch),
+            EyunInboundMediaJobModel.status.in_(("pending", "processing")),
+        )).all()
+        if not any(not _load_message_metadata(job.payload_json).get("preserve_recognition") for job in jobs):
+            return False
+        row = session.get(EyunInboundBatchModel, batch_id)
+        if row:
+            row.status = "pending"
+            row.due_at = utcnow() + timedelta(seconds=1)
+            session.commit()
+    return True
 
 
 def _batch_conversation_id(batch: dict[str, Any]) -> str:
@@ -2569,6 +2632,7 @@ def _get_session() -> Session:
                 ConversationMessageModel.__table__,
                 EyunInboundBatchModel.__table__,
                 EyunInboundMessageModel.__table__,
+                EyunInboundMediaJobModel.__table__,
                 EyunImagePromptRateModel.__table__,
                 EyunMediaMaterialModel.__table__,
                 EyunBulkSendJobModel.__table__,

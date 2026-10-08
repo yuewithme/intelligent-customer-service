@@ -41,6 +41,7 @@
       :messages="messages"
       :profile="profile"
       :profile-loading="profileLoading"
+      :review-active="pageVisible && mobileView !== 'conversations'"
       @changed="handleChanged"
       @profile-changed="handleProfileChanged"
       @use-suggestion="handleUseSuggestion"
@@ -99,6 +100,7 @@ const FALLBACK_SYNC_INTERVAL_MS = 5_000
 
 const selectedId = ref('')
 const mobileView = ref<'conversations' | 'messages' | 'details'>('conversations')
+const pageVisible = ref(document.visibilityState === 'visible')
 const route = useRoute()
 const tenantStore = useMessageTenantStore()
 const selectedIds = ref<string[]>([])
@@ -294,6 +296,7 @@ const restoreRouteConversation = async () => {
 }
 
 const handleVisibilityChange = () => {
+  pageVisible.value = document.visibilityState === 'visible'
   if (document.visibilityState === 'visible') {
     void syncWorkbench()
     if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
