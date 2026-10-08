@@ -37,3 +37,59 @@ def test_supplier_detail_failures_do_not_become_empty_sku_updates(monkeypatch):
     from app.integrations.youzan.services.youzan_product_sync_service import _persist_sync
     _persist_sync({"item-7": {"_status": "on_sale"}}, {"item-7": RuntimeError("upstream unavailable")})
     assert captured["detail_results"]["item-7"] is None
+
+
+@pytest.mark.asyncio
+async def test_care_manual_sync_list_and_send_share_unified_source(monkeypatch):
+    from app.domains.sales.services import care_manual_service as manuals
+    from app.domains.conversations.services import conversation_service
+
+    monkeypatch.setattr(get_settings(), "unified_library_enabled", True)
+    monkeypatch.setattr(get_settings(), "youzan_enabled", True)
+    monkeypatch.setattr(manuals, "youzan_credentials_available", lambda: True)
+    monkeypatch.setattr(manuals, "_session", lambda: pytest.fail("old manual source used"))
+    observed = []
+    manual = {"id": 209, "title": "统一库手册", "note_url": "https://example.com/current-manual", "available": True}
+    note = {"note_id": 209, "title": "统一库手册养护注意事项", "note_url": manual["note_url"], "note_status": "published"}
+
+    class Client:
+        async def call(self, *args):
+            return {"count": 1, "data": [note]}
+
+    def post(url, **kwargs):
+        operation = url.rsplit("/", 1)[-1]
+        arguments = kwargs["json"]["arguments"]
+        observed.append((operation, arguments))
+        results = {
+            "manuals._start_sync_run": 1,
+            "manuals._persist_notes": {"created_count": 1},
+            "manuals._finish_sync_run": None,
+            "manuals.list_care_manuals": {"items": [manual], "total": 209},
+            "manuals.get_care_manual": manual,
+        }
+        return httpx.Response(200, json={"data": results[operation]}, request=httpx.Request("POST", url))
+
+    sent = {}
+
+    async def reply(*args, **kwargs):
+        sent.update(kwargs)
+        return {"queued": True}
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(conversation_service, "_reply_conversation_media", reply)
+    await manuals.sync_care_manuals(trigger="scheduled", client=Client())
+    assert manuals.list_care_manuals(page=2, page_size=200, enabled=True)["items"] == [manual]
+    await conversation_service.reply_conversation_care_manual("conversation", "operator", 209)
+    assert [operation for operation, _ in observed] == [
+        "manuals._start_sync_run", "manuals._persist_notes", "manuals._finish_sync_run",
+        "manuals.list_care_manuals", "manuals.get_care_manual",
+    ]
+    assert observed[0][1] == {"trigger": "scheduled"}
+    assert observed[1][1] == {"notes": [note]}
+    assert observed[3][1]["page"] == 2
+    assert observed[4][1] == {"card_id": 209}
+    assert sent["message_metadata"]["link_card"]["url"] == manual["note_url"]
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **kw: (_ for _ in ()).throw(httpx.ConnectError("offline")))
+    with pytest.raises(AppError):
+        manuals.list_care_manuals()

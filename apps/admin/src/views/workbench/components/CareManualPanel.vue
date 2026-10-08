@@ -21,6 +21,7 @@
       :type="conversation?.status === 'resolved' ? 'warning' : 'info'"
       :closable="false"
     />
+    <ElAlert v-if="loadError" :title="loadError" type="error" :closable="false" />
 
     <div v-loading="loading" class="manual-list">
       <article v-for="manual in filteredManuals" :key="manual.id" class="manual-card">
@@ -42,7 +43,7 @@
         </div>
       </article>
       <ElEmpty
-        v-if="!loading && !filteredManuals.length"
+        v-if="!loading && !loadError && !filteredManuals.length"
         :description="keyword ? '没有匹配的养护手册' : '暂无可发送的养护手册'"
         :image-size="72"
       />
@@ -51,7 +52,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getCareManuals, type CareManualItem } from '@/api/admin/careManuals'
@@ -72,7 +73,9 @@ const userStore = useUserStore()
 const manuals = ref<CareManualItem[]>([])
 const keyword = ref('')
 const loading = ref(false)
+const loadError = ref('')
 const sendingId = ref<number | null>(null)
+let refreshTimer: ReturnType<typeof setInterval> | undefined
 const operatorId = computed(() => userStore.user.nickname || 'admin')
 const canSend = computed(
   () =>
@@ -90,17 +93,33 @@ const filteredManuals = computed(() => {
   const query = keyword.value.trim().toLocaleLowerCase()
   if (!query) return manuals.value
   return manuals.value.filter((manual) =>
-    [manual.title, manual.orchid_name, ...manual.aliases]
+    [
+      manual.title,
+      manual.orchid_name,
+      ...manual.aliases,
+      ...manual.match_keywords,
+      ...manual.product_links.map((link) => link.product_name)
+    ]
       .filter(Boolean)
       .some((value) => String(value).toLocaleLowerCase().includes(query))
   )
 })
 
 const loadManuals = async () => {
+  if (loading.value) return
   loading.value = true
+  loadError.value = ''
   try {
-    const result = await getCareManuals({ page: 1, page_size: 200, enabled: true })
-    manuals.value = result.items.filter((item) => item.available)
+    const items: CareManualItem[] = []
+    for (let page = 1; ; page += 1) {
+      const result = await getCareManuals({ page, page_size: 200, enabled: true })
+      items.push(...result.items)
+      if (items.length >= result.total) break
+      if (!result.items.length) throw new Error('养护手册分页数据不完整')
+    }
+    manuals.value = items.filter((item) => item.available)
+  } catch {
+    loadError.value = '养护手册刷新失败，请点击刷新重试'
   } finally {
     loading.value = false
   }
@@ -121,7 +140,20 @@ const sendManual = async (manual: CareManualItem) => {
   }
 }
 
-onMounted(() => void loadManuals())
+const refreshVisibleManuals = () => {
+  if (!document.hidden) void loadManuals()
+}
+
+onMounted(() => {
+  void loadManuals()
+  refreshTimer = setInterval(refreshVisibleManuals, 60_000)
+  document.addEventListener('visibilitychange', refreshVisibleManuals)
+})
+
+onUnmounted(() => {
+  clearInterval(refreshTimer)
+  document.removeEventListener('visibilitychange', refreshVisibleManuals)
+})
 </script>
 
 <style scoped>

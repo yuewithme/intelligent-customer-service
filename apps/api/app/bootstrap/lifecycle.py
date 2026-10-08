@@ -16,6 +16,7 @@ from app.domains.customers.workers.memory_worker import memory_worker
 from app.domains.sales.services.service_material_touch_service import (
     service_material_touch_worker,
 )
+from app.domains.sales.services.care_manual_service import care_manual_sync_worker
 from app.integrations.eyun.services.message_risk_control_service import (
     eyun_risk_control_worker,
 )
@@ -73,6 +74,9 @@ async def lifespan(app: FastAPI):
         app.state.youzan_product_sync_task = asyncio.create_task(
             youzan_product_sync_worker(stop_event)
         )
+        app.state.care_manual_sync_task = asyncio.create_task(
+            care_manual_sync_worker(stop_event)
+        )
         app.state.youzan_order_sync_task = asyncio.create_task(
             youzan_order_sync_worker(stop_event)
         )
@@ -90,6 +94,7 @@ async def lifespan(app: FastAPI):
                 await app.state.eyun_inbound_media_task
                 await app.state.service_material_touch_task
                 await app.state.youzan_product_sync_task
+                await app.state.care_manual_sync_task
                 await app.state.youzan_order_sync_task
                 if app.state.memory_v2_task is not None:
                     await app.state.memory_v2_task

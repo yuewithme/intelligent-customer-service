@@ -292,6 +292,9 @@ class Settings(BaseSettings):
     youzan_order_sync_initial_lookback_days: int = Field(default=90, ge=1, le=730)
     youzan_order_sync_overlap_minutes: int = Field(default=10, ge=1, le=1440)
     youzan_order_sync_page_size: int = Field(default=100, ge=1, le=100)
+    youzan_care_manual_sync_enabled: bool = True
+    youzan_care_manual_sync_interval_hours: int = Field(default=24, ge=1, le=168)
+    youzan_care_manual_sync_startup_delay_seconds: int = Field(default=60, ge=0, le=3600)
     youzan_care_manual_method: str = "youzan.showcase.shopnote.list"
     youzan_care_manual_version: str = "1.0.0"
     youzan_care_manual_page_size: int = Field(default=20, ge=1, le=100)

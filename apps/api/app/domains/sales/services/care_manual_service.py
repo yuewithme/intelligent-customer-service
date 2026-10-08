@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from app.domains.knowledge.services.unified_library import remote
 
+import asyncio
 import json
+import logging
 import re
 import unicodedata
 from datetime import datetime, timezone
@@ -28,6 +30,7 @@ from app.integrations.youzan.services.youzan_token_service import (
 )
 
 
+logger = logging.getLogger("wechat_rag_bot.care_manual_sync")
 CARE_MANUAL_TITLE_MARKER = "养护注意事项"
 _PUBLISHED_STATUSES = {"published", "publish", "online", "on", "1", "true"}
 _ORCHID_CATEGORIES = ("莲瓣兰", "建兰", "春兰", "蕙兰", "墨兰", "寒兰", "春剑", "秋芝", "送春", "兰花")
@@ -445,6 +448,31 @@ async def sync_care_manuals(
         raise
 
 
+async def care_manual_sync_worker(stop_event: asyncio.Event) -> None:
+    settings = get_settings()
+    if (
+        not settings.youzan_care_manual_sync_enabled
+        or not settings.youzan_enabled
+        or not youzan_credentials_available()
+    ):
+        return
+    delay = settings.youzan_care_manual_sync_startup_delay_seconds
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=delay)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if stop_event.is_set():
+            return
+        try:
+            await sync_care_manuals(trigger="scheduled")
+            delay = settings.youzan_care_manual_sync_interval_hours * 3600
+        except Exception as exc:
+            logger.warning("Scheduled Youzan care manual sync failed: %s", type(exc).__name__)
+            delay = 300
+
+
 async def _fetch_all_notes(
     client: Any, *, method: str, version: str, page_size: int
 ) -> list[dict[str, Any]]:
@@ -472,6 +500,10 @@ async def _fetch_all_notes(
                 "已取消本次同步，旧卡片数据未被覆盖"
             )
         result.extend(item for item in items if isinstance(item, dict))
+        if not items and total is not None and len(result) < total:
+            raise RuntimeError(
+                "有赞店铺笔记分页数据不完整；已取消本次同步，旧卡片数据未被覆盖"
+            )
         if not items or (total is not None and len(result) >= total):
             break
         if len(items) < reported_page_size and total is None:

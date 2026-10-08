@@ -1,7 +1,10 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 import pytest
 
 from app.core.config import get_settings
+from app.domains.sales.services import care_manual_service
 from app.infrastructure.database.product_store import reset_product_store_for_tests
 from app.domains.sales.services.care_manual_service import (
     list_care_manuals,
@@ -125,6 +128,86 @@ class IgnoredPaginationClient:
                 },
             ],
         }
+
+
+@pytest.mark.asyncio
+async def test_scheduled_sync_retries_failure_and_continues_daily(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "youzan_enabled", True)
+    monkeypatch.setattr(settings, "youzan_care_manual_sync_enabled", True)
+    monkeypatch.setattr(settings, "youzan_care_manual_sync_startup_delay_seconds", 60)
+    monkeypatch.setattr(settings, "youzan_care_manual_sync_interval_hours", 24)
+    monkeypatch.setattr(care_manual_service, "youzan_credentials_available", lambda: True)
+    stop_event = asyncio.Event()
+    delays, triggers = [], []
+
+    async def wait(awaitable, *, timeout):
+        awaitable.close()
+        delays.append(timeout)
+        if len(delays) == 4:
+            stop_event.set()
+            return True
+        raise asyncio.TimeoutError
+
+    async def sync(*, trigger):
+        triggers.append(trigger)
+        if len(triggers) == 1:
+            raise RuntimeError("upstream unavailable")
+
+    monkeypatch.setattr(asyncio, "wait_for", wait)
+    monkeypatch.setattr(care_manual_service, "sync_care_manuals", sync)
+    await care_manual_service.care_manual_sync_worker(stop_event)
+    assert delays == [60, 300, 86400, 86400]
+    assert triggers == ["scheduled"] * 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("disabled", ["sync", "youzan", "credentials", "stopped"])
+async def test_scheduled_sync_respects_disabled_or_stopped(monkeypatch, disabled):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "youzan_enabled", disabled != "youzan")
+    monkeypatch.setattr(settings, "youzan_care_manual_sync_enabled", disabled != "sync")
+    monkeypatch.setattr(care_manual_service, "youzan_credentials_available", lambda: disabled != "credentials")
+    monkeypatch.setattr(care_manual_service, "sync_care_manuals", lambda **_: pytest.fail("unexpected sync"))
+    stop_event = asyncio.Event()
+    if disabled == "stopped":
+        stop_event.set()
+    await care_manual_service.care_manual_sync_worker(stop_event)
+
+
+@pytest.mark.asyncio
+async def test_scheduled_sync_stops_during_startup_wait(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "youzan_enabled", True)
+    monkeypatch.setattr(settings, "youzan_care_manual_sync_enabled", True)
+    monkeypatch.setattr(settings, "youzan_care_manual_sync_startup_delay_seconds", 60)
+    monkeypatch.setattr(care_manual_service, "youzan_credentials_available", lambda: True)
+    monkeypatch.setattr(care_manual_service, "sync_care_manuals", lambda **_: pytest.fail("unexpected sync"))
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(care_manual_service.care_manual_sync_worker(stop_event))
+    await asyncio.sleep(0)
+    stop_event.set()
+    await asyncio.wait_for(task, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_incomplete_sync_preserves_existing_manuals(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    await sync_care_manuals(client=FakeCareManualClient())
+    previous = list_care_manuals()["items"]
+
+    class IncompleteClient(FakeCareManualClient):
+        async def call(self, method, version, params):
+            result = await super().call(method, version, params)
+            if params["request"]["page"] == 2:
+                result["data"] = []
+            return result
+
+    with pytest.raises(RuntimeError, match="分页数据不完整"):
+        await sync_care_manuals(client=IncompleteClient(), trigger="scheduled")
+    result = list_care_manuals()
+    assert result["items"] == previous
+    assert result["last_sync"]["status"] == "failed"
 
 
 @pytest.mark.asyncio
