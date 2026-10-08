@@ -41,7 +41,10 @@ from app.domains.conversations.services.conversation_service import (
     update_outbound_message_delivery,
 )
 from app.domains.decisioning.services.customer_reply_formatter import plain_customer_text, split_customer_messages
-from app.integrations.eyun.services.eyun_contact_service import get_eyun_contact_snapshot
+from app.integrations.eyun.services.eyun_contact_service import (
+    get_eyun_contact_snapshot,
+    get_eyun_group_member_name,
+)
 from app.domains.conversations.services.input_filter_service import is_platform_noise_text
 from app.integrations.feishu.services.webhook_alert_service import (
     send_feishu_webhook_alert,
@@ -337,7 +340,7 @@ def _conversation_session_id(batch: Any) -> str:
         owner_wc_id = getattr(batch, "wc_id", None)
         batch_key = getattr(batch, "batch_key", None)
     if from_group:
-        return str(from_group)
+        return str(owner_wc_id or "default")
     if owner_wc_id and (
         not batch_key or f":{owner_wc_id}:" in str(batch_key)
     ):
@@ -387,6 +390,9 @@ async def enqueue_eyun_inbound(payload: dict[str, Any]) -> dict[str, Any]:
         from_user=from_user,
         owner_wc_id=wc_id,
     )
+    if from_group:
+        # Each questioner keeps their own debounce batch and reply mention target.
+        batch_key = f"{batch_key}:{from_user}"
     due_at = _inbound_batch_due_at(now=now, started_at=now)
     provider_message_id = _provider_message_id(payload, batch_key, now)
 
@@ -1338,8 +1344,18 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         thumb_path=str(video.get("thumb_path") or ""),
                     )
                 else:
+                    text_kwargs = {}
+                    if row.wc_id.endswith("@chatroom") and row.conversation_message_id:
+                        message = session.get(
+                            ConversationMessageModel, row.conversation_message_id
+                        )
+                        metadata = _load_message_metadata(
+                            message.metadata_json if message else None
+                        )
+                        if metadata.get("reply_at_wc_id"):
+                            text_kwargs["at"] = str(metadata["reply_at_wc_id"])
                     send_result = await send_eyun_text(
-                        w_id=row.w_id, wc_id=row.wc_id, content=content
+                        w_id=row.w_id, wc_id=row.wc_id, content=content, **text_kwargs
                     )
                 if not isinstance(send_result, dict):
                     raise RuntimeError("Eyun send returned no acceptance receipt")
@@ -1489,12 +1505,16 @@ async def _process_inbound_batch(batch_id: int) -> None:
         if _human_replied_after(_batch_conversation_id(batch_data), latest_input_at):
             _mark_batch(batch_id, "skipped")
             return
-        if batch_data["from_group"]:
-            _mark_batch(batch_id, "skipped")
-            return
         from app.integrations.eyun.services.eyun_callback_service import (
             is_eyun_new_friend_opening_event,
+            is_eyun_group_mention,
         )
+        if batch_data["from_group"] and (
+            not inbound_payloads
+            or not all(is_eyun_group_mention(payload) for payload in inbound_payloads)
+        ):
+            _mark_batch(batch_id, "skipped")
+            return
 
         has_opening_event = any(
             is_eyun_new_friend_opening_event(payload)
@@ -1528,7 +1548,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
         ) = await _prepare_inbound_content(batch_data["content"], inbound_payloads)
         batch_data["content"] = prepared_content
         all_images_failed = image_count > 0 and recognized_image_count == 0
-        user_id = batch_data["from_user"] or batch_data["target_wc_id"]
+        user_id = batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"]
 
         if verified_order_count:
             profile = await add_verified_customer_tag(
@@ -1575,7 +1595,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
             chat_result = await handle_chat(
                 ChatRequest(
                     channel="wechat",
-                    user_id=batch_data["from_user"] or batch_data["target_wc_id"],
+                    user_id=batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"],
                     session_id=_conversation_session_id(batch_data),
                     message=batch_data["content"],
                     kb_id=get_settings().wechat_default_kb_id,
@@ -1585,7 +1605,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "message_type": batch_data["message_type"],
                         "owner_wc_id": batch_data["wc_id"],
                         "contact_wc_id": (
-                            batch_data["from_user"] or batch_data["target_wc_id"]
+                            batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"]
                         ),
                         "wc_id": batch_data["wc_id"],
                         "tenant_id": _conversation_tenant_id(batch_data),
@@ -1607,7 +1627,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
             chat_result = await handle_chat(
                 ChatRequest(
                     channel="wechat",
-                    user_id=batch_data["from_user"] or batch_data["target_wc_id"],
+                    user_id=batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"],
                     session_id=_conversation_session_id(batch_data),
                     message=batch_data["content"],
                     kb_id=get_settings().wechat_default_kb_id,
@@ -1617,7 +1637,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                         "message_type": batch_data["message_type"],
                         "owner_wc_id": batch_data["wc_id"],
                         "contact_wc_id": (
-                            batch_data["from_user"] or batch_data["target_wc_id"]
+                            batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"]
                         ),
                         "wc_id": batch_data["wc_id"],
                         "tenant_id": _conversation_tenant_id(batch_data),
@@ -1645,6 +1665,20 @@ async def _process_inbound_batch(batch_id: int) -> None:
         )
         if batch_data["w_id"] and batch_data["target_wc_id"]:
             outbound_messages = _outbound_messages(chat_result)
+            if batch_data["from_group"] and outbound_messages:
+                member_name = await get_eyun_group_member_name(
+                    w_id=batch_data["w_id"],
+                    group_id=batch_data["from_group"],
+                    member_wc_id=batch_data["from_user"],
+                )
+                mention = f"@{member_name}\u2005"
+                if outbound_messages[0]["type"] != "text":
+                    outbound_messages.insert(0, {"type": "text", "content": mention})
+                else:
+                    outbound_messages[0] = {
+                        **outbound_messages[0],
+                        "content": mention + outbound_messages[0]["content"],
+                    }
             sales_turn_id = str(chat_result.get("trace_id") or "").strip()
             sales_metadata = {
                 "sop_node": ((chat_result.get("intent") or {}).get("slots") or {}).get("sop_node"),
@@ -1653,7 +1687,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 "provider": "eyun",
                 "owner_wc_id": batch_data["wc_id"],
                 "contact_wc_id": (
-                    batch_data["from_user"] or batch_data["target_wc_id"]
+                    batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"]
                 ),
                 "wc_id": batch_data["wc_id"],
                 "tenant_id": _conversation_tenant_id(batch_data),
@@ -1671,7 +1705,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
             for index, message in enumerate(outbound_messages):
                 conversation_message = await ensure_outbound_conversation_message(
                     channel="wechat",
-                    user_id=batch_data["from_user"] or batch_data["target_wc_id"],
+                    user_id=batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"],
                     session_id=_conversation_session_id(batch_data),
                     tenant_id=_conversation_tenant_id(batch_data),
                     content=message["content"],
@@ -1680,7 +1714,12 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     sender_id="ai",
                     route=str(chat_result.get("route") or ""),
                     created_after=batch_data["created_at"],
-                    metadata=sales_metadata,
+                    reconcile_pending=not bool(batch_data["from_group"]),
+                    metadata={
+                        **sales_metadata,
+                        **({"reply_at_wc_id": batch_data["from_user"]}
+                           if batch_data["from_group"] and index == 0 else {}),
+                    },
                 )
                 kwargs = {
                     "w_id": batch_data["w_id"],
@@ -1711,7 +1750,7 @@ async def _finalize_eyun_handoff(
 ) -> dict[str, Any]:
     if not chat_result.get("need_human"):
         return chat_result
-    user_id = batch["from_user"] or batch["target_wc_id"]
+    user_id = batch.get("from_group") or batch["from_user"] or batch["target_wc_id"]
     conversation_id = make_conversation_id(
         "wechat", user_id, _conversation_session_id(batch)
     )
@@ -1753,7 +1792,7 @@ def _source_trace_metadata(
     batch: dict[str, Any],
     payloads: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    user_id = str(batch.get("from_user") or batch.get("target_wc_id") or "")
+    user_id = str(batch.get("from_group") or batch.get("from_user") or batch.get("target_wc_id") or "")
     conversation_id = make_conversation_id(
         "wechat", user_id, _conversation_session_id(batch)
     )
@@ -1831,7 +1870,7 @@ async def _prepare_inbound_content(
     for payload in payloads:
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         message_type = str(payload.get("messageType") or "")
-        if message_type == "60001":
+        if message_type in {"60001", "80001"}:
             text_content = str(data.get("content") or "").strip()
             if text_content and not is_platform_noise_text(text_content):
                 parts.append(text_content)
@@ -1930,7 +1969,7 @@ async def _record_opening_memories(batch: dict[str, Any], answer: str) -> None:
 def _batch_conversation_id(batch: dict[str, Any]) -> str:
     return make_conversation_id(
         "wechat",
-        batch["from_user"] or batch["target_wc_id"],
+        batch.get("from_group") or batch["from_user"] or batch["target_wc_id"],
         _conversation_session_id(batch),
     )
 
@@ -2128,7 +2167,7 @@ def is_first_eyun_inbound_message(session: Session, batch_key: str) -> bool:
 def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
     conversation_id = make_conversation_id(
         "wechat",
-        batch["from_user"] or batch["target_wc_id"],
+        batch.get("from_group") or batch["from_user"] or batch["target_wc_id"],
         _conversation_session_id(batch),
     )
     with _get_session() as session:
@@ -2418,7 +2457,7 @@ def _mark_conversation_ai_message_sent(
         return
     conversation_id = make_conversation_id(
         "wechat",
-        batch.from_user or batch.target_wc_id,
+        batch.from_group or batch.from_user or batch.target_wc_id,
         _conversation_session_id(batch),
     )
     message = session.scalar(

@@ -281,6 +281,5 @@ async def test_admin_reply_records_eyun_message_id(monkeypatch, tmp_path):
         message for message in detail["messages"] if message["sender_type"] == "human"
     )
     assert reply["message_id"] == "2001"
-    assert reply["delivery_status"] == "sent"
-    assert reply["delivery_status"] == "sent"
+    assert reply["delivery_status"] == "accepted"
     assert reply["metadata"]["origin"] == "admin_workbench"

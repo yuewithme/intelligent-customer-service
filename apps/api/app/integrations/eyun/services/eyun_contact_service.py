@@ -182,6 +182,33 @@ async def get_eyun_contact_snapshot(*, w_id: str, wc_id: str) -> dict[str, Any]:
         return {}
 
 
+async def get_eyun_group_member_name(
+    *, w_id: str, group_id: str, member_wc_id: str
+) -> str:
+    settings = get_settings()
+    base_url = settings.eyun_base_url.rstrip("/")
+    authorization = settings.eyun_authorization.strip()
+    if not base_url or not authorization or not w_id:
+        return member_wc_id
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{base_url}/getChatRoomMemberInfo",
+                headers={"Authorization": authorization},
+                json={
+                    "wId": w_id,
+                    "chatRoomId": group_id,
+                    "userList": member_wc_id,
+                },
+            )
+        response.raise_for_status()
+        snapshot = parse_contact_snapshots(response.json()).get(member_wc_id, {})
+        return str(snapshot.get("nickname") or member_wc_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Eyun group member lookup failed: %s", exc)
+        return member_wc_id
+
+
 async def initialize_eyun_contacts(*, w_id: str) -> bool:
     settings = get_settings()
     base_url = settings.eyun_base_url.rstrip("/")

@@ -943,99 +943,119 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     }
 
 
-def test_wechat_callback_ignores_group_messages(monkeypatch, tmp_path):
-    from app.integrations.eyun.services import eyun_callback_service
-
-    _reset_settings(monkeypatch, tmp_path)
-
-    async def fail_enqueue(payload):
-        raise AssertionError("group messages should not enter the AI queue")
-
-    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_enqueue)
-
-    async def fail_contact_snapshot(**kwargs):
-        raise AssertionError("group messages should not query contact details")
-
-    monkeypatch.setattr(
-        eyun_callback_service, "get_eyun_contact_snapshot", fail_contact_snapshot
-    )
-    client = TestClient(app)
-
-    response = client.post(
-        "/wechat/callback",
-        json={
-            "account": "test_account",
-            "messageType": "80001",
-            "wcId": "wxid_bot",
-            "data": {
-                "wId": "wid_test",
-                "fromUser": "wxid_sender",
-                "fromGroup": "12345@chatroom",
-                "toUser": "wxid_bot",
-                "content": "group hello",
-                "msgId": 789,
-                "newMsgId": 790,
-                "self": False,
-            },
-        },
-    )
-
-    assert response.status_code == 200
-    conversations = client.get("/api/v1/admin/conversations").json()["data"]
-    assert conversations["total"] == 0
-
-
+@pytest.mark.parametrize("message_type", ["80001", "60001"])
 @pytest.mark.parametrize(
-    "data",
-    [
-        {
-            "fromUser": "wxid_sender",
-            "fromGroup": "12345@chatroom",
-            "toUser": "wxid_bot",
-        },
-        {
-            "fromUser": "12345@chatroom",
-            "fromGroup": "",
-            "toUser": "wxid_bot",
-        },
-    ],
+    "atlist, expected_queue",
+    [([], False), (["wxid_other"], False), (["notify@all"], False),
+     (["wxid_bot_suffix"], False), ("wxid_bot", False),
+     (["wxid_bot"], True), (["wxid_other", "wxid_bot"], True)],
 )
-def test_mislabeled_private_callback_is_blocked_before_processing(
-    monkeypatch, tmp_path, data
+def test_group_callback_is_stored_and_only_mentions_enter_ai(
+    monkeypatch, tmp_path, message_type, atlist, expected_queue
 ):
-    from app.integrations.eyun.services import eyun_callback_service
+    from app.integrations.eyun.services import eyun_callback_service as service
 
     _reset_settings(monkeypatch, tmp_path)
+    queued = []
 
-    async def fail_processing(*args, **kwargs):
-        raise AssertionError("group messages must be blocked before processing")
+    async def fake_enqueue(payload):
+        queued.append(payload)
 
-    monkeypatch.setattr(
-        eyun_callback_service, "get_eyun_contact_snapshot", fail_processing
-    )
-    monkeypatch.setattr(eyun_callback_service, "record_customer_message", fail_processing)
-    monkeypatch.setattr(eyun_callback_service, "enqueue_eyun_inbound", fail_processing)
+    async def fake_contact(**kwargs):
+        return {}
 
+    async def fail_profile(*args, **kwargs):
+        raise AssertionError("group messages must not create personal profiles")
+
+    monkeypatch.setattr(service, "enqueue_eyun_inbound", fake_enqueue)
+    monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(service, "ensure_user_profile", fail_profile)
+    monkeypatch.setattr(service, "is_global_handoff_enabled", lambda: False)
+    client = TestClient(app)
     payload = {
-        "account": "test_account",
-        "messageType": "60001",
+        "messageType": message_type,
         "wcId": "wxid_bot",
         "data": {
-            "wId": "wid_test",
-            "content": "mislabeled group hello",
-            "msgId": 791,
-            "newMsgId": 792,
-            "self": False,
-            **data,
+            "wId": "wid_test", "fromUser": "wxid_sender",
+            "fromGroup": "12345@chatroom", "toUser": "wxid_bot",
+            "content": "@support how to water?", "atlist": atlist,
+            "msgId": 789, "newMsgId": 790, "self": False,
         },
     }
+    for _ in range(2):
+        assert client.post("/wechat/callback", json=payload).status_code == 200
+    conversations = client.get("/api/v1/admin/conversations").json()["data"]
+    assert conversations["total"] == 1
+    conversation = conversations["items"][0]
+    assert conversation["user_id"] == "12345@chatroom"
+    assert conversation["session_id"] == "wxid_bot"
+    assert conversation["status"] == ("ai_waiting" if expected_queue else "ai_active")
+    messages = client.get(
+        f"/api/v1/admin/conversations/{conversation['conversation_id']}"
+    ).json()["data"]["messages"]
+    assert len(messages) == 1
+    assert messages[0]["metadata"]["from_user"] == "wxid_sender"
+    assert bool(queued) is expected_queue
 
-    assert eyun_callback_service.should_process_eyun_payload(payload) is False
-    assert asyncio.run(eyun_callback_service.handle_eyun_callback(payload)) == {
-        "code": "1000",
-        "message": "success",
-        "data": None,
+
+def test_group_without_sender_is_stored_but_never_replied(monkeypatch, tmp_path):
+    from app.integrations.eyun.services import eyun_callback_service as service
+
+    _reset_settings(monkeypatch, tmp_path)
+    recorded = []
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_record(**kwargs):
+        recorded.append(kwargs)
+
+    async def fail_enqueue(payload):
+        raise AssertionError("unknown group sender must not be replied to")
+
+    monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(service, "record_customer_message", fake_record)
+    monkeypatch.setattr(service, "enqueue_eyun_inbound", fail_enqueue)
+    payload = {
+        "messageType": "60001", "wcId": "wxid_bot",
+        "data": {"wId": "wid", "fromUser": "12345@chatroom",
+                 "toUser": "wxid_bot", "content": "hello",
+                 "atlist": ["wxid_bot"], "newMsgId": 792},
     }
+    assert service.should_process_eyun_payload(payload)
+    asyncio.run(service.handle_eyun_callback(payload))
+    assert recorded[0]["user_id"] == "12345@chatroom"
+    assert recorded[0]["metadata"]["from_group"] == "12345@chatroom"
+    assert recorded[0]["route"] == "group_silent"
+
+
+def test_group_self_message_is_stored_without_triggering_ai(monkeypatch, tmp_path):
+    from app.integrations.eyun.services import eyun_callback_service as service
+
+    _reset_settings(monkeypatch, tmp_path)
+    sent = []
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_sent(**kwargs):
+        sent.append(kwargs)
+
+    async def fail_enqueue(payload):
+        raise AssertionError("self callback must not trigger AI")
+
+    monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(service, "ensure_outbound_conversation_message", fake_sent)
+    monkeypatch.setattr(service, "enqueue_eyun_inbound", fail_enqueue)
+    asyncio.run(service.handle_eyun_callback({
+        "messageType": "80001", "wcId": "wxid_bot",
+        "data": {"wId": "wid", "fromUser": "wxid_bot",
+                 "toUser": "12345@chatroom", "self": True,
+                 "content": "I will reply", "atlist": ["wxid_bot"]},
+    }))
+    assert len(sent) == 1
+    assert sent[0]["user_id"] == "12345@chatroom"
+    assert sent[0]["session_id"] == "wxid_bot"
 
 
 def test_eyun_non_image_messages_expose_media_metadata(monkeypatch, tmp_path):
@@ -1141,8 +1161,9 @@ def test_eyun_non_image_messages_expose_media_metadata(monkeypatch, tmp_path):
             assert media["url"] == expected_url
 
 
+@pytest.mark.parametrize("group_id", [None, "12345@chatroom"])
 def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, group_id
 ):
     from app.integrations.eyun.services import eyun_callback_service
     from app.integrations.ai.services import speech_recognition_service
@@ -1155,6 +1176,7 @@ def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
     _reset_settings(monkeypatch, tmp_path)
     calls = []
     queued = []
+    conversation_id = f"wechat:{group_id or 'wxid_customer'}:wxid_bot"
 
     async def fake_contact_snapshot(**kwargs):
         return {}
@@ -1166,7 +1188,7 @@ def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
     async def fake_transcribe(path):
         assert path.name == "voice.wav"
         message = client.get(
-            "/api/v1/admin/conversations/wechat:wxid_customer:wxid_bot"
+            f"/api/v1/admin/conversations/{conversation_id}"
         ).json()["data"]["messages"][0]
         media = message["metadata"]["media"]
         assert media["url"] == "/static/media/voice.wav"
@@ -1202,11 +1224,12 @@ def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
     client = TestClient(app)
     payload = {
         "account": "test_account",
-        "messageType": "60004",
+        "messageType": "80004" if group_id else "60004",
         "wcId": "wxid_bot",
         "data": {
             "wId": "wid_test",
             "fromUser": "wxid_customer",
+            **({"fromGroup": group_id} if group_id else {}),
             "toUser": "wxid_bot",
             "content": (
                 '<msg><voicemsg bufid="289139440622895483" length="3227" '
@@ -1232,7 +1255,7 @@ def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
         }
     ]
     detail = client.get(
-        "/api/v1/admin/conversations/wechat:wxid_customer:wxid_bot"
+        f"/api/v1/admin/conversations/{conversation_id}"
     ).json()["data"]
     media = detail["messages"][0]["metadata"]["media"]
     assert media["url"] == "/static/media/voice.wav"
@@ -1244,8 +1267,11 @@ def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
         "emotion": "neutral",
         "duration_seconds": 2,
     }
-    assert queued[0]["messageType"] == "60001"
-    assert queued[0]["_eyun_original_message_type"] == "60004"
-    assert queued[0]["data"]["content"] == (
-        "[客户语音转写] 我的兰花根腐烂了怎么办"
-    )
+    if group_id:
+        assert queued == []
+    else:
+        assert queued[0]["messageType"] == "60001"
+        assert queued[0]["_eyun_original_message_type"] == "60004"
+        assert queued[0]["data"]["content"] == (
+            "[客户语音转写] 我的兰花根腐烂了怎么办"
+        )

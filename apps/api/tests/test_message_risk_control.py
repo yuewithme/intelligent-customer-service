@@ -579,6 +579,87 @@ async def test_process_due_batch_skips_group_messages(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("same_reply", [False, True])
+async def test_group_mentions_reply_to_each_sender_in_the_correct_account(monkeypatch, same_reply):
+    from app.integrations.eyun.services import eyun_callback_service as callback
+    from app.integrations.eyun.services import message_risk_control_service as service
+    from app.domains.conversations.services.conversation_service import get_conversation_detail
+
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    monkeypatch.setenv("EYUN_INBOUND_DEBOUNCE_SECONDS", "0")
+    get_settings.cache_clear()
+    requests, sent = [], []
+
+    async def fake_contact(**kwargs):
+        return {}
+
+    async def fake_member(**kwargs):
+        return "同名兰友" if same_reply else "兰友" + kwargs["member_wc_id"]
+
+    async def fake_chat(request):
+        requests.append(request)
+        return {"answer": "收到" if same_reply else "答复：" + request.message, "route": "agent"}
+
+    async def fake_send(**kwargs):
+        sent.append(kwargs)
+        return {"code": "1000", "data": {"newMsgId": 1000 + len(sent)}}
+
+    monkeypatch.setattr(callback, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(callback, "is_global_handoff_enabled", lambda: False)
+    monkeypatch.setattr(callback, "send_eyun_text", fake_send)
+    monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
+    monkeypatch.setattr(service, "get_eyun_group_member_name", fake_member)
+    monkeypatch.setattr(service, "handle_chat", fake_chat)
+    group_id = "group@chatroom"
+    for index, (owner, sender) in enumerate([
+        ("owner_a", "sender_a"), ("owner_a", "sender_b"), ("owner_b", "sender_a")
+    ]):
+        payload = {
+            "messageType": "80001", "wcId": owner,
+            "data": {"wId": "wid_" + owner, "fromUser": sender,
+                     "fromGroup": group_id, "toUser": owner,
+                     "atlist": [owner], "content": "question_" + sender,
+                     "newMsgId": index + 1, "self": False},
+        }
+        await callback.handle_eyun_callback(payload)
+        await callback.handle_eyun_callback(payload)
+    assert await service.process_due_eyun_inbound_batches() == 3
+    assert len(requests) == 3
+    assert {request.user_id for request in requests} == {group_id}
+    assert {request.session_id for request in requests} == {"owner_a", "owner_b"}
+    assert all(request.metadata["source_message_count"] == 1 for request in requests)
+    assert all(request.metadata["conversation_message_ids"] for request in requests)
+    assert all("\n" not in request.message for request in requests)
+    for _ in range(3):
+        now += timedelta(seconds=30)
+        await service.process_due_eyun_outbound_messages()
+    assert len(sent) == 3
+    assert {(item["w_id"], item["wc_id"], item["at"]) for item in sent} == {
+        ("wid_owner_a", group_id, "sender_a"),
+        ("wid_owner_a", group_id, "sender_b"),
+        ("wid_owner_b", group_id, "sender_a"),
+    }
+    for index, item in enumerate(sent):
+        assert item["content"] == (
+            "@同名兰友\u2005收到" if same_reply
+            else f"@兰友{item['at']}\u2005答复：question_{item['at']}"
+        )
+        owner = item["w_id"].removeprefix("wid_")
+        await callback.handle_eyun_callback({
+            "messageType": "80001", "wcId": owner,
+            "data": {"wId": item["w_id"], "fromUser": owner,
+                     "fromGroup": group_id, "toUser": group_id,
+                     "content": item["content"], "newMsgId": 1001 + index, "self": True},
+        })
+    detail = await get_conversation_detail("wechat:group@chatroom:owner_a")
+    assert len(detail["messages"]) == 4
+    assert sum(message["sender_type"] == "ai" for message in detail["messages"]) == 2
+    with service._get_session() as session:
+        assert all(row.status == "confirmed" for row in session.query(EyunOutboundMessageModel))
+
+
+@pytest.mark.asyncio
 async def test_enqueue_outbound_adds_random_due_at(monkeypatch):
     from app.integrations.eyun.services.message_risk_control_service import enqueue_wechat_outbound
 

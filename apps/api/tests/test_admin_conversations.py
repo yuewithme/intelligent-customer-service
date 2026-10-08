@@ -992,7 +992,7 @@ def test_human_active_suppresses_ai_until_admin_releases_it(monkeypatch, tmp_pat
     assert resumed["route"] == "agent"
 
 
-def test_admin_only_displays_configured_wechat_material_group(monkeypatch, tmp_path):
+def test_admin_displays_all_wechat_groups(monkeypatch, tmp_path):
     import asyncio
 
     _reset_settings(monkeypatch, tmp_path)
@@ -1010,8 +1010,10 @@ def test_admin_only_displays_configured_wechat_material_group(monkeypatch, tmp_p
 
     data = TestClient(app).get("/api/v1/admin/conversations").json()["data"]
 
-    assert data["total"] == 1
-    assert data["items"][0]["user_id"] == "material@chatroom"
+    assert data["total"] == 2
+    assert {item["user_id"] for item in data["items"]} == {
+        "material@chatroom", "other@chatroom"
+    }
 
 
 def test_chat_creates_ai_owned_conversation(monkeypatch, tmp_path):

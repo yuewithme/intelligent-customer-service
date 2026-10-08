@@ -517,6 +517,8 @@ async def _enqueue_media_agent_input(job_id: int, content: str) -> None:
         if message is None:
             return
         metadata = _load_json(message.metadata_json)
+        if metadata.get("from_group"):
+            return
         owner_wc_id = str(
             metadata.get("owner_wc_id") or metadata.get("wc_id") or ""
         )

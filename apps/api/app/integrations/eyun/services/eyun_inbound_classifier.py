@@ -59,7 +59,7 @@ def classify_eyun_inbound(payload: dict[str, Any]) -> EyunInboundClassification:
             display_content=content or "[新好友]",
             semantic_text=content,
         )
-    if message_type == "60999":
+    if message_type in {"60999", "80999"}:
         return _classify_private_other(content)
 
     definition = _MESSAGE_TYPES.get(message_type[-3:])

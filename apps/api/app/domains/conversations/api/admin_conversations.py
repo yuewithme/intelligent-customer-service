@@ -6,7 +6,6 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from app.core.config import get_settings
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.conversations.schemas.conversation import (
     ClaimRequest,
@@ -114,7 +113,6 @@ async def conversations(
     test_only: bool = False,
     tenant_id: str | None = None,
 ) -> APIResponse:
-    material_group_wc_id = get_settings().eyun_material_group_wc_id.strip()
     data = await list_conversations(
         page=page,
         page_size=page_size,
@@ -123,7 +121,6 @@ async def conversations(
         keyword=keyword,
         channels=(channel,) if channel else None,
         excluded_user_id_prefix=None if test_only else DEMO_USER_PREFIX,
-        wechat_group_allowlist=(material_group_wc_id,) if material_group_wc_id else (),
         test_data=test_only,
         tenant_id=tenant_id,
         allowed_owner_wc_ids=(get_account(request)["wechat_ids"] if get_account(request) and get_account(request)["role"] == "employee" and not get_account(request)["all_wechat"] else None),

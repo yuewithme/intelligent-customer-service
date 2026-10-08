@@ -1917,7 +1917,7 @@ async def resolve_message_media(message_id: int) -> dict:
             metadata = {}
         if (
             metadata.get("provider") != "eyun"
-            or str(metadata.get("message_type") or "") not in {"60003", "60004"}
+            or str(metadata.get("message_type") or "") not in {"60003", "60004", "80003", "80004"}
         ):
             raise AppError(
                 ErrorCode.REQUEST_INVALID,
@@ -2131,7 +2131,7 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
             media["fallback"] = False
     media_is_resolvable = (
         metadata.get("provider") == "eyun"
-        and str(metadata.get("message_type") or "") in {"60003", "60004"}
+        and str(metadata.get("message_type") or "") in {"60003", "60004", "80003", "80004"}
         and isinstance(media, dict)
         and media.get("type") in {"video", "audio"}
     )

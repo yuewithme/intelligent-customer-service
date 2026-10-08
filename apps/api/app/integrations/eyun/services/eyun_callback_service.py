@@ -61,7 +61,10 @@ EYUN_GROUP_TEXT = "80001"
 
 
 def is_eyun_new_friend_opening_event(payload: dict[str, Any]) -> bool:
-    return classify_eyun_inbound(payload).disposition == "opening"
+    return (
+        not is_eyun_group_payload(payload)
+        and classify_eyun_inbound(payload).disposition == "opening"
+    )
 
 
 def is_eyun_text_message(payload: dict[str, Any]) -> bool:
@@ -69,7 +72,9 @@ def is_eyun_text_message(payload: dict[str, Any]) -> bool:
 
 
 def is_eyun_workbench_message(payload: dict[str, Any]) -> bool:
-    return _message_type_in_range(payload, 60000, 60999)
+    return _message_type_in_range(payload, 60000, 60999) or _message_type_in_range(
+        payload, 80000, 80999
+    )
 
 
 def is_eyun_group_payload(payload: dict[str, Any]) -> bool:
@@ -90,13 +95,30 @@ def eyun_success() -> dict[str, Any]:
     return {"code": "1000", "message": "success", "data": None}
 
 
+def is_eyun_group_mention(payload: dict[str, Any]) -> bool:
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    owner_wc_id = _eyun_owner_wc_id(payload, data)
+    sender = str(data.get("fromUser") or "").strip()
+    atlist = data.get("atlist")
+    return bool(
+        is_eyun_group_payload(payload)
+        and is_eyun_text_message(payload)
+        and owner_wc_id
+        and isinstance(atlist, list)
+        and owner_wc_id in atlist
+        and sender
+        and sender != owner_wc_id
+        and not sender.endswith("@chatroom")
+        and not _is_self_message(payload, data)
+    )
+
+
 def should_process_eyun_payload(payload: dict[str, Any]) -> bool:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     if str(payload.get("messageType", "")) == EYUN_OFFLINE_NOTIFICATION:
         return True
     return (
         str(payload.get("messageType", "")) != EYUN_TEST_CALLBACK
-        and not is_eyun_group_payload(payload)
         and is_eyun_workbench_message(payload)
         and bool(str(data.get("fromGroup") or data.get("fromUser") or "").strip())
     )
@@ -127,13 +149,22 @@ def normalize_eyun_private_image_payload(
 
 
 async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
+    if is_eyun_group_payload(payload):
+        data = dict(payload.get("data") or {})
+        if not str(data.get("fromGroup") or "").strip():
+            data["fromGroup"] = next(
+                (str(data[key]).strip() for key in ("fromUser", "toUser")
+                 if str(data.get(key) or "").strip().endswith("@chatroom")),
+                "",
+            )
+        if not data["fromGroup"]:
+            return eyun_success()
+        payload = {**payload, "data": data}
     payload = normalize_eyun_private_image_payload(payload)
     message_type = str(payload.get("messageType", ""))
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     if message_type == EYUN_OFFLINE_NOTIFICATION:
         schedule_eyun_offline_notification(payload)
-        return eyun_success()
-    if is_eyun_group_payload(payload):
         return eyun_success()
     if message_type == EYUN_TEST_CALLBACK:
         return eyun_success()
@@ -190,6 +221,10 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         return eyun_success()
 
     metadata = await _eyun_workbench_metadata(payload, data)
+    group_silent = is_eyun_group_payload(payload) and not is_eyun_group_mention(payload)
+    if is_eyun_group_payload(payload):
+        metadata["group_mentioned"] = not group_silent
+        metadata["atlist"] = data.get("atlist") or []
     metadata["inbound_classification"] = classification.to_metadata()
     _capture_material_group_message(payload, metadata)
     user_id = _eyun_conversation_user_id(data)
@@ -198,7 +233,9 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     is_reaction = classification.disposition == "reaction"
     is_unknown = classification.disposition == "unknown"
     is_media = classification.disposition == "media"
-    global_handoff = is_global_handoff_enabled() and not is_opening_event
+    global_handoff = (
+        is_global_handoff_enabled() and not is_opening_event and not group_silent
+    )
     if not str(data.get("fromGroup") or "").strip():
         await ensure_user_profile(
             user_id,
@@ -248,7 +285,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         metadata=metadata,
     ):
         return eyun_success()
-    if not global_handoff:
+    if not global_handoff and not group_silent:
         await recover_automatic_handoff(
             channel="wechat",
             user_id=user_id,
@@ -261,14 +298,18 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         content=classification.display_content,
         message_id=provider_message_id,
         status=(
-            HANDOFF_PENDING
+            AI_ACTIVE
+            if group_silent
+            else HANDOFF_PENDING
             if global_handoff
             else AI_WAITING
             if is_agent_message or is_opening_event or is_media
             else AI_ACTIVE
         ),
         route=(
-            "global_handoff"
+            "group_silent"
+            if group_silent
+            else "global_handoff"
             if global_handoff
             else "opening_trigger"
             if is_opening_event
@@ -296,7 +337,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             message_id=provider_message_id,
         )
 
-    if global_handoff:
+    if global_handoff or group_silent:
         return eyun_success()
 
     if (
@@ -431,7 +472,7 @@ def _eyun_conversation_session_id(
     payload: dict[str, Any], data: dict[str, Any]
 ) -> str:
     return str(
-        data.get("fromGroup") or _eyun_owner_wc_id(payload, data) or "default"
+        _eyun_owner_wc_id(payload, data) or "default"
     )
 
 
@@ -966,7 +1007,7 @@ def _decode_silk_to_wav(
 
 
 async def send_eyun_text(
-    *, w_id: str, wc_id: str, content: str
+    *, w_id: str, wc_id: str, content: str, at: str | None = None
 ) -> dict[str, Any] | None:
     settings = get_settings()
     base_url = settings.eyun_base_url.rstrip("/")
@@ -981,7 +1022,10 @@ async def send_eyun_text(
                 "Authorization": authorization,
                 "Content-Type": "application/json",
             },
-            json={"wId": w_id, "wcId": wc_id, "content": content},
+            json={
+                "wId": w_id, "wcId": wc_id, "content": content,
+                **({"at": at} if at else {}),
+            },
         )
     response.raise_for_status()
     result = response.json()
