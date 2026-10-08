@@ -30,7 +30,10 @@ client.interceptors.response.use(
       if (libraryApp) { window.location.replace(libraryLogin()); return Promise.reject(error) }
       if (window.location.pathname !== '/demo-chat' && window.location.pathname !== '/gate') window.location.replace(`/gate?redirect=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`)
     }
-    ElMessage.error(error.response?.data?.message || error.message || '网络请求失败')
+    ElMessage.error({
+      message: error.response?.data?.message || error.message || '网络请求失败',
+      grouping: true
+    })
     return Promise.reject(error)
   }
 )

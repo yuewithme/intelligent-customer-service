@@ -1,3 +1,6 @@
+import asyncio
+import logging
+
 import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -7,22 +10,37 @@ from app.shared.schemas.common import AppError, ErrorCode
 
 COOKIE_NAME = "platform_session"
 APP_ID = "orchid-sales-agent"
+logger = logging.getLogger("wechat_rag_bot.platform")
 
 
 async def platform_request(request: Request, path: str, payload: dict) -> dict:
     settings = get_settings()
     if len(settings.platform_shared_secret) < 32:
         raise AppError(ErrorCode.INTERNAL_ERROR, "统一平台接入尚未配置，请联系管理员", status_code=503)
-    try:
-        response = await request.app.state.platform_client.post(settings.platform_api_url.rstrip("/") + path, json=payload,
-                                                                headers={"X-App-Id": APP_ID, "X-App-Key": settings.platform_shared_secret})
-        if response.status_code in (401, 403):
-            raise AppError(ErrorCode.UNAUTHENTICATED if response.status_code == 401 else ErrorCode.PERMISSION_DENIED,
-                           "登录已失效或应用权限已被撤销", status_code=response.status_code)
-        response.raise_for_status()
-        return response.json()
-    except (httpx.HTTPError, ValueError):
-        raise AppError(ErrorCode.INTERNAL_ERROR, "统一权限服务暂不可用，请稍后重试", status_code=503) from None
+    # Session checks are read-only; exchanging a one-time code must never be replayed.
+    attempts = 2 if path in {"/service/session", "/service/library-session"} else 1
+    for attempt in range(attempts):
+        try:
+            response = await request.app.state.platform_client.post(
+                settings.platform_api_url.rstrip("/") + path, json=payload,
+                headers={"X-App-Id": APP_ID, "X-App-Key": settings.platform_shared_secret},
+            )
+            if response.status_code in (401, 403):
+                raise AppError(ErrorCode.UNAUTHENTICATED if response.status_code == 401 else ErrorCode.PERMISSION_DENIED,
+                               "登录已失效或应用权限已被撤销", status_code=response.status_code)
+            response.raise_for_status()
+            return response.json()
+        except (httpx.HTTPError, ValueError) as error:
+            status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+            transient = isinstance(error, httpx.TransportError) or status in {502, 503, 504}
+            if transient and attempt + 1 < attempts:
+                await asyncio.sleep(0.1)
+                continue
+            logger.warning(
+                "Platform request failed path=%s error=%s status=%s attempts=%s",
+                path, type(error).__name__, status, attempt + 1,
+            )
+            raise AppError(ErrorCode.INTERNAL_ERROR, "统一权限服务暂不可用，请稍后重试", status_code=503) from None
 
 
 async def resolve_account(request: Request) -> dict | None:

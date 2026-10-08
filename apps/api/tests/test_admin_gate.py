@@ -1,8 +1,10 @@
 import asyncio
 import time
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
@@ -171,3 +173,86 @@ def test_unavailable_platform_fails_closed(context, monkeypatch):
     monkeypatch.setattr(platform, "platform_request", unavailable)
     assert client.get("/api/gate").status_code == 503
     assert client.get("/api/v1/admin/conversations", headers={"Authorization": "Bearer service-only-key"}).status_code == 503
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/service/session", "/service/library-session"])
+@pytest.mark.parametrize("failure", ["disconnect", "timeout", 502, 503, 504])
+async def test_session_check_recovers_transient_failure(monkeypatch, path, failure):
+    monkeypatch.setattr(get_settings(), "platform_shared_secret", "x" * 32)
+    requests = []
+    account = {"id": "employee", "wechat_ids": ["wx_allowed"]}
+
+    def respond(request):
+        requests.append(request)
+        if len(requests) == 1:
+            if failure == "disconnect":
+                raise httpx.RemoteProtocolError("connection closed", request=request)
+            if failure == "timeout":
+                raise httpx.ReadTimeout("timed out", request=request)
+            return httpx.Response(failure)
+        return httpx.Response(200, json={"account": account})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        request = Request({"type": "http", "app": SimpleNamespace(state=SimpleNamespace(platform_client=client))})
+        result = await platform.platform_request(request, path, {"token": "t" * 43})
+
+    assert result == {"account": account}
+    assert len(requests) == 2
+    assert requests[0].content == requests[1].content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path,status,attempts,expected_status",
+    [
+        ("/service/session", 503, 2, 503),
+        ("/service/session", 401, 1, 401),
+        ("/service/session", 403, 1, 403),
+        ("/service/session", 500, 1, 503),
+        ("/service/exchange", 503, 1, 503),
+        ("/service/logout", 503, 1, 503),
+    ],
+)
+async def test_platform_retry_remains_bounded_and_fails_closed(
+    monkeypatch, caplog, path, status, attempts, expected_status
+):
+    secret, token = "private-app-key-" + "x" * 32, "private-session-token-" + "t" * 43
+    monkeypatch.setattr(get_settings(), "platform_shared_secret", secret)
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, text=token)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        request = Request({"type": "http", "app": SimpleNamespace(state=SimpleNamespace(platform_client=client))})
+        with pytest.raises(AppError) as error:
+            await platform.platform_request(request, path, {"token": token})
+
+    assert error.value.status_code == expected_status
+    assert len(requests) == attempts
+    assert secret not in caplog.text and token not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_retried_permission_check_does_not_cache_account(monkeypatch):
+    monkeypatch.setattr(get_settings(), "platform_shared_secret", "x" * 32)
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(503)
+        if len(requests) == 2:
+            return httpx.Response(200, json={"account": {"id": "employee"}})
+        return httpx.Response(401)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        request = Request({"type": "http", "app": SimpleNamespace(state=SimpleNamespace(platform_client=client))})
+        assert await platform.platform_request(request, "/service/session", {"token": "t" * 43})
+        with pytest.raises(AppError) as error:
+            await platform.platform_request(request, "/service/session", {"token": "t" * 43})
+
+    assert error.value.status_code == 401
+    assert len(requests) == 3
