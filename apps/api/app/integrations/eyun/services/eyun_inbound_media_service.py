@@ -108,6 +108,9 @@ async def retry_eyun_message_media(message_id: int) -> None:
         media_type, payload = _job_payload_from_message(message)
         if media_type not in SUPPORTED_MEDIA_TYPES:
             raise ValueError("当前消息不支持媒体解析")
+        media = _load_json(message.metadata_json).get("media") or {}
+        recognition = media.get("recognition") or {}
+        payload["preserve_recognition"] = recognition.get("status") == "succeeded"
 
         dedup_key = f"{message.id}:{media_type}"
         job = session.scalar(
@@ -256,6 +259,10 @@ async def _process_media_job(job_id: int) -> None:
         _fail_media_job(job_id, exc)
         return
 
+    # Reloading an understood message repairs playback without replaying a customer turn.
+    if payload.get("preserve_recognition"):
+        _complete_media_job(job_id, url)
+        return
     _publish_playable_media(job_id, url)
     recognition: dict[str, Any] | None = None
     agent_text = ""

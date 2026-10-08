@@ -1,3 +1,5 @@
+import json
+import subprocess
 import sys
 import wave
 from pathlib import Path
@@ -28,13 +30,19 @@ async def test_persist_eyun_video_downloads_authenticated_file(monkeypatch, tmp_
         eyun_callback_service.get_settings(), "eyun_base_url", "https://cdn.example.com/api"
     )
     requests: list[httpx.Request] = []
+    video = subprocess.run([
+        "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=10",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "0.4",
+        "-c:v", "libx265", "-preset", "ultrafast", "-c:a", "aac",
+        "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1",
+    ], capture_output=True, check=True).stdout
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return httpx.Response(
             200,
             headers={"content-type": "video/mp4"},
-            content=b"video-bytes",
+            content=video,
         )
 
     monkeypatch.setattr(
@@ -50,16 +58,28 @@ async def test_persist_eyun_video_downloads_authenticated_file(monkeypatch, tmp_
 
     assert url.startswith("/static/media/")
     assert url.endswith(".mp4")
-    assert (tmp_path / Path(url).name).read_bytes() == b"video-bytes"
+    path = tmp_path / Path(url).name
+    probe = json.loads(subprocess.run([
+        "ffprobe", "-v", "error", "-count_frames", "-show_streams", "-of", "json", str(path),
+    ], capture_output=True, check=True).stdout)
+    assert [(stream["codec_type"], stream["codec_name"]) for stream in probe["streams"]] == [
+        ("video", "h264"), ("audio", "aac"),
+    ]
+    assert all(int(stream["nb_read_frames"]) > 0 for stream in probe["streams"])
+    assert probe["streams"][0]["pix_fmt"] == "yuv420p"
+    content = path.read_bytes()
+    assert content.index(b"moov") < content.index(b"mdat")
+    assert not list(tmp_path.glob("*.tmp"))
     assert requests[0].headers["Authorization"] == "secret-token"
 
 
 @pytest.mark.asyncio
-async def test_persist_eyun_video_rejects_permission_page(monkeypatch, tmp_path):
+@pytest.mark.parametrize("content_type", ["text/html", "application/octet-stream"])
+async def test_persist_eyun_video_rejects_invalid_file(monkeypatch, tmp_path, content_type):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-            headers={"content-type": "text/html"},
+            headers={"content-type": content_type},
             content=b"permission denied",
         )
 
@@ -68,7 +88,7 @@ async def test_persist_eyun_video_rejects_permission_page(monkeypatch, tmp_path)
         lambda: tmp_path,
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(RuntimeError, match="not a video"):
+        with pytest.raises((RuntimeError, ValueError)):
             await persist_eyun_video(
                 client=client,
                 source_url="https://cdn.example.com/protected-video",
@@ -166,12 +186,19 @@ async def test_media_download_preserves_signed_url_without_api_token(
         lambda silk, pcm, wav: wav.write_bytes(b"RIFF-playable-wav"),
     )
     requests = []
+    content = b"media-bytes"
+    if media_type == "video":
+        content = subprocess.run([
+            "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=10",
+            "-t", "0.2", "-c:v", "libx264", "-movflags", "frag_keyframe+empty_moov",
+            "-f", "mp4", "pipe:1",
+        ], capture_output=True, check=True).stdout
 
     def handler(request):
         requests.append(request)
         if "Authorization" in request.headers:
             return httpx.Response(403, content=b"SignatureDoesNotMatch")
-        return httpx.Response(200, content=b"media-bytes")
+        return httpx.Response(200, content=content)
 
     persist = persist_eyun_voice if media_type == "audio" else persist_eyun_video
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:

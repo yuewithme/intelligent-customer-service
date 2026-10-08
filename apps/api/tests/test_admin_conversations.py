@@ -1535,6 +1535,18 @@ def test_queued_eyun_video_replaces_expired_media_url(
     assert queued[0]["_eyun_original_message_type"] == "60003"
     if not recognition_timeout:
         assert "视频展示兰花叶片上的黑色病斑" in queued[0]["data"]["content"]
+        message = detail["messages"][0]
+        retry = client.post(
+            f"/api/v1/admin/conversations/messages/{message['id']}/resolve-media"
+        )
+        assert retry.status_code == 200
+        assert asyncio.run(process_due_eyun_media_jobs()) == 1
+        reloaded = client.get(
+            "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot"
+        ).json()["data"]["messages"][0]["metadata"]["media"]
+        assert reloaded["url"] == "/static/media/playable.mp4"
+        assert reloaded["recognition"] == media["recognition"]
+        assert len(queued) == 1
 
 
 def test_stale_eyun_media_job_is_recovered_after_worker_restart(

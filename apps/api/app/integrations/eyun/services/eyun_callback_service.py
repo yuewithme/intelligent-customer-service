@@ -858,11 +858,14 @@ async def persist_eyun_video(
     authorization: str,
     msg_id: str,
 ) -> str:
+    from app.integrations.eyun.services.eyun_video_file_service import prepare_browser_video
+
     file_key = hashlib.sha256(f"{msg_id}:{source_url}".encode()).hexdigest()[:24]
     storage_dir = video_storage_dir()
     storage_dir.mkdir(parents=True, exist_ok=True)
-    target = storage_dir / f"{file_key}.mp4"
-    temporary = target.with_suffix(".tmp")
+    target = storage_dir / f"{file_key}-playable.mp4"
+    temporary = target.with_suffix(".source.tmp")
+    converted = target.with_suffix(".playable.tmp")
     maximum = get_settings().sop_video_max_bytes
     size = 0
 
@@ -885,9 +888,11 @@ async def persist_eyun_video(
                     output.write(chunk)
         if not size:
             raise RuntimeError("Eyun video download result is empty")
-        temporary.replace(target)
+        await asyncio.to_thread(prepare_browser_video, temporary, converted)
+        converted.replace(target)
     finally:
         temporary.unlink(missing_ok=True)
+        converted.unlink(missing_ok=True)
     return f"/static/media/{target.name}"
 
 

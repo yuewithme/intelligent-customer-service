@@ -75,23 +75,29 @@ def validate_video_bytes(content: bytes) -> dict[str, Any]:
     return metadata
 
 
+def prepare_browser_video(original: Path, converted: Path) -> dict[str, Any]:
+    metadata = _video_metadata(original)
+    encoding = ["-c:v", "copy", "-c:a", "copy"] if metadata["compatible"] else [
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:a", "aac",
+    ]
+    _run_media_command([
+        "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-y", "-i", str(original),
+        "-map", "0:v:0", "-map", "0:a:0?", *encoding, "-movflags", "+faststart",
+        "-f", "mp4", str(converted),
+    ])
+    metadata = _video_metadata(converted)
+    if not metadata["compatible"]:
+        raise VideoValidationError("视频转码未生成兼容格式")
+    return metadata
+
+
 def prepare_video_bytes(source: bytes, thumbnail: bytes = b"") -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="eyun-video-prepare-") as directory:
         root = Path(directory)
         original, converted, cover = root / "source.mp4", root / "video.mp4", root / "cover.jpg"
         original.write_bytes(source)
-        metadata = _video_metadata(original)
-        encoding = ["-c:v", "copy", "-c:a", "copy"] if metadata["compatible"] else [
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
-            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:a", "aac",
-        ]
-        _run_media_command([
-            "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-y", "-i", str(original),
-            "-map", "0:v:0", "-map", "0:a:0?", *encoding, "-movflags", "+faststart", str(converted),
-        ])
-        metadata = _video_metadata(converted)
-        if not metadata["compatible"]:
-            raise VideoValidationError("视频转码未生成兼容格式")
+        metadata = prepare_browser_video(original, converted)
         cover_source = converted
         if thumbnail:
             cover_source = root / "source-cover"

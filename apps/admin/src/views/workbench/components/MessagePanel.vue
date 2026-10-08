@@ -128,6 +128,8 @@
               class="message-video"
               :src="mediaSource(message)"
               controls
+              playsinline
+              preload="metadata"
               @error="markVideoFailed(message)"
             ></video>
             <audio
@@ -171,6 +173,15 @@
             >
               打开媒体文件
             </a>
+            <ElButton
+              v-if="canResolveMedia(message) && mediaSource(message)"
+              type="primary"
+              link
+              :loading="resolvingMediaIds.has(message.id)"
+              @click.stop="retryMedia(message)"
+            >
+              重新加载
+            </ElButton>
           </div>
           <div class="message-footer">
             <ElButton
