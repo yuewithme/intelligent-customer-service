@@ -148,8 +148,8 @@
             </a>
             <div v-else-if="canResolveMedia(message)" class="media-placeholder">
               <span>{{ mediaStatusText(message) }}</span>
-              <small v-if="messageMedia(message)?.resolve_error">
-                {{ messageMedia(message)?.resolve_error }}
+              <small v-if="mediaFailureHint(message)">
+                {{ mediaFailureHint(message) }}
               </small>
               <ElButton
                 v-if="canRetryMedia(message)"
@@ -158,7 +158,7 @@
                 :loading="resolvingMediaIds.has(message.id)"
                 @click="retryMedia(message)"
               >
-                重新解析
+                重新加载
               </ElButton>
             </div>
             <span v-else>{{ displayContent(message) }}</span>
@@ -219,6 +219,7 @@ interface MediaMetadata {
   url?: string
   resolve_status?: 'pending' | 'processing' | 'succeeded' | 'failed'
   resolve_error?: string
+  resolve_updated_at?: string
   job_key?: string
   thumb_base64?: string
   file_name?: string
@@ -370,8 +371,17 @@ const canRetryMedia = (message: ConversationMessage) => {
       status === 'failed' ||
       failedMediaIds.value.has(message.id) ||
       !status ||
-      (status === 'pending' && !media?.job_key)
+      (status === 'pending' && !media?.job_key) ||
+      mediaLoadingOverdue(message)
     )
+  )
+}
+
+const mediaLoadingOverdue = (message: ConversationMessage) => {
+  const media = messageMedia(message)
+  return (
+    ['pending', 'processing'].includes(media?.resolve_status || '') &&
+    Date.now() - new Date(media?.resolve_updated_at || message.created_at).getTime() > 5 * 60 * 1000
   )
 }
 
@@ -379,9 +389,22 @@ const mediaStatusText = (message: ConversationMessage) => {
   const label = mediaType(message) === 'audio' ? '语音' : '视频'
   const status = messageMedia(message)?.resolve_status
   if (status === 'failed' || failedMediaIds.value.has(message.id)) {
-    return `${label}解析失败`
+    return `${label}加载失败`
   }
-  return `${label}处理中…`
+  if (mediaLoadingOverdue(message)) return `${label}加载时间较长`
+  return `${label}加载中…`
+}
+
+const mediaFailureHint = (message: ConversationMessage) => {
+  const media = messageMedia(message)
+  if (failedMediaIds.value.has(message.id)) return '文件暂时无法播放，请重新加载。'
+  if (media?.resolve_status === 'failed') {
+    return /403|SignatureDoesNotMatch/i.test(media.resolve_error || '')
+      ? '媒体文件暂时无法下载，请重新加载。'
+      : '暂时无法获取媒体文件，请重试；也可先在微信中查看。'
+  }
+  if (mediaLoadingOverdue(message)) return '可以重新加载，或先在微信中查看。'
+  return ''
 }
 
 const isImageMessage = (message: ConversationMessage) =>
@@ -522,9 +545,9 @@ const retryMedia = async (message: ConversationMessage) => {
     failed.delete(message.id)
     failedMediaIds.value = failed
     await nextTick()
-    ElMessage.success('已重新进入媒体处理队列')
+    ElMessage.success('已请求重新加载媒体')
   } catch {
-    ElMessage.warning('重新解析请求失败，请稍后再试')
+    ElMessage.warning('重新加载失败，请稍后再试')
   } finally {
     const pending = new Set(resolvingMediaIds.value)
     pending.delete(message.id)

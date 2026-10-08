@@ -4,7 +4,7 @@ import logging
 import wave
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 from xml.etree import ElementTree
 
 import httpx
@@ -839,6 +839,18 @@ def media_storage_dir() -> Path:
     return video_storage_dir()
 
 
+def _media_download_headers(source_url: str, authorization: str) -> dict[str, str]:
+    source = urlsplit(source_url)
+    api = urlsplit(get_settings().eyun_base_url)
+    query = {key.lower() for key in parse_qs(source.query)}
+    # Object-storage URLs carry their own signature; an API token overrides it.
+    if query & {"signature", "x-amz-signature"}:
+        return {}
+    if api.netloc and (source.scheme, source.netloc) == (api.scheme, api.netloc):
+        return {"Authorization": authorization}
+    return {}
+
+
 async def persist_eyun_video(
     *,
     client: httpx.AsyncClient,
@@ -858,7 +870,7 @@ async def persist_eyun_video(
         async with client.stream(
             "GET",
             source_url,
-            headers={"Authorization": authorization},
+            headers=_media_download_headers(source_url, authorization),
             follow_redirects=True,
         ) as response:
             response.raise_for_status()
@@ -900,7 +912,7 @@ async def persist_eyun_voice(
         async with client.stream(
             "GET",
             source_url,
-            headers={"Authorization": authorization},
+            headers=_media_download_headers(source_url, authorization),
             follow_redirects=True,
         ) as response:
             response.raise_for_status()

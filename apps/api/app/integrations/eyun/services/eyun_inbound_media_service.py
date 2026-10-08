@@ -26,6 +26,8 @@ logger = logging.getLogger("wechat_rag_bot.eyun_inbound_media")
 SUPPORTED_MEDIA_TYPES = {"video", "audio"}
 MAX_ATTEMPTS = 3
 STALE_PROCESSING_MINUTES = 5
+MEDIA_DOWNLOAD_TIMEOUT_SECONDS = 120
+MEDIA_RECOGNITION_TIMEOUT_SECONDS = 120
 
 _sessionmakers: dict[str, sessionmaker] = {}
 
@@ -122,6 +124,13 @@ async def retry_eyun_message_media(message_id: int) -> None:
                 created_at=now,
             )
             session.add(job)
+        elif (
+            job.status == "processing"
+            and job.locked_at is not None
+            and job.locked_at.replace(tzinfo=timezone.utc)
+            > now - timedelta(minutes=STALE_PROCESSING_MINUTES)
+        ):
+            return
         job.payload_json = json.dumps(payload, ensure_ascii=False)
         job.status = "pending"
         job.attempts = 0
@@ -195,8 +204,7 @@ async def process_due_eyun_media_jobs(limit: int = 2) -> int:
 
     for conversation_id in conversation_ids:
         _publish_media_change(conversation_id)
-    for job_id in job_ids:
-        await _process_media_job(job_id)
+    await asyncio.gather(*(_process_media_job(job_id) for job_id in job_ids))
     return len(job_ids)
 
 
@@ -228,13 +236,13 @@ async def _process_media_job(job_id: int) -> None:
         )
 
         if media_type == "video":
-            url = await download_eyun_video(
+            download = download_eyun_video(
                 w_id=str(payload.get("w_id") or ""),
                 msg_id=str(payload.get("provider_msg_id") or ""),
                 content=str(payload.get("raw_content") or ""),
             )
         elif media_type == "audio":
-            url = await download_eyun_voice(
+            download = download_eyun_voice(
                 w_id=str(payload.get("w_id") or ""),
                 msg_id=str(payload.get("provider_msg_id") or ""),
                 from_user=str(payload.get("from_user") or ""),
@@ -243,10 +251,12 @@ async def _process_media_job(job_id: int) -> None:
             )
         else:
             raise RuntimeError(f"unsupported Eyun media type: {media_type}")
+        url = await asyncio.wait_for(download, timeout=MEDIA_DOWNLOAD_TIMEOUT_SECONDS)
     except Exception as exc:  # noqa: BLE001
         _fail_media_job(job_id, exc)
         return
 
+    _publish_playable_media(job_id, url)
     recognition: dict[str, Any] | None = None
     agent_text = ""
     if media_type == "audio":
@@ -255,7 +265,10 @@ async def _process_media_job(job_id: int) -> None:
                 transcribe_audio_file,
             )
 
-            transcript = await transcribe_audio_file(_local_media_path(url))
+            transcript = await asyncio.wait_for(
+                transcribe_audio_file(_local_media_path(url)),
+                timeout=MEDIA_RECOGNITION_TIMEOUT_SECONDS,
+            )
             recognition = {"status": "succeeded", **transcript.to_metadata()}
             agent_text = f"[客户语音转写] {transcript.text}"
         except Exception as exc:  # noqa: BLE001
@@ -275,7 +288,10 @@ async def _process_media_job(job_id: int) -> None:
                 understand_video_file,
             )
 
-            understanding = await understand_video_file(_local_media_path(url))
+            understanding = await asyncio.wait_for(
+                understand_video_file(_local_media_path(url)),
+                timeout=MEDIA_RECOGNITION_TIMEOUT_SECONDS,
+            )
             recognition = {"status": "succeeded", **understanding.to_metadata()}
             agent_text = understanding.to_agent_text()
         except Exception as exc:  # noqa: BLE001
@@ -300,6 +316,28 @@ async def _process_media_job(job_id: int) -> None:
                 job_id,
                 exc,
             )
+
+
+def _publish_playable_media(job_id: int, url: str) -> None:
+    with _get_session() as session:
+        job = session.get(EyunInboundMediaJobModel, job_id)
+        if job is None:
+            return
+        message = session.get(ConversationMessageModel, job.conversation_message_id)
+        if message is None:
+            return
+        _update_message_media(
+            message,
+            media_type=job.media_type,
+            resolve_status="succeeded",
+            resolve_error=None,
+            url=url,
+            job_key=job.dedup_key,
+            recognition={"status": "processing"},
+        )
+        conversation_id = message.conversation_id
+        session.commit()
+    _publish_media_change(conversation_id)
 
 
 def _complete_media_job(
@@ -429,6 +467,7 @@ def _update_message_media(
     media = metadata.get("media") if isinstance(metadata.get("media"), dict) else {}
     media["type"] = media_type
     media["resolve_status"] = resolve_status
+    media["resolve_updated_at"] = utcnow().isoformat()
     if job_key:
         media["job_key"] = job_key
     if recognition is not None:

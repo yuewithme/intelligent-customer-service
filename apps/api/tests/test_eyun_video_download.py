@@ -24,6 +24,9 @@ def test_video_storage_uses_compose_persistent_data_directory():
 
 @pytest.mark.asyncio
 async def test_persist_eyun_video_downloads_authenticated_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        eyun_callback_service.get_settings(), "eyun_base_url", "https://cdn.example.com/api"
+    )
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -100,6 +103,9 @@ def test_decode_silk_to_browser_playable_wav(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_persist_eyun_voice_downloads_and_converts_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        eyun_callback_service.get_settings(), "eyun_base_url", "https://cdn.example.com/api"
+    )
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -135,3 +141,45 @@ async def test_persist_eyun_voice_downloads_and_converts_file(monkeypatch, tmp_p
     assert (tmp_path / Path(url).name).read_bytes() == b"RIFF-playable-wav"
     assert requests[0].headers["Authorization"] == "secret-token"
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("media_type", ["video", "audio"])
+@pytest.mark.parametrize(
+    "source_url",
+    [
+        "https://api.example.com/media?AWSAccessKeyId=test&Expires=9999999999&Signature=%2Btest%3D",
+        "https://api.example.com/media?X-Amz-Signature=test&X-Amz-Credential=test",
+        "https://cdn.example.com/media",
+    ],
+)
+async def test_media_download_preserves_signed_url_without_api_token(
+    monkeypatch, tmp_path, media_type, source_url
+):
+    monkeypatch.setattr(
+        eyun_callback_service.get_settings(), "eyun_base_url", "https://api.example.com"
+    )
+    monkeypatch.setattr(eyun_callback_service, "video_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        eyun_callback_service,
+        "_decode_silk_to_wav",
+        lambda silk, pcm, wav: wav.write_bytes(b"RIFF-playable-wav"),
+    )
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if "Authorization" in request.headers:
+            return httpx.Response(403, content=b"SignatureDoesNotMatch")
+        return httpx.Response(200, content=b"media-bytes")
+
+    persist = persist_eyun_voice if media_type == "audio" else persist_eyun_video
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        url = await persist(
+            client=client, source_url=source_url, authorization="api-token", msg_id="789"
+        )
+
+    assert (tmp_path / Path(url).name).is_file()
+    assert len(requests) == 1
+    assert str(requests[0].url) == source_url
+    assert "Authorization" not in requests[0].headers

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.core.config import get_settings
 from app.main import app
@@ -1434,7 +1435,10 @@ def test_claimed_eyun_conversation_sends_care_manual_link_card(
     assert message["metadata"]["link_card"]["url"].endswith("/note/11")
 
 
-def test_queued_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
+@pytest.mark.parametrize("recognition_timeout", [False, True])
+def test_queued_eyun_video_replaces_expired_media_url(
+    monkeypatch, tmp_path, recognition_timeout
+):
     import asyncio
 
     from app.integrations.eyun.services import eyun_callback_service
@@ -1443,11 +1447,16 @@ def test_queued_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
         VideoUnderstanding,
     )
     from app.integrations.eyun.services import message_risk_control_service
+    from app.integrations.eyun.services import eyun_inbound_media_service
     from app.integrations.eyun.services.eyun_inbound_media_service import (
         process_due_eyun_media_jobs,
     )
 
     _reset_settings(monkeypatch, tmp_path)
+    if recognition_timeout:
+        monkeypatch.setattr(
+            eyun_inbound_media_service, "MEDIA_RECOGNITION_TIMEOUT_SECONDS", 0.01
+        )
     queued = []
 
     async def fake_contact_snapshot(**kwargs):
@@ -1459,6 +1468,14 @@ def test_queued_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
 
     async def fake_understand(path):
         assert path.name == "playable.mp4"
+        media = client.get(
+            "/api/v1/admin/conversations/wechat:wxid_sender:wxid_bot"
+        ).json()["data"]["messages"][0]["metadata"]["media"]
+        assert media["url"] == "/static/media/playable.mp4"
+        assert media["resolve_status"] == "succeeded"
+        assert media["recognition"]["status"] == "processing"
+        if recognition_timeout:
+            await asyncio.Event().wait()
         return VideoUnderstanding(
             summary="视频展示兰花叶片上的黑色病斑。",
             visible_content=["兰花叶片", "黑色病斑"],
@@ -1508,11 +1525,16 @@ def test_queued_eyun_video_replaces_expired_media_url(monkeypatch, tmp_path):
     media = detail["messages"][0]["metadata"]["media"]
     assert media["url"] == "/static/media/playable.mp4"
     assert media["resolve_status"] == "succeeded"
-    assert media["recognition"]["status"] == "succeeded"
-    assert media["recognition"]["frame_count"] == 3
+    if recognition_timeout:
+        assert media["recognition"]["status"] == "failed"
+        assert media["recognition"]["error"] == "TimeoutError"
+    else:
+        assert media["recognition"]["status"] == "succeeded"
+        assert media["recognition"]["frame_count"] == 3
     assert queued[0]["messageType"] == "60001"
     assert queued[0]["_eyun_original_message_type"] == "60003"
-    assert "视频展示兰花叶片上的黑色病斑" in queued[0]["data"]["content"]
+    if not recognition_timeout:
+        assert "视频展示兰花叶片上的黑色病斑" in queued[0]["data"]["content"]
 
 
 def test_stale_eyun_media_job_is_recovered_after_worker_restart(
@@ -1575,7 +1597,8 @@ def test_stale_eyun_media_job_is_recovered_after_worker_restart(
     assert detail["conversation"]["handoff_reason"] is None
 
 
-def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
+@pytest.mark.parametrize("download_timeout", [False, True])
+def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path, download_timeout):
     import asyncio
 
     from app.integrations.eyun.services import eyun_callback_service
@@ -1587,6 +1610,8 @@ def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
         return {}
 
     async def fail_download(**kwargs):
+        if download_timeout:
+            await asyncio.Event().wait()
         raise RuntimeError("provider download failed")
 
     monkeypatch.setattr(
@@ -1594,6 +1619,7 @@ def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(eyun_callback_service, "download_eyun_video", fail_download)
     monkeypatch.setattr(eyun_inbound_media_service, "MAX_ATTEMPTS", 1)
+    monkeypatch.setattr(eyun_inbound_media_service, "MEDIA_DOWNLOAD_TIMEOUT_SECONDS", 0.01)
     client = TestClient(app)
     client.post(
         "/wechat/callback",
@@ -1621,7 +1647,9 @@ def test_failed_eyun_video_resolution_is_persisted(monkeypatch, tmp_path):
     ]
 
     assert media["resolve_status"] == "failed"
-    assert media["resolve_error"] == "provider download failed"
+    assert media["resolve_error"] == (
+        "TimeoutError" if download_timeout else "provider download failed"
+    )
 
     retry = client.post(
         f"/api/v1/admin/conversations/messages/{message_id}/resolve-media"

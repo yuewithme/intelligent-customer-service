@@ -1165,6 +1165,17 @@ def test_official_voice_callback_is_downloaded_once_and_becomes_playable(
 
     async def fake_transcribe(path):
         assert path.name == "voice.wav"
+        message = client.get(
+            "/api/v1/admin/conversations/wechat:wxid_customer:wxid_bot"
+        ).json()["data"]["messages"][0]
+        media = message["metadata"]["media"]
+        assert media["url"] == "/static/media/voice.wav"
+        assert media["resolve_status"] == "succeeded"
+        assert media["recognition"]["status"] == "processing"
+        retried = client.post(
+            f"/api/v1/admin/conversations/messages/{message['id']}/resolve-media"
+        ).json()["data"]["metadata"]["media"]
+        assert retried == media
         return SpeechTranscript(
             text="我的兰花根腐烂了怎么办",
             language="zh",
