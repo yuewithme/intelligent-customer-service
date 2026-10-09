@@ -22,4 +22,4 @@ export const isAdmin = () => getGateRole() === 'admin'
 export const canViewPage = (path: string) => (!libraryApp && isAdmin()) || Boolean(currentAccount.value?.pages.includes(path))
 export const firstAllowedPage = () => libraryApp
   ? libraryPages[libraryApp].find(canViewPage) || '/no-access'
-  : isAdmin() ? '/workbench' : currentAccount.value?.pages[0] || '/no-access'
+  : isAdmin() ? '/workbench' : currentAccount.value?.pages.find(page => page !== '/operations/conversation-cases') || '/no-access'

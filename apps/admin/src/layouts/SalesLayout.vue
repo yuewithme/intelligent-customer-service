@@ -44,12 +44,6 @@
             <span>{{ item.label }}</span>
           </RouterLink>
         </section>
-        <section><p>统一资料</p>
-          <a :href="`${portalOrigin}/review/materials`">产品知识库</a>
-          <a :href="`${portalOrigin}/review/phrases`">话术库</a>
-          <a :href="`${portalOrigin}/review/conversation-cases`">销售案例库</a>
-          <a :href="`${portalOrigin}/portal/workspace`">统一工作台</a>
-        </section>
       </nav>
       <div class="mobile-operator">
         <span v-if="testMode" class="test-badge">测试模式</span>
@@ -104,12 +98,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { ChatDotRound, Connection, Collection, PriceTag, Goods, Reading, Calendar, Service } from '@element-plus/icons-vue'
+import { ChatDotRound, Connection, PriceTag, Goods, Reading, Calendar, Service } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/modules/user'
 import { clearGateRole, isTestGate, canViewPage, firstAllowedPage, isAdmin } from '@/utils/gate'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
 import type { ConversationTenant } from '@/api/admin/conversations'
-import { libraryApp, libraryPages, libraryTitle, migratedPages, portalOrigin } from '@/utils/library'
+import { libraryApp, libraryPages, libraryTitle } from '@/utils/library'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -156,7 +150,6 @@ const allNavigation = [
   {
     title: '销售资产',
     items: [
-      { label: '销售案例库', to: '/operations/conversation-cases', icon: Collection },
       { label: '客户标签', to: '/operations/tags', icon: PriceTag },
       { label: '商品与产品资料', to: '/operations/products', icon: Goods },
       { label: '养护手册', to: '/operations/care-manuals', icon: Reading },
@@ -171,7 +164,7 @@ const allNavigation = [
   }
 ]
 
-const navigation = computed(() => allNavigation.map(group => ({ ...group, items: group.items.filter(item => canViewPage(item.to) && (libraryApp ? libraryPages[libraryApp].includes(item.to) : !migratedPages[item.to])) })).filter(group => group.items.length))
+const navigation = computed(() => allNavigation.map(group => ({ ...group, items: group.items.filter(item => canViewPage(item.to) && (!libraryApp || libraryPages[libraryApp].includes(item.to))) })).filter(group => group.items.length))
 
 const logout = async () => {
   closeMobileNav()

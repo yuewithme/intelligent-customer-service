@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import SalesLayout from '@/layouts/SalesLayout.vue'
 import { clearGateRole, setAccount, canViewPage, firstAllowedPage } from '@/utils/gate'
-import { libraryApp, libraryBase, libraryPages, libraryTitle, libraryLogin, apiUrl, migratedPages, portalOrigin } from '@/utils/library'
+import { libraryApp, libraryBase, libraryPages, libraryTitle, libraryLogin, apiUrl } from '@/utils/library'
 
 const routes: RouteRecordRaw[] = [
   { path: '/demo-chat', component: () => import('@/views/demo-chat/index.vue'), meta: { public: true } },
@@ -14,7 +14,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: 'no-access', component: () => import('@/views/accounts/NoAccess.vue'), meta: { title: '暂无页面权限', public: true } },
       { path: 'workbench', component: () => import('@/views/workbench/index.vue'), meta: { title: '小兰工作台' } },
-      { path: 'operations/conversation-cases', component: () => import('@/views/conversation-cases/index.vue'), meta: { title: '销售案例库' } },
+      { path: 'operations/conversation-cases', redirect: '/no-access' },
       { path: 'operations/capability-workbench', component: () => import('@/views/capability-workbench/index.vue'), meta: { title: '能力工作台' } },
       { path: 'operations/tags', component: () => import('@/views/tag-management/index.vue'), meta: { title: '客户标签' } },
       { path: 'operations/products', component: () => import('@/views/product-information/index.vue'), meta: { title: '商品与产品资料' } },
@@ -34,11 +34,6 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({ history: createWebHistory(libraryBase || import.meta.env.BASE_URL), routes })
 
 router.beforeEach(async (to) => {
-  const owner = migratedPages[to.path]
-  if (!libraryApp && owner) {
-    location.replace(`${portalOrigin}${owner}${to.fullPath.slice(to.path.length)}`)
-    return false
-  }
   if (libraryApp && to.path !== '/no-access' && !libraryPages[libraryApp].includes(to.path)) return '/no-access'
   if (to.meta.public) return true
   const controller = new AbortController()
