@@ -5,7 +5,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, func, inspect, or_, select, text, update
+from sqlalchemy import case, create_engine, func, inspect, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -186,7 +186,11 @@ async def list_conversations(
         rows = session.scalars(
             select(ConversationModel)
             .where(*filters)
-            .order_by(ConversationModel.updated_at.desc(), ConversationModel.id.desc())
+            .order_by(
+                ConversationModel.is_pinned.desc(),
+                ConversationModel.updated_at.desc(),
+                ConversationModel.id.desc(),
+            )
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()
@@ -540,7 +544,10 @@ async def list_conversation_tenants() -> dict[str, list[dict[str, Any]]]:
                 ConversationModel.owner_wc_id,
                 func.max(ConversationModel.owner_display_name),
                 func.count(ConversationModel.id),
-                func.coalesce(func.sum(ConversationModel.unread_count), 0),
+                func.coalesce(func.sum(case(
+                    (ConversationModel.is_muted.is_(False), ConversationModel.unread_count),
+                    else_=0,
+                )), 0),
                 func.max(ConversationModel.updated_at),
             )
             .where(
@@ -745,6 +752,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 owner_display_name=owner_display_name,
                 created_at=now,
                 updated_at=now,
+                **_conversation_list_preferences(session, tenant_id, message.channel, message.user_id, owner_wc_id),
             )
             session.add(conversation)
             session.flush()
@@ -1041,6 +1049,7 @@ async def record_customer_message(
                 owner_display_name=owner_display_name,
                 created_at=now,
                 updated_at=now,
+                **_conversation_list_preferences(session, tenant_id, channel, user_id, owner_wc_id),
             )
             session.add(conversation)
             session.flush()
@@ -1196,6 +1205,7 @@ async def ensure_outbound_conversation_message(
                 unread_count=0,
                 created_at=now,
                 updated_at=now,
+                **_conversation_list_preferences(session, tenant_id, channel, user_id, owner_wc_id),
             )
             session.add(conversation)
             session.flush()
@@ -1870,15 +1880,64 @@ def get_human_activity_send_target(
         }
 
 
-async def mark_conversation_read(conversation_id: str) -> dict:
+async def mark_conversation_read(conversation_id: str, *, automatic: bool = False) -> dict:
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)
-        changed = bool(conversation.unread_count)
+        # Background refreshes must not undo an operator's explicit unread marker.
+        if automatic and conversation.marked_unread:
+            return _conversation_to_dict(conversation)
+        changed = bool(conversation.unread_count or conversation.marked_unread)
         conversation.unread_count = 0
+        conversation.marked_unread = False
         session.commit()
         result = _conversation_to_dict(conversation)
     if changed:
         _publish_change(conversation_id, "read")
+    return result
+
+
+def _conversation_list_preferences(
+    session: Session, tenant_id: str, channel: str, user_id: str, owner_wc_id: str | None
+) -> dict[str, bool]:
+    existing = session.scalar(select(ConversationModel).where(
+        ConversationModel.tenant_id == tenant_id,
+        ConversationModel.channel == channel,
+        ConversationModel.user_id == user_id,
+        ConversationModel.owner_wc_id == owner_wc_id,
+    ).order_by(ConversationModel.updated_at.desc()).limit(1))
+    return {
+        "is_pinned": bool(existing and existing.is_pinned),
+        "is_muted": bool(existing and existing.is_muted),
+    }
+
+
+async def apply_conversation_list_action(conversation_id: str, action: str) -> dict:
+    if action not in {"hide", "pin", "unpin", "unread", "mute", "unmute"}:
+        raise AppError(ErrorCode.REQUEST_INVALID, message="不支持的会话操作", status_code=422)
+    with _get_session() as session:
+        conversation = _get_conversation_or_error(session, conversation_id)
+        group = session.scalars(select(ConversationModel).where(
+            ConversationModel.tenant_id == conversation.tenant_id,
+            ConversationModel.channel == conversation.channel,
+            ConversationModel.user_id == conversation.user_id,
+            ConversationModel.owner_wc_id == conversation.owner_wc_id,
+        )).all()
+        for row in group:
+            if action == "hide":
+                row.hidden_at = _now()
+            elif action in {"pin", "unpin"}:
+                row.is_pinned = action == "pin"
+            elif action in {"mute", "unmute"}:
+                row.is_muted = action == "mute"
+            elif action == "unread" and row.hidden_at is None:
+                row.marked_unread = True
+        if action == "unread":
+            conversation.unread_count = max(1, conversation.unread_count or 0)
+            conversation.marked_unread = True
+        session.commit()
+        result = {"items": [_conversation_to_dict(row) for row in group]}
+    for item in result["items"]:
+        _publish_change(item["conversation_id"], action)
     return result
 
 
@@ -2095,6 +2154,9 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
         "handoff_reason": row.handoff_reason,
         "handoff_ticket_id": row.handoff_ticket_id,
         "unread_count": row.unread_count,
+        "is_pinned": row.is_pinned,
+        "is_muted": row.is_muted,
+        "marked_unread": row.marked_unread,
         "created_at": _utc_isoformat(row.created_at),
         "updated_at": _utc_isoformat(row.updated_at),
     }
@@ -2400,6 +2462,11 @@ def _ensure_conversation_columns(factory: sessionmaker) -> None:
             session.execute(text("ALTER TABLE conversations ADD COLUMN user_avatar_url TEXT"))
         if "hidden_at" not in columns:
             session.execute(text("ALTER TABLE conversations ADD COLUMN hidden_at DATETIME"))
+        for column in ("is_pinned", "is_muted", "marked_unread"):
+            if column not in columns:
+                session.execute(text(
+                    f"ALTER TABLE conversations ADD COLUMN {column} BOOLEAN NOT NULL DEFAULT 0"
+                ))
         if "owner_wc_id" not in columns:
             session.execute(
                 text("ALTER TABLE conversations ADD COLUMN owner_wc_id VARCHAR(256)")

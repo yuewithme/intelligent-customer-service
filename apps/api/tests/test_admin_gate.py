@@ -156,6 +156,14 @@ def test_object_and_customer_scope(context):
     client, _ = context
     denied = "wechat:customer_wx_denied:wx_denied"
     assert client.post("/api/v1/admin/conversations/" + denied + "/claim", json={"operator_id": "admin"}).status_code == 403
+    for action in ("hide", "pin", "unpin", "unread", "mute", "unmute"):
+        assert client.post(
+            f"/api/v1/admin/conversations/{denied}/list-action", json={"action": action}
+        ).status_code == 403
+    assert client.post(
+        "/api/v1/admin/conversations/wechat:customer_wx_allowed:wx_allowed/list-action",
+        json={"action": "pin"},
+    ).status_code == 200
     assert client.get("/api/v1/users/customer_wx_denied/profile").status_code == 403
     assert client.get("/api/v1/admin/conversations", params={"test_only": True}).status_code == 403
 

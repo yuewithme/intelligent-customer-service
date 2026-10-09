@@ -179,10 +179,11 @@ async def reply_draft(conversation_id: str, request: ReplyDraftRequest) -> APIRe
 
 
 @router.post("/{conversation_id:path}/read", response_model=APIResponse)
-async def mark_read(conversation_id: str) -> APIResponse:
+async def mark_read(conversation_id: str, automatic: bool = False) -> APIResponse:
     await _ensure_demo_conversation(conversation_id)
     return APIResponse(
-        code=0, message="success", data=await mark_conversation_read(conversation_id)
+        code=0, message="success",
+        data=await mark_conversation_read(conversation_id, automatic=automatic)
     )
 
 

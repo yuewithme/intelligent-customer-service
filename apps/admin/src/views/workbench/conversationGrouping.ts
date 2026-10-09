@@ -56,8 +56,11 @@ export const groupConversationsByCustomer = (
         group_key,
         conversation_ids: ordered.map((item) => item.conversation_id),
         grouped_count: ordered.length,
-        unread_count: ordered.reduce((total, item) => total + item.unread_count, 0)
+        unread_count: ordered.reduce((total, item) => total + item.unread_count, 0),
+        is_pinned: ordered.some((item) => item.is_pinned),
+        is_muted: ordered.every((item) => item.is_muted),
+        marked_unread: ordered.some((item) => item.marked_unread)
       }
     })
-    .sort(byUpdatedDesc)
+    .sort((left, right) => Number(right.is_pinned) - Number(left.is_pinned) || byUpdatedDesc(left, right))
 }

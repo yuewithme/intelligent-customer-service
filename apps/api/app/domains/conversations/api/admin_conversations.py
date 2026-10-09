@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.conversations.schemas.conversation import (
     ClaimRequest,
+    ConversationListActionRequest,
     ReplyCareManualRequest,
     ReplyEmojiRequest,
     ReplyRequest,
@@ -19,6 +20,7 @@ from app.domains.conversations.services.conversation_event_service import conver
 from app.domains.conversations.services.chat_review_service import get_chat_review
 from app.domains.conversations.services.reply_draft_service import update_reply_draft
 from app.domains.conversations.services.conversation_service import (
+    apply_conversation_list_action,
     claim_conversation,
     force_handoff,
     get_conversation_detail,
@@ -298,8 +300,16 @@ async def reply_emoji(
 
 
 @router.post("/{conversation_id:path}/read", response_model=APIResponse)
-async def mark_read(conversation_id: str) -> APIResponse:
-    data = await mark_conversation_read(conversation_id)
+async def mark_read(conversation_id: str, automatic: bool = False) -> APIResponse:
+    data = await mark_conversation_read(conversation_id, automatic=automatic)
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/list-action", response_model=APIResponse)
+async def list_action(
+    conversation_id: str, request: ConversationListActionRequest
+) -> APIResponse:
+    data = await apply_conversation_list_action(conversation_id, request.action)
     return APIResponse(code=0, message="success", data=data)
 
 

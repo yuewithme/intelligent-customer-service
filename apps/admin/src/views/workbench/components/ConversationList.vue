@@ -1,6 +1,5 @@
 <template>
   <aside class="conversation-list">
-    <div class="list-heading"><h2>会话列表</h2><span>{{ items.length }} 个会话</span></div>
     <div class="toolbar">
       <ElSelect v-model="status" clearable placeholder="全部状态" @change="load()">
         <ElOption label="AI 自动回复" value="ai_waiting" />
@@ -14,7 +13,7 @@
         :type="testView ? 'primary' : 'default'"
         @click="toggleTestView"
       >
-        {{ testView ? '返回正式对话' : '测试对话' }}
+        {{ testView ? '正式对话' : '测试对话' }}
       </ElButton>
       <ElButton :icon="Refresh" circle aria-label="刷新会话列表" @click="load()" />
     </div>
@@ -36,10 +35,10 @@
         v-for="item in items"
         :key="item.group_key"
         class="item"
-        :class="{ active: item.group_key === activeKey }"
+        :class="{ active: item.group_key === activeKey, pinned: item.is_pinned }"
         type="button"
         @click="emit('select', item)"
-        @contextmenu.prevent="hideItem(item)"
+        @contextmenu.prevent="openContextMenu($event, item)"
       >
         <ElAvatar :size="36" :src="item.user_avatar_url || undefined">
           {{ avatarText(item) }}
@@ -47,7 +46,12 @@
         <div class="item-main">
           <div class="item-head">
             <strong>{{ displayName(item) }}</strong>
-            <ElBadge v-if="item.unread_count" :value="item.unread_count" />
+            <span class="item-indicators">
+              <ElIcon v-if="item.is_pinned" title="已置顶" aria-label="已置顶"><Top /></ElIcon>
+              <ElIcon v-if="item.is_muted" title="消息免打扰" aria-label="消息免打扰"><MuteNotification /></ElIcon>
+              <span v-if="item.is_muted && item.unread_count" class="muted-unread" aria-label="有未读消息" />
+              <ElBadge v-else-if="item.unread_count" :value="item.unread_count" />
+            </span>
           </div>
           <div class="preview">{{ item.last_message || '暂无消息' }}</div>
           <div class="meta">
@@ -57,16 +61,42 @@
         </div>
       </button>
     </div>
+    <Teleport to="body">
+      <div
+        v-if="contextMenu"
+        ref="contextMenuRef"
+        class="conversation-context-menu"
+        role="menu"
+        aria-label="会话操作"
+        :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+        @contextmenu.prevent
+        @keydown="handleMenuKeydown"
+      >
+        <button type="button" role="menuitem" @click="runAction('hide')">
+          <ElIcon><Hide /></ElIcon>隐藏对话
+        </button>
+        <button type="button" role="menuitem" @click="runAction(contextMenu.item.is_pinned ? 'unpin' : 'pin')">
+          <ElIcon><Top /></ElIcon>{{ contextMenu.item.is_pinned ? '取消置顶' : '置顶对话' }}
+        </button>
+        <button type="button" role="menuitem" @click="runAction('unread')">
+          <ElIcon><ChatDotRound /></ElIcon>标为未读
+        </button>
+        <button type="button" role="menuitem" @click="runAction(contextMenu.item.is_muted ? 'unmute' : 'mute')">
+          <ElIcon><MuteNotification /></ElIcon>{{ contextMenu.item.is_muted ? '取消免打扰' : '消息免打扰' }}
+        </button>
+      </div>
+    </Teleport>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import { ChatDotRound, Hide, MuteNotification, Refresh, Search, Top } from '@element-plus/icons-vue'
 import {
   getConversations,
-  hideConversation,
+  applyConversationListAction,
+  type ConversationListAction,
   type ConversationItem,
   type ConversationStatus
 } from '@/api/admin/conversations'
@@ -82,6 +112,7 @@ defineProps<{ activeKey: string }>()
 const emit = defineEmits<{
   select: [item: ConversationGroupItem]
   hidden: [conversationIds: string[]]
+  markedUnread: [conversationIds: string[]]
   viewChange: []
 }>()
 
@@ -92,6 +123,10 @@ const status = ref('')
 const keyword = ref('')
 const testView = ref(testGate)
 const items = ref<ConversationGroupItem[]>([])
+const contextMenu = ref<{ item: ConversationGroupItem; x: number; y: number }>()
+const contextMenuRef = ref<HTMLElement>()
+const actionPending = ref(false)
+let contextMenuTrigger: HTMLElement | undefined
 let pendingLoad: Promise<void> | undefined
 
 const load = async (options: { silent?: boolean } = {}) => {
@@ -130,6 +165,7 @@ const load = async (options: { silent?: boolean } = {}) => {
 }
 
 const toggleTestView = async () => {
+  closeContextMenu()
   testView.value = !testView.value
   items.value = []
   emit('viewChange')
@@ -137,25 +173,73 @@ const toggleTestView = async () => {
   await load()
 }
 
-const hideItem = async (item: ConversationGroupItem) => {
-  if (testGate || testView.value) return
-  try {
-    await ElMessageBox.confirm(
-      `隐藏“${displayName(item)}”后，它将不再出现在会话列表中，但聊天记录不会删除。`,
-      '隐藏对话',
-      {
-        confirmButtonText: '隐藏',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-  } catch {
+const closeContextMenu = () => {
+  contextMenu.value = undefined
+}
+
+const openContextMenu = async (event: MouseEvent, item: ConversationGroupItem) => {
+  if (testGate || testView.value || actionPending.value) return
+  contextMenuTrigger = event.currentTarget as HTMLElement
+  const menu = { item, x: event.clientX + 4, y: event.clientY + 4 }
+  contextMenu.value = menu
+  await nextTick()
+  const element = contextMenuRef.value
+  if (!element || contextMenu.value?.item !== item) return
+  contextMenu.value.x = Math.max(8, Math.min(menu.x, window.innerWidth - element.offsetWidth - 8))
+  contextMenu.value.y = Math.max(8, Math.min(menu.y, window.innerHeight - element.offsetHeight - 8))
+  element.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+}
+
+const handleOutsidePointer = (event: PointerEvent) => {
+  if (!contextMenuRef.value?.contains(event.target as Node)) closeContextMenu()
+}
+
+const handleEscape = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && contextMenu.value) {
+    closeContextMenu()
+    contextMenuTrigger?.focus({ preventScroll: true })
+  }
+}
+
+const handleMenuKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Tab') {
+    closeContextMenu()
     return
   }
-  await Promise.all(item.conversation_ids.map((id) => hideConversation(id)))
-  items.value = items.value.filter((candidate) => candidate.group_key !== item.group_key)
-  emit('hidden', item.conversation_ids)
-  ElMessage.success('对话已隐藏，收到新消息后会重新显示')
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+  event.preventDefault()
+  const buttons = Array.from(contextMenuRef.value?.querySelectorAll<HTMLButtonElement>('button') || [])
+  const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+  buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus()
+}
+
+const runAction = async (action: ConversationListAction) => {
+  const item = contextMenu.value?.item
+  if (!item || actionPending.value) return
+  closeContextMenu()
+  actionPending.value = true
+  try {
+    const data = await applyConversationListAction(item.conversation_id, action)
+    const ids = data.items.map((conversation) => conversation.conversation_id)
+    if (action === 'hide') {
+      items.value = items.value.filter((candidate) => candidate.group_key !== item.group_key)
+      emit('hidden', ids)
+    } else if (action === 'unread') {
+      emit('markedUnread', ids)
+    }
+    if (pendingLoad) await pendingLoad
+    await load({ silent: true })
+    ElMessage.success({
+      hide: '对话已隐藏，收到新消息后会重新显示',
+      pin: '对话已置顶',
+      unpin: '已取消置顶',
+      unread: '已标为未读',
+      mute: '已开启消息免打扰',
+      unmute: '已取消消息免打扰'
+    }[action])
+  } finally {
+    actionPending.value = false
+  }
 }
 
 const statusText = (value: ConversationStatus) =>
@@ -190,6 +274,7 @@ watch(
   () => tenantStore.selectedTenantId,
   async (tenantId, previousTenantId) => {
     if (testGate || testView.value || tenantId === previousTenantId) return
+    closeContextMenu()
     items.value = []
     emit('viewChange')
     if (pendingLoad) await pendingLoad
@@ -198,8 +283,19 @@ watch(
 )
 
 onMounted(async () => {
+  document.addEventListener('pointerdown', handleOutsidePointer)
+  document.addEventListener('keydown', handleEscape)
+  window.addEventListener('resize', closeContextMenu)
+  window.addEventListener('scroll', closeContextMenu, true)
   if (!testGate) await tenantStore.loadTenants()
   await load()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleOutsidePointer)
+  document.removeEventListener('keydown', handleEscape)
+  window.removeEventListener('resize', closeContextMenu)
+  window.removeEventListener('scroll', closeContextMenu, true)
 })
 
 defineExpose({ load, getItemByKey, getItemByConversationId })
@@ -214,16 +310,14 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
   padding: 16px 12px 8px;
 }
 
-.list-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 4px; }
-.list-heading h2 { margin: 0; font-size: 17px; font-weight: 600; }
-.list-heading span { color: var(--app-text-secondary); font-size: 13px; }
-
 .toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 36px;
   gap: 8px;
 }
-.toolbar:has(.test-toggle) :deep(.el-select) { grid-column: 1 / -1; }
+.toolbar:has(.test-toggle) { grid-template-columns: minmax(0, 1fr) auto 32px; }
+.toolbar :deep(.el-select) { min-width: 0; }
+.toolbar .test-toggle { padding: 8px 10px; }
 .toolbar :deep(.el-button + .el-button) { margin-left: 0; }
 
 .items {
@@ -247,6 +341,38 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
   transition: background .15s ease, border-color .15s ease;
 }
 .item:hover { background: var(--app-surface-soft); }
+.item.pinned { background: var(--app-surface-soft); }
+
+.item-indicators { display: flex; align-items: center; gap: 5px; flex-shrink: 0; color: var(--app-text-secondary); }
+.muted-unread { width: 7px; height: 7px; border-radius: 50%; background: var(--app-text-secondary); }
+
+.conversation-context-menu {
+  position: fixed;
+  z-index: 3000;
+  width: 166px;
+  padding: 5px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 14%);
+}
+.conversation-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.conversation-context-menu button:hover,
+.conversation-context-menu button:focus-visible { background: var(--app-accent-soft); outline: none; }
 
 .item.active {
   background: var(--app-accent-soft);

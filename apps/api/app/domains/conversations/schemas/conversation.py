@@ -1,4 +1,10 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class ConversationListActionRequest(BaseModel):
+    action: Literal["hide", "pin", "unpin", "unread", "mute", "unmute"]
 
 
 class ClaimRequest(BaseModel):

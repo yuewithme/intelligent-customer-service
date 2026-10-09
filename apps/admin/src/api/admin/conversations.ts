@@ -22,6 +22,9 @@ export interface ConversationItem {
   handoff_reason?: string | null
   handoff_ticket_id?: string | null
   unread_count: number
+  is_pinned: boolean
+  is_muted: boolean
+  marked_unread: boolean
   created_at: string
   updated_at: string
 }
@@ -184,9 +187,18 @@ export const replyConversation = (conversationId: string, operator_id: string, c
     data: { operator_id, content }
   })
 
-export const markConversationRead = (conversationId: string) =>
+export const markConversationRead = (conversationId: string, automatic = false) =>
   request.post<ConversationItem>({
-    url: `${conversationBase()}/${conversationPath(conversationId)}/read`
+    url: `${conversationBase()}/${conversationPath(conversationId)}/read`,
+    params: { automatic }
+  })
+
+export type ConversationListAction = 'hide' | 'pin' | 'unpin' | 'unread' | 'mute' | 'unmute'
+
+export const applyConversationListAction = (conversationId: string, action: ConversationListAction) =>
+  request.post<{ items: ConversationItem[] }>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/list-action`,
+    data: { action }
   })
 
 export const replyConversationImage = (

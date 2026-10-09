@@ -603,6 +603,9 @@ class ConversationModel(Base):
     handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     handoff_ticket_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     unread_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    is_muted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    marked_unread: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     hidden_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

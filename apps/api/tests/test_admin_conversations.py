@@ -689,6 +689,128 @@ def test_demo_card_counts_as_sent_for_material_deduplication(
     )
 
 
+def test_list_actions_apply_to_customer_group_and_keep_tenant_isolation(monkeypatch, tmp_path):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    for session_id, tenant_id in (("a1", "shop_a"), ("a2", "shop_a"), ("b1", "shop_b")):
+        asyncio.run(record_customer_message(
+            channel="api", user_id="shared_customer", session_id=session_id,
+            tenant_id=tenant_id, content="hello", status="ai_waiting",
+        ))
+    client = TestClient(app)
+    base = "/api/v1/admin/conversations"
+    target = f"{base}/api:shared_customer:a1"
+    before = client.get(target).json()["data"]["conversation"]
+
+    pinned = client.post(f"{target}/list-action", json={"action": "pin"})
+    assert pinned.status_code == 200
+    assert len(pinned.json()["data"]["items"]) == 2
+    first = client.get(base, params={"page_size": 1}).json()["data"]["items"][0]
+    assert first["tenant_id"] == "shop_a"
+    assert first["is_pinned"] is True
+    assert client.get(target).json()["data"]["conversation"]["updated_at"] == before["updated_at"]
+    other = client.get(f"{base}/api:shared_customer:b1").json()["data"]["conversation"]
+    assert other["is_pinned"] is False
+
+    client.post(f"{target}/list-action", json={"action": "mute"})
+    new_session = asyncio.run(record_customer_message(
+        channel="api", user_id="shared_customer", session_id="a3", tenant_id="shop_a",
+        content="new session", status="ai_waiting",
+    ))
+    assert new_session["is_pinned"] is True
+    assert new_session["is_muted"] is True
+    client.post(f"{target}/list-action", json={"action": "unpin"})
+    assert all(not item["is_pinned"] for item in client.get(base).json()["data"]["items"])
+    hidden = client.post(f"{target}/list-action", json={"action": "hide"})
+    assert len(hidden.json()["data"]["items"]) == 3
+    assert client.get(base).json()["data"]["total"] == 1
+    assert client.get(target).json()["data"]["messages"]
+    assert client.post(f"{target}/list-action", json={"action": "invalid"}).status_code == 422
+    assert client.post(f"{base}/missing/list-action", json={"action": "pin"}).status_code == 404
+
+
+def test_manual_unread_survives_background_read_and_new_messages(monkeypatch, tmp_path):
+    import asyncio
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(record_customer_message(
+        channel="api", user_id="unread_customer", session_id="default",
+        content="first", status="ai_waiting",
+    ))
+    client = TestClient(app)
+    target = "/api/v1/admin/conversations/api:unread_customer:default"
+    client.post(f"{target}/read")
+    client.post(f"{target}/list-action", json={"action": "unread"})
+    automatic = client.post(f"{target}/read", params={"automatic": True}).json()["data"]
+    assert automatic["marked_unread"] is True
+    assert automatic["unread_count"] == 1
+    asyncio.run(record_customer_message(
+        channel="api", user_id="unread_customer", session_id="default",
+        content="second", status="ai_waiting",
+    ))
+    marked = client.post(f"{target}/list-action", json={"action": "unread"}).json()["data"]["items"][0]
+    assert marked["unread_count"] == 2
+    read = client.post(f"{target}/read").json()["data"]
+    assert read["unread_count"] == 0
+    assert read["marked_unread"] is False
+
+
+def test_muted_conversation_keeps_messages_without_tenant_unread_alert(monkeypatch, tmp_path):
+    import asyncio
+
+    from app.domains.conversations.services.conversation_service import list_conversation_tenants
+
+    _reset_settings(monkeypatch, tmp_path)
+    metadata = {"provider": "eyun", "owner_wc_id": "wxid_shop", "owner_display_name": "shop"}
+    asyncio.run(record_customer_message(
+        channel="wechat", user_id="mute_customer", session_id="wxid_shop",
+        content="first", status="ai_waiting", metadata=metadata,
+    ))
+    client = TestClient(app)
+    target = "/api/v1/admin/conversations/wechat:mute_customer:wxid_shop"
+    client.post(f"{target}/list-action", json={"action": "mute"})
+    updated = asyncio.run(record_customer_message(
+        channel="wechat", user_id="mute_customer", session_id="wxid_shop",
+        content="second", status="ai_waiting", metadata=metadata,
+    ))
+    assert updated["is_muted"] is True
+    assert updated["unread_count"] == 2
+    assert updated["status"] == "ai_waiting"
+    assert updated["last_message"] == "second"
+    tenants = asyncio.run(list_conversation_tenants())["items"]
+    assert tenants[0]["unread_count"] == 0
+    assert tenants[0]["conversation_count"] == 1
+    client.post(f"{target}/list-action", json={"action": "unmute"})
+    assert asyncio.run(list_conversation_tenants())["items"][0]["unread_count"] == 2
+
+
+def test_conversation_list_preferences_upgrade_existing_database(monkeypatch, tmp_path):
+    import asyncio
+    from sqlalchemy import create_engine, text
+    from app.domains.conversations.services import conversation_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(record_customer_message(
+        channel="api", user_id="legacy_customer", session_id="default",
+        content="existing history", status="ai_waiting",
+    ))
+    db_url = get_settings().chat_log_db_url
+    engine = create_engine(db_url)
+    with engine.begin() as connection:
+        for column in ("is_pinned", "is_muted", "marked_unread"):
+            connection.execute(text(f"ALTER TABLE conversations DROP COLUMN {column}"))
+    engine.dispose()
+    conversation_service._sessionmakers.pop(db_url).kw["bind"].dispose()
+    conversation_service._initialized_urls.discard(db_url)
+    data = TestClient(app).get("/api/v1/admin/conversations").json()["data"]["items"][0]
+    assert data["is_pinned"] is False
+    assert data["is_muted"] is False
+    assert data["marked_unread"] is False
+    assert data["last_message"] == "existing history"
+    assert data["unread_count"] == 1
+
+
 def test_hidden_conversation_reappears_after_new_customer_message(monkeypatch, tmp_path):
     import asyncio
 

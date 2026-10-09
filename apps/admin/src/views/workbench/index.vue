@@ -7,6 +7,7 @@
       :active-key="selectedGroupKey"
       @select="selectConversation"
       @hidden="handleHidden"
+      @marked-unread="handleHidden"
       @view-change="clearSelection"
     />
     <section
@@ -120,6 +121,10 @@ let markingReadKey = ''
 let profileRequestKey = 0
 
 const selectConversation = (item: ConversationGroupItem) => {
+  if (item.marked_unread) {
+    void Promise.all(item.conversation_ids.map((id) => markConversationRead(id)))
+      .then(() => conversationListRef.value?.load({ silent: true }))
+  }
   if (selectedId.value === item.conversation_id && selectedGroupKey.value === item.group_key) {
     mobileView.value = 'messages'
     return
@@ -194,7 +199,7 @@ const markSelectedRead = async () => {
   markingReadKey = key
   try {
     await Promise.all(
-      selectedIds.value.map((conversationId) => markConversationRead(conversationId))
+      selectedIds.value.map((conversationId) => markConversationRead(conversationId, true))
     )
     selectedUnreadCount.value = 0
     await conversationListRef.value?.load({ silent: true })
