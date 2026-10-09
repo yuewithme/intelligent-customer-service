@@ -49,7 +49,7 @@ def verify(value: str) -> None:
 
 if __name__ == "__main__":
     credential = sys.stdin.read().strip()
-    if not re.fullmatch(r"sk-[a-zA-Z0-9_-]{16,200}", credential):
+    if not re.fullmatch(r"sk-[a-zA-Z0-9_.-]{16,200}", credential):
         raise SystemExit("Invalid model credential format")
     if sys.argv[1:] == ["--verify"]:
         verify(credential)
