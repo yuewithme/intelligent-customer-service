@@ -27,7 +27,7 @@
     </template>
     <p v-else-if="review?.status === 'empty'" class="review-hint">{{ review.analysis }}</p>
     <div v-else class="review-error">
-      <span>复盘暂时未生成</span>
+      <span>{{ review?.analysis || '复盘请求失败，请重试' }}</span>
       <ElButton size="small" text type="primary" @click="scheduleReview">重试</ElButton>
     </div>
   </section>
@@ -59,7 +59,8 @@ const snapshot = computed(() => JSON.stringify([
   props.messages.filter(message => message.conversation_id === props.conversationId)
     .map(message => [message.id, message.sender_type, message.content, message.delivery_status,
       (message.metadata.media as { recognition?: unknown } | undefined)?.recognition]),
-  props.profile
+  props.profile && [props.profile.customer_tags, props.profile.product_interests,
+    props.profile.preference_summary, props.profile.pain_points, props.profile.basic_info]
 ]))
 
 const scheduleReview = () => {

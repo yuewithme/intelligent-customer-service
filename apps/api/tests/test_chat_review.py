@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
@@ -10,6 +11,7 @@ from app.domains.conversations.services import chat_review_service as service
 from app.domains.conversations.services.conversation_service import _get_session
 from app.infrastructure.database.models import ConversationMessageModel, ConversationModel
 from app.main import app
+from app.shared.schemas.common import AppError, ErrorCode
 from test_admin_gate import context as access_context
 
 
@@ -100,6 +102,28 @@ async def test_invalid_suggestions_are_not_shown_or_cached(review_context, monke
     result = await service.get_chat_review("review:customer")
     assert result["status"] == "unavailable" and result["suggestions"] == []
     assert not service._cache
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_is_diagnosable_without_leaking_and_can_retry(review_context, monkeypatch):
+    generate = service.generate_messages_json
+
+    async def fail(*args, **kwargs):
+        response = httpx.Response(403, json={"error": {"code": "AccessDenied", "message": "private-provider-detail"}},
+                                  request=httpx.Request("POST", "https://model.example/chat", headers={"Authorization": "private-key"}))
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise AppError(ErrorCode.LLM_FAILED) from exc
+
+    monkeypatch.setattr(service, "generate_messages_json", fail)
+    result = await service.get_chat_review("review:customer")
+    assert result["status"] == "unavailable"
+    assert result["error"] == {"kind": "AppError", "upstream_status": 403, "upstream_code": "AccessDenied"}
+    assert "private" not in json.dumps(result)
+    assert not service._cache and not service._inflight
+    monkeypatch.setattr(service, "generate_messages_json", generate)
+    assert (await service.get_chat_review("review:customer"))["status"] == "ready"
 
 
 def test_review_endpoint_empty_missing_and_demo_scope(review_context):

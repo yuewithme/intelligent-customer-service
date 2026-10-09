@@ -2,11 +2,13 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Annotated
 
+import httpx
 from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
 
 from app.core.config import get_settings
@@ -139,9 +141,28 @@ async def _generate_review(key: str, payload: str, base: dict) -> dict:
                 **base, "status": "ready", **review.model_dump(),
                 "generated_at": datetime.now(timezone.utc).isoformat(),
             }
-        except (AppError, ValidationError, TimeoutError):
-            logger.warning("Workbench chat review unavailable")
-            response = {**base, "status": "unavailable", "analysis": "复盘暂时未生成，请稍后重试", "suggestions": []}
+        except (AppError, ValidationError, TimeoutError) as exc:
+            failure = {"kind": type(exc).__name__}
+            analysis = "复盘生成失败，请重试"
+            if isinstance(exc, TimeoutError):
+                analysis = "复盘生成超时，请重试"
+            elif isinstance(exc, ValidationError):
+                analysis = "复盘内容格式不完整，请重试"
+            elif isinstance(exc.__cause__, httpx.HTTPStatusError):
+                upstream = exc.__cause__.response
+                failure["upstream_status"] = upstream.status_code
+                # Only retain a provider error identifier, never its body or request headers.
+                try:
+                    body = upstream.json()
+                    error = body.get("error", body) if isinstance(body, dict) else {}
+                    code = error.get("code", "") if isinstance(error, dict) else ""
+                    if isinstance(code, str) and re.fullmatch(r"[\w.-]{1,80}", code):
+                        failure["upstream_code"] = code
+                except ValueError:
+                    pass
+                analysis = "复盘模型服务暂时不可用，请稍后重试"
+            logger.warning("Workbench chat review unavailable: %s", failure)
+            response = {**base, "status": "unavailable", "analysis": analysis, "suggestions": [], "error": failure}
         if response["status"] == "ready":
             _cache[key] = (time.monotonic() + 300, response)
             _cache.move_to_end(key)

@@ -14,6 +14,7 @@ export interface UserProfile {
   product_interests: string[]
   preference_summary?: string | null
   pain_points: string[]
+  basic_info?: Record<string, unknown>
   last_route?: string | null
   last_active_at?: string | null
   friend_added_at?: string | null
