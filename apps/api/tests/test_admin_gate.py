@@ -86,8 +86,10 @@ def test_library_api_has_scoped_identity_and_preserves_read_only(context, monkey
     assert client.delete(path + '/42', headers=headers).status_code == 403
     assert client.get('/api/library/phrase-library/v1/admin/products/knowledge', headers=headers).status_code == 403
     assert client.get('/api/library/product-knowledge/v1/admin/conversations', headers=headers).status_code == 403
+    assert client.get('/api/v1/admin/products/knowledge').json()['data']['items'] == [{'id': 42}]
+    assert client.delete('/api/v1/admin/products/knowledge/42').status_code == 403
     state['account']['role'] = 'admin'
-    assert client.get('/api/v1/admin/products/knowledge').status_code == 403
+    assert client.get('/api/v1/admin/products/knowledge').status_code == 200
     state['revoked'] = True
     assert client.get(path, headers=headers).status_code == 401
 
@@ -100,6 +102,8 @@ def test_library_manual_selector_can_read_product_options_only(context, monkeypa
     headers = {'X-Library-Session': 'l' * 43}
     assert client.get('/api/library/product-knowledge/v1/admin/products/options', headers=headers).status_code == 200
     assert client.get('/api/library/product-knowledge/v1/admin/products/knowledge', headers=headers).status_code == 403
+    assert client.get('/api/v1/admin/products/options').status_code == 200
+    assert client.get('/api/v1/admin/products/knowledge').status_code == 403
 
 
 def test_login_callback_and_browser_binding(context):

@@ -17,7 +17,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'operations/conversation-cases', component: () => import('@/views/conversation-cases/index.vue'), meta: { title: '销售案例库' } },
       { path: 'operations/capability-workbench', component: () => import('@/views/capability-workbench/index.vue'), meta: { title: '能力工作台' } },
       { path: 'operations/tags', component: () => import('@/views/tag-management/index.vue'), meta: { title: '客户标签' } },
-      { path: 'operations/products', component: () => import('@/views/product-information/index.vue'), meta: { title: '产品信息' } },
+      { path: 'operations/products', component: () => import('@/views/product-information/index.vue'), meta: { title: '商品与产品资料' } },
       { path: 'operations/care-manuals', component: () => import('@/views/care-manuals/index.vue'), meta: { title: '养护手册' } },
       {
         path: 'knowledge-ops/current-activities',
@@ -35,9 +35,8 @@ const router = createRouter({ history: createWebHistory(libraryBase || import.me
 
 router.beforeEach(async (to) => {
   const owner = migratedPages[to.path]
-  const activityPicker = to.path === '/knowledge-ops/current-activities' && Boolean(to.query.conversation_id)
-  if (!libraryApp && owner && !activityPicker) {
-    location.replace(`${portalOrigin}/${owner}/lanhua${to.fullPath}`)
+  if (!libraryApp && owner) {
+    location.replace(`${portalOrigin}${owner}${to.fullPath.slice(to.path.length)}`)
     return false
   }
   if (libraryApp && to.path !== '/no-access' && !libraryPages[libraryApp].includes(to.path)) return '/no-access'

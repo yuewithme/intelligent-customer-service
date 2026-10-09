@@ -45,8 +45,9 @@
           </RouterLink>
         </section>
         <section><p>统一资料</p>
-          <a :href="`${portalOrigin}/product-knowledge/`">产品知识库</a>
-          <a :href="`${portalOrigin}/phrase-library/`">话术库</a>
+          <a :href="`${portalOrigin}/review/materials`">产品知识库</a>
+          <a :href="`${portalOrigin}/review/phrases`">话术库</a>
+          <a :href="`${portalOrigin}/review/conversation-cases`">销售案例库</a>
           <a :href="`${portalOrigin}/portal/workspace`">统一工作台</a>
         </section>
       </nav>
@@ -157,7 +158,7 @@ const allNavigation = [
     items: [
       { label: '销售案例库', to: '/operations/conversation-cases', icon: Collection },
       { label: '客户标签', to: '/operations/tags', icon: PriceTag },
-      { label: '产品信息', to: '/operations/products', icon: Goods },
+      { label: '商品与产品资料', to: '/operations/products', icon: Goods },
       { label: '养护手册', to: '/operations/care-manuals', icon: Reading },
       { label: '销售活动', to: '/knowledge-ops/current-activities', icon: Calendar }
     ]

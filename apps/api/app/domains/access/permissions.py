@@ -75,11 +75,8 @@ async def authorize_account(request: Request, account: dict, mode: str):
         if account["role"] != "admin" and (not safe or path.endswith("/send-logs")):
             deny("此页面仅授予观看权限，修改需要管理员")
         return
-    if library_page(path):
-        workbench_read = safe and path in ("/api/v1/admin/care-manuals", "/api/v1/admin/activities")
-        workbench_action = request.method == "POST" and path.startswith("/api/v1/admin/activities/") and path.endswith(("/send", "/from-messages"))
-        if not ((workbench_read or workbench_action) and (account["role"] == "admin" or "/workbench" in account["pages"])):
-            deny("此资料已迁入统一资料库，请从统一平台进入")
+    if library_page(path) == "/operations/conversation-cases":
+        deny("请从销售复盘工具进入销售案例库")
     if account["role"] == "admin":
         return
     path = request.url.path.rstrip("/")
@@ -88,8 +85,9 @@ async def authorize_account(request: Request, account: dict, mode: str):
     workbench_asset = safe and "/workbench" in account["pages"] and path in (
         "/api/v1/admin/tags", "/api/v1/admin/care-manuals", "/api/v1/admin/activities",
     )
+    product_options = safe and path == "/api/v1/admin/products/options" and "/operations/care-manuals" in account["pages"]
     activity_send = account["role"] == "employee" and "/workbench" in account["pages"] and path.startswith("/api/v1/admin/activities/") and path.endswith("/send") and request.method == "POST"
-    if not workbench_asset and not activity_send and (page is None or page not in account["pages"]):
+    if not workbench_asset and not activity_send and not product_options and (page is None or page not in account["pages"]):
         deny()
     if account["role"] == "test":
         if mode == "formal" or (not safe and mode != "demo"):
