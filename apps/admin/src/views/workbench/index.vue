@@ -26,7 +26,6 @@
       />
       <ReplyComposer
         v-if="conversation && conversation.conversation_id === selectedId"
-        ref="replyComposerRef"
         :key="selectedId"
         :conversation-id="selectedId"
         :status="conversation.status"
@@ -45,7 +44,6 @@
       :review-active="pageVisible && mobileView !== 'conversations'"
       @changed="handleChanged"
       @profile-changed="handleProfileChanged"
-      @use-suggestion="handleUseSuggestion"
     />
     <nav class="mobile-workbench-nav" aria-label="工作台视图">
       <button
@@ -114,7 +112,6 @@ const profile = ref<UserProfile>()
 const profileLoading = ref(false)
 const conversationListRef = ref<InstanceType<typeof ConversationList>>()
 const messagePanelRef = ref<InstanceType<typeof MessagePanel>>()
-const replyComposerRef = ref<InstanceType<typeof ReplyComposer>>()
 let eventSource: EventSource | undefined
 let fallbackTimer: number | undefined
 let markingReadKey = ''
@@ -154,12 +151,6 @@ const handleProfileChanged = (updatedProfile: UserProfile) => {
 
 const handleReceptionChanged = (updated: ConversationItem) => {
   if (updated.conversation_id === selectedId.value) conversation.value = updated
-}
-
-const handleUseSuggestion = (suggestion: { conversationId: string; text: string }) => {
-  if (suggestion.conversationId !== selectedId.value || conversation.value?.status === 'resolved') return
-  mobileView.value = 'messages'
-  replyComposerRef.value?.applySuggestion(suggestion.text)
 }
 
 const handleHidden = (conversationIds: string[]) => {

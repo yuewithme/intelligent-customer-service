@@ -11,16 +11,13 @@
         <p>{{ review.reviewed_reply }}</p>
       </details>
       <p v-else class="review-hint">尚无已发送的客服回复，先根据客户诉求提供建议。</p>
+      <p class="review-hint">{{ knowledgeHint }}</p>
       <p class="review-analysis">{{ review.analysis }}</p>
-      <div class="suggestion-heading">建议回复 <span class="review-hint">点击填入输入框</span></div>
-      <ol class="reply-suggestions">
+      <div class="suggestion-heading">建议回复 <span class="review-hint">仅供阅读参考</span></div>
+      <ol ref="suggestionsElement" class="reply-suggestions" :draggable="false"
+        @copy.prevent @cut.prevent @contextmenu.prevent @dragstart.prevent @selectstart.prevent>
         <li v-for="(suggestion, index) in review.suggestions" :key="index">
-          <button
-            type="button"
-            :disabled="disabled"
-            title="点击填入输入框"
-            @click="$emit('use-suggestion', { conversationId, text: suggestion })"
-          >{{ suggestion }}</button>
+          {{ suggestion }}
         </li>
       </ol>
       <p class="review-hint update-hint">随新消息自动更新</p>
@@ -34,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getChatReview, type ChatReview, type ConversationMessage } from '@/api/admin/conversations'
 import type { UserProfile } from '@/api/user-profile'
 
@@ -42,14 +39,32 @@ const props = defineProps<{
   conversationId: string
   messages: ConversationMessage[]
   profile?: UserProfile
-  disabled?: boolean
   active: boolean
-}>()
-defineEmits<{
-  'use-suggestion': [suggestion: { conversationId: string; text: string }]
 }>()
 const review = ref<ChatReview>()
 const loading = ref(false)
+const suggestionsElement = ref<HTMLOListElement>()
+const knowledgeHint = computed(() => {
+  if (review.value?.knowledge_status === 'found') return `已参考产品知识库（${review.value.knowledge_count} 条相关资料）`
+  if (review.value?.knowledge_status === 'unavailable') return '产品知识库暂不可用，本次仅分析沟通表达'
+  return '未找到相关产品资料，本次仅分析沟通表达'
+})
+
+const preventSuggestionCopy = (event: ClipboardEvent) => {
+  const target = event.target
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable)) return
+  const element = suggestionsElement.value
+  const selection = window.getSelection()
+  if (!element || !selection) return
+  // Copy can originate outside the list when the user selects the whole page.
+  for (let index = 0; index < selection.rangeCount; index++) {
+    if (selection.getRangeAt(index).intersectsNode(element)) {
+      event.preventDefault()
+      return
+    }
+  }
+}
 let requestVersion = 0
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -83,9 +98,15 @@ const scheduleReview = () => {
 }
 
 watch(snapshot, scheduleReview, { immediate: true })
+onMounted(() => {
+  document.addEventListener('copy', preventSuggestionCopy)
+  document.addEventListener('cut', preventSuggestionCopy)
+})
 onBeforeUnmount(() => {
   ++requestVersion
   clearTimeout(debounceTimer)
+  document.removeEventListener('copy', preventSuggestionCopy)
+  document.removeEventListener('cut', preventSuggestionCopy)
 })
 </script>
 
@@ -98,11 +119,8 @@ onBeforeUnmount(() => {
 .review-source p { margin-bottom: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .review-analysis { margin: 12px 0 16px; line-height: 1.7; overflow-wrap: anywhere; }
 .suggestion-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 600; }
-.reply-suggestions { display: grid; gap: 8px; margin: 10px 0 0; padding-left: 24px; }
-.reply-suggestions button { width: 100%; padding: 10px; border: 1px solid var(--app-border, #dbe5df); border-radius: 8px; background: #fff; color: inherit; font: inherit; text-align: left; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
-.reply-suggestions button:hover:not(:disabled) { border-color: var(--app-accent, #21765d); background: #f4f7f5; }
-.reply-suggestions button:focus-visible { outline: 2px solid var(--app-accent, #21765d); outline-offset: 2px; }
-.reply-suggestions button:disabled { opacity: 0.6; cursor: not-allowed; }
+.reply-suggestions { display: grid; gap: 12px; margin: 10px 0 0; padding-left: 24px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.reply-suggestions li { padding-left: 2px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; cursor: default; }
 .reply-suggestions li::marker { color: var(--app-accent, #21765d); font-weight: 600; }
 .update-hint { margin: 10px 0 0; }
 .review-error { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; color: var(--app-text-secondary, #6b7280); }

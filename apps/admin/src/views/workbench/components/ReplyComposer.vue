@@ -3,7 +3,6 @@
     <template v-if="status !== 'resolved'">
       <div class="composer-main">
         <ElInput
-          ref="replyInput"
           v-model="content"
           class="reply-input"
           type="textarea"
@@ -46,9 +45,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, type InputInstance } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import 'emoji-picker-element'
 import {
   getConversationEmojis, replyConversation, replyConversationEmoji,
@@ -75,7 +74,6 @@ const syncError = ref(false)
 const composing = ref(false)
 const confirmedStatus = ref(props.status)
 const imageInput = ref<HTMLInputElement>()
-const replyInput = ref<InputInstance>()
 const receivedEmojis = ref<ConversationEmoji[]>([])
 const isHumanReplying = computed(() => ['human_active', 'handoff_pending'].includes(confirmedStatus.value))
 let lastEditedAt = 0
@@ -124,16 +122,6 @@ watch(content, (value, previous) => {
   else editTimer = setTimeout(sync, 300)
   if (value.trim()) expiryTimer = setTimeout(sync, 60_000)
 }, { flush: 'sync' })
-
-const applySuggestion = (text: string) => {
-  if (disposed || sending.value || props.status === 'resolved') return
-  content.value = text
-  void nextTick(() => {
-    if (!disposed) replyInput.value?.focus()
-  })
-}
-
-defineExpose({ applySuggestion })
 
 const send = async (action: () => Promise<unknown>, clearText = false) => {
   if (sending.value || props.status === 'resolved') return

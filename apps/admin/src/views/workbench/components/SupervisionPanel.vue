@@ -31,8 +31,6 @@
         :messages="messages"
         :profile="profile"
         :active="reviewActive"
-        :disabled="conversation.status === 'resolved'"
-        @use-suggestion="$emit('use-suggestion', $event)"
       />
 
       <YouzanOrderPanel :conversation-id="conversationId" />
@@ -57,9 +55,6 @@ const props = defineProps<{
   profile?: UserProfile
   profileLoading?: boolean
   reviewActive: boolean
-}>()
-defineEmits<{
-  'use-suggestion': [suggestion: { conversationId: string; text: string }]
 }>()
 
 const catalogTags = ref<string[]>([])

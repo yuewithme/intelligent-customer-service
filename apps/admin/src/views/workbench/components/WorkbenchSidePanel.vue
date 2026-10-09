@@ -22,7 +22,6 @@
       :profile="profile"
       :profile-loading="profileLoading"
       :review-active="reviewActive"
-      @use-suggestion="$emit('use-suggestion', $event)"
     />
     <CareManualPanel
       v-else-if="activeTab === 'care-manuals'"
@@ -62,7 +61,6 @@ defineProps<{
 const emit = defineEmits<{
   changed: [conversation?: ConversationItem]
   'profile-changed': [profile: UserProfile]
-  'use-suggestion': [suggestion: { conversationId: string; text: string }]
 }>()
 
 const tabs = [

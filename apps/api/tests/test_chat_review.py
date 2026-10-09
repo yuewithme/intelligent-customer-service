@@ -59,6 +59,9 @@ def review_context(monkeypatch, tmp_path):
     async def bundle(user_id):
         return {"profile": profile, "recent_memories": [{"content": "不应提供的旧聊天"}]}
 
+    async def knowledge(query, category):
+        return {"items": []}
+
     async def generate(messages, **kwargs):
         calls.append(json.loads(messages[1]["content"]))
         await asyncio.sleep(0)
@@ -66,6 +69,7 @@ def review_context(monkeypatch, tmp_path):
                          "suggestions": ["发黄主要在老叶还是新叶上？", "您先观察一下叶片有没有发软。", "最近浇水频率怎么样？"]}}
 
     monkeypatch.setattr(service, "get_profile_bundle", bundle)
+    monkeypatch.setattr(service, "search_library", knowledge)
     monkeypatch.setattr(service, "generate_messages_json", generate)
     yield profile, calls
     service._cache.clear()
@@ -91,6 +95,64 @@ async def test_shared_generation_cache_and_message_profile_invalidation(review_c
         db.commit()
     third = await service.get_chat_review("review:customer")
     assert len(calls) == 3 and third["reviewed_reply"].endswith("看看叶片有没有发软")
+
+
+@pytest.mark.asyncio
+async def test_product_knowledge_is_used_and_changes_invalidate_review(review_context, monkeypatch):
+    _, calls = review_context
+    item = {"id": "product-knowledge:1", "title": "建兰养护", "source": "统一产品资料库",
+            "nature": "reference", "conditions": ["生长季"], "content": "叶片发黄时先排查根系，避免盲目施肥。"}
+    queries = []
+
+    async def knowledge(query, category):
+        queries.append((query, category))
+        return {"items": [item]}
+
+    monkeypatch.setattr(service, "search_library", knowledge)
+    first = await service.get_chat_review("review:customer")
+    assert first["knowledge_status"] == "found" and first["knowledge_count"] == 1
+    assert calls[-1]["product_knowledge"]["items"] == [item]
+    assert queries == [("先别急着施肥\n兰花叶子发黄", "knowledge")]
+    await service.get_chat_review("review:customer")
+    assert len(calls) == 1
+    item["content"] = "更新后的产品养护依据。"
+    await service.get_chat_review("review:customer")
+    assert len(calls) == 2
+    assert calls[-1]["product_knowledge"]["items"][0]["content"] == item["content"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unavailable,expected", [(False, "not_found"), (True, "unavailable")])
+async def test_missing_product_knowledge_remains_explicit(review_context, monkeypatch, unavailable, expected):
+    _, calls = review_context
+
+    async def knowledge(query, category):
+        return {"items": [], "unavailable": unavailable}
+
+    monkeypatch.setattr(service, "search_library", knowledge)
+    result = await service.get_chat_review("review:customer")
+    assert result["status"] == "ready"
+    assert result["knowledge_status"] == expected and result["knowledge_count"] == 0
+    assert calls[-1]["product_knowledge"] == {"status": expected, "items": []}
+
+
+@pytest.mark.asyncio
+async def test_product_knowledge_context_is_bounded(review_context, monkeypatch):
+    async def knowledge(query, category):
+        assert 0 < len(query) <= 500
+        assert "最新回复" in query and "五轮之前" not in query
+        return {"items": [{"id": str(index), "content": "资料" * 2000} for index in range(20)]}
+
+    monkeypatch.setattr(service, "search_library", knowledge)
+    messages = [{"id": 0, "sender_type": "customer", "content": "五轮之前"},
+                {"id": 1, "sender_type": "human", "content": "之前回复"}]
+    for turn in range(5):
+        messages.extend([{"id": turn * 2 + 2, "sender_type": "customer", "content": "问题" * 500},
+                         {"id": turn * 2 + 3, "sender_type": "human", "content": "最新回复"}])
+    result = await service.review_product_knowledge(service.recent_rounds(messages))
+    assert result["status"] == "found"
+    assert len(result["items"]) <= 8
+    assert sum(len(item["content"]) for item in result["items"]) <= 12000
 
 
 @pytest.mark.asyncio

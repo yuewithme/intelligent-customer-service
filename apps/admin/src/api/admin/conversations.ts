@@ -89,6 +89,8 @@ export interface ConversationDetail {
 }
 
 export interface ChatReview {
+  knowledge_status?: 'found' | 'not_found' | 'unavailable'
+  knowledge_count?: number
   status: 'ready' | 'empty' | 'unavailable'
   analysis: string
   suggestions: string[]
