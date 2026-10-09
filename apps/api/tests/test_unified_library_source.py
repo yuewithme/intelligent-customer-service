@@ -7,6 +7,23 @@ from app.domains.catalog.services import product_knowledge_service
 from app.shared.schemas.common import AppError
 
 
+@pytest.mark.parametrize("status,message", [(404, "活动不存在"), (409, "请先关闭活动再编辑")])
+def test_activity_business_errors_keep_status_and_message(monkeypatch, status, message):
+    monkeypatch.setattr(get_settings(), "unified_library_enabled", True)
+
+    def post(url, **kwargs):
+        return httpx.Response(status, json={"message": message}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "post", post)
+    from app.domains.sales.services.activity_service import update_activity
+    from app.domains.sales.schemas.activity import ActivityUpdateRequest
+
+    with pytest.raises(AppError) as error:
+        update_activity(-1, ActivityUpdateRequest(title="活动", operator_id="operator"))
+    assert error.value.status_code == status
+    assert error.value.message == message
+
+
 def test_product_reads_unified_source_without_local_fallback(monkeypatch):
     monkeypatch.setattr(get_settings(), "unified_library_enabled", True)
     monkeypatch.setattr(product_knowledge_service, "get_product_session", lambda: pytest.fail("old source used"))

@@ -19,6 +19,9 @@ def call(operation: str, **arguments):
         response = httpx.post(root + "/review/api/library/operations/" + operation,
             json={"arguments": jsonable_encoder(arguments)},
             headers={"X-App-Id": "orchid-sales-agent", "X-App-Key": settings.platform_shared_secret}, timeout=30)
+        if operation.startswith("activities.") and response.status_code in {400, 404, 409, 422}:
+            raise AppError(ErrorCode.REQUEST_INVALID,
+                response.json().get("message", "活动操作无效"), status_code=response.status_code)
         if response.status_code == 404:
             raise LookupError(response.json().get("message", "资料不存在"))
         if response.status_code in {400, 409, 422}:
