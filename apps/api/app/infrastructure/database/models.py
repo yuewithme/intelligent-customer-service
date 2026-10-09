@@ -181,6 +181,9 @@ class CareManualCardModel(Base):
     __tablename__ = "care_manual_cards"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(16), default="manual", server_default="manual")
+    price_cent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     youzan_note_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     note_alias: Mapped[str | None] = mapped_column(String(256), nullable=True)
     title: Mapped[str] = mapped_column(String(512), index=True)
@@ -223,6 +226,7 @@ class CareManualSyncRunModel(Base):
     __tablename__ = "care_manual_sync_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(16), default="manual", server_default="manual")
     trigger: Mapped[str] = mapped_column(String(32), index=True)
     status: Mapped[str] = mapped_column(String(32), index=True)
     scanned_count: Mapped[int] = mapped_column(Integer, default=0)

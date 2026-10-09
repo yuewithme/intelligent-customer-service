@@ -79,6 +79,9 @@ async def lifespan(app: FastAPI):
         app.state.care_manual_sync_task = asyncio.create_task(
             care_manual_sync_worker(stop_event)
         )
+        app.state.care_course_sync_task = asyncio.create_task(
+            care_manual_sync_worker(stop_event, source_type="course")
+        )
         app.state.youzan_order_sync_task = asyncio.create_task(
             youzan_order_sync_worker(stop_event)
         )
@@ -98,6 +101,7 @@ async def lifespan(app: FastAPI):
                 await app.state.service_material_touch_task
                 await app.state.youzan_product_sync_task
                 await app.state.care_manual_sync_task
+                await app.state.care_course_sync_task
                 await app.state.youzan_order_sync_task
                 if app.state.memory_v2_task is not None:
                     await app.state.memory_v2_task

@@ -3,18 +3,24 @@
     <div class="page-head">
       <div>
         <h1>养护手册</h1>
-        <p>关联商品后，可按客户购买的商品匹配对应养护手册并发送卡片。</p>
+        <p>{{ sourceType === 'course' ? '已添加的有赞专栏每天同步价格、封面、期数和上架状态；Agent 仅可自动发送免费课程。' : '关联商品后，可按客户购买的商品匹配对应养护手册并发送卡片。' }}</p>
       </div>
       <div v-if="isAdmin()" class="head-actions">
-        <ElButton type="primary" @click="openProductSuggestions">批量关联商品</ElButton>
+        <ElButton v-if="sourceType === 'manual'" type="primary" @click="openProductSuggestions">批量关联商品</ElButton>
+        <ElButton v-else type="primary" @click="importVisible = true">添加课程链接</ElButton>
         <ElButton :loading="syncing" @click="runSync">立即同步</ElButton>
       </div>
     </div>
 
+    <ElTabs v-model="sourceType" @tab-change="changeSource">
+      <ElTabPane label="养护手册" name="manual" />
+      <ElTabPane label="视频课程" name="course" />
+    </ElTabs>
     <div class="stats-grid">
-      <article><span>有效手册</span><strong>{{ stats.active }}</strong><small>已启用且有赞已发布</small></article>
-      <article><span>停用手册</span><strong>{{ stats.disabled }}</strong><small>人工停用或来源不可用</small></article>
-      <article :class="{ attention: stats.product_unbound > 0 }"><span>未关联商品</span><strong>{{ stats.product_unbound }}</strong><small>关联后可按商品精确匹配手册</small></article>
+      <article><span>有效内容</span><strong>{{ stats.active }}</strong><small>已启用且有赞已发布</small></article>
+      <article><span>停用内容</span><strong>{{ stats.disabled }}</strong><small>人工停用或来源不可用</small></article>
+      <article v-if="sourceType === 'manual'" :class="{ attention: stats.product_unbound > 0 }"><span>未关联商品</span><strong>{{ stats.product_unbound }}</strong><small>关联后可按商品精确匹配手册</small></article>
+      <article v-else><span>自动发送规则</span><strong class="sync-label">仅免费课程</strong><small>发送前重新核验有赞价格和状态</small></article>
       <article><span>最近同步</span><strong class="sync-label">{{ syncStatusText }}</strong><small>{{ lastSyncText }}</small></article>
     </div>
 
@@ -35,7 +41,7 @@
       <ElInput
         v-model="keyword"
         clearable
-        placeholder="搜索手册名、兰花品种、别名、关键词或商品"
+        placeholder="搜索名称、品种、别名、关键词或商品"
         @keyup.enter="applyFilters"
         @clear="applyFilters"
       />
@@ -43,7 +49,7 @@
         <ElOption label="已启用" value="true" />
         <ElOption label="已停用" value="false" />
       </ElSelect>
-      <ElSelect v-model="matchStatus" clearable placeholder="全部匹配状态" @change="applyFilters">
+      <ElSelect v-if="sourceType === 'manual'" v-model="matchStatus" clearable placeholder="全部匹配状态" @change="applyFilters">
         <ElOption label="已关联商品" value="product_bound" />
         <ElOption label="未关联商品" value="product_unbound" />
         <ElOption label="已绑定品种" value="bound" />
@@ -54,7 +60,7 @@
     </div>
 
     <ElTable v-loading="loading" :data="items" row-key="id" class="manual-table">
-      <ElTableColumn label="手册" min-width="330">
+      <ElTableColumn :label="sourceType === 'course' ? '课程' : '手册'" min-width="330">
         <template #default="scope">
           <div class="manual-cell">
             <ElImage :src="scope.row.cover_url || ''" fit="cover" preview-teleported>
@@ -62,13 +68,13 @@
             </ElImage>
             <div>
               <strong>{{ scope.row.title }}</strong>
-              <small>笔记 ID：{{ scope.row.youzan_note_id }}</small>
+              <small>有赞 ID：{{ scope.row.youzan_note_id }}</small>
               <ElLink :href="scope.row.note_url" target="_blank" type="primary">预览真实链接</ElLink>
             </div>
           </div>
         </template>
       </ElTableColumn>
-      <ElTableColumn label="标准品种 / 别名" min-width="220">
+      <ElTableColumn v-if="sourceType === 'manual'" label="标准品种 / 别名" min-width="220">
         <template #default="scope">
           <strong v-if="scope.row.orchid_name" class="orchid-name">{{ scope.row.orchid_name }}</strong>
           <ElTag v-else type="warning" effect="plain">待绑定品种</ElTag>
@@ -77,7 +83,14 @@
           </div>
         </template>
       </ElTableColumn>
-      <ElTableColumn label="关联商品" min-width="220">
+      <ElTableColumn v-if="sourceType === 'course'" label="价格 / 期数" min-width="160">
+        <template #default="scope">
+          <strong>{{ scope.row.price_cent === 0 ? '免费' : scope.row.price_cent == null ? '价格未知' : `¥${(scope.row.price_cent / 100).toFixed(2)}` }}</strong>
+          <small class="source-status">{{ scope.row.content_count == null ? '期数未知' : `${scope.row.content_count} 期` }}</small>
+          <ElTag :type="scope.row.auto_send_allowed ? 'success' : 'info'" size="small">{{ scope.row.auto_send_allowed ? 'Agent 可自动发送' : 'Agent 禁止自动发送' }}</ElTag>
+        </template>
+      </ElTableColumn>
+      <ElTableColumn v-if="sourceType === 'manual'" label="关联商品" min-width="220">
         <template #default="scope">
           <div v-if="scope.row.product_links.length" class="product-links">
             <ElTag v-for="link in scope.row.product_links" :key="link.youzan_item_id" size="small" type="success" effect="plain">
@@ -106,7 +119,7 @@
           <ElButton v-if="isAdmin()" link type="primary" @click="openMatchDialog(scope.row)">测试匹配</ElButton>
         </template>
       </ElTableColumn>
-      <template #empty><ElEmpty description="暂无养护手册；可先执行安全全量同步" /></template>
+      <template #empty><ElEmpty :description="sourceType === 'course' ? '暂无课程，请添加有赞专栏分享链接' : '暂无养护手册；可先执行安全全量同步'" /></template>
     </ElTable>
 
     <div class="pagination">
@@ -120,7 +133,12 @@
       />
     </div>
 
-    <ElDialog v-model="editVisible" title="编辑养护手册" width="680px" destroy-on-close>
+    <ElDialog v-model="importVisible" title="添加有赞课程" width="680px">
+      <p>粘贴专栏分享链接，每行一条。添加后每天自动更新；新专栏需在此添加链接。</p>
+      <ElInput v-model="importUrls" type="textarea" :rows="6" placeholder="https://…youzan.com/wscvis/knowledge/index?kdt_id=…&page=columnshow&alias=…" />
+      <template #footer><ElButton @click="importVisible = false">取消</ElButton><ElButton type="primary" :loading="syncing" @click="importCourses">添加并同步</ElButton></template>
+    </ElDialog>
+    <ElDialog v-model="editVisible" title="编辑内容配置" width="680px" destroy-on-close>
       <div v-if="editing" class="edit-title">
         <ElImage :src="editing.cover_url || ''" fit="cover">
           <template #error><div class="image-fallback">无封面</div></template>
@@ -128,7 +146,7 @@
         <div><strong>{{ editing.title }}</strong><small>同步只更新标题、封面、链接和有赞状态，不覆盖以下人工配置。</small></div>
       </div>
       <ElForm label-position="top">
-        <ElFormItem label="标准兰花品种">
+        <ElFormItem v-if="editing?.source_type === 'manual'" label="标准兰花品种">
           <ElInput v-model="form.orchid_name" maxlength="256" placeholder="例如：建兰玉白丹红" />
         </ElFormItem>
         <ElFormItem label="别名 / 商品标题关键词">
@@ -136,7 +154,7 @@
             <ElOption v-for="value in form.aliases" :key="value" :label="value" :value="value" />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem label="关联有赞商品">
+        <ElFormItem v-if="editing?.source_type === 'manual'" label="关联有赞商品">
           <ElSelect v-model="form.youzan_item_ids" multiple filterable collapse-tags collapse-tags-tooltip :loading="productsLoading" placeholder="搜索商品名称或 ID，可关联多个商品">
             <ElOption v-for="product in productOptions" :key="product.item_id" :label="`${product.title}（${product.item_id}）`" :value="product.item_id">
               <span>{{ product.title }}</span><small class="option-id">ID {{ product.item_id }}</small>
@@ -230,6 +248,7 @@ import {
   addCareManualProductLinks,
   getCareManualProductSuggestions,
   getCareManuals,
+  importCareCourses,
   syncCareManuals,
   testCareManualMatch,
   updateCareManual,
@@ -241,6 +260,9 @@ import {
 } from '@/api/admin/careManuals'
 
 const items = ref<CareManualItem[]>([])
+const sourceType = ref<'manual' | 'course'>('manual')
+const importVisible = ref(false)
+const importUrls = ref('')
 const productOptions = ref<ProductOption[]>([])
 const productsLoading = ref(false)
 const productsVisible = ref(false)
@@ -275,21 +297,25 @@ const lastSyncText = computed(() => lastSync.value ? formatTime(lastSync.value.f
 const decisionText = computed(() => ({ unique: '唯一匹配', ambiguous: '多个候选', not_found: '未匹配' }[matchResult.value?.decision || 'not_found']))
 const decisionType = computed(() => ({ unique: 'success', ambiguous: 'warning', not_found: 'info' }[matchResult.value?.decision || 'not_found'] as 'success' | 'warning' | 'info'))
 
+let loadSequence = 0
 const loadManuals = async () => {
+  const sequence = ++loadSequence
   loading.value = true
   try {
     const data = await getCareManuals({
       page: page.value,
+      source_type: sourceType.value,
       page_size: pageSize.value,
       keyword: keyword.value.trim() || undefined,
       enabled: enabledFilter.value ? enabledFilter.value === 'true' : undefined,
       match_status: matchStatus.value || undefined
     })
+    if (sequence !== loadSequence) return
     items.value = data.items
     total.value = data.total
     Object.assign(stats, data.stats)
     lastSync.value = data.last_sync || null
-  } finally { loading.value = false }
+  } finally { if (sequence === loadSequence) loading.value = false }
 }
 
 const loadProductOptions = async () => {
@@ -297,6 +323,18 @@ const loadProductOptions = async () => {
   try { productOptions.value = await getProductOptions() } finally { productsLoading.value = false }
 }
 const applyFilters = () => { page.value = 1; void loadManuals() }
+const changeSource = () => { matchStatus.value = ''; keyword.value = ''; applyFilters() }
+const importCourses = async () => {
+  const urls = importUrls.value.split(/\r?\n/).map(url => url.trim()).filter(Boolean)
+  if (!urls.length) { ElMessage.warning('请填写课程分享链接'); return }
+  syncing.value = true
+  try {
+    const result = await importCareCourses(urls)
+    ElMessage.success(`同步完成：新增 ${result.created_count}、更新 ${result.updated_count} 条课程`)
+    importVisible.value = false
+    importUrls.value = ''
+  } finally { syncing.value = false; await loadManuals() }
+}
 
 const loadProductSuggestions = async () => {
   suggesting.value = true
@@ -327,7 +365,7 @@ const saveProductLinks = async () => {
 const runSync = async () => {
   syncing.value = true
   try {
-    const result = await syncCareManuals()
+    const result = await syncCareManuals(sourceType.value)
     ElMessage.success(`同步完成：扫描 ${result.scanned_count} 条，收录 ${result.qualified_count} 条`)
   } finally {
     syncing.value = false
@@ -344,7 +382,7 @@ const openEdit = (item: CareManualItem) => {
     enabled: item.enabled, match_keywords: [...item.match_keywords]
   })
   editVisible.value = true
-  void loadProductOptions()
+  if (item.source_type === 'manual') void loadProductOptions()
 }
 
 const saveEdit = async () => {
@@ -352,7 +390,7 @@ const saveEdit = async () => {
   saving.value = true
   try {
     await updateCareManual(editing.value.id, { ...form })
-    ElMessage.success('养护手册配置已保存')
+    ElMessage.success('配置已保存')
     editVisible.value = false
     await loadManuals()
   } finally { saving.value = false }
@@ -360,7 +398,7 @@ const saveEdit = async () => {
 
 const openMatchDialog = (item?: CareManualItem) => {
   matchResult.value = null
-  Object.assign(matchForm, { query: item?.orchid_name || '', product_name: '', youzan_item_id: item?.product_links[0]?.youzan_item_id || '', limit: 5 })
+  Object.assign(matchForm, { query: item?.orchid_name || item?.title || '', product_name: '', youzan_item_id: item?.product_links[0]?.youzan_item_id || '', limit: 5 })
   matchVisible.value = true
   void loadProductOptions()
 }

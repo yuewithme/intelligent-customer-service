@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+import httpx
 
 from app.domains.sales.schemas.care_manual import (
     CareManualBatchLinkRequest,
+    CareCourseImportRequest,
     CareManualMatchRequest,
     CareManualUpdateRequest,
 )
@@ -31,6 +33,7 @@ async def care_manuals(
     page_size: int = Query(default=50, ge=1, le=200),
     keyword: str | None = None,
     enabled: bool | None = None,
+    source_type: str | None = Query(default=None, pattern="^(manual|course)$"),
     match_status: str | None = Query(
         default=None, pattern="^(bound|unbound|product_bound|product_unbound)?$"
     ),
@@ -43,17 +46,31 @@ async def care_manuals(
             page_size=page_size,
             keyword=keyword,
             enabled=enabled,
+            source_type=source_type,
             match_status=match_status,
         ),
     )
 
 
 @router.post("/sync/run", response_model=APIResponse)
-async def run_sync() -> APIResponse:
+async def run_sync(source_type: str = Query(default="manual", pattern="^(manual|course)$")) -> APIResponse:
     try:
-        result = await sync_care_manuals(trigger="manual")
-    except RuntimeError as exc:
+        result = await sync_care_manuals(trigger="manual", source_type=source_type)
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="有赞课程暂不可用，已保留原数据") from exc
+    return APIResponse(code=0, message="success", data=result)
+
+
+@router.post("/courses/import", response_model=APIResponse)
+async def import_courses(request: CareCourseImportRequest) -> APIResponse:
+    try:
+        result = await sync_care_manuals(source_type="course", course_urls=request.urls)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="有赞课程暂不可用，已保留原数据") from exc
     return APIResponse(code=0, message="success", data=result)
 
 

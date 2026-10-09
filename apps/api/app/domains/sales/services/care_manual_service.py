@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import create_engine, delete, func, or_, select
+from sqlalchemy import create_engine, delete, func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -46,6 +46,15 @@ _TABLES = [
 def _session_factory(database_url: str):
     engine = create_engine(database_url)
     Base.metadata.create_all(engine, tables=_TABLES)
+    with engine.begin() as connection:
+        for table, additions in {
+            "care_manual_cards": {"source_type": "VARCHAR(16) NOT NULL DEFAULT 'manual'", "price_cent": "INTEGER", "content_count": "INTEGER"},
+            "care_manual_sync_runs": {"source_type": "VARCHAR(16) NOT NULL DEFAULT 'manual'"},
+        }.items():
+            columns = {column["name"] for column in inspect(connection).get_columns(table)}
+            for name, definition in additions.items():
+                if name not in columns:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}"))
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -67,9 +76,15 @@ def list_care_manuals(
     keyword: str | None = None,
     enabled: bool | None = None,
     match_status: str | None = None,
+    source_type: str | None = None,
 ) -> dict[str, Any]:
     with _session() as session:
-        base_filters = [CareManualCardModel.title.contains(CARE_MANUAL_TITLE_MARKER)]
+        base_filters = [or_(
+            (CareManualCardModel.source_type == "manual") & CareManualCardModel.title.contains(CARE_MANUAL_TITLE_MARKER),
+            CareManualCardModel.source_type == "course",
+        )]
+        if source_type:
+            base_filters.append(CareManualCardModel.source_type == source_type)
         filters = list(base_filters)
         if keyword and keyword.strip():
             value = f"%{keyword.strip()}%"
@@ -129,7 +144,9 @@ def list_care_manuals(
         all_rows = list(session.scalars(select(CareManualCardModel).where(*base_filters)))
         linked_card_ids = set(session.scalars(select(CareManualProductLinkModel.care_manual_card_id)))
         latest = session.scalar(
-            select(CareManualSyncRunModel).order_by(CareManualSyncRunModel.id.desc())
+            select(CareManualSyncRunModel)
+            .where(CareManualSyncRunModel.source_type == (source_type or "manual"))
+            .order_by(CareManualSyncRunModel.id.desc())
         )
         return {
             "items": [_serialize_card(row, links.get(row.id, [])) for row in rows],
@@ -150,7 +167,7 @@ def list_care_manuals(
 def get_care_manual(card_id: int) -> dict[str, Any]:
     with _session() as session:
         row = session.get(CareManualCardModel, card_id)
-        if row is None or CARE_MANUAL_TITLE_MARKER not in row.title:
+        if row is None or (row.source_type != "course" and CARE_MANUAL_TITLE_MARKER not in row.title):
             raise LookupError("养护手册不存在")
         links = _links_by_card(session, [card_id])
         return _serialize_card(row, links.get(card_id, []))
@@ -161,7 +178,7 @@ def update_care_manual(card_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     now = _now()
     with _session() as session:
         row = session.get(CareManualCardModel, card_id)
-        if row is None or CARE_MANUAL_TITLE_MARKER not in row.title:
+        if row is None or (row.source_type != "course" and CARE_MANUAL_TITLE_MARKER not in row.title):
             raise LookupError("养护手册不存在")
         item_ids = list(dict.fromkeys(payload.get("youzan_item_ids") or []))
         products = {
@@ -352,7 +369,10 @@ def test_match_care_manuals(
         rows = list(
             session.scalars(
                 select(CareManualCardModel).where(
-                    CareManualCardModel.title.contains(CARE_MANUAL_TITLE_MARKER),
+                    or_(
+                        (CareManualCardModel.source_type == "manual") & CareManualCardModel.title.contains(CARE_MANUAL_TITLE_MARKER),
+                        (CareManualCardModel.source_type == "course") & (CareManualCardModel.price_cent == 0),
+                    ),
                     CareManualCardModel.enabled.is_(True),
                     func.lower(CareManualCardModel.youzan_status).in_(_PUBLISHED_STATUSES),
                 )
@@ -362,13 +382,15 @@ def test_match_care_manuals(
 
     candidates: list[tuple[int, CareManualCardModel, str]] = []
     for row in rows:
+        if not _is_available(row):
+            continue
         row_links = links.get(row.id, [])
         if youzan_item_id and any(
             link.youzan_item_id == youzan_item_id for link in row_links
         ):
             candidates.append((0, row, "exact_product"))
             continue
-        orchid = _normalize(row.orchid_name or "")
+        orchid = _normalize(row.orchid_name or (row.title if row.source_type == "course" else ""))
         if orchid and orchid in normalized_values:
             candidates.append((1, row, "exact_orchid"))
             continue
@@ -395,7 +417,7 @@ def test_match_care_manuals(
         return {"decision": "not_found", "auto_send_eligible": False, "matches": []}
     best_priority = candidates[0][0]
     best = [item for item in candidates if item[0] == best_priority]
-    orchid_names = {_normalize(item[1].orchid_name or "") for item in best}
+    orchid_names = {_normalize(item[1].orchid_name or (item[1].title if item[1].source_type == "course" else "")) for item in best}
     orchid_names.discard("")
     deterministic = best_priority < 4 and (
         len(orchid_names) == 1 or (best_priority == 0 and len(best) == 1)
@@ -407,6 +429,8 @@ def test_match_care_manuals(
         matches.append(
             {
                 "card_id": row.id,
+                "source_type": row.source_type,
+                "price_cent": row.price_cent,
                 "title": row.title,
                 "orchid_name": row.orchid_name,
                 "note_url": row.note_url,
@@ -426,21 +450,41 @@ def test_match_care_manuals(
 
 
 async def sync_care_manuals(
-    *, trigger: str = "manual", client: YouzanClient | Any | None = None
+    *, trigger: str = "manual", client: YouzanClient | Any | None = None,
+    source_type: str = "manual", course_urls: list[str] | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
-    if not settings.youzan_enabled or not youzan_credentials_available():
+    if source_type not in {"manual", "course"}:
+        raise ValueError("未知资料类型")
+    if source_type == "manual" and (not settings.youzan_enabled or not youzan_credentials_available()):
         raise RuntimeError("有赞养护手册同步未配置")
-    run_id = _start_sync_run(trigger)
-    client = client or create_managed_youzan_client(timeout=30)
+    run_id = _start_sync_run(trigger, source_type=source_type)
     try:
-        notes = await _fetch_all_notes(
-            client,
-            method=settings.youzan_care_manual_method,
-            version=settings.youzan_care_manual_version,
-            page_size=settings.youzan_care_manual_page_size,
-        )
-        result = _persist_notes(notes)
+        if source_type == "course":
+            from app.integrations.youzan.services.youzan_course_service import fetch_courses
+
+            urls = list(course_urls or [])
+            loaded = 0
+            page = 1
+            while True:
+                data = list_care_manuals(page=page, page_size=200, source_type="course")
+                urls.extend(item["note_url"] for item in data["items"])
+                loaded += len(data["items"])
+                if loaded >= data["total"]:
+                    break
+                if not data["items"]:
+                    raise RuntimeError("课程分页数据不完整，已保留原数据")
+                page += 1
+            result = _persist_courses(await fetch_courses(urls, client=client))
+        else:
+            client = client or create_managed_youzan_client(timeout=30)
+            notes = await _fetch_all_notes(
+                client,
+                method=settings.youzan_care_manual_method,
+                version=settings.youzan_care_manual_version,
+                page_size=settings.youzan_care_manual_page_size,
+            )
+            result = _persist_notes(notes)
         _finish_sync_run(run_id, result=result)
         return {**result, "trigger": trigger, "status": "success"}
     except Exception as exc:
@@ -448,12 +492,11 @@ async def sync_care_manuals(
         raise
 
 
-async def care_manual_sync_worker(stop_event: asyncio.Event) -> None:
+async def care_manual_sync_worker(stop_event: asyncio.Event, *, source_type: str = "manual") -> None:
     settings = get_settings()
     if (
         not settings.youzan_care_manual_sync_enabled
-        or not settings.youzan_enabled
-        or not youzan_credentials_available()
+        or (source_type == "manual" and (not settings.youzan_enabled or not youzan_credentials_available()))
     ):
         return
     delay = settings.youzan_care_manual_sync_startup_delay_seconds
@@ -466,10 +509,13 @@ async def care_manual_sync_worker(stop_event: asyncio.Event) -> None:
         if stop_event.is_set():
             return
         try:
-            await sync_care_manuals(trigger="scheduled")
+            if source_type == "course":
+                await sync_care_manuals(trigger="scheduled", source_type="course")
+            else:
+                await sync_care_manuals(trigger="scheduled")
             delay = settings.youzan_care_manual_sync_interval_hours * 3600
         except Exception as exc:
-            logger.warning("Scheduled Youzan care manual sync failed: %s", type(exc).__name__)
+            logger.warning("Scheduled Youzan %s sync failed: %s", source_type, type(exc).__name__)
             delay = 300
 
 
@@ -522,7 +568,7 @@ def _persist_notes(notes: list[dict[str, Any]]) -> dict[str, int]:
     with _session() as session:
         existing = {
             row.youzan_note_id: row
-            for row in session.scalars(select(CareManualCardModel))
+            for row in session.scalars(select(CareManualCardModel).where(CareManualCardModel.source_type == "manual"))
         }
         for note in notes:
             note_id = _note_id(note)
@@ -598,9 +644,10 @@ def _persist_notes(notes: list[dict[str, Any]]) -> dict[str, int]:
 
 
 @remote("manuals._start_sync_run")
-def _start_sync_run(trigger: str) -> int:
+def _start_sync_run(trigger: str, source_type: str = "manual") -> int:
     with _session() as session:
         row = CareManualSyncRunModel(
+            source_type=source_type,
             trigger=trigger,
             status="running",
             started_at=_now(),
@@ -636,6 +683,36 @@ def _finish_sync_run(
         session.commit()
 
 
+@remote("manuals._persist_courses")
+def _persist_courses(courses: list[dict[str, Any]]) -> dict[str, int]:
+    now = _now()
+    created_count = updated_count = 0
+    with _session() as session:
+        for course in courses:
+            note_id = "course:" + str(course["note_id"])
+            row = session.scalar(select(CareManualCardModel).where(CareManualCardModel.youzan_note_id == note_id))
+            if row is None:
+                row = CareManualCardModel(
+                    youzan_note_id=note_id, source_type="course", orchid_name=None,
+                    aliases_json="[]", match_keywords_json="[]", enabled=True, sort_order=0,
+                    created_at=now,
+                )
+                session.add(row)
+                created_count += 1
+            else:
+                updated_count += 1
+            for field in ("title", "note_alias", "note_url", "cover_url", "price_cent", "content_count"):
+                setattr(row, field, course.get(field))
+            row.youzan_status = course["note_status"]
+            row.published_at = _parse_datetime(course.get("publish_time"))
+            row.last_synced_at = row.updated_at = now
+        session.commit()
+    qualified = sum(course["note_status"] == "published" for course in courses)
+    return {"scanned_count": len(courses), "qualified_count": qualified,
+            "created_count": created_count, "updated_count": updated_count,
+            "disabled_count": len(courses) - qualified}
+
+
 def _links_by_card(
     session: Session, card_ids: list[int]
 ) -> dict[int, list[CareManualProductLinkModel]]:
@@ -658,6 +735,10 @@ def _serialize_card(
     return {
         "id": row.id,
         "youzan_note_id": row.youzan_note_id,
+        "source_type": row.source_type,
+        "price_cent": row.price_cent,
+        "content_count": row.content_count,
+        "auto_send_allowed": _is_available(row) and (row.source_type != "course" or row.price_cent == 0),
         "note_alias": row.note_alias,
         "title": row.title,
         "orchid_name": row.orchid_name,
@@ -690,6 +771,7 @@ def _serialize_sync_run(row: CareManualSyncRunModel | None) -> dict[str, Any] | 
     return {
         "id": row.id,
         "trigger": row.trigger,
+        "source_type": row.source_type,
         "status": row.status,
         "scanned_count": row.scanned_count,
         "qualified_count": row.qualified_count,
@@ -705,7 +787,7 @@ def _serialize_sync_run(row: CareManualSyncRunModel | None) -> dict[str, Any] | 
 def _is_available(row: CareManualCardModel) -> bool:
     return (
         row.enabled
-        and CARE_MANUAL_TITLE_MARKER in row.title
+        and (row.source_type == "course" or CARE_MANUAL_TITLE_MARKER in row.title)
         and _status_is_published(row.youzan_status)
         and bool(row.note_url)
     )

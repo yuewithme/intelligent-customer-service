@@ -1,6 +1,19 @@
 from pydantic import BaseModel, Field, field_validator
 
 
+class CareCourseImportRequest(BaseModel):
+    urls: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("urls")
+    @classmethod
+    def validate_urls(cls, values: list[str]) -> list[str]:
+        from app.integrations.youzan.services.youzan_course_service import course_source
+
+        for value in values:
+            course_source(value)
+        return list(dict.fromkeys(values))
+
+
 class CareManualUpdateRequest(BaseModel):
     orchid_name: str = Field(default="", max_length=256)
     aliases: list[str] = Field(default_factory=list, max_length=100)

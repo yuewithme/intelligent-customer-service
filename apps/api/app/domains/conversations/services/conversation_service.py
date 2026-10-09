@@ -1657,7 +1657,7 @@ async def reply_conversation_care_manual(
         "title": str(manual.get("title") or "").strip(),
         "url": str(manual.get("note_url") or "").strip(),
         "description": str(
-            manual.get("card_description") or "对应品种的养护注意事项"
+            manual.get("card_description") or ("养兰视频课程，点击查看详情" if manual.get("source_type") == "course" else "对应品种的养护注意事项")
         ).strip(),
         "thumb_url": str(manual.get("cover_url") or "").strip(),
     }

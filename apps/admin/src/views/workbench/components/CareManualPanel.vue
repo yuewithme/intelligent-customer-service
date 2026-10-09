@@ -2,16 +2,20 @@
   <section class="care-manual-panel">
     <div class="manual-header">
       <div>
-        <h3>养护手册</h3>
-        <p>选择手册卡片发送到当前聊天</p>
+        <h3>{{ sourceType === 'course' ? '视频课程' : '养护手册' }}</h3>
+        <p>{{ sourceType === 'course' ? 'Agent 仅自动发送免费课程；付费课程可人工发送' : '选择手册卡片发送到当前聊天' }}</p>
       </div>
       <ElButton :icon="Refresh" circle :loading="loading" @click="loadManuals" />
     </div>
 
+    <ElRadioGroup v-model="sourceType" size="small">
+      <ElRadioButton value="manual">养护手册</ElRadioButton>
+      <ElRadioButton value="course">视频课程</ElRadioButton>
+    </ElRadioGroup>
     <ElInput
       v-model="keyword"
       clearable
-      placeholder="搜索手册名称或品种"
+      placeholder="搜索名称或关键词"
       :prefix-icon="Search"
     />
 
@@ -31,6 +35,10 @@
         <div class="manual-info">
           <strong>{{ manual.title }}</strong>
           <small v-if="manual.orchid_name">{{ manual.orchid_name }}</small>
+          <small v-if="manual.source_type === 'course'">
+            {{ manual.price_cent === 0 ? '免费' : manual.price_cent == null ? '价格未知' : `¥${(manual.price_cent / 100).toFixed(2)}` }}
+            <span v-if="manual.content_count != null"> · {{ manual.content_count }} 期</span>
+          </small>
           <ElButton
             type="primary"
             size="small"
@@ -44,7 +52,7 @@
       </article>
       <ElEmpty
         v-if="!loading && !loadError && !filteredManuals.length"
-        :description="keyword ? '没有匹配的养护手册' : '暂无可发送的养护手册'"
+        :description="keyword ? '没有匹配的内容' : '暂无可发送的内容'"
         :image-size="72"
       />
     </div>
@@ -71,6 +79,7 @@ const emit = defineEmits<{ changed: [] }>()
 
 const userStore = useUserStore()
 const manuals = ref<CareManualItem[]>([])
+const sourceType = ref<'manual' | 'course'>('manual')
 const keyword = ref('')
 const loading = ref(false)
 const loadError = ref('')
@@ -90,8 +99,9 @@ const sendHint = computed(() => {
 })
 const filteredManuals = computed(() => {
   const query = keyword.value.trim().toLocaleLowerCase()
-  if (!query) return manuals.value
-  return manuals.value.filter((manual) =>
+  const items = manuals.value.filter((manual) => manual.source_type === sourceType.value)
+  if (!query) return items
+  return items.filter((manual) =>
     [
       manual.title,
       manual.orchid_name,
@@ -139,7 +149,7 @@ const sendManual = async (manual: CareManualItem) => {
       acquiredDraft = true
     }
     await replyConversationCareManual(conversationId, senderId, manual.id)
-    ElMessage.success('养护手册卡片已进入发送队列')
+    ElMessage.success('卡片已进入发送队列')
   } finally {
     if (acquiredDraft) {
       await updateReplyDraft(conversationId, {

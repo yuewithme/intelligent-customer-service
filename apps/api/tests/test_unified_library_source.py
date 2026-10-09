@@ -101,7 +101,7 @@ async def test_care_manual_sync_list_and_send_share_unified_source(monkeypatch):
         "manuals._start_sync_run", "manuals._persist_notes", "manuals._finish_sync_run",
         "manuals.list_care_manuals", "manuals.get_care_manual",
     ]
-    assert observed[0][1] == {"trigger": "scheduled"}
+    assert observed[0][1] == {"trigger": "scheduled", "source_type": "manual"}
     assert observed[1][1] == {"notes": [note]}
     assert observed[3][1]["page"] == 2
     assert observed[4][1] == {"card_id": 209}

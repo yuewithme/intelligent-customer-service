@@ -7,6 +7,10 @@ export interface CareManualProductLink {
 
 export interface CareManualItem {
   id: number
+  source_type: 'manual' | 'course'
+  price_cent: number | null
+  content_count: number | null
+  auto_send_allowed: boolean
   youzan_note_id: string
   note_alias?: string | null
   title: string
@@ -111,13 +115,17 @@ export const getCareManuals = (params: {
   keyword?: string
   enabled?: boolean
   match_status?: string
+  source_type?: 'manual' | 'course'
 }) => request.get<CareManualListResponse>({ url: '/api/v1/admin/care-manuals', params })
 
 export const updateCareManual = (id: number, data: CareManualPayload) =>
   request.put<CareManualItem>({ url: `/api/v1/admin/care-manuals/${id}`, data })
 
-export const syncCareManuals = () =>
-  request.post<CareManualSyncResult>({ url: '/api/v1/admin/care-manuals/sync/run' })
+export const syncCareManuals = (source_type: 'manual' | 'course' = 'manual') =>
+  request.post<CareManualSyncResult>({ url: '/api/v1/admin/care-manuals/sync/run', params: { source_type } })
+
+export const importCareCourses = (urls: string[]) =>
+  request.post<CareManualSyncResult>({ url: '/api/v1/admin/care-manuals/courses/import', data: { urls } })
 
 export const testCareManualMatch = (data: {
   query: string

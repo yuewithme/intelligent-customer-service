@@ -96,8 +96,8 @@ CAPABILITIES = (
     CapabilitySpec(
         "care_manual.search",
         "tool",
-        ("养护手册", "单品资料", "品种资料", "收苗", "上盆"),
-        "输入 {\"query\":\"品种、商品或养护主题\",\"product_ref\":\"可选\"}。返回已发布手册 material_ref、匹配类型和可用性；不确定时不要随便发送。",
+        ("养护手册", "单品资料", "品种资料", "收苗", "上盆", "课程", "兰花课堂"),
+        "输入 {\"query\":\"品种、商品、课程名称或养护主题\",\"product_ref\":\"可选\"}。返回已发布手册和免费课程的 material_ref、匹配类型和可用性；课程只能自动发送免费的，付费或价格未知的禁止发送；不确定时不要随便发送。",
     ),
     CapabilitySpec(
         "material.search",
@@ -820,10 +820,16 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
             return _result(call_id, "material.send", "not_found")
         if not record.get("available"):
             return _result(call_id, "material.send", "forbidden", reason="material_not_published")
+        if record.get("source_type") == "course":
+            from app.integrations.youzan.services.youzan_course_service import verify_free_course
+
+            record = await verify_free_course(record)
+            if record is None:
+                return _result(call_id, "material.send", "forbidden", reason="course_must_be_currently_free")
         card = {
             "title": record.get("title"),
             "url": record.get("note_url"),
-            "description": record.get("card_description") or "对应品种的养护注意事项",
+            "description": record.get("card_description") or ("免费养兰视频课程" if record.get("source_type") == "course" else "对应品种的养护注意事项"),
             "thumb_url": record.get("cover_url") or "",
         }
     elif material_id.startswith("agent-media:"):
@@ -1133,8 +1139,9 @@ def _public_manual(item: dict[str, Any]) -> dict[str, Any]:
         "orchid_name": item.get("orchid_name"),
         "match_type": item.get("match_type"),
         "selected": bool(item.get("selected")),
-        "access": "published" if item.get("note_url") else "unavailable",
-        "match_reason": "具体品种或商品养护手册",
+        "source_type": item.get("source_type"),
+        "access": "free" if item.get("source_type") == "course" else "published",
+        "match_reason": "免费养兰视频课程，发送前复核价格" if item.get("source_type") == "course" else "具体品种或商品养护手册",
     }
 
 
