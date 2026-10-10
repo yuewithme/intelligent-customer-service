@@ -96,7 +96,7 @@ async def test_prepare_content_combines_orchid_health_result_and_text(monkeypatc
         )
 
     monkeypatch.setattr(vision_service, "analyze_image", fake_analyze)
-    content, image_count, recognized_count, verified_orders, wrong_store_orders = (
+    content, image_count, recognized_count, verified_orders = (
         await service._prepare_inbound_content(
             "[图片]\n这个怎么处理？",
             [
@@ -112,7 +112,6 @@ async def test_prepare_content_combines_orchid_health_result_and_text(monkeypatc
     assert image_count == 1
     assert recognized_count == 1
     assert verified_orders == 0
-    assert wrong_store_orders == 0
     assert "初步判断：疑似介壳虫" in content
     assert content.endswith("这个怎么处理？")
 
@@ -151,10 +150,11 @@ async def test_verified_store_order_does_not_add_disabled_purchase_tag(monkeypat
             summary="订单截图",
             order=OrderScreenshotAnalysis(
                 is_order_screenshot=True,
-                store_name="萧兰苑",
+                store_name="萧岚苑精品国兰",
+                store_relation="own",
                 platform="淘宝/天猫",
                 page_type="待收货",
-                product="春兰裸苗",
+                product="蕙兰铭品【长寿梅】 【高脚盆+2包肥料】2-3苗",
                 amount="¥32.80",
                 order_number="6954542914016319059",
                 status="已发货",
@@ -190,7 +190,9 @@ async def test_verified_store_order_does_not_add_disabled_purchase_tag(monkeypat
 
     profile = (await user_profile_service.get_profile_bundle("customer"))["profile"]
     assert profile["customer_tags"] == ["浙江省"]
-    assert "支持店铺订单截图" in chat_requests[0].message
+    assert "订单或疑似订单截图" in chat_requests[0].message
+    assert "萧岚苑精品国兰" in chat_requests[0].message
+    assert "蕙兰铭品【长寿梅】" in chat_requests[0].message
     assert "已验证抖音已付款" not in chat_requests[0].message
     assert "***************9059" in chat_requests[0].message
     assert chat_requests[0].metadata["verified_order_count"] == 0
@@ -282,7 +284,17 @@ async def test_order_from_other_store_is_passed_to_agent(monkeypatch):
     )
 
     async def fake_analyze(image_source):
-        raise vision_service.UnsupportedStoreOrderError("其他兰花店")
+        return VisionAnalysis(
+            category="order",
+            order=OrderScreenshotAnalysis(
+                is_order_screenshot=True,
+                store_name="其他兰花店",
+                store_relation="other",
+                product="蕙兰铭品【长寿梅】",
+                status="已签收",
+            ),
+            confidence=0.95,
+        )
 
     async def fake_contact(**kwargs):
         return {}
@@ -298,7 +310,7 @@ async def test_order_from_other_store_is_passed_to_agent(monkeypatch):
 
     async def fake_handle_chat(request):
         captured["request"] = request
-        return {"answer": "这张截图不是萧岚苑订单，我先按您的问题继续帮您看。"}
+        return {"answer": "截图标题写的是蕙兰长寿梅。"}
 
     monkeypatch.setattr(vision_service, "analyze_image", fake_analyze)
     monkeypatch.setattr(service, "get_eyun_contact_snapshot", fake_contact)
@@ -311,8 +323,11 @@ async def test_order_from_other_store_is_passed_to_agent(monkeypatch):
     monkeypatch.setattr(service, "utcnow", lambda: now)
 
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
-    assert captured["request"].metadata["attachment_error"] == "图片识别确认这不是萧岚苑的订单截图"
-    assert queued[0]["content"] == "这张截图不是萧岚苑订单，我先按您的问题继续帮您看。"
+    assert "attachment_error" not in captured["request"].metadata
+    assert "其他兰花店" in captured["request"].message
+    assert "蕙兰铭品【长寿梅】" in captured["request"].message
+    assert captured["request"].metadata["verified_order_count"] == 0
+    assert queued[0]["content"] == "截图标题写的是蕙兰长寿梅。"
 
 
 @pytest.mark.asyncio
@@ -329,7 +344,7 @@ async def test_repeated_image_failure_still_continues_with_agent(monkeypatch):
         nonlocal recognition_attempts
         recognition_attempts += 1
         if recognition_attempts == 1:
-            raise vision_service.UnsupportedStoreOrderError("其他兰花店")
+            raise vision_service.VisionRecognitionError("image recognition result is empty")
         raise vision_service.VisionRecognitionError("unsupported image category")
 
     async def fake_contact(**kwargs):
@@ -377,7 +392,7 @@ async def test_repeated_image_failure_still_continues_with_agent(monkeypatch):
     monkeypatch.setattr(service, "utcnow", lambda: now)
     assert await service.process_due_eyun_inbound_batches(limit=1) == 1
     assert len(queued) == 1
-    assert "attachment_error" in chat_requests[0].metadata
+    assert "不是转人工条件" in chat_requests[0].metadata["vision_description"]
 
     monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(seconds=1))
     await service.enqueue_eyun_inbound(

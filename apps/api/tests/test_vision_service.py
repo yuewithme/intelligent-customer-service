@@ -39,13 +39,14 @@ def reset_settings():
     get_settings.cache_clear()
 
 
-def _order_response(*, store_name="萧岚苑", needs_ocr=False):
+def _order_response(*, store_name="萧岚苑", store_relation="own", needs_ocr=False):
     return {
         "category": "order",
         "summary": "订单截图",
         "order": {
             "is_order_screenshot": True,
             "store_name": store_name,
+            "store_relation": store_relation,
             "platform": "抖音电商",
             "page_type": "交易完成",
             "product": "寒兰裸苗",
@@ -227,21 +228,112 @@ async def test_healthy_orchid_identification_is_soft_evidence(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_order_from_other_store_is_not_supported(monkeypatch):
+@pytest.mark.parametrize(
+    ("store_name", "store_relation", "confidence"),
+    [
+        ("萧岚苑精品国兰", "own", 0.95),
+        ("国兰基地·萧兰苑官方店", "own", 0.95),
+        ("其他兰花店", "other", 0.95),
+        ("", "unknown", 0.4),
+        ("萧岚苑精品国兰", "own", 0.4),
+    ],
+)
+async def test_order_product_is_kept_regardless_of_store_or_confidence(
+    monkeypatch, store_name, store_relation, confidence
+):
     from app.integrations.ai.services import vision_service
 
     monkeypatch.setenv("VISION_ENABLED", "true")
     monkeypatch.setenv("VISION_API_KEY", "test-key")
-    responses = [_order_response(store_name="其他兰花店")]
+    monkeypatch.setenv("PURCHASE_TAGS_ENABLED", "true")
+    payload = _order_response(store_name=store_name, store_relation=store_relation)
+    payload["order"]["product"] = "蕙兰铭品【长寿梅】梅瓣高品… 【高脚盆+2包肥料】2-3苗"
+    payload["confidence"] = confidence
+    responses = [payload]
     monkeypatch.setattr(
         vision_service.httpx,
         "AsyncClient",
         lambda **kwargs: _FakeClient(responses, []),
     )
 
-    with pytest.raises(vision_service.UnsupportedStoreOrderError) as exc_info:
-        await vision_service.analyze_image("https://cdn.example.com/other-order.jpg")
-    assert exc_info.value.store_name == "其他兰花店"
+    result = await vision_service.analyze_image("https://cdn.example.com/order.jpg")
+    formatted = vision_service.format_analysis_for_chat(result)
+
+    assert result.order.store_name == store_name
+    assert "蕙兰铭品【长寿梅】" in formatted
+    assert "2-3苗" in formatted
+    assert (vision_service.purchase_tag_for_analysis(result) == "抖音已购") is (
+        store_relation == "own" and confidence >= 0.55
+    )
+    if store_relation == "other":
+        assert "其他店铺，也可依据商品文字回答问题" in formatted
+    if confidence < 0.55:
+        assert "部分信息仍待确认" in formatted
+
+
+@pytest.mark.asyncio
+async def test_related_product_text_can_be_rechecked_without_order_or_orchid_photo(monkeypatch):
+    from app.integrations.ai.services import vision_service
+
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "test-key")
+    monkeypatch.setenv("VISION_OCR_ENABLED", "true")
+    responses = [
+        {
+            "category": "orchid_general",
+            "summary": "兰花商品页，缩略图为花盆",
+            "orchid_general": {"visible_features": ["黑色高脚花盆"]},
+            "needs_ocr": True,
+            "confidence": 0.4,
+        },
+        {
+            "category": "orchid_general",
+            "summary": "商品标题标注蕙兰长寿梅",
+            "visible_text": ["蕙兰铭品【长寿梅】", "【高脚盆+2包肥料】2-3苗"],
+            "orchid_general": {
+                "visible_features": ["商品标题及规格"],
+                "likely_type": "蕙兰·长寿梅（标题标注）",
+                "identification_basis": ["商品标题：蕙兰铭品【长寿梅】"],
+            },
+            "confidence": 0.95,
+        },
+    ]
+    requests = []
+    monkeypatch.setattr(
+        vision_service.httpx, "AsyncClient", lambda **kwargs: _FakeClient(responses, requests)
+    )
+
+    result = await vision_service.analyze_image("https://cdn.example.com/product.jpg")
+    formatted = vision_service.format_analysis_for_chat(result)
+
+    assert len(requests) == 2
+    assert "黑色高脚花盆" in formatted
+    assert "品类判断：蕙兰·长寿梅（标题标注）" in formatted
+    assert "图片可见文字：蕙兰铭品【长寿梅】" in formatted
+    assert vision_service.purchase_tag_for_analysis(result) is None
+
+
+@pytest.mark.asyncio
+async def test_partial_order_text_does_not_require_complete_structured_fields(monkeypatch):
+    from app.integrations.ai.services import vision_service
+
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "test-key")
+    monkeypatch.setenv("PURCHASE_TAGS_ENABLED", "true")
+    responses = [{
+        "category": "order",
+        "visible_text": ["蕙兰铭品【长寿梅】"],
+        "confidence": 0.35,
+        "needs_clarification": True,
+    }]
+    monkeypatch.setattr(
+        vision_service.httpx, "AsyncClient", lambda **kwargs: _FakeClient(responses, [])
+    )
+
+    result = await vision_service.analyze_image("https://cdn.example.com/partial.jpg")
+
+    assert "蕙兰铭品【长寿梅】" in vision_service.format_analysis_for_chat(result)
+    assert vision_service.purchase_tag_for_analysis(result) is None
 
 
 @pytest.mark.asyncio

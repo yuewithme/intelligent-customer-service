@@ -1547,7 +1547,6 @@ async def _process_inbound_batch(batch_id: int) -> None:
             image_count,
             recognized_image_count,
             verified_order_count,
-            wrong_store_order_count,
         ) = await _prepare_inbound_content(batch_data["content"], inbound_payloads)
         _save_image_recognitions(_batch_conversation_id(batch_data), inbound_payloads)
         batch_data["content"] = prepared_content
@@ -1576,22 +1575,15 @@ async def _process_inbound_batch(batch_id: int) -> None:
         customer_snapshot.update(contact_snapshot)
 
         if all_images_failed:
-            if wrong_store_order_count == image_count:
-                customer_snapshot["attachment_error"] = (
-                    "图片识别确认这不是萧岚苑的订单截图"
-                )
-                if not batch_data["content"].strip():
-                    batch_data["content"] = "[客户发送了一张订单截图]"
-            else:
-                customer_snapshot["vision_description"] = (
-                    "客户本轮发送了图片，但图片没有形成可靠的视觉结论。"
-                    "这只是软证据不足，不是转人工条件。请继续以萧岚苑养兰顾问身份"
-                    "结合客户文字和完整上下文自然承接，不向客户提及识别、模型、"
-                    "系统失败或技术故障。若确实需要更专业的图片判断，可自然表达为"
-                    "‘我再帮您请老师仔细确认一下’。"
-                )
-                if not batch_data["content"].strip():
-                    batch_data["content"] = "[客户发送了一张图片]"
+            customer_snapshot["vision_description"] = (
+                "客户本轮发送了图片，但图片没有形成可靠的视觉结论。"
+                "这只是软证据不足，不是转人工条件。请继续以萧岚苑养兰顾问身份"
+                "结合客户文字和完整上下文自然承接，不向客户提及识别、模型、"
+                "系统失败或技术故障。若确实需要更专业的图片判断，可自然表达为"
+                "‘我再帮您请老师仔细确认一下’。"
+            )
+            if not batch_data["content"].strip():
+                batch_data["content"] = "[客户发送了一张图片]"
 
         if is_first_inbound or needs_opening:
             # The first real customer message stays context-driven. A standalone
@@ -1856,10 +1848,9 @@ def _only_platform_noise(payloads: list[dict[str, Any]]) -> bool:
 
 async def _prepare_inbound_content(
     stored_content: str, payloads: list[dict[str, Any]]
-) -> tuple[str, int, int, int, int]:
+) -> tuple[str, int, int, int]:
     from app.integrations.eyun.services.eyun_callback_service import fetch_eyun_image_url
     from app.integrations.ai.services.vision_service import (
-        UnsupportedStoreOrderError,
         VisionError,
         analyze_image,
         format_analysis_for_chat,
@@ -1870,7 +1861,6 @@ async def _prepare_inbound_content(
     image_count = 0
     recognized_image_count = 0
     verified_order_count = 0
-    wrong_store_order_count = 0
     for payload in payloads:
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         message_type = str(payload.get("messageType") or "")
@@ -1913,17 +1903,6 @@ async def _prepare_inbound_content(
 
         try:
             analysis = await analyze_image(image_source)
-        except UnsupportedStoreOrderError as exc:
-            wrong_store_order_count += 1
-            payload["_image_recognition"] = {
-                "status": "succeeded",
-                "text": f"客户发送其他店铺的订单截图，店铺：{exc.store_name}。不能作为本店已购依据。",
-            }
-            logger.info(
-                "Eyun order screenshot uses an unsupported store: %s",
-                exc.store_name,
-            )
-            continue
         except VisionError as exc:
             logger.warning("Eyun image recognition failed: %s", exc)
             continue
@@ -1945,7 +1924,6 @@ async def _prepare_inbound_content(
         image_count,
         recognized_image_count,
         verified_order_count,
-        wrong_store_order_count,
     )
 
 

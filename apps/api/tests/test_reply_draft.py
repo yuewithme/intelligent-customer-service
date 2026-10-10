@@ -171,7 +171,7 @@ async def test_waiting_customer_resumes_after_expiry_without_duplicate_ai(draft_
         return {}
 
     async def prepare(content, payloads):
-        return content, 0, 0, 0, 0
+        return content, 0, 0, 0
 
     async def generate(message):
         calls.append(message.message)
