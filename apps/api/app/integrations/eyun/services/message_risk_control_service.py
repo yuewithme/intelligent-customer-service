@@ -2252,19 +2252,19 @@ def _conversation_has_opening_message(batch: dict[str, Any]) -> bool:
 
 
 async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
+    from app.domains.customers.services.user_profile_service import get_profile_bundle
     from app.domains.orchestration.services.sop_flow_service import get_saved_flow, dialogue_choices, execution_version
-    if not is_sop_enabled("first_order"):
+    from app.domains.sales.services.sop_policy_service import eligible_sop_scopes
+
+    profile = await get_profile_bundle(batch["from_user"] or batch["target_wc_id"])
+    scopes = eligible_sop_scopes(profile["profile"].get("customer_tags") or [])
+    scope = next((value for value in ("service", "first_order") if value in scopes), None)
+    if scope is None:
         return
-    flow = get_saved_flow("first_order")
+    flow = get_saved_flow(scope)
     if flow and not dialogue_choices(flow, None):
         return
-    if flow:
-        from app.domains.customers.services.user_profile_service import get_profile_bundle
-        from app.domains.sales.services.sop_policy_service import eligible_sop_scopes
-        profile = await get_profile_bundle(batch["from_user"] or batch["target_wc_id"])
-        if "first_order" not in eligible_sop_scopes(profile["profile"].get("customer_tags") or []):
-            return
-    if not flow and is_sop_node_handoff_enabled("first_order", "first_order.opening"):
+    if scope == "first_order" and not flow and is_sop_node_handoff_enabled("first_order", "first_order.opening"):
         await force_handoff(
             make_conversation_id(
                 "wechat",
@@ -2277,14 +2277,15 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
         return
     outbound_messages = [{"type": "text", "content": SERVICE_OPENING}]
     opening_answer = SERVICE_OPENING
-    flow_metadata = {"flow_version": execution_version(flow) if flow else None}
+    flow_metadata = {"sop_scope": scope, "flow_version": execution_version(flow) if flow else None}
     if flow:
         result = await handle_chat(ChatRequest(
             channel="wechat", user_id=batch["from_user"] or batch["target_wc_id"],
             session_id=_conversation_session_id(batch), message="新好友已添加，请从当前工作台流程入口开始接待。",
             kb_id=get_settings().wechat_default_kb_id,
             metadata={"provider": "eyun", "system_event": "workflow_entry", "tenant_id": _conversation_tenant_id(batch),
-                      "w_id": batch["w_id"], "owner_wc_id": batch.get("wc_id", ""), "batch_key": batch["batch_key"]},
+                      "w_id": batch["w_id"], "owner_wc_id": batch.get("wc_id", ""), "batch_key": batch["batch_key"],
+                      "sop_scope": scope},
         ))
         result = await _finalize_eyun_handoff(batch=batch, chat_result=result)
         outbound_messages = _outbound_messages(result)
@@ -2833,8 +2834,6 @@ def _validate_outbound_before_send(
 ) -> bool:
     if row.conversation_message_id:
         message = session.get(ConversationMessageModel, row.conversation_message_id)
-        if message and message.route in {"opening", "agent_first_contact"} and not is_sop_enabled("first_order"):
-            return False
         if message:
             metadata = _load_message_metadata(message.metadata_json)
             if message.sender_type == "ai":

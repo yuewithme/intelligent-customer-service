@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -71,9 +71,13 @@ async def test_first_inbound_message_skips_debounce_delay(monkeypatch, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_new_friend_opening_uses_service_copy_and_dedicated_queue(monkeypatch):
+async def test_new_friend_opening_uses_service_copy_and_dedicated_queue(monkeypatch, tmp_path):
+    from app.core.config import get_settings
     from app.integrations.eyun.services import message_risk_control_service as risk_control
 
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'profiles.db'}")
+    monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{tmp_path / 'chat.db'}")
+    get_settings.cache_clear()
     queued = []
     recorded = []
     now = datetime(2026, 8, 5, tzinfo=timezone.utc)
@@ -115,3 +119,64 @@ async def test_new_friend_opening_uses_service_copy_and_dedicated_queue(monkeypa
     assert [item["due_at"] for item in queued] == due_slots
     assert [item["route"] for item in recorded] == ["opening"]
     assert queued[0]["depends_on_outbound_id"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("service_enabled,disable_before_send", [(True, False), (False, False), (True, True)])
+async def test_new_friend_service_opening_respects_service_switch_with_first_order_off(
+    monkeypatch, tmp_path, service_enabled, disable_before_send
+):
+    from app.core.config import get_settings
+    from app.domains.conversations.services.conversation_service import get_conversation_detail
+    from app.domains.handoff.services.handoff_notification_service import update_sop_enabled
+    from app.integrations.eyun.services import eyun_callback_service as callback
+    from app.integrations.eyun.services import message_risk_control_service as risk_control
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'profiles.db'}")
+    monkeypatch.setenv("CHAT_LOG_DB_URL", f"sqlite:///{tmp_path / 'chat.db'}")
+    get_settings.cache_clear()
+    update_sop_enabled("first_order", False)
+    update_sop_enabled("service", service_enabled)
+    sent = []
+
+    async def contact(**kwargs):
+        return {"nickname": "新兰友"}
+
+    async def send(**kwargs):
+        sent.append(kwargs)
+        return {"code": "1000", "data": {"newMsgId": 2001}}
+
+    monkeypatch.setattr(callback, "get_eyun_contact_snapshot", contact)
+    monkeypatch.setattr(callback, "schedule_eyun_contact_refresh", lambda **kwargs: None)
+    monkeypatch.setattr(callback, "send_eyun_text", send)
+    monkeypatch.setattr(risk_control, "random_reply_delay_seconds", lambda: 0)
+    payload = {
+        "messageType": "60999",
+        "wcId": "wxid_bot",
+        "data": {
+            "wId": "wid", "fromUser": "wxid_customer", "toUser": "wxid_bot",
+            "content": "你已添加了新兰友，以上是打招呼的消息。",
+            "newMsgId": 1001, "self": False,
+        },
+    }
+    await callback.handle_eyun_callback(payload)
+    assert await risk_control.process_due_eyun_inbound_batches() == 1
+    if disable_before_send:
+        update_sop_enabled("service", False)
+    should_send = service_enabled and not disable_before_send
+    assert await risk_control.process_due_eyun_outbound_messages() == int(should_send)
+    detail = await get_conversation_detail("wechat:wxid_customer:wxid_bot")
+    openings = [message for message in detail["messages"] if message["sender_type"] == "ai"]
+    assert len(openings) == int(service_enabled)
+    if service_enabled:
+        assert openings[0]["content"] == risk_control.SERVICE_OPENING
+        assert openings[0]["metadata"]["sop_scope"] == "service"
+        assert openings[0]["delivery_status"] == ("accepted" if should_send else "cancelled")
+
+    if should_send:
+        await callback.handle_eyun_callback({**payload, "data": {**payload["data"], "newMsgId": 1002}})
+        later = risk_control.utcnow() + timedelta(seconds=300)
+        monkeypatch.setattr(risk_control, "utcnow", lambda: later)
+        assert await risk_control.process_due_eyun_inbound_batches() == 1
+        assert await risk_control.process_due_eyun_outbound_messages() == 0
+    assert len(sent) == int(should_send)
