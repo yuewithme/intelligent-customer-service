@@ -1361,7 +1361,11 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 if not isinstance(send_result, dict):
                     raise RuntimeError("Eyun send returned no acceptance receipt")
             except Exception as exc:  # noqa: BLE001
-                if row.material_id is not None and _is_material_expiry_error(exc):
+                if (
+                    row.material_id is not None
+                    and _is_material_expiry_error(exc)
+                    and not _is_service_material_touch_batch_key(row.source_batch_key)
+                ):
                     from app.integrations.eyun.services.eyun_material_service import mark_material_expired
 
                     mark_material_expired(row.material_id, str(exc))

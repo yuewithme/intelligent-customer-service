@@ -7,7 +7,9 @@ from app.core.config import get_settings
 from app.domains.sales.services import service_material_touch_service as service
 from app.infrastructure.database.models import (
     AgentWakeupModel,
+    ConversationMemoryModel,
     ConversationMessageModel,
+    MemoryEventModel,
     EyunContactModel,
     EyunOutboundDeliveryEventModel,
     EyunOutboundMessageModel,
@@ -27,6 +29,8 @@ def _configure(monkeypatch, tmp_path):
     monkeypatch.setenv("SERVICE_MATERIAL_TOPIC_TIME", "14:00")
     monkeypatch.setenv("SERVICE_MATERIAL_TOUCH_GRACE_MINUTES", "20")
     monkeypatch.setenv("EYUN_WID", "wid-1")
+    monkeypatch.setenv("EYUN_WC_ID", "owner-1")
+    monkeypatch.setenv("MEMORY_V2_WRITE_ENABLED", "false")
     get_settings.cache_clear()
     service._database_factories.clear()
     service._chat_factories.clear()
@@ -34,14 +38,14 @@ def _configure(monkeypatch, tmp_path):
     service._last_contact_sync_attempt_at = None
 
 
-def _insert_contact():
+def _insert_contact(customer_id="customer-1"):
     now = datetime(2026, 8, 5, 4, 0, tzinfo=timezone.utc)
     with service._database_session() as session:
         session.add(
             EyunContactModel(
                 tenant_id="tenant_default",
                 owner_account_id="owner-1",
-                wc_id="customer-1",
+                wc_id=customer_id,
                 current_w_id="wid-1",
                 display_name="兰友",
                 first_seen_at=now,
@@ -56,12 +60,12 @@ def _insert_contact():
         session.commit()
 
 
-def _tag_service_customer():
+def _tag_service_customer(customer_id="customer-1"):
     now = datetime(2026, 8, 5, 4, 0, tzinfo=timezone.utc)
     with service._database_session() as session:
         session.add(
             UserProfileModel(
-                user_id="customer-1",
+                user_id=customer_id,
                 tenant_id="tenant_default",
                 channel="wechat",
                 customer_tags_json='["服务中"]',
@@ -272,6 +276,7 @@ async def test_due_service_touch_queues_copy_before_media(
     assert queued[1]["delivery_metadata"]["scheduled_at"]
     assert {item["sender_type"] for item in queued} == {"system"}
     assert {item["sender_id"] for item in queued} == {"service_material_touch"}
+    assert {item["session_id"] for item in queued} == {"owner-1"}
     if expected_type == "video":
         assert json.loads(queued[1]["content"]) == {
             "path": "https://media.example.com/story.mp4",
@@ -670,3 +675,291 @@ def test_legacy_touch_entry_points_are_removed():
     assert not hasattr(service, "ensure_daily_touch_wakeups")
     assert not hasattr(service, "schedule_agent_wakeup")
     assert not hasattr(service, "process_due_agent_wakeups")
+
+
+@pytest.mark.parametrize("memory_v2", (False, True))
+@pytest.mark.asyncio
+async def test_touch_memory_includes_accepted_history_once_and_keeps_account_scope(monkeypatch, tmp_path, memory_v2):
+    from app.domains.conversations.services import conversation_service
+    from app.domains.customers.services.user_profile_service import get_profile_bundle, _get_session
+
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setenv("MEMORY_V2_WRITE_ENABLED", str(memory_v2).lower())
+    get_settings.cache_clear()
+    occurred_at = datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)
+    for index, (owner, status, content) in enumerate((
+        ("owner-1", "unconfirmed", "刚才分享的是兰花叶艺，你看过吗？"),
+        ("owner-1", "queued", "尚未发送的触达"),
+        ("owner-1", "failed", "发送失败的触达"),
+        ("owner-2", "accepted", "其他客服的触达"),
+    )):
+        await conversation_service.ensure_outbound_conversation_message(
+            channel="wechat", user_id="customer-1", session_id="default",
+            sender_type="system", content=content, route="service_material_touch",
+            trace_id=f"service_material_touch:{index}:copy", delivery_status=status,
+            metadata={"owner_wc_id": owner, "source_batch_key": f"service_material_touch:{index}",
+                      "delivery_timestamps": {"accepted_at": occurred_at.isoformat()}},
+        )
+    current = await conversation_service.ensure_outbound_conversation_message(
+        channel="wechat", user_id="customer-1", session_id="owner-1",
+        sender_type="system", content="[图片]", message_type="image", route="service_material_touch",
+        trace_id="service_material_touch:10:media",
+        metadata={"owner_wc_id": "owner-1", "source_batch_key": "service_material_touch:10",
+                  "message_role": "media", "material_title": "兰花叶艺知识分享"},
+    )
+    conversation_service.update_outbound_message_delivery(current["id"], status="accepted", sent_at=occurred_at + timedelta(seconds=1))
+    conversation_service.update_outbound_message_delivery(current["id"], status="confirmed", sent_at=occurred_at + timedelta(seconds=1))
+    for _ in range(2):
+        bundle = await get_profile_bundle("customer-1", conversation_char_budget=12000,
+                                          conversation_session_id="owner-1")
+        assert [row["content"] for row in bundle["recent_memories"]] == [
+            "刚才分享的是兰花叶艺，你看过吗？", "[图片] 兰花叶艺知识分享",
+        ]
+    with _get_session() as session:
+        memories = list(session.scalars(service.select(ConversationMemoryModel).where(
+            ConversationMemoryModel.session_id == "owner-1",
+        )))
+    assert len(memories) == 2
+    assert sorted(row.created_at.replace(tzinfo=timezone.utc) for row in memories) == [
+        occurred_at, occurred_at + timedelta(seconds=1),
+    ]
+    if memory_v2:
+        with _get_session() as session:
+            events = list(session.scalars(service.select(MemoryEventModel).where(
+                MemoryEventModel.source_id.like("scheduled_touch:%"),
+            )))
+        assert len(events) == 2
+        assert {row.session_id for row in events} == {"owner-1"}
+
+
+@pytest.mark.parametrize("sender,minutes,status,owner,cancelled", (
+    ("customer", 29, None, "owner-1", True),
+    ("customer", 30, None, "owner-1", True),
+    ("customer", 31, None, "owner-1", False),
+    ("human", 5, "sent", "owner-1", True),
+    ("ai", 5, "accepted", "owner-1", True),
+    ("system", 5, "accepted", "owner-1", False),
+    ("human", 5, "failed", "owner-1", False),
+    ("customer", 5, None, "owner-2", False),
+))
+@pytest.mark.asyncio
+async def test_recent_chat_cancels_only_current_touch(monkeypatch, tmp_path, sender, minutes, status, owner, cancelled):
+    from app.domains.conversations.services import conversation_service
+    from app.integrations.eyun.services import eyun_material_service, message_risk_control_service
+
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "_utcnow", lambda: now)
+    assert service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1)) == 3
+    message = await conversation_service.ensure_outbound_conversation_message(
+        channel="wechat", user_id="customer-1", session_id=owner,
+        sender_type=sender, content="正在聊天", delivery_status=status,
+        metadata={"owner_wc_id": owner},
+    )
+    with service._chat_session() as session:
+        session.get(ConversationMessageModel, message["id"]).created_at = now - timedelta(minutes=minutes)
+        session.commit()
+    monkeypatch.setattr(service, "select_scheduled_agent_media", lambda **_: {
+        "format": "image", "url": "https://media.example.com/leaf.jpg", "copy_text": "叶艺分享",
+    })
+    queued = []
+    async def materialize(**kwargs):
+        return {"id": 99}
+    async def enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+    monkeypatch.setattr(eyun_material_service, "materialize_eyun_outbound_media", materialize)
+    monkeypatch.setattr(message_risk_control_service, "enqueue_wechat_outbound", enqueue)
+    assert await service.process_due_service_material_touches(now=now) == (0 if cancelled else 1)
+    assert len(queued) == (0 if cancelled else 2)
+    with service._database_session() as session:
+        tasks = list(session.scalars(service.select(AgentWakeupModel).order_by(AgentWakeupModel.due_at)))
+    assert tasks[0].status == ("cancelled" if cancelled else "queued")
+    assert [row.status for row in tasks[1:]] == ["pending", "pending"]
+    assert service.ensure_service_material_touch_tasks(now=now) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat_after_copy_cancels_queued_media_before_send(monkeypatch, tmp_path):
+    from app.domains.conversations.services import conversation_service
+    from app.integrations.eyun.services import message_risk_control_service as risk
+
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "_utcnow", lambda: now)
+    service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1))
+    with service._database_session() as session:
+        task = session.scalar(service.select(AgentWakeupModel).order_by(AgentWakeupModel.due_at))
+        task.status = "queued"
+        task_id = task.id
+        session.commit()
+    batch = f"service_material_touch:{task_id}"
+    copy = await risk.enqueue_wechat_outbound(w_id="wid-1", wc_id="customer-1", content="叶艺分享",
+        source_batch_key=batch, due_at=now, session_id="owner-1", sender_type="system")
+    media = await risk.enqueue_wechat_outbound(w_id="wid-1", wc_id="customer-1", content="图片素材",
+        source_batch_key=batch, due_at=now, session_id="owner-1", sender_type="system", depends_on_outbound_id=copy["id"])
+    with service._chat_session() as session:
+        session.get(EyunOutboundMessageModel, copy["id"]).status = "accepted"
+        session.commit()
+    customer = await conversation_service.ensure_outbound_conversation_message(
+        channel="wechat", user_id="customer-1", session_id="owner-1", sender_type="customer",
+        content="这些有什么不同？", metadata={"owner_wc_id": "owner-1"},
+    )
+    with service._chat_session() as session:
+        session.get(ConversationMessageModel, customer["id"]).created_at = now
+        session.commit()
+    assert not service.validate_service_material_touch_before_send(batch)
+    with service._chat_session() as session:
+        assert session.get(EyunOutboundMessageModel, copy["id"]).status == "accepted"
+        assert session.get(EyunOutboundMessageModel, media["id"]).status == "cancelled"
+        assert session.get(ConversationMessageModel, media["conversation_message_id"]).delivery_status == "cancelled"
+    assert not service.get_agent_relationship_state("customer-1")["touch_failed_at"]
+
+
+@pytest.mark.parametrize("expired_media", (False, True))
+@pytest.mark.asyncio
+async def test_first_send_failure_stops_future_touches_but_keeps_chat_and_other_customer(monkeypatch, tmp_path, expired_media):
+    from app.integrations.eyun.services import eyun_callback_service, eyun_material_service, message_risk_control_service as risk
+
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    _insert_contact("customer-2")
+    _tag_service_customer("customer-2")
+    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "_utcnow", lambda: now)
+    monkeypatch.setattr(risk, "utcnow", lambda: now)
+    async def ready_material(*args, **kwargs):
+        return {"media_type": "image", "raw_xml": "<msg>image</msg>"}
+    monkeypatch.setattr(eyun_material_service, "get_ready_material", lambda *_: {"id": 99})
+    monkeypatch.setattr(eyun_material_service, "ensure_material_sendable", ready_material)
+    service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1))
+    with service._database_session() as session:
+        tasks = list(session.scalars(service.select(AgentWakeupModel).where(
+            AgentWakeupModel.customer_id == "customer-1",
+        ).order_by(AgentWakeupModel.due_at)))
+        tasks[0].status = tasks[1].status = "queued"
+        task_ids = [row.id for row in tasks]
+        session.commit()
+    queued = []
+    for task_id in task_ids[:2]:
+        queued.append(await risk.enqueue_wechat_outbound(
+            w_id="wid-1", wc_id="customer-1", content="定时触达",
+            source_batch_key=f"service_material_touch:{task_id}", due_at=now,
+            session_id="owner-1", sender_type="system",
+            material_id=99 if expired_media else None,
+        ))
+    chat = await risk.enqueue_wechat_outbound(w_id="wid-1", wc_id="customer-1", content="正常客户回复",
+        source_batch_key="customer-chat", session_id="owner-1", due_at=now + timedelta(minutes=5))
+    other = await risk.enqueue_wechat_outbound(w_id="wid-1", wc_id="customer-2", content="另一位客户的消息",
+        source_batch_key="other-chat", session_id="owner-1", due_at=now + timedelta(minutes=5))
+    calls = []
+    async def fail_send(**kwargs):
+        calls.append(kwargs)
+        raise RuntimeError("素材过期" if expired_media else "Eyun sendText failed: code=1001")
+    monkeypatch.setattr(eyun_callback_service, "send_eyun_text", fail_send)
+    monkeypatch.setattr(eyun_callback_service, "send_eyun_received_media", fail_send)
+    assert await risk.process_due_eyun_outbound_messages() == 1
+    assert len(calls) == 1
+    with service._database_session() as session:
+        assert [session.get(AgentWakeupModel, task_id).status for task_id in task_ids] == ["failed", "cancelled", "cancelled"]
+    with service._chat_session() as session:
+        assert session.get(EyunOutboundMessageModel, queued[0]["id"]).status == "failed"
+        assert session.get(EyunOutboundMessageModel, queued[1]["id"]).status == "cancelled"
+        for row in (chat, other):
+            outbound = session.get(EyunOutboundMessageModel, row["id"])
+            assert outbound.status == "queued"
+            assert risk._validate_outbound_before_send(session, outbound)
+    service._database_factories.clear()
+    assert service.get_agent_relationship_state("customer-1")["touch_failed_at"]
+    assert service.ensure_service_material_touch_tasks(now=now + timedelta(days=1)) == 3
+    with service._database_session() as session:
+        new_tasks = list(session.scalars(service.select(AgentWakeupModel).where(
+            AgentWakeupModel.local_date == "2026-08-06",
+        )))
+    assert {row.customer_id for row in new_tasks} == {"customer-2"}
+    assert not service.retry_service_material_touch_task_now(f"service_material_touch:{task_ids[0]}")
+
+
+def test_touch_failure_column_is_added_to_existing_database(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    with service._database_session() as session:
+        session.execute(service.text("ALTER TABLE agent_customer_states DROP COLUMN touch_failed_at"))
+        session.commit()
+    service._database_factories.clear()
+    assert service.get_agent_relationship_state("customer-1")["touch_failed_at"] is None
+
+
+@pytest.mark.parametrize("event,stopped", (
+    ("send_failed", True),
+    ("material_prepare_failed", False),
+    ("delivery_result_unknown", False),
+    ("confirmation_timeout_unconfirmed", False),
+))
+def test_recorded_send_failure_stops_existing_and_future_tasks(monkeypatch, tmp_path, event, stopped):
+    from app.integrations.eyun.services import message_risk_control_service as risk
+
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(risk, "utcnow", lambda: now)
+    service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1))
+    with service._database_session() as session:
+        task = session.scalar(service.select(AgentWakeupModel).order_by(AgentWakeupModel.due_at))
+        task_id = task.id
+    with service._chat_session() as session:
+        outbound = EyunOutboundMessageModel(
+            w_id="wid-1", wc_id="customer-1", content="触达",
+            source_batch_key=f"service_material_touch:{task_id}", status="failed",
+            due_at=now, attempts=1, created_at=now, updated_at=now,
+        )
+        session.add(outbound)
+        session.flush()
+        risk._record_outbound_delivery_event(session, outbound, event=event, error="历史记录")
+        session.commit()
+    assert service.ensure_service_material_touch_tasks(now=now + timedelta(days=1)) == (0 if stopped else 3)
+    assert bool(service.get_agent_relationship_state("customer-1")["touch_failed_at"]) == stopped
+    with service._database_session() as session:
+        tasks = list(session.scalars(service.select(AgentWakeupModel).where(
+            AgentWakeupModel.local_date == "2026-08-05",
+        )))
+    assert {row.status for row in tasks} == ({"cancelled"} if stopped else {"pending"})
+
+
+@pytest.mark.asyncio
+async def test_chat_during_material_preparation_cancels_bundle_before_queue(monkeypatch, tmp_path):
+    from app.domains.conversations.services import conversation_service
+    from app.integrations.eyun.services import eyun_material_service, message_risk_control_service as risk
+
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "_utcnow", lambda: now)
+    monkeypatch.setattr(conversation_service, "_now", lambda: now)
+    service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1))
+    monkeypatch.setattr(service, "select_scheduled_agent_media", lambda **_: {
+        "format": "image", "url": "https://media.example.com/leaf.jpg", "copy_text": "叶艺分享",
+    })
+    async def materialize(**kwargs):
+        await conversation_service.ensure_outbound_conversation_message(
+            channel="wechat", user_id="customer-1", session_id="owner-1",
+            sender_type="customer", content="现在想咨询养护", metadata={"owner_wc_id": "owner-1"},
+        )
+        return {"id": 99}
+    async def unexpected_enqueue(**kwargs):
+        raise AssertionError("聊天后不得继续入队")
+    monkeypatch.setattr(eyun_material_service, "materialize_eyun_outbound_media", materialize)
+    monkeypatch.setattr(risk, "enqueue_wechat_outbound", unexpected_enqueue)
+    assert await service.process_due_service_material_touches(now=now) == 0
+    with service._chat_session() as session:
+        messages = list(session.scalars(service.select(ConversationMessageModel).where(
+            ConversationMessageModel.sender_type == "system",
+        )))
+    assert len(messages) == 2
+    assert {row.delivery_status for row in messages} == {"cancelled"}

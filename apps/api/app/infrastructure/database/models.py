@@ -1150,6 +1150,7 @@ class AgentCustomerStateModel(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
     customer_signal: Mapped[str] = mapped_column(String(32), index=True, default="none")
     explicit_refusal: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
+    touch_failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     commercial_judgment: Mapped[str | None] = mapped_column(Text, nullable=True)
     relationship_purpose: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_trace_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

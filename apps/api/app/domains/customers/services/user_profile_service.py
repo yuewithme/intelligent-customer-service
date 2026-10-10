@@ -91,6 +91,10 @@ async def get_profile_bundle(
     conversation_char_budget: int | None = None,
     conversation_session_id: str | None = None,
 ) -> dict:
+    if conversation_session_id:
+        from app.domains.sales.services.service_material_touch_service import sync_service_material_touch_memories
+
+        sync_service_material_touch_memories(user_id, conversation_session_id)
     with _get_session() as session:
         profile = _get_or_create_profile(session, user_id)
         session.commit()
@@ -362,6 +366,37 @@ async def append_conversation_memory(
         source_id=durable_source_id,
         trace_id=trace_id,
         occurred_at=created_at,
+    )
+
+
+def record_scheduled_touch_memory(
+    *, user_id: str, tenant_id: str, session_id: str,
+    content: str, source_id: str, occurred_at: datetime, route: str,
+) -> None:
+    with _get_session() as session:
+        _get_or_create_profile(session, user_id, tenant_id=tenant_id)
+        row = session.scalar(select(ConversationMemoryModel).where(
+            ConversationMemoryModel.user_id == user_id,
+            ConversationMemoryModel.session_id == session_id,
+            ConversationMemoryModel.trace_id == source_id,
+            ConversationMemoryModel.role == "assistant",
+        ))
+        if row is None:
+            row = ConversationMemoryModel(
+                user_id=user_id, tenant_id=tenant_id, session_id=session_id,
+                role="assistant", content=content, intent="scheduled_touch",
+                route=route, trace_id=source_id, created_at=occurred_at,
+            )
+            session.add(row)
+        session.commit()
+        occurred_at = row.created_at
+    from app.domains.customers.services.memory_dual_write_service import dual_write_conversation_event
+
+    dual_write_conversation_event(
+        tenant_id=tenant_id, channel="wechat", external_user_id=user_id,
+        owner_external_id=session_id, session_id=session_id, role="assistant",
+        content=content, source_id=source_id, trace_id=source_id,
+        occurred_at=occurred_at,
     )
 
 

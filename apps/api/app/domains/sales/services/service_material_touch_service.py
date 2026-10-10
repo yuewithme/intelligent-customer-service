@@ -8,7 +8,7 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -24,6 +24,8 @@ from app.infrastructure.database.models import (
     AgentCustomerStateModel,
     AgentWakeupModel,
     Base,
+    ConversationMessageModel,
+    ConversationModel,
     EyunContactModel,
     EyunOutboundDeliveryEventModel,
     EyunOutboundMessageModel,
@@ -37,6 +39,7 @@ _MAX_ATTEMPTS = 3
 _RETRY_DELAY = timedelta(minutes=15)
 _PROCESSING_LEASE = timedelta(minutes=10)
 _CONTACT_SYNC_RETRY_DELAY = timedelta(minutes=10)
+_CHAT_QUIET_PERIOD = timedelta(minutes=30)
 _SERVICE_MATERIAL_KIND = "service_material_touch"
 _SEEDING_MATERIAL_KIND = "seeding_material_touch"
 _TOUCH_SCOPES = {_SERVICE_MATERIAL_KIND: "service", _SEEDING_MATERIAL_KIND: "seeding", "first_order_material_touch": "first_order"}
@@ -97,10 +100,12 @@ def get_agent_relationship_state(customer_id: str) -> dict[str, Any]:
             return {
                 "customer_signal": "none",
                 "explicit_refusal": False,
+                "touch_failed_at": None,
             }
         return {
             "customer_signal": row.customer_signal,
             "explicit_refusal": row.explicit_refusal,
+            "touch_failed_at": _iso(row.touch_failed_at),
             "commercial_judgment": row.commercial_judgment,
             "relationship_purpose": row.relationship_purpose,
             "updated_at": _iso(row.updated_at),
@@ -123,6 +128,7 @@ def ensure_service_material_touch_tasks(*, now: datetime | None = None, sop_scop
     service_tag_values = _active_service_tag_values()
     if sop_scope == "service" and not service_tag_values and not get_saved_flow(sop_scope):
         return 0
+    _restore_failed_touch_stops()
     created = 0
     with _database_session() as session:
         service_customer_ids = _service_customer_ids(session, service_tag_values, kind=kind)
@@ -281,6 +287,19 @@ async def _process_service_material_touch(
             row.updated_at = now
             session.commit()
             return False
+        conversation_session_id = _touch_session_id(contact)
+        if not conversation_session_id:
+            row.status, row.last_error = "technical_skip", "联系人缺少客服微信会话身份"
+            row.updated_at = now
+            session.commit()
+            return False
+        cancel_reason = _touch_cancel_reason(row.customer_id, conversation_session_id, now)
+        if cancel_reason:
+            row.status, row.last_error = "cancelled", cancel_reason
+            row.updated_at = now
+            session.commit()
+            _cancel_touch_deliveries([row.id], cancel_reason)
+            return False
         touch_kind = row.kind
         slot_id = row.reason.partition(":")[2]
         slot = next(
@@ -373,6 +392,7 @@ async def _process_service_material_touch(
         "scheduled_at": scheduled_at,
         "slot_id": slot_id,
         "material_ref": material.get("material_ref"),
+        "material_title": material.get("title"),
         "copy_ref": material.get("copy_ref"),
         "copy_type": material.get("copy_type"),
         "copy_version": material.get("copy_version"),
@@ -391,7 +411,7 @@ async def _process_service_material_touch(
         workbench_message = await ensure_outbound_conversation_message(
             channel="wechat",
             user_id=customer_id,
-            session_id="default",
+            session_id=conversation_session_id,
             tenant_id=tenant_id,
             content=content,
             message_type=message_type,
@@ -410,7 +430,7 @@ async def _process_service_material_touch(
                 "source_batch_key": batch_key,
                 "message_role": message_role,
                 "w_id": w_id,
-                "owner_wc_id": tenant_id if tenant_id != "tenant_default" else "",
+                "owner_wc_id": conversation_session_id,
                 "contact_wc_id": customer_id,
                 "wc_id": customer_id,
             },
@@ -446,6 +466,11 @@ async def _process_service_material_touch(
     messages += (
         (media_type, media_content, int(prepared_material["id"]), "media"),
     )
+    cancel_reason = _touch_cancel_reason(customer_id, conversation_session_id, _utcnow())
+    if cancel_reason:
+        _mark_service_material_touch(wakeup_id, "cancelled", cancel_reason)
+        _cancel_touch_deliveries([wakeup_id], cancel_reason)
+        return False
 
     logger.info(
         "Service material touch matched task=%s slot=%s material=%s copy=%s type=%s",
@@ -473,7 +498,7 @@ async def _process_service_material_touch(
                 due_at=due_at,
                 channel="wechat",
                 user_id=customer_id,
-                session_id="default",
+                session_id=conversation_session_id,
                 tenant_id=tenant_id,
                 sender_type="system",
                 sender_id=touch_kind,
@@ -560,6 +585,14 @@ def validate_service_material_touch_before_send(source_batch_key: str | None) ->
             profile = session.get(UserProfileModel, row.customer_id)
             service_tagged = preference_tag_groups(_profile_tag_values(profile)) == preference_tag_groups(old_tags)
         customer_id = row.customer_id
+        conversation_session_id = _touch_session_id(contact)
+        cancel_reason = _touch_cancel_reason(customer_id, conversation_session_id, _utcnow())
+        if cancel_reason:
+            row.status, row.last_error = "cancelled", cancel_reason
+            row.updated_at = _utcnow()
+            session.commit()
+            _cancel_touch_deliveries([row.id], cancel_reason)
+            return False
         if not service_tagged:
             row.status = "cancelled"
             row.last_error = "发送前检查发现 SOP 已关闭或偏好/服务标签已变更"
@@ -607,6 +640,178 @@ def sync_service_material_touch_from_outbound(
             row.last_error = (error or status)[:2000]
         row.updated_at = now
         session.commit()
+        customer_id = row.customer_id
+    if status == "failed":
+        _restore_failed_touch_stops(customer_id)
+
+
+def _restore_failed_touch_stops(customer_id: str | None = None) -> None:
+    query = select(
+        EyunOutboundMessageModel.wc_id, func.min(EyunOutboundDeliveryEventModel.created_at),
+    ).join(EyunOutboundDeliveryEventModel,
+           EyunOutboundDeliveryEventModel.outbound_message_id == EyunOutboundMessageModel.id).where(
+        EyunOutboundMessageModel.source_batch_key.startswith("service_material_touch:"),
+        EyunOutboundDeliveryEventModel.event == "send_failed",
+    ).group_by(EyunOutboundMessageModel.wc_id)
+    if customer_id is not None:
+        query = query.where(EyunOutboundMessageModel.wc_id == customer_id)
+    with _chat_session() as session:
+        failures = list(session.execute(query))
+    for failed_customer_id, failed_at in failures:
+        with _database_session() as session:
+            state = session.get(AgentCustomerStateModel, failed_customer_id)
+            if state and state.touch_failed_at is not None:
+                continue
+            tenant_id = state.tenant_id if state else session.scalar(select(EyunContactModel.tenant_id).where(
+                EyunContactModel.wc_id == failed_customer_id,
+            ).limit(1)) or "tenant_default"
+        _stop_customer_touches(failed_customer_id, tenant_id, _as_utc(failed_at))
+
+
+def _touch_session_id(contact: EyunContactModel) -> str:
+    if contact.tenant_id != "tenant_default":
+        return contact.tenant_id
+    settings = get_settings()
+    return settings.eyun_wc_id.strip() if contact.current_w_id == settings.eyun_wid else ""
+
+
+def _touch_cancel_reason(customer_id: str, session_id: str, now: datetime) -> str | None:
+    if not get_agent_relationship_state(customer_id)["touch_failed_at"]:
+        _restore_failed_touch_stops(customer_id)
+    if get_agent_relationship_state(customer_id)["touch_failed_at"]:
+        return "客户此前触达发送失败，已停止后续触达"
+    with _chat_session() as session:
+        recent_chat = session.scalar(select(ConversationMessageModel.id).join(
+            ConversationModel,
+            ConversationModel.conversation_id == ConversationMessageModel.conversation_id,
+        ).where(
+            ConversationModel.channel == "wechat",
+            ConversationModel.user_id == customer_id,
+            or_(ConversationModel.session_id == session_id, ConversationModel.owner_wc_id == session_id),
+            ConversationMessageModel.sender_type.in_(("customer", "human", "ai")),
+            ConversationMessageModel.created_at >= now - _CHAT_QUIET_PERIOD,
+            ConversationMessageModel.created_at <= now,
+            or_(ConversationMessageModel.delivery_status.is_(None),
+                ConversationMessageModel.delivery_status.not_in(("failed", "cancelled"))),
+        ).limit(1))
+    return "近半小时内有聊天，已取消本次触达" if recent_chat is not None else None
+
+
+def _stop_customer_touches(customer_id: str, tenant_id: str, failed_at: datetime) -> None:
+    now = _utcnow()
+    reason = "客户此前触达发送失败，已停止后续触达"
+    with _database_session() as session:
+        state = session.get(AgentCustomerStateModel, customer_id)
+        if state is None:
+            state = AgentCustomerStateModel(
+                customer_id=customer_id, tenant_id=tenant_id,
+                created_at=now, updated_at=now,
+            )
+            session.add(state)
+        if state.touch_failed_at is None:
+            state.touch_failed_at = failed_at
+        state.updated_at = now
+        tasks = list(session.scalars(select(AgentWakeupModel).where(
+            AgentWakeupModel.customer_id == customer_id,
+            AgentWakeupModel.kind.in_(_TOUCH_SCOPES),
+        )))
+        task_ids = [task.id for task in tasks]
+        for task in tasks:
+            if task.status in {"pending", "processing", "queued", "waiting_material", "technical_skip"}:
+                task.status, task.last_error, task.updated_at = "cancelled", reason, now
+        session.commit()
+    _cancel_touch_deliveries(task_ids, reason)
+
+
+def _cancel_touch_deliveries(task_ids: list[int], reason: str) -> None:
+    if not task_ids:
+        return
+    from app.domains.conversations.services.conversation_service import update_outbound_message_delivery
+    from app.integrations.eyun.services.message_risk_control_service import (
+        _record_outbound_delivery_event, _sync_conversation_delivery_from_bundle,
+    )
+
+    batch_keys = [f"service_material_touch:{task_id}" for task_id in task_ids]
+    now = _utcnow()
+    with _chat_session() as session:
+        rows = list(session.scalars(select(EyunOutboundMessageModel).where(
+            EyunOutboundMessageModel.source_batch_key.in_(batch_keys),
+            EyunOutboundMessageModel.status.in_(("queued", "waiting_material")),
+        )))
+        outbound_ids = [row.id for row in rows]
+        for row in rows:
+            previous_status = row.status
+            row.status, row.last_error, row.updated_at = "cancelled", reason, now
+            _record_outbound_delivery_event(
+                session, row, event="touch_cancelled", status_from=previous_status, error=reason,
+            )
+        trace_ids = [f"{key}:{role}" for key in batch_keys for role in ("copy", "media")]
+        message_ids = list(session.scalars(select(ConversationMessageModel.id).where(
+            ConversationMessageModel.trace_id.in_(trace_ids),
+            ConversationMessageModel.delivery_status.in_(("queued", "waiting_material")),
+        )))
+        session.commit()
+    for outbound_id in outbound_ids:
+        _sync_conversation_delivery_from_bundle(outbound_id)
+    for message_id in message_ids:
+        update_outbound_message_delivery(message_id, status="cancelled", error=reason)
+
+
+def record_service_material_touch_memory(conversation_message_id: int) -> None:
+    with _chat_session() as session:
+        message = session.get(ConversationMessageModel, conversation_message_id)
+        if message is None or message.route not in _TOUCH_SCOPES or message.delivery_status not in {
+            "accepted", "confirmed", "sent", "unconfirmed",
+        }:
+            return
+        conversation = session.scalar(select(ConversationModel).where(
+            ConversationModel.conversation_id == message.conversation_id,
+        ))
+        if conversation is None:
+            return
+        metadata = json.loads(message.metadata_json or "{}")
+        owner = metadata.get("owner_wc_id") or conversation.owner_wc_id
+        if not owner and conversation.session_id != "default":
+            owner = conversation.session_id
+        if not owner:
+            return
+        timestamps = metadata.get("delivery_timestamps") or {}
+        occurred_at = timestamps.get("accepted_at") or timestamps.get("confirmed_at") or timestamps.get("sent_at")
+        occurred_at = datetime.fromisoformat(occurred_at) if occurred_at else message.created_at
+        content = message.content
+        if metadata.get("message_role") == "media":
+            title = str(metadata.get("material_title") or "").strip()
+            content = f"{content} {title}".strip()
+        payload = dict(
+            user_id=conversation.user_id, tenant_id=owner, session_id=owner,
+            content=content, source_id=f"scheduled_touch:{message.id}",
+            occurred_at=occurred_at, route=message.route,
+        )
+    from app.domains.customers.services.user_profile_service import record_scheduled_touch_memory
+
+    try:
+        record_scheduled_touch_memory(**payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Service touch memory write failed message=%s: %s", conversation_message_id, exc)
+
+
+def sync_service_material_touch_memories(customer_id: str, session_id: str) -> None:
+    with _chat_session() as session:
+        messages = list(session.execute(select(
+            ConversationMessageModel.id, ConversationMessageModel.metadata_json,
+            ConversationModel.session_id, ConversationModel.owner_wc_id,
+        ).join(ConversationModel,
+               ConversationModel.conversation_id == ConversationMessageModel.conversation_id).where(
+            ConversationModel.channel == "wechat", ConversationModel.user_id == customer_id,
+            ConversationMessageModel.route.in_(_TOUCH_SCOPES),
+            ConversationMessageModel.delivery_status.in_(("accepted", "confirmed", "sent", "unconfirmed")),
+        )))
+    for message_id, metadata_json, owner_session, owner_wc_id in messages:
+        owner = json.loads(metadata_json or "{}").get("owner_wc_id") or owner_wc_id
+        if not owner and owner_session != "default":
+            owner = owner_session
+        if owner == session_id:
+            record_service_material_touch_memory(message_id)
 
 
 def reopen_service_material_touch_for_manual_retry(
@@ -618,6 +823,8 @@ def reopen_service_material_touch_for_manual_retry(
     with _database_session() as session:
         row = session.get(AgentWakeupModel, task_id)
         if row is None or row.kind not in _TOUCH_SCOPES:
+            return False
+        if get_agent_relationship_state(row.customer_id)["touch_failed_at"]:
             return False
         if row.status == "completed":
             return True
@@ -635,6 +842,8 @@ def retry_service_material_touch_task_now(source_batch_key: str | None) -> bool:
     with _database_session() as session:
         row = session.get(AgentWakeupModel, task_id)
         if row is None or row.kind not in _TOUCH_SCOPES:
+            return False
+        if get_agent_relationship_state(row.customer_id)["touch_failed_at"]:
             return False
         if row.status in {"completed", "processing"}:
             return False
@@ -894,6 +1103,9 @@ def _database_session() -> Session:
                 UserProfileModel.__table__,
             ],
         )
+        if "touch_failed_at" not in {column["name"] for column in inspect(engine).get_columns("agent_customer_states")}:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE agent_customer_states ADD COLUMN touch_failed_at DATETIME"))
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _database_factories[url] = factory
     return factory()
@@ -1016,7 +1228,8 @@ def _service_customer_ids(session: Session, tag_values: set[str], *, kind: str =
     refused_ids = set(
         session.scalars(
             select(AgentCustomerStateModel.customer_id).where(
-                AgentCustomerStateModel.explicit_refusal.is_(True)
+                or_(AgentCustomerStateModel.explicit_refusal.is_(True),
+                    AgentCustomerStateModel.touch_failed_at.is_not(None))
             )
         )
     )

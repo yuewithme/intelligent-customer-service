@@ -1342,6 +1342,10 @@ def update_outbound_message_delivery(
         session.commit()
         conversation_id = message.conversation_id
     _publish_change(conversation_id, "message")
+    if str(metadata.get("source_batch_key") or "").startswith("service_material_touch:"):
+        from app.domains.sales.services.service_material_touch_service import record_service_material_touch_memory
+
+        record_service_material_touch_memory(conversation_message_id)
 
 
 async def update_customer_identity(
