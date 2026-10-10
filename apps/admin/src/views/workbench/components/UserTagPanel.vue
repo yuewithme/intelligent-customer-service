@@ -2,12 +2,28 @@
   <aside class="user-tag-panel">
     <ElEmpty v-if="!userId" description="请选择会话" />
     <template v-else>
-      <div class="panel-head">
-        <div>
-          <h3>客户标签</h3>
-          <p>人工可修改 AI 标签，保存后立即用于后端策略。</p>
-        </div>
-        <ElTag size="small" effect="plain">{{ selectedTagCount }} 个</ElTag>
+      <ElInput v-model="keyword" clearable placeholder="搜索标签或分类" />
+
+      <div class="note-editor">
+        <ElInput
+          v-model="note"
+          :disabled="readOnly || !profile"
+          :maxlength="500"
+          placeholder="客户备注"
+          aria-label="客户备注"
+        />
+        <ElButton
+          type="primary"
+          :disabled="readOnly || !profile || !noteDirty || saving"
+          :loading="noteSaving"
+          @click="saveNote"
+        >保存</ElButton>
+      </div>
+      <p v-if="savedNote" class="saved-note">备注：{{ savedNote }}</p>
+
+      <div v-if="tagSyncError" class="sync-error" role="alert">
+        标签同步失败，修改已保留
+        <ElButton size="small" text type="danger" :loading="saving" @click="saveTags">重试</ElButton>
       </div>
 
       <ElAlert
@@ -18,14 +34,12 @@
         show-icon
       />
 
-      <section v-if="serviceFacts.length && !profileLoading" class="category-card">
+      <section v-if="serviceFacts.length" class="category-card">
         <div class="category-head"><strong>养护档案</strong></div>
         <p v-for="fact in serviceFacts" :key="fact.label">{{ fact.label }}：{{ fact.value }}</p>
       </section>
 
-      <ElInput v-model="keyword" clearable placeholder="搜索标签或分类" />
-
-      <ElSkeleton v-if="loading || profileLoading" :rows="6" animated />
+      <ElSkeleton v-if="loading || (profileLoading && !profile)" :rows="6" animated />
       <ElEmpty
         v-else-if="!visibleCategories.length"
         :description="keyword ? '没有匹配的标签' : '暂无可用标签'"
@@ -43,15 +57,14 @@
               {{ category.ai_assignable ? 'AI 可识别' : '仅人工' }}
             </ElTag>
           </div>
-          <p v-if="category.prompt_rule">{{ category.prompt_rule }}</p>
-
           <ElSelect
             v-if="category.exclusive"
             v-model="exclusiveSelections[category.id]"
             filterable
             clearable
-            :disabled="readOnly"
+            :disabled="readOnly || !profile || noteSaving"
             placeholder="未选择"
+            @change="handleTagChange"
           >
             <ElOption
               v-for="tag in category.tags"
@@ -64,8 +77,9 @@
           <ElCheckboxGroup
             v-else
             v-model="multipleSelections[category.id]"
-            :disabled="readOnly"
+            :disabled="readOnly || !profile || noteSaving"
             class="checkbox-list"
+            @change="handleTagChange"
           >
             <ElCheckbox v-for="tag in category.tags" :key="tag.id" :value="tag.value">
               {{ tagValueText(tag.value) }}
@@ -74,27 +88,15 @@
         </section>
       </div>
 
-      <div class="panel-actions">
-        <span v-if="dirty">有未保存的修改</span>
-        <span v-else>已与后端同步</span>
-        <ElButton
-          type="primary"
-          :disabled="readOnly || !dirty"
-          :loading="saving"
-          @click="save"
-        >
-          保存标签
-        </ElButton>
-      </div>
     </template>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getTagCatalog, type TagCategory } from '@/api/admin/tags'
-import { updateUserTags, type UserProfile } from '@/api/user-profile'
+import { updateUserNote, updateUserTags, type UserProfile } from '@/api/user-profile'
 import { isTestGate } from '@/utils/gate'
 import { tagValueText } from '@/utils/tagDisplay'
 
@@ -109,6 +111,14 @@ const categories = ref<TagCategory[]>([])
 const keyword = ref('')
 const loading = ref(false)
 const saving = ref(false)
+const tagSyncError = ref(false)
+const noteSaving = ref(false)
+const note = ref(props.profile?.customer_note || '')
+const savedNote = computed(() => props.profile?.customer_note || '')
+const noteDirty = computed(() => note.value.trim() !== savedNote.value)
+const userId = props.userId
+let tagVersion = 0
+let disposed = false
 const exclusiveSelections = reactive<Record<string, string>>({})
 const multipleSelections = reactive<Record<string, string[]>>({})
 const readOnly = isTestGate()
@@ -148,11 +158,8 @@ const selectedTags = computed(() =>
 )
 const originalTags = computed(() => props.profile?.customer_tags?.filter(Boolean) || [])
 const normalized = (values: string[]) => [...values].sort().join('\u0000')
-const dirty = computed(() => normalized(selectedTags.value) !== normalized(originalTags.value))
-const selectedTagCount = computed(() => selectedTags.value.length)
-
-const resetSelections = () => {
-  const current = new Set(originalTags.value)
+const resetSelections = (tags = originalTags.value) => {
+  const current = new Set(tags)
   for (const category of profileCategories.value) {
     const selected = category.tags.map((tag) => tag.value).filter((value) => current.has(value))
     if (category.exclusive) exclusiveSelections[category.id] = selected.at(-1) || ''
@@ -171,23 +178,59 @@ const loadCatalog = async () => {
   }
 }
 
-const save = async () => {
-  if (!props.userId || readOnly || !dirty.value) return
+const saveTags = async () => {
+  if (!userId || readOnly || !props.profile || saving.value || noteSaving.value) return
   saving.value = true
+  tagSyncError.value = false
   try {
-    const result = await updateUserTags(props.userId, selectedTags.value)
-    emit('profile-changed', result.profile)
-    ElMessage.success('客户标签已保存并同步到后端')
+    let savedVersion: number
+    do {
+      savedVersion = tagVersion
+      const result = await updateUserTags(userId, [...selectedTags.value])
+      if (savedVersion === tagVersion) resetSelections(result.profile.customer_tags)
+      emit('profile-changed', result.profile)
+    } while (savedVersion !== tagVersion)
+  } catch {
+    if (!disposed) tagSyncError.value = true
   } finally {
     saving.value = false
   }
 }
 
+const handleTagChange = () => {
+  ++tagVersion
+  void saveTags()
+}
+
+const saveNote = async () => {
+  if (!userId || readOnly || !noteDirty.value || saving.value || noteSaving.value) return
+  const submittedNote = note.value
+  noteSaving.value = true
+  try {
+    const result = await updateUserNote(userId, submittedNote.trim())
+    emit('profile-changed', result.profile)
+    if (!disposed) {
+      if (note.value === submittedNote) note.value = result.profile.customer_note || ''
+      ElMessage.success('客户备注已保存')
+    }
+  } catch {
+    if (!disposed) ElMessage.error('客户备注保存失败，请重试')
+  } finally {
+    noteSaving.value = false
+  }
+}
+
 watch(
-  () => [props.userId, ...(props.profile?.customer_tags || [])],
-  resetSelections
+  () => normalized(originalTags.value),
+  () => {
+    if (!saving.value && !tagSyncError.value) resetSelections()
+  }
 )
+watch(savedNote, (value, previous) => {
+  if (!noteSaving.value && note.value === previous) note.value = value
+})
 onMounted(loadCatalog)
+onBeforeUnmount(() => { disposed = true })
 </script>
 
 <style scoped>
@@ -200,26 +243,30 @@ onMounted(loadCatalog)
   overflow: auto;
 }
 
-.panel-head,
 .category-head,
-.panel-actions {
+.note-editor {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.panel-head h3 {
-  margin: 0 0 5px;
-  font-size: 16px;
+.note-editor :deep(.el-input) {
+  min-width: 0;
 }
 
-.panel-head p,
+.saved-note,
 .category-card p {
   margin: 0;
   color: #6b7280;
   font-size: 13px;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.sync-error {
+  color: var(--el-color-danger);
+  font-size: 13px;
 }
 
 .category-list {
@@ -260,18 +307,4 @@ onMounted(loadCatalog)
   white-space: normal;
 }
 
-.panel-actions {
-  position: sticky;
-  bottom: -16px;
-  z-index: 1;
-  margin: 0 -16px -16px;
-  padding: 12px 16px;
-  border-top: 1px solid #e5e7eb;
-  background: rgb(255 255 255 / 96%);
-}
-
-.panel-actions span {
-  color: #6b7280;
-  font-size: 13px;
-}
 </style>

@@ -30,7 +30,8 @@
       @changed="$emit('changed')"
     />
     <UserTagPanel
-      v-else
+      v-show="activeTab === 'customer-tags'"
+      :key="conversation?.user_id || ''"
       :user-id="conversation?.user_id || ''"
       :profile="profile"
       :profile-loading="profileLoading"

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.customers.services.user_profile_service import (
@@ -25,6 +25,10 @@ async def get_profile_api(user_id: str) -> APIResponse:
 
 @router.patch("/{user_id}/profile", response_model=APIResponse)
 async def patch_profile_api(user_id: str, updates: dict) -> APIResponse:
+    if "customer_note" in updates:
+        note = updates["customer_note"]
+        if not isinstance(note, str) or len(note) > 500:
+            raise HTTPException(status_code=422, detail="客户备注必须为不超过 500 字的文本")
     profile = await patch_user_profile(user_id, updates)
     return APIResponse(code=0, message="success", data={"profile": profile})
 

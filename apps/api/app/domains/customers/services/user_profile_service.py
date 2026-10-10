@@ -44,6 +44,7 @@ _basic_info_fields = {
 _allowed_patch_fields = {
     "risk_level",
     "customer_tags",
+    "customer_note",
     "product_interests",
     "preference_summary",
     "pain_points",
@@ -1120,6 +1121,10 @@ def _set_profile_field(profile: UserProfileModel, field: str, value: Any) -> Non
         profile.customer_tags_json = _json_dumps(
             _merge_customer_tags([], _string_list(value))
         )
+    elif field == "customer_note":
+        basic_info = _json_loads(profile.basic_info_json, {})
+        basic_info["customer_note"] = " ".join(value.splitlines()).strip()
+        profile.basic_info_json = _json_dumps(basic_info)
     elif field == "risk_level":
         profile.risk_level = normalize_system_value(
             "risk_level", value, fallback="normal"
@@ -1152,6 +1157,7 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
         "human_ticket_id": profile.human_ticket_id,
         "human_handoff_status": profile.human_handoff_status,
         "human_handoff_reason": profile.human_handoff_reason,
+        "customer_note": _json_loads(profile.basic_info_json, {}).get("customer_note", ""),
         "customer_tags": _merge_customer_tags(
             _json_loads(profile.customer_tags_json, []),
             [],

@@ -96,6 +96,7 @@ import { useMessageTenantStore } from '@/store/modules/messageTenant'
 defineOptions({ name: 'Workbench' })
 
 const FALLBACK_SYNC_INTERVAL_MS = 5_000
+const PROFILE_SYNC_INTERVAL_MS = 60_000
 
 const selectedId = ref('')
 const mobileView = ref<'conversations' | 'messages' | 'details'>('conversations')
@@ -116,6 +117,8 @@ let eventSource: EventSource | undefined
 let fallbackTimer: number | undefined
 let markingReadKey = ''
 let profileRequestKey = 0
+let profileLoadedAt = 0
+let profilePendingUserId = ''
 
 const selectConversation = (item: ConversationGroupItem) => {
   if (item.marked_unread) {
@@ -127,6 +130,8 @@ const selectConversation = (item: ConversationGroupItem) => {
     return
   }
   ++profileRequestKey
+  profilePendingUserId = ''
+  profileLoading.value = false
   conversation.value = undefined
   messages.value = []
   profile.value = undefined
@@ -146,7 +151,12 @@ const handleChanged = async (updatedConversation?: ConversationItem) => {
 }
 
 const handleProfileChanged = (updatedProfile: UserProfile) => {
+  if (updatedProfile.user_id !== conversation.value?.user_id) return
+  ++profileRequestKey
+  profilePendingUserId = ''
+  profileLoading.value = false
   profile.value = updatedProfile
+  profileLoadedAt = Date.now()
 }
 
 const handleReceptionChanged = (updated: ConversationItem) => {
@@ -159,6 +169,9 @@ const handleHidden = (conversationIds: string[]) => {
 }
 
 const clearSelection = () => {
+  ++profileRequestKey
+  profilePendingUserId = ''
+  profileLoading.value = false
   selectedId.value = ''
   selectedIds.value = []
   selectedGroupKey.value = ''
@@ -218,23 +231,32 @@ const syncWorkbench = async (conversationId?: string) => {
 }
 
 const loadProfile = async (userId?: string | null) => {
-  const requestKey = ++profileRequestKey
   if (!userId) {
+    ++profileRequestKey
+    profilePendingUserId = ''
+    profileLoading.value = false
     profile.value = undefined
     return
   }
-  profileLoading.value = true
+  const hasProfile = profile.value?.user_id === userId
+  if (profilePendingUserId === userId) return
+  if (hasProfile && Date.now() - profileLoadedAt < PROFILE_SYNC_INTERVAL_MS) return
+  const requestKey = ++profileRequestKey
+  profilePendingUserId = userId
+  profileLoading.value = !hasProfile
   try {
     const bundle = await getUserProfileBundle(userId)
     if (requestKey === profileRequestKey) {
       profile.value = bundle.profile
+      profileLoadedAt = Date.now()
     }
   } catch {
-    if (requestKey === profileRequestKey) {
+    if (requestKey === profileRequestKey && !hasProfile) {
       profile.value = undefined
     }
   } finally {
     if (requestKey === profileRequestKey) {
+      profilePendingUserId = ''
       profileLoading.value = false
     }
   }

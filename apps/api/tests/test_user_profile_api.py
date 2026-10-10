@@ -82,6 +82,36 @@ def test_patch_profile_updates_allowed_fields_and_writes_event(monkeypatch, tmp_
     assert event["reason"] == "operator_update"
 
 
+def test_customer_note_persists_independently_of_tags_and_can_be_cleared(monkeypatch, tmp_path):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+    path = "/api/v1/users/note_customer/profile"
+
+    response = client.patch(path, json={"customer_note": "  喜欢春兰\n周末联系  "})
+    assert response.status_code == 200
+    assert response.json()["data"]["profile"]["customer_note"] == "喜欢春兰 周末联系"
+    client.patch(path, json={"customer_tags": ["浙江省"]})
+    profile = client.get(path).json()["data"]["profile"]
+    assert profile["customer_note"] == "喜欢春兰 周末联系"
+    assert profile["customer_tags"] == ["浙江省"]
+    assert client.get("/api/v1/users/another_customer/profile").json()["data"]["profile"]["customer_note"] == ""
+
+    response = client.patch(path, json={"customer_note": ""})
+    assert response.json()["data"]["profile"]["customer_tags"] == ["浙江省"]
+    assert client.get(path).json()["data"]["profile"]["customer_note"] == ""
+    event = client.get(path + "/events").json()["data"]["items"][0]
+    assert event["before"]["customer_note"] == "喜欢春兰 周末联系"
+    assert event["after"]["customer_note"] == ""
+
+
+@pytest.mark.parametrize("note", [None, ["备注"], "字" * 501])
+def test_customer_note_rejects_invalid_values(monkeypatch, tmp_path, note):
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+    response = client.patch("/api/v1/users/note_customer/profile", json={"customer_note": note})
+    assert response.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_system_service_tag_is_idempotent(monkeypatch, tmp_path):
     _reset_settings(monkeypatch, tmp_path)

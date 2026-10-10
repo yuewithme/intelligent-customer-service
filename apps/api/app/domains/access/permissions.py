@@ -117,8 +117,8 @@ async def authorize_account(request: Request, account: dict, mode: str):
         check_customer(account, request.path_params["user_id"])
         if not safe:
             payload = await request.json()
-            if request.method != "PATCH" or not path.endswith("/profile") or not isinstance(payload, dict) or set(payload) - {"customer_tags", "metadata"}:
-                deny("员工仅可修改授权客户的标签")
+            if request.method != "PATCH" or not path.endswith("/profile") or not isinstance(payload, dict) or set(payload) - {"customer_tags", "customer_note", "metadata"}:
+                deny("员工仅可修改授权客户的标签和备注")
         return
     if path.startswith("/api/v1/admin/activities/"):
         if path.endswith("/send-logs"):

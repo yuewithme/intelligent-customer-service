@@ -9,9 +9,10 @@
           :rows="4"
           :disabled="sending"
           resize="none"
-          placeholder="输入回复，Enter 发送，Shift+Enter 换行"
+          placeholder="输入回复或粘贴图片，Enter 发送，Shift+Enter 换行"
           aria-label="回复客户"
           @keydown="handleKeydown"
+          @paste="handlePaste"
           @compositionstart="composing = true"
           @compositionend="composing = false"
         />
@@ -19,7 +20,13 @@
           <span class="reply-status" :class="{ human: isHumanReplying }" :aria-busy="syncing">
             <i aria-hidden="true"></i>{{ isHumanReplying ? '人工回复' : 'AI回复' }}
           </span>
-          <ElButton type="primary" :loading="sending" :disabled="!content.trim()" @click="sendText">发送</ElButton>
+          <ElButton type="primary" :loading="sending" :disabled="!hasDraft" @click="sendReply">发送</ElButton>
+        </div>
+      </div>
+      <div v-if="pendingImages.length" class="image-drafts" aria-label="待发送图片">
+        <div v-for="item in pendingImages" :key="item.url" class="image-draft">
+          <img :src="item.url" alt="待发送图片预览" />
+          <button type="button" :disabled="sending" aria-label="移除图片" @click="removeImage(item.url)">×</button>
         </div>
       </div>
       <div class="composer-tools">
@@ -68,6 +75,8 @@ const operatorId = userStore.user.nickname || 'admin'
 const editorId = crypto.randomUUID()
 const conversationId = props.conversationId
 const content = ref('')
+const pendingImages = ref<{ file: File; url: string }[]>([])
+const hasDraft = computed(() => Boolean(content.value.trim()) || pendingImages.value.length > 0)
 const sending = ref(false)
 const syncing = ref(false)
 const syncError = ref(false)
@@ -90,7 +99,7 @@ const syncReception = () => {
   const operation = syncQueue.catch(() => {}).then(async () => {
     if (disposed || version !== syncVersion || props.status === 'resolved') return
     const remaining = 60 - (Date.now() - lastEditedAt) / 1000
-    const active = sending.value || (Boolean(content.value.trim()) && remaining > 0)
+    const active = sending.value || (hasDraft.value && remaining > 0)
     syncing.value = true
     try {
       const result = await updateReplyDraft(conversationId, {
@@ -113,14 +122,14 @@ const syncReception = () => {
   return operation
 }
 
-watch(content, (value, previous) => {
+watch([content, () => pendingImages.value.length], ([value, count], [previous, previousCount]) => {
   lastEditedAt = Date.now()
   clearTimeout(editTimer)
   clearTimeout(expiryTimer)
   const sync = () => { void syncReception().catch(() => {}) }
-  if (!previous.trim() || !value.trim()) sync()
+  if ((!previous.trim() && !previousCount) || (!value.trim() && !count)) sync()
   else editTimer = setTimeout(sync, 300)
-  if (value.trim()) expiryTimer = setTimeout(sync, 60_000)
+  if (value.trim() || count) expiryTimer = setTimeout(sync, 60_000)
 }, { flush: 'sync' })
 
 const send = async (action: () => Promise<unknown>, clearText = false) => {
@@ -143,16 +152,53 @@ const send = async (action: () => Promise<unknown>, clearText = false) => {
   }
 }
 
-const sendText = () => {
+const sendReply = () => {
+  if (!hasDraft.value) return
   const text = content.value.trim()
-  if (text) void send(() => replyConversation(conversationId, operatorId, text), true)
+  const images = [...pendingImages.value]
+  void send(async () => {
+    for (const item of images) {
+      await replyConversationImage(conversationId, operatorId, item.file)
+      removeImage(item.url)
+      if (!disposed) emit('changed')
+    }
+    if (text) await replyConversation(conversationId, operatorId, text)
+  }, true)
 }
 
 const handleKeydown = (rawEvent: Event | KeyboardEvent) => {
   const event = rawEvent as KeyboardEvent
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing || composing.value || event.keyCode === 229) return
   event.preventDefault()
-  if (!event.repeat) sendText()
+  if (!event.repeat) sendReply()
+}
+
+const handlePaste = (event: ClipboardEvent) => {
+  const files = Array.from(event.clipboardData?.items || [])
+    .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+    .map(item => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+  if (!files.length) return
+  event.preventDefault()
+  if (sending.value || props.status === 'resolved') return
+  if (isTestGate()) {
+    ElMessage.warning('测试身份暂不支持发送图片')
+    return
+  }
+  for (const file of files) {
+    const extension = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp' } as Record<string, string>)[file.type]
+    if (!extension) {
+      ElMessage.warning('仅支持 JPG、PNG、GIF、WebP 图片')
+      continue
+    }
+    const image = new File([file], `pasted-image.${extension}`, { type: file.type })
+    pendingImages.value.push({ file: image, url: URL.createObjectURL(image) })
+  }
+}
+
+const removeImage = (url: string) => {
+  pendingImages.value = pendingImages.value.filter(item => item.url !== url)
+  URL.revokeObjectURL(url)
 }
 
 const selectUnicodeEmoji = (event: Event) => {
@@ -179,6 +225,7 @@ onBeforeUnmount(() => {
   ++syncVersion
   clearTimeout(editTimer)
   clearTimeout(expiryTimer)
+  pendingImages.value.forEach(item => URL.revokeObjectURL(item.url))
   void syncQueue.catch(() => {}).then(() => updateReplyDraft(conversationId, {
     operator_id: operatorId, editor_id: editorId, active: false
   })).catch(() => {})
@@ -200,6 +247,10 @@ onBeforeUnmount(() => {
 .composer-hint { color: var(--app-text-secondary); font-size: 12px; }
 .composer-tools .composer-hint { margin-left: auto; }
 .file-input { display: none; }
+.image-drafts { display: flex; gap: 8px; margin-top: 8px; overflow-x: auto; }
+.image-draft { position: relative; flex: 0 0 72px; height: 72px; }
+.image-draft img { width: 100%; height: 100%; object-fit: contain; border: 1px solid var(--app-border); border-radius: 6px; }
+.image-draft button { position: absolute; top: 0; right: 0; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: #fff; color: var(--app-text-secondary); cursor: pointer; }
 .emoji-picker { width: 320px; max-width: 100%; height: 320px; }
 .received-emojis { display: flex; align-items: center; gap: 6px; overflow-x: auto; margin-top: 4px; font-size: 12px; color: var(--app-text-secondary); }
 .received-emojis > span { flex: 0 0 auto; }

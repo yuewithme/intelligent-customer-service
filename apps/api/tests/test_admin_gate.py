@@ -168,6 +168,19 @@ def test_object_and_customer_scope(context):
     assert client.get("/api/v1/admin/conversations", params={"test_only": True}).status_code == 403
 
 
+def test_employee_can_only_edit_authorized_customer_tags_and_note(context):
+    client, state = context
+    path = "/api/v1/users/customer_wx_allowed/profile"
+    response = client.patch(path, json={"customer_note": "周末联系", "customer_tags": ["浙江省"]})
+    assert response.status_code == 200
+    assert response.json()["data"]["profile"]["customer_note"] == "周末联系"
+    assert client.get(path).json()["data"]["profile"]["customer_tags"] == ["浙江省"]
+    assert client.patch("/api/v1/users/customer_wx_denied/profile", json={"customer_note": "不可修改"}).status_code == 403
+    assert client.patch(path, json={"customer_note": "不可修改", "risk_level": "high"}).status_code == 403
+    state["account"]["role"] = "test"
+    assert client.patch(path, json={"customer_note": "不可修改"}).status_code == 403
+
+
 def test_csrf_logout_and_stream_revocation(context):
     client, state = context
     assert client.delete("/api/gate", headers={"Origin": "https://untrusted.hzwohu.com"}).status_code == 403

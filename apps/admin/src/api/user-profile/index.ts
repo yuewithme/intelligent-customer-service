@@ -11,6 +11,7 @@ export interface UserProfile {
   human_handoff_status?: string | null
   human_handoff_reason?: string | null
   customer_tags: string[]
+  customer_note?: string
   product_interests: string[]
   preference_summary?: string | null
   service_facts?: Record<string, { value: string; evidence?: string }>
@@ -72,5 +73,14 @@ export const updateUserTags = (userId: string, customerTags: string[]) =>
     data: {
       customer_tags: customerTags,
       metadata: { reason: 'operator_tag_update' }
+    }
+  })
+
+export const updateUserNote = (userId: string, customerNote: string) =>
+  request.patch<{ profile: UserProfile }>({
+    url: `${userProfileBase()}/${userPath(userId)}/profile`,
+    data: {
+      customer_note: customerNote,
+      metadata: { reason: 'operator_note_update' }
     }
   })
