@@ -918,6 +918,8 @@ def _get_session() -> Session:
     if factory is None:
         engine = create_engine(url)
         Base.metadata.create_all(engine, tables=_tables)
+        from app.domains.customers.services.user_profile_service import _ensure_profile_columns
+        _ensure_profile_columns(engine)
         factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         _sessionmakers[url] = factory
     return factory()

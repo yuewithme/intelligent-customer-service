@@ -58,6 +58,21 @@ CAPABILITIES = (
         "输入 {\"tag\":\"标签库中的准确名称\",\"evidence\":\"客户本轮原话片段\"}。客户本轮亲口提供客户等级、盆数、所在省份、喜欢的兰花品类、产品需求、价格接受范围或养兰环境等稳定事实时记录；一条消息有多个明确事实时可分别调用本工具。每次必须引用能支持该标签的客户本轮原话，不能根据提问、否定表达、他人情况或省份推断养兰环境。标签只辅助后续判断，不等于购买意向或销售阶段。盆数准确名称是 准备养兰、1-9盆、10-29盆、30-49盆、50-99盆、100-199盆、200-499盆、500-999盆、1000盆以上；喜欢的品类准确名称是 春兰、建兰、墨兰、寒兰、蕙兰、莲瓣兰、春剑、豆瓣兰、大花蕙兰等花大色漂亮的、小众品类（送春、秋芝等）、品类不限；产品需求准确名称是 色花（红、黄、复色等，不含红素）、素花（绿白黄素心，不含红素）、红素、奇花（多瓣、蝶瓣、三星蝶）、艺草（虎斑、蛇斑、线艺、缟艺）、梅瓣、荷瓣、水仙瓣及其他瓣型、浓香、清香、矮种、半垂叶、直立叶、花大色艳、好养易活、勤花易开、需求不限；价格准确名称是 50元以内、51-100元、101-200元、201-500元、501-999元、1000元以上、价格不限；环境准确名称是 阳台、室内、庭院/露台、室外露养、有兰棚。客户明确没有限制时才记录对应的不限标签。客户说‘几盆、不多’已经给出可用于销售判断的粗粒度信息，不要为了精确打标追问；无法稳妥映射可以不打。L1-L6 必须结合多项稳定证据判断，不要凭一个品种名、一个痛点或盆数单独拔高等级。抖音已购和微信已购属于受保护标签，客户口头自述不能调用本工具写入。",
     ),
     CapabilitySpec(
+        "service.record", "tool", ("年限", "现有品种", "痛点", "偏好", "服务档案"),
+        '输入 {"facts":[{"field":"growing_years|environment|existing_varieties|pain_points|province|preference|care_status","value":"事实","evidence":"客户本轮原话"}]}。保存服务档案，不需要填满；任意品类、花型、香味或收藏喜好都记为 preference，之后不再例行挖需。已知信息不重问。',
+        ("service",),
+    ),
+    CapabilitySpec(
+        "service.introduce", "tool", ("服务介绍", "环境拍照", "一对一", "会员"),
+        "输入 {}。单品教程交付成功后，准备标准服务介绍与省份、环境照片引导；已介绍不重复。对应单品教程 material.send 已自动安排介绍时不再调用。",
+        ("service",),
+    ),
+    CapabilitySpec(
+        "member_day.send", "tool", ("周四", "会员日", "小程序", "服务收尾"),
+        "输入 {}。首次接待基本完成、当前问题已解决且准备收尾时，准备周四会员日介绍和官方小程序入口；不要求购买意向，不推荐具体商品，不重复发送。",
+        ("service",),
+    ),
+    CapabilitySpec(
         "brand.service_facts",
         "tool",
         ("萧岚苑", "服务差异", "同行", "数据证明", "兰园规模", "感染率", "复花率", "抗性", "激素苗", "补发", "寄养", "赠品", "手把手", "一对一", "单品养护", "买后服务"),
@@ -278,28 +293,28 @@ CAPABILITIES = (
         "experience.member_benefit_delivery",
         "experience",
         ("会员权益", "一对一", "课程", "资料", "品牌", "服务价值", "长期陪伴", "会员福利", "每周上新", "专属折扣"),
-        "会员权益介绍应承接已经解决或正在处理的具体问题。先完成判断和建议，再从已核实权益中只选最相关的一项，说明它以后怎样帮助客户少走弯路，例如对应品种资料、会员教学或一对一指导；不背权益清单，不把权益介绍变成再次销售服务。业务已授权把‘每周都会上新多款铭品供兰友鉴赏’‘有会员专属折扣活动’‘后续有实拍图和优惠会主动分享’作为默认会员吸引点直接表达，无需本轮先查工具。这里表达的是长期内容与福利机制，不代表本周已有某款、某天必上新或当前已有具体折扣。客户追问哪天上新、上几款、有哪些品种、几折、优惠金额、活动条件或有效期时，不编数字和细节，也不生硬解释内部核实流程；自然说明每期品种和优惠安排会不同，有合适内容会按客户喜好分享，随后把话题转到一个尚未知的花色、瓣型、香味或品种鉴赏偏好。品牌价值通过本次真实帮助和后续承接体现。",
+        "单品教程通过 material.send 交付后会顺序附带服务介绍与环境邀请；已交付教程但未介绍时 service.introduce。服务强调地区气候、环境适配、单品教程和视频、一对一养护。周四会员日由 member_day.send 在自然收尾时介绍并附官方入口，买不买都没关系。介绍机制不编本期品种、折扣、库存、数量和有效期。已介绍内容不反复背诵。",
         ("service",),
     ),
     CapabilitySpec(
         "experience.post_service_repurchase_seed",
         "experience",
         ("已购", "问题解决", "服务收口", "种心智", "引导咨询", "会员福利", "挖产品需求", "鉴赏偏好", "花色", "瓣型"),
-        "适用于已验证已购客户的养护或品种问题已经得到有效解决，客户用‘好的、谢谢、明白了、知道了’等表示认可并自然结束的节点。此时不是马上卖货，而是把一次满意服务转成三个长期关系结果。强烈建议在这次收口中完整覆盖三个方向：一是告诉客户后续仍可带着照片和具体问题来咨询；二是说明每周会上新多款铭品供鉴赏、有会员专属折扣活动、以后有实拍图和优惠会主动分享；三是轻量询问一个尚未知的花色、瓣型、香味或品种鉴赏偏好，并说明是为了以后针对性分享、买不买都没关系。通常按语义拆成两到三条短消息，让三个方向各自清楚且符合微信聊天节奏；不要背固定模板，也不按关键词、固定句式或消息数量机械执行。客户追问具体上新日、数量、品种、折扣、金额、条件或有效期时不编造；简短说明每期安排不同，有合适内容会按其喜好分享，顺势转问一个尚未知的鉴赏偏好。这叫长期偏好采集，不等于客户已有购买意向，不触发 product.search、商品推荐或卡片。客户回答后，能映射到现行标签库的品类与产品需求分别调用 customer.tag 写入；无法准确映射的细节用 memory.record 保存有原话证据的稳定偏好，后续分享时使用，不能反复再问。若当前问题未解决、仍需观察变化、存在投诉售后或权限待办、客户明确拒绝或表现不耐烦、上一问题尚未回答，则先完成服务或尊重拒绝。没有可信会员身份时称已购兰友，不擅自称专属会员。",
+        "当前问题未解决时先继续服务；问题解决且准备自然收尾时，以简短权益说明和 member_day.send 承接周四会员日。没有任何已知喜好时才柔性询问一项鉴赏偏好；客户任意喜好用 service.record 保存，现行标签用 customer.tag，随后永久停止例行挖需，不再补问花色瓣型香味。不把偏好当作购买意向。明确选购需求使用 human.handoff，由人工推荐；不触发 product.search、商品推荐或商品卡片。",
         ("service",),
     ),
     CapabilitySpec(
         "experience.repurchase_discovery",
         "experience",
         ("复购", "添花", "再买", "选品", "老客", "铭品", "组合", "花色", "香味"),
-        "复购是服务关系中的自然延伸，不是养护问答的默认结尾。服务结束时可以按 post_service_repurchase_seed 经验主动采集未来鉴赏偏好，但单纯回答了花色、瓣型、香味或品种偏好仍不等于客户现在想买。只有客户明确想添花、看花、选品种、了解老客铭品或组合，或主动询问准备购买商品的花色、香味、规格、价格、库存和购买入口时，才进入复购匹配。先回答客户当前商品问题，再从偏好、环境、预算和经验中选择一个最影响推荐的信息；查询真实商品后口头推荐。客户想看价格或入口时进入 interest，明确要链接或下单时进入 direct，才发送卡片。",
+        "客户明确想添花、请推荐、问具体选购价格或入口时，标记 purchase_signal 为 interest/direct 并 human.handoff，由人工推荐。普通养护问题、品种科普、表达喜好不算购买需求。服务阶段AI不自动推具体商品，保留温和养护服务承接。",
         ("service",),
     ),
     CapabilitySpec(
         "experience.service_relationship_maintenance",
         "experience",
         ("关系维护", "回访", "干货", "品种故事", "季节养护", "老客户", "沉默"),
-        "关系维护不是单向发广告。优先延续客户最近的养护问题、已购品种、订单节点或承诺，每次只选择一个新的服务目的。可以使用问题回访、季节养护、品种故事、辨兰知识或已核实会员内容触发交流；不把朋友圈内容承诺机械转换成每日私聊，也不因客户沉默自动进入销售逼单。客户明确表达添花或选品兴趣后，再切换到复购经验。",
+        "日常10:00科普、14:00品种鉴赏；每隔7天周六11:00关怀回访、周日14:00个性化知识分享，周日同刻合并一次。跟进季节、已购品种、养护状态与痛点，用户反馈用 service.record 更新档案。只承接实际发送的触达内容，已知喜好不再例行挖需，明确选购交人工。",
         ("service",),
     ),
 )
@@ -312,6 +327,9 @@ async def execute_agent_tool(
         "capability.search": _capability_search,
         "customer.get_context": _customer_context,
         "customer.tag": _customer_tag,
+        "service.record": _service_record,
+        "service.introduce": _service_introduce,
+        "member_day.send": _member_day_send,
         "brand.service_facts": _brand_service_facts,
         "knowledge.search": _knowledge_search,
         "phrases.search": _phrases_search,
@@ -327,6 +345,11 @@ async def execute_agent_tool(
         "memory.record": _memory_record,
         "human.handoff": _human_handoff,
     }
+    service_scope = context.message.metadata.get("sop_scope", "service") == "service" or "service" in context.message.metadata.get("sop_scopes", [])
+    if service_scope and name in {"product.search", "product.get", "product.send_card"}:
+        return _result(call_id, name, "forbidden", reason="service_product_requests_require_human_handoff")
+    if not service_scope and name in {"service.record", "service.introduce", "member_day.send"}:
+        return _result(call_id, name, "forbidden", reason="service_scope_required")
     handler = handlers.get(name)
     if handler is None:
         return _result(call_id, name, "invalid_arguments", error="unknown_tool")
@@ -499,10 +522,13 @@ async def _customer_tag(*, call_id, arguments, context) -> AgentToolResult:
     profile_view = context.workspace.setdefault("profile", {})
     if isinstance(profile_view, dict):
         profile_view["customer_tags"] = list(tags or [])
+    from app.domains.decisioning.services.service_sop import build_service_context
+    context.workspace.setdefault("service_sop", {}).update(build_service_context(profile_view))
     return _result(
         call_id,
         "customer.tag",
         "recorded",
+        collect_preferences=context.workspace["service_sop"]["collect_preferences"],
         tag=tag,
         evidence=evidence,
         customer_tags=list(tags or []),
@@ -872,9 +898,13 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
     if await _material_recently_sent(context, str(card.get("title") or "")):
         return _result(call_id, "material.send", "forbidden", reason="material_sent_within_30_days")
     payload = {key: card.get(key) or "" for key in ("title", "url", "description", "thumb_url")}
+    is_tutorial = material_id.startswith("care-manual:") and record.get("source_type") != "course" and context.message.metadata.get("sop_scope") == "service"
     context.prepared[call_id] = [
-        OutboundMessage(type="link_card", content=json.dumps(payload, ensure_ascii=False))
+        OutboundMessage(type="link_card", content=json.dumps(payload, ensure_ascii=False),
+                        **({"service_step": "tutorial"} if is_tutorial else {}))
     ]
+    if is_tutorial:
+        context.prepared[call_id].extend(_service_intro_messages(context))
     return _result(
         call_id,
         "material.send",
@@ -1260,3 +1290,71 @@ def _owner_external_id(metadata: dict[str, Any]) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _service_intro_messages(context):
+    from app.domains.decisioning.services.service_sop import SERVICE_INTRODUCTION, SERVICE_ENVIRONMENT_REQUEST
+    state = context.workspace.setdefault("service_sop", {})
+    if state.get("intro_prepared") or "introduction" in state.get("delivered_steps", []) or "introduction" in state.get("pending_steps", []):
+        return []
+    state["intro_prepared"] = True
+    facts = state.get("facts") or {}
+    from app.domains.sales.services.tag_catalog import get_profile_tag_categories
+    tags = {str(tag).removeprefix("customer_tag:") for tag in (context.workspace.get("profile") or {}).get("customer_tags", [])}
+    categories = get_profile_tag_categories()
+    province_known = bool(facts.get("province") or tags.intersection(value.name for value in categories["province"].values))
+    if province_known:
+        invitation = "为了给您更贴合的养护建议，方便拍一张家里摆放兰花的位置吗？我结合您所在的地区，再帮您看看光照、通风有没有需要调整的地方。"
+    else:
+        invitation = SERVICE_ENVIRONMENT_REQUEST
+    return [OutboundMessage(type="text", content=SERVICE_INTRODUCTION, service_step="introduction"),
+            OutboundMessage(type="text", content=invitation, service_step="environment_request")]
+
+
+async def _service_introduce(*, call_id, arguments, context):
+    state = context.workspace.get("service_sop", {})
+    if "tutorial" not in state.get("delivered_steps", []):
+        return _result(call_id, "service.introduce", "forbidden", reason="delivered_tutorial_required")
+    messages = _service_intro_messages(context)
+    if not messages:
+        return _result(call_id, "service.introduce", "forbidden", reason="introduction_already_delivered_or_pending")
+    context.prepared[call_id] = messages
+    return _result(call_id, "service.introduce", "prepared", prepared_refs=[call_id], delivery_truth="prepared_not_sent")
+
+
+async def _member_day_send(*, call_id, arguments, context):
+    from app.domains.decisioning.services.service_sop import MEMBER_DAY_INTRODUCTION, MEMBER_DAY_LINK
+    state = context.workspace.get("service_sop", {})
+    if state.get("member_day_prepared") or "member_day" in state.get("delivered_steps", []) or "member_day" in state.get("pending_steps", []):
+        return _result(call_id, "member_day.send", "forbidden", reason="member_day_already_delivered_or_pending")
+    state["member_day_prepared"] = True
+    context.prepared[call_id] = [
+        OutboundMessage(type="text", content=MEMBER_DAY_INTRODUCTION, service_step="member_day_intro"),
+        OutboundMessage(type="text", content=MEMBER_DAY_LINK, service_step="member_day"),
+    ]
+    return _result(call_id, "member_day.send", "prepared", prepared_refs=[call_id], delivery_truth="prepared_not_sent", final_response_instruction="引用此 prepared ref 即包含完整会员日介绍与官方入口；可在前面加一句养护承接，不再另写或复述活动、福利和小程序介绍。")
+
+
+async def _service_record(*, call_id, arguments, context):
+    from app.domains.customers.services.user_profile_service import record_service_facts
+    from app.domains.decisioning.services.service_sop import build_service_context
+    items = arguments.get("facts")
+    if not isinstance(items, list) or not 1 <= len(items) <= 7:
+        return _result(call_id, "service.record", "invalid_arguments", reason="one_to_seven_facts_required")
+    facts = {}
+    for item in items:
+        if not isinstance(item, dict):
+            return _result(call_id, "service.record", "invalid_arguments")
+        field = item.get("field")
+        value, evidence = _text(item.get("value"), maximum=500), _text(item.get("evidence"), maximum=500)
+        if field not in {"growing_years", "environment", "existing_varieties", "pain_points", "province", "preference", "care_status"} or not value or not evidence or evidence not in context.message.message:
+            return _result(call_id, "service.record", "invalid_arguments", reason="valid_field_and_current_customer_evidence_required", invalid_field=field, allowed_fields=["growing_years", "environment", "existing_varieties", "pain_points", "province", "preference", "care_status"], evidence_must_be_verbatim=True)
+        facts[field] = {"value": value, "evidence": evidence}
+    profile = context.workspace.setdefault("profile", {})
+    if context.message.metadata.get("evaluation_id"):
+        facts = {**(profile.get("service_facts") or {}), **facts}
+    else:
+        facts = record_service_facts(context.message.user_id, facts, trace_id=context.message.trace_id)
+    profile["service_facts"] = facts
+    context.workspace.setdefault("service_sop", {}).update(build_service_context(profile))
+    return _result(call_id, "service.record", "recorded", facts=facts)

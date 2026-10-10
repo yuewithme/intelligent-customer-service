@@ -2238,6 +2238,10 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
     from app.domains.orchestration.services.sop_flow_service import get_saved_flow, dialogue_choices, execution_version
     from app.domains.sales.services.sop_policy_service import eligible_sop_scopes
 
+    if is_sop_enabled("service"):
+        from app.domains.customers.services.user_profile_service import add_system_customer_tag
+        await add_system_customer_tag(batch["from_user"] or batch["target_wc_id"], "服务中",
+            reason="new_friend_service_onboarding", trace_id=batch["batch_key"])
     profile = await get_profile_bundle(batch["from_user"] or batch["target_wc_id"])
     scopes = eligible_sop_scopes(profile["profile"].get("customer_tags") or [])
     scope = next((value for value in ("service", "first_order") if value in scopes), None)
@@ -2260,7 +2264,7 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
     outbound_messages = [{"type": "text", "content": SERVICE_OPENING}]
     opening_answer = SERVICE_OPENING
     flow_metadata = {"sop_scope": scope, "flow_version": execution_version(flow) if flow else None}
-    if flow:
+    if flow and scope != "service":
         result = await handle_chat(ChatRequest(
             channel="wechat", user_id=batch["from_user"] or batch["target_wc_id"],
             session_id=_conversation_session_id(batch), message="新好友已添加，请从当前工作台流程入口开始接待。",

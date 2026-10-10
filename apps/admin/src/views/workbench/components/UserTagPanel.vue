@@ -18,6 +18,11 @@
         show-icon
       />
 
+      <section v-if="serviceFacts.length && !profileLoading" class="category-card">
+        <div class="category-head"><strong>养护档案</strong></div>
+        <p v-for="fact in serviceFacts" :key="fact.label">{{ fact.label }}：{{ fact.value }}</p>
+      </section>
+
       <ElInput v-model="keyword" clearable placeholder="搜索标签或分类" />
 
       <ElSkeleton v-if="loading || profileLoading" :rows="6" animated />
@@ -107,6 +112,20 @@ const saving = ref(false)
 const exclusiveSelections = reactive<Record<string, string>>({})
 const multipleSelections = reactive<Record<string, string[]>>({})
 const readOnly = isTestGate()
+const serviceFacts = computed(() =>
+  Object.entries({
+    growing_years: '养兰年限',
+    province: '所在省份',
+    environment: '养护环境',
+    existing_varieties: '现有品种',
+    pain_points: '养护痛点',
+    preference: '品种喜好',
+    care_status: '养护近况'
+  }).flatMap(([field, label]) => {
+    const value = props.profile?.service_facts?.[field]?.value
+    return value ? [{ label, value }] : []
+  })
+)
 
 const profileCategories = computed(() =>
   categories.value.filter((category) => category.profile_assignable && category.tags.length)

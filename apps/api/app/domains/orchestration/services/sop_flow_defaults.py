@@ -1,5 +1,4 @@
 from typing import Any
-from app.core.config import get_settings
 from app.domains.decisioning.services.service_sop import SERVICE_COLLECTION_DIRECTIONS
 from app.domains.handoff.schemas.handoff_notification import SOP_NODE_GROUPS
 
@@ -18,7 +17,7 @@ def build_default_sop_packages(
         "service": {
             "package_id": "orchid.service",
             "name": "服务 SOP",
-            "description": "打上服务中标签后，在对话中主动逐项采集基础信息并打标；每日三个时段触达与客户问题处理独立运行。",
+            "description": "新好友订单教程接待、专属服务、柔性建档及周四会员日；每日两次触达与每周长效服务独立运行。",
             "entry_event": "打上服务中标签",
             "outcome_name": "服务关系持续",
         },
@@ -140,7 +139,7 @@ def _build_parallel_sop_graph(package: dict[str, Any]) -> None:
                             "to_step": target, "outcome": None, "label": label,
                             "priority": 100, "condition": None})
 
-    entry_name = "服务中标签" if scope == "service" else "两类偏好标签均具备"
+    entry_name = "服务客户接待" if scope == "service" else "两类偏好标签均具备"
     node("entry", entry_name, package["description"], "decision", 50, 220)
     node("daily_touch", "每日触达", "总开关开启且标签满足时按日调度；发送前再次校验。", "wait", 330, 80)
     edge("entry", "daily_touch", "定时分支")
@@ -148,28 +147,32 @@ def _build_parallel_sop_graph(package: dict[str, Any]) -> None:
     package["outcomes"] = []
     package["global_rules"] += ["关闭 SOP 后停止该流程对话推进和自动触达，普通问答继续。", "服务与种草可同时命中；两个分支独立触发。"]
     if scope == "service":
-        settings = get_settings()
         for index, (slot, at, title) in enumerate((
-            ("story", settings.service_material_story_time, "名品故事"),
-            ("knowledge", settings.service_material_knowledge_time, "养护科普"),
-            ("topic", settings.service_material_topic_time, "话题种草"),
+            ("knowledge", "10:00", "养护科普"), ("topic", "14:00", "品种鉴赏"),
+            ("care_followup", "周六11:00", "季节关怀回访（每隔7天）"),
+            ("personalized_knowledge", "周日14:00", "个性化知识（每隔7天）"),
         )):
-            node(slot, f"{at} {title}", f"每天 {at}（{settings.service_material_touch_timezone}）发送{title}文案与素材。", "action", 620, 20 + index * 125)
+            node(slot, f"{at} {title}", f"北京时间{at}发送{title}；周日14:00合并为个性化推送。", "action", 620, 20 + index * 125)
             edge("daily_touch", slot, at)
         collection = next(step for step in steps if step["step_id"] == "basic_info_collection")
         collection["directions"] = list(SERVICE_COLLECTION_DIRECTIONS)
-        layout["basic_info_collection"] = {"x": 330, "y": 420}
-        edge("entry", "basic_info_collection", "进入服务，在对话中主动采集")
-        edge("basic_info_collection", "member_benefit", "已有信息足以匹配服务")
-        edge("basic_info_collection", "need_discovery", "客户有问题，优先处理")
-        layout["need_discovery"] = {"x": 330, "y": 625}
-        edge("entry", "need_discovery", "客户发来问题")
-        for index, (target, label) in enumerate((
-            ("member_benefit", "需要权益交付"), ("post_service_close", "问题已解决"),
-            ("repurchase_discovery", "出现复购需求"), ("relationship_maintenance", "需要后续服务"),
-        )):
-            layout[target] = {"x": 680, "y": 420 + index * 140}
+        for index, step_id in enumerate(("order_intake", "member_benefit", "basic_info_collection", "post_service_close", "relationship_maintenance")):
+            layout[step_id] = {"x": 330 + index * 260, "y": 650}
+        edge("entry", "order_intake", "首次接待：订单截图与教程")
+        edge("order_intake", "member_benefit", "已识别购买品种，交付教程并介绍服务")
+        edge("member_benefit", "basic_info_collection", "教程和介绍已交付，逐步补齐档案")
+        edge("basic_info_collection", "post_service_close", "准备自然收尾，介绍周四会员日")
+        edge("post_service_close", "relationship_maintenance", "持续服务，已知偏好不再挖需")
+        layout["need_discovery"] = {"x": 330, "y": 880}
+        layout["repurchase_discovery"] = {"x": 650, "y": 1050}
+        edge("entry", "need_discovery", "客户当前问题优先处理")
+        edge("entry", "repurchase_discovery", "明确选购需求转人工")
+        for target, label in (("member_benefit", "需要交付资料"), ("basic_info_collection", "自然补齐未知信息"),
+                              ("post_service_close", "问题已解决，准备收尾"), ("relationship_maintenance", "需要后续服务")):
             edge("need_discovery", target, label)
+        for step in steps:
+            if step["step_id"] == "repurchase_discovery":
+                step["handoff_enabled"] = True
     else:
         node("video_touch", "15:00 文字＋产品视频", "北京时间每天 15:00；视频同时匹配品类与产品需求，缺少匹配视频则跳过并记录原因。", "action", 620, 80)
         edge("daily_touch", "video_touch", "每天 15:00")

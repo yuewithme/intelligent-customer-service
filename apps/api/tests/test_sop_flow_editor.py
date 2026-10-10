@@ -58,25 +58,26 @@ def test_api_save_persists_layout_and_rejects_stale_editor():
 def test_invalid_graph_cannot_be_published(invalid):
     data = default().model_dump()
     if invalid == "orphan":
-        data["transitions"] = [edge for edge in data["transitions"] if edge["to_step"] != "story"]
+        data["transitions"] = [edge for edge in data["transitions"] if edge["to_step"] != "knowledge"]
     elif invalid == "cycle":
         data["transitions"].append(dict(transition_id="cycle", from_step="daily_touch", to_step="entry", label="循环"))
     elif invalid == "missing_time":
-        next(node for node in data["steps"] if node["step_id"] == "story")["schedule"] = None
+        next(node for node in data["steps"] if node["step_id"] == "knowledge")["schedule"] = None
     elif invalid == "bad_time":
-        next(node for node in data["steps"] if node["step_id"] == "story")["schedule"]["time"] = "25:00"
+        next(node for node in data["steps"] if node["step_id"] == "knowledge")["schedule"]["time"] = "25:00"
     elif invalid == "missing_goal":
         next(node for node in data["steps"] if node["step_id"] == "need_discovery")["goal"] = ""
     elif invalid == "duplicate":
         data["steps"].append(data["steps"][0])
     else:
-        next(edge for edge in data["transitions"] if edge["to_step"] == "story")["from_step"] = "need_discovery"
+        next(edge for edge in data["transitions"] if edge["to_step"] == "knowledge")["from_step"] = "need_discovery"
     with pytest.raises(ValidationError):
         SopFlowDefinition.model_validate(data)
 
 
 def test_changed_entry_rules_control_customer_eligibility():
     flow = default()
+    flow.entry_rule.any_tags = []
     flow.entry_rule.required_tags = ["春兰"]
     flow.entry_rule.excluded_tags = ["服务中"]
     flows.save_flow("service", flow)
@@ -89,18 +90,18 @@ def test_add_and_change_timed_nodes_updates_real_pending_schedule():
     _insert_contact()
     _tag_service_customer()
     now = datetime(2026, 8, 4, 22, 30, tzinfo=timezone.utc)
-    assert touches.ensure_service_material_touch_tasks(now=now) == 3
+    assert touches.ensure_service_material_touch_tasks(now=now) == 2
     flow = default()
-    next(node for node in flow.steps if node.step_id == "story").schedule.time = "08:00"
+    next(node for node in flow.steps if node.step_id == "knowledge").schedule.time = "08:00"
     extra = FlowNode(step_id="extra", name="晚间分享", type="action", schedule={"time": "18:00", "copy_type": "养护科普"})
     flow.steps.append(extra)
-    flow.layout["extra"] = flow.layout["story"].model_copy()
+    flow.layout["extra"] = flow.layout["knowledge"].model_copy()
     flow.transitions.append(FlowEdge(transition_id="extra_edge", from_step="daily_touch", to_step="extra", label="18点"))
     flows.save_flow("service", SopFlowDefinition.model_validate(flow.model_dump()))
     assert touches.ensure_service_material_touch_tasks(now=now) == 1
     with touches._database_session() as session:
         rows = {row.reason: row for row in session.query(AgentWakeupModel).all()}
-        assert rows["service_material:story"].due_at.hour == 0
+        assert rows["service_material:knowledge"].due_at.hour == 0
         assert rows["service_material:extra"].due_at.hour == 10
 
 
@@ -110,10 +111,10 @@ async def test_deleted_timed_node_cannot_process_or_send():
     _tag_service_customer()
     now = datetime(2026, 8, 4, 22, 30, tzinfo=timezone.utc)
     touches.ensure_service_material_touch_tasks(now=now)
-    flows.save_flow("service", without(default(), "story"))
-    assert await touches.process_due_service_material_touches(now=datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)) == 0
+    flows.save_flow("service", without(default(), "knowledge"))
+    assert await touches.process_due_service_material_touches(now=datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)) == 0
     with touches._database_session() as session:
-        row = session.query(AgentWakeupModel).filter_by(reason="service_material:story").one()
+        row = session.query(AgentWakeupModel).filter_by(reason="service_material:knowledge").one()
         assert row.status == "cancelled"
         row.status = "queued"
         key = f"service_material_touch:{row.id}"
@@ -151,8 +152,8 @@ async def test_service_collection_records_tags_and_keeps_daily_touches(monkeypat
     _insert_contact()
     _tag_service_customer()
     flow = flows.save_flow("service", default())
-    assert flows.dialogue_choices(flow, None) == {"basic_info_collection", "need_discovery"}
-    assert "member_benefit" in flows.dialogue_choices(flow, "basic_info_collection")
+    assert flows.dialogue_choices(flow, None) == {"order_intake", "need_discovery", "repurchase_discovery"}
+    assert "post_service_close" in flows.dialogue_choices(flow, "basic_info_collection")
     tags = [("浙江省", "浙江"), ("阳台", "阳台"), ("10-29盆", "12盆"),
             ("建兰", "最喜欢建兰"), ("浓香", "想要浓香的")]
     decisions = iter([
@@ -178,6 +179,7 @@ async def test_service_collection_records_tags_and_keeps_daily_touches(monkeypat
     monkeypatch.setattr(agent_runtime, "is_sop_node_handoff_enabled", lambda *args: False)
     message = _message("我在浙江，阳台养了12盆建兰，最喜欢建兰，想要浓香的。")
     message.metadata.update(sop_scope="service", sop_scopes=["service"])
+    flows.save_cursor(message, "service", flow, "member_benefit")
     reply = await agent_runtime.run_sales_agent(
         message=message, user_state=UserState(user_id="customer-1"),
         workspace={"profile": {"customer_tags": ["服务中"]}},
@@ -192,12 +194,12 @@ async def test_service_collection_records_tags_and_keeps_daily_touches(monkeypat
     assert not {"province", "growing_environment", "orchid_quantity", "favorite_orchid_type", "product_demand"}.intersection(collection["untagged_categories"])
     assert "price_range" in collection["untagged_categories"]
     now = datetime(2026, 8, 4, 22, 30, tzinfo=timezone.utc)
-    assert touches.ensure_service_material_touch_tasks(now=now) == 3
+    assert touches.ensure_service_material_touch_tasks(now=now) == 2
     assert touches.ensure_service_material_touch_tasks(now=now) == 0
     with touches._database_session() as session:
         rows = session.query(AgentWakeupModel).order_by(AgentWakeupModel.due_at).all()
-        assert [row.reason for row in rows] == ["service_material:story", "service_material:knowledge", "service_material:topic"]
-        assert [row.due_at.hour for row in rows] == [23, 2, 6]
+        assert [row.reason for row in rows] == ["service_material:knowledge", "service_material:topic"]
+        assert [row.due_at.hour for row in rows] == [2, 6]
 
 
 def test_service_collection_uses_live_assignable_tag_slots(monkeypatch):
@@ -232,6 +234,7 @@ async def test_custom_dialogue_is_executed_and_removed_node_is_rejected(monkeypa
     monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
     message = _message("你好")
     message.metadata.update(sop_scope="service", sop_scopes=["service"])
+    flows.save_cursor(message, "service", flow, "member_benefit")
     reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id="customer-1"), workspace={})
     assert reply.metadata["agent_runtime"]["sop_node"] == "service.greeting"
     assert reply.answer == "您好，我在的。"
@@ -286,3 +289,32 @@ async def test_saved_opening_obeys_entry_and_uses_configured_dialogue(monkeypatc
     assert calls[0].metadata["system_event"] == "workflow_entry"
     assert queued[0]["content"] == "欢迎，您想先了解哪个品种？"
     assert recorded[0]["metadata"]["flow_version"] == flows.execution_version(flow)
+
+
+def test_legacy_service_flow_upgrades_once_and_preserves_custom_entry():
+    flow = default()
+    flow.service_sop_version = 0
+    flow.entry_rule.any_tags = []
+    flow.entry_rule.required_tags = ["服务中"]
+    flow.entry_rule.excluded_tags = ["暂停服务"]
+    for key in ("care_followup", "personalized_knowledge"):
+        flow = without(flow, key)
+    flow.steps.append(FlowNode(step_id="story", name="名品故事", type="action", schedule={"time":"07:00", "copy_type":"名品故事"}))
+    flow.layout["story"] = flow.layout["knowledge"].model_copy()
+    flow.transitions.append(FlowEdge(transition_id="daily_touch_to_story", from_step="daily_touch", to_step="story", label="旧早间触达"))
+    flow.steps.append(FlowNode(step_id="custom_entry", name="自定义入口", type="decision"))
+    flow.layout["custom_entry"] = flow.layout["entry"].model_copy()
+    flow.transitions.append(FlowEdge(transition_id="custom_to_entry", from_step="custom_entry", to_step="entry", label="进入服务"))
+    flow.start_step_id = "custom_entry"
+    stored = flows.save_flow("service", SopFlowDefinition.model_validate(flow.model_dump()))
+    upgraded = flows.get_saved_flow("service")
+    assert upgraded.service_sop_version == 2
+    assert upgraded.revision == stored.revision + 1
+    assert upgraded.start_step_id == "custom_entry"
+    assert upgraded.entry_rule.excluded_tags == ["暂停服务"]
+    assert flows.entry_matches(upgraded, ["抖音已购"])
+    schedules = {node.step_id: node.schedule for node in upgraded.steps if node.schedule}
+    assert set(schedules) == {"knowledge", "topic", "care_followup", "personalized_knowledge"}
+    assert schedules["care_followup"].weekday == 5
+    assert schedules["personalized_knowledge"].weekday == 6
+    assert flows.get_saved_flow("service").revision == upgraded.revision

@@ -220,7 +220,16 @@
                     <ElCheckbox v-model="selectedStep.require_product_interest">需要明确的产品了解意向</ElCheckbox>
                   </template>
                   <template v-if="selectedStep.schedule">
-                    <label>每日触达时间（北京时间）</label>
+                    <label>触达时间（北京时间）</label>
+                    <ElSelect v-model="selectedStep.schedule.weekday" clearable placeholder="每日" :value-on-clear="null">
+                      <ElOption v-for="(day, index) in ['周一', '周二', '周三', '周四', '周五', '周六', '周日']" :key="index" :label="`${day}（每隔7天）`" :value="index" />
+                    </ElSelect>
+                    <label>服务内容</label>
+                    <ElSelect v-model="selectedStep.schedule.purpose">
+                      <ElOption label="素材分享" value="material" />
+                      <ElOption label="季节关怀回访" value="care_followup" />
+                      <ElOption label="个性化知识" value="personalized_knowledge" />
+                    </ElSelect>
                     <ElTimeSelect :model-value="selectedStep.schedule.time" start="00:00" step="00:05" end="23:55" @update:model-value="setScheduleTime" />
                     <label>素材文案类型</label>
                     <ElSelect v-model="selectedStep.schedule.copy_type">
@@ -229,6 +238,10 @@
                     <ElCheckbox v-model="selectedStep.schedule.match_preferences">只发同时匹配两类偏好的视频</ElCheckbox>
                   </template>
                   <template v-if="selectedStep.step_id === activePackage.entry.start_step_id">
+                    <label>入口：至少具有一个标签（留空不限制）</label>
+                    <ElSelect v-model="activePackage.entry_rule.any_tags" multiple filterable>
+                      <ElOption v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
+                    </ElSelect>
                     <label>入口：必须具有的标签</label>
                     <ElSelect v-model="activePackage.entry_rule.required_tags" multiple filterable>
                       <ElOption v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
@@ -662,7 +675,7 @@ function addNode() {
     goal: type === 'agent_stage' ? newNodeName.value.trim() : '', directions: [],
     node_id: type === 'agent_stage' ? `${current.sop_scope}.${id}` : undefined,
     handoff_enabled: false, require_product_interest: false,
-    schedule: type === 'action' ? { time: '15:00', copy_type: '话题种草', match_preferences: current.sop_scope === 'seeding' } : null })
+    schedule: type === 'action' ? { weekday: null, purpose: 'material', time: '15:00', copy_type: '话题种草', match_preferences: current.sop_scope === 'seeding' } : null })
   current.layout[id] = { x: Math.min(position.x + 260, 12000), y: Math.min(position.y + 110, 12000) }
   if (newNodeAsEntry.value) {
     connectNodes(id, current.entry.start_step_id, '进入原有分支')
@@ -960,7 +973,12 @@ const transitionTargetName = (transition: ExperienceTransition) =>
   transition.to_step ? stepName(transition.to_step) : outcomeName(transition.outcome || '')
 
 const stepSubtitle = (step: ExperienceStep) => {
-  if (step.schedule) return `每日 ${step.schedule.time} · ${step.schedule.copy_type} · ${step.schedule.match_preferences ? '偏好视频+文字' : '素材+文字'}`
+  if (step.schedule) {
+    const weekday = step.schedule.weekday
+    const cadence = weekday == null ? '每日' : `每${['周一', '周二', '周三', '周四', '周五', '周六', '周日'][weekday]}（每隔7天）`
+    const purpose = step.schedule.purpose === 'care_followup' ? '关怀回访' : step.schedule.purpose === 'personalized_knowledge' ? '个性化知识' : step.schedule.copy_type
+    return `${cadence} ${step.schedule.time} · ${purpose}`
+  }
   if (step.description) return step.description
   if (step.type === 'agent_stage') return step.goal || '按执行目标回复'
   if (step.type === 'wait' || step.type === 'decision') return '按所连分支执行'

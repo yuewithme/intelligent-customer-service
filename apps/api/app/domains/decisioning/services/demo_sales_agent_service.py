@@ -73,6 +73,8 @@ async def open_demo_sales_conversation(
     """Start a demo conversation through the same autonomous Agent runtime."""
     user_id = demo_user_id(customer_id)
     runtime_channel = _runtime_channel(channel)
+    from app.domains.customers.services.user_profile_service import add_system_customer_tag
+    await add_system_customer_tag(user_id, "服务中", reason="demo_service_onboarding")
     session_id = conversation_id or (
         "default" if runtime_channel == "wechat" else generate_id("session")
     )

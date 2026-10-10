@@ -22,7 +22,7 @@ from app.domains.decisioning.services.customer_reply_formatter import (
     split_customer_messages,
 )
 from app.domains.decisioning.services.agent_tools import execute_agent_tool
-from app.domains.decisioning.services.service_sop import build_service_collection_context
+from app.domains.decisioning.services.service_sop import build_service_collection_context, build_service_context
 from app.domains.handoff.services.handoff_notification_service import (
     get_sop_node,
     is_sop_node_handoff_enabled,
@@ -66,6 +66,10 @@ async def run_sales_agent(
     cursors = {scope: load_cursor(message, scope, flow) for scope, flow in flows.items()}
     if "service" in sop_scopes:
         workspace["service_collection"] = build_service_collection_context(workspace.get("profile") or {})
+        workspace["service_sop"] = build_service_context(workspace.get("profile") or {})
+        if not message.metadata.get("evaluation_id"):
+            from app.domains.conversations.services.conversation_service import get_service_delivery_state
+            workspace["service_sop"].update(get_service_delivery_state(message.user_id))
     context = AgentExecutionContext(
         message=message,
         user_state=user_state,
@@ -194,6 +198,11 @@ async def run_sales_agent(
                 "content": json.dumps(decision.model_dump(mode="json"), ensure_ascii=False),
             }
         )
+        if "service" in sop_scopes and decision.purchase_signal in {"interest", "direct"}:
+            decision.sop_node = "service.repurchase_discovery"
+            diagnostic["outcome"] = "service_purchase_handoff"
+            return await _sop_node_handoff_reply(decision=decision, context=context, sop_scope="service",
+                usage=usage, tool_results=tool_results, attempt_trace=attempt_trace)
         explicit_handoff = any(
             call.name == "human.handoff" for call in decision.tool_calls
         ) or bool(decision.final_response and decision.final_response.need_human)
@@ -427,7 +436,7 @@ async def _finalize_reply(
         prepared = context.prepared.get(ref)
         if prepared:
             outbound.extend(prepared)
-    outbound = outbound[:5]
+    outbound = outbound[:7 if reply_policy.sop_scope_for_message(context.message) == "service" else 5]
     visible_texts = [message.content for message in outbound if message.type == "text"]
 
     if final.need_human and context.handoff is None:

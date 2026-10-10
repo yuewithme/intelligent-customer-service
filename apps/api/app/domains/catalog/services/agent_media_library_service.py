@@ -393,3 +393,23 @@ def _query_terms(normalized_query: str) -> tuple[str, ...]:
     if normalized_query not in terms:
         terms.append(normalized_query)
     return tuple(dict.fromkeys(terms))
+
+
+def select_personalized_agent_media(*, local_date: date, copy_type: str, profile: dict, max_video_bytes: int):
+    facts = profile.get("facts") or {}
+    terms = list(profile.get("tags") or [])
+    terms.extend(str(item.get("value") or "") for item in facts.values() if isinstance(item, dict))
+    terms.extend([f"{local_date.month}月", "春季" if local_date.month in {3, 4, 5} else "夏季" if local_date.month in {6, 7, 8} else "秋季" if local_date.month in {9, 10, 11} else "冬季"])
+    matches = {}
+    for term in terms:
+        for item in search_agent_media(term, copy_type=copy_type, limit=5):
+            if item.get("format") == "video" and (not item.get("thumb_url") or int(item.get("bytes") or 0) > max_video_bytes):
+                continue
+            if item.get("copy_text"):
+                ref = item["material_ref"]
+                matches.setdefault(ref, [0, item])[0] += 1
+    if not matches:
+        return select_scheduled_agent_media(local_date=local_date, copy_type=copy_type, max_video_bytes=max_video_bytes)
+    top_score = max(score for score, _ in matches.values())
+    candidates = [item for score, item in matches.values() if score == top_score]
+    return candidates[local_date.toordinal() % len(candidates)]

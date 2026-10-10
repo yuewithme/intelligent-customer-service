@@ -13,6 +13,7 @@ export interface UserProfile {
   customer_tags: string[]
   product_interests: string[]
   preference_summary?: string | null
+  service_facts?: Record<string, { value: string; evidence?: string }>
   pain_points: string[]
   basic_info?: Record<string, unknown>
   last_route?: string | null

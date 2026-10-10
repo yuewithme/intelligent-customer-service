@@ -28,14 +28,24 @@ def _session():
 def get_saved_flow(scope: str) -> SopFlowDefinition | None:
     with _session() as session:
         row = session.get(SopFlowModel, scope)
-        return SopFlowDefinition.model_validate_json(row.definition_json) if row else None
+        if row is None:
+            return None
+        flow = SopFlowDefinition.model_validate_json(row.definition_json)
+        if scope == "service" and flow.service_sop_version < 2:
+            flow = _upgrade_service_flow(flow)
+            changed = session.execute(update(SopFlowModel).where(SopFlowModel.scope == scope, SopFlowModel.revision == row.revision)
+                .values(revision=flow.revision, definition_json=flow.model_dump_json()))
+            session.commit()
+            if not changed.rowcount:
+                return get_saved_flow(scope)
+        return flow
 
 
 def default_flow(package: dict[str, Any]) -> SopFlowDefinition:
     scope = package["sop_scope"]
     entries = {
         "first_order": {"excluded_tags": ["服务中", "抖音已购", "微信已购"], "fallback_only": True},
-        "service": {"required_tags": ["服务中"]},
+        "service": {"any_tags": ["服务中", "抖音已购", "微信已购"]},
         "seeding": {"tag_categories": ["favorite_orchid_type", "product_demand"]},
     }
     settings = get_settings()
@@ -44,6 +54,8 @@ def default_flow(package: dict[str, Any]) -> SopFlowDefinition:
         "knowledge": (settings.service_material_knowledge_time, "养护科普"),
         "topic": (settings.service_material_topic_time, "话题种草"),
         "video_touch": ("15:00", "话题种草"),
+        "care_followup": ("11:00", "养护科普"),
+        "personalized_knowledge": ("14:00", "养护科普"),
     }
     steps = []
     for source in package["steps"]:
@@ -52,8 +64,11 @@ def default_flow(package: dict[str, Any]) -> SopFlowDefinition:
         if source["type"] == "action":
             at, copy_type = schedules[source["step_id"]]
             node["schedule"] = {"time": at, "copy_type": copy_type, "match_preferences": scope == "seeding"}
+            if source["step_id"] in {"care_followup", "personalized_knowledge"}:
+                node["schedule"].update(weekday=5 if source["step_id"] == "care_followup" else 6, purpose=source["step_id"])
         steps.append(node)
     return SopFlowDefinition.model_validate({
+        "service_sop_version": 2 if scope == "service" else 0,
         "start_step_id": package["entry"]["start_step_id"], "entry_rule": entries[scope],
         "steps": steps, "transitions": [
             {key: value for key, value in edge.items() if key != "condition"}
@@ -91,7 +106,7 @@ def build_workbench_packages(policies: dict[str, bool], switches: dict[str, bool
         scope = package["sop_scope"]
         flow = get_saved_flow(scope) or default_flow(package)
         package.update(enabled=switches[scope], flow_revision=flow.revision,
-                       entry_rule=flow.entry_rule.model_dump(), layout={key: pos.model_dump() for key, pos in flow.layout.items()})
+                       service_sop_version=flow.service_sop_version, entry_rule=flow.entry_rule.model_dump(), layout={key: pos.model_dump() for key, pos in flow.layout.items()})
         package["entry"]["start_step_id"] = flow.start_step_id
         package["steps"] = [
             {**node.model_dump(), **({"node_id": f"{scope}.{node.step_id}"} if node.type == "agent_stage" else {})}
@@ -110,7 +125,7 @@ def build_workbench_packages(policies: dict[str, bool], switches: dict[str, bool
 def entry_matches(flow: SopFlowDefinition, tags: list[str] | set[str]) -> bool:
     values = {str(tag).strip().rpartition(":")[2] for tag in tags}
     rule = flow.entry_rule
-    if not set(rule.required_tags).issubset(values) or set(rule.excluded_tags) & values:
+    if (rule.any_tags and not set(rule.any_tags) & values) or not set(rule.required_tags).issubset(values) or set(rule.excluded_tags) & values:
         return False
     categories = get_tag_categories()
     return all(key in categories and values.intersection(value.name for value in categories[key].values)
@@ -178,3 +193,30 @@ def execution_prompt(scope: str, flow: SopFlowDefinition, previous: str | None) 
         "transitions": [edge.model_dump() for edge in flow.transitions],
         "rules": "连线 label 是对话转移条件，结合客户当前回复和上下文判断；条件未满足留在当前节点。新问题可重入入口分支。定时动作由后台负责，不在对话中执行或补发。没有匹配的对话节点则 general.reply 仅回答当前问题。",
     }, ensure_ascii=False)
+
+
+def _upgrade_service_flow(flow: SopFlowDefinition) -> SopFlowDefinition:
+    package = next(p for p in build_default_sop_packages({}) if p["sop_scope"] == "service")
+    updated = default_flow(package)
+    standard_ids = {node.step_id for node in updated.steps} | {"story"}
+    previous = {node.step_id: node for node in flow.steps}
+    for node in updated.steps:
+        old = previous.get(node.step_id)
+        if old and node.type == "agent_stage" and node.step_id != "repurchase_discovery":
+            node.handoff_enabled = old.handoff_enabled
+        if node.step_id in flow.layout:
+            updated.layout[node.step_id] = flow.layout[node.step_id]
+    for node in flow.steps:
+        if node.step_id not in standard_ids:
+            updated.steps.append(node)
+            updated.layout[node.step_id] = flow.layout[node.step_id]
+    for edge in flow.transitions:
+        if edge.from_step != "story" and edge.to_step != "story" and (edge.from_step not in standard_ids or (edge.to_step and edge.to_step not in standard_ids)):
+            updated.transitions.append(edge)
+    updated.start_step_id = flow.start_step_id
+    updated.entry_rule = flow.entry_rule.model_copy(deep=True)
+    if updated.entry_rule.required_tags == ["服务中"] and not updated.entry_rule.any_tags:
+        updated.entry_rule.required_tags = []
+        updated.entry_rule.any_tags = ["服务中", "抖音已购", "微信已购"]
+    updated.revision = flow.revision + 1
+    return SopFlowDefinition.model_validate(updated.model_dump())

@@ -24,7 +24,7 @@ def disable_sop_node_handoff(monkeypatch):
     )
 
 
-def _message(text: str = "我想看看建兰") -> NormalizedMessage:
+def _message(text: str = "我想看看建兰", *, sop_scope: str = "service") -> NormalizedMessage:
     return NormalizedMessage(
         trace_id="trace-agent-v2",
         channel="api",
@@ -32,7 +32,7 @@ def _message(text: str = "我想看看建兰") -> NormalizedMessage:
         session_id="session-1",
         message=text,
         kb_id="kb_default",
-        metadata={},
+        metadata={"sop_scope": sop_scope},
     )
 
 
@@ -187,8 +187,8 @@ async def test_seeding_intent_node_intercepts_recommendation_before_tools(monkey
     message.metadata.update(sop_scope=scopes[0], sop_scopes=scopes)
     reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id="customer-1"), workspace={})
     assert calls == ["human.handoff"]
-    assert reply.metadata["agent_runtime"]["sop_node"] == "seeding.product_interest"
-    assert reply.metadata["agent_runtime"]["sop_scope"] == "seeding"
+    assert reply.metadata["agent_runtime"]["sop_node"] == ("service.repurchase_discovery" if "service" in scopes else "seeding.product_interest")
+    assert reply.metadata["agent_runtime"]["sop_scope"] == ("service" if "service" in scopes else "seeding")
 
 
 @pytest.mark.asyncio
@@ -393,6 +393,7 @@ async def test_runtime_repairs_mixed_tool_and_reply_without_losing_customer_answ
                     "need_human": False,
                 },
                 purchase_signal="direct",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 tools=[
@@ -403,6 +404,7 @@ async def test_runtime_repairs_mixed_tool_and_reply_without_losing_customer_answ
                     }
                 ],
                 purchase_signal="direct",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 final={
@@ -420,6 +422,7 @@ async def test_runtime_repairs_mixed_tool_and_reply_without_losing_customer_answ
                     "need_human": False,
                 },
                 purchase_signal="direct",
+                sop_node="first_order.need_discovery",
             ),
         ]
     )
@@ -432,7 +435,7 @@ async def test_runtime_repairs_mixed_tool_and_reply_without_losing_customer_answ
     monkeypatch.setattr(agent_tools, "get_catalog_product", lambda item_id: service)
     monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
     reply = await agent_runtime.run_sales_agent(
-        message=_message("我不太懂，都是之前商家配的，浇水两三天一次吧"),
+        message=_message("我不太懂，都是之前商家配的，浇水两三天一次吧", sop_scope="first_order"),
         user_state=UserState(user_id="customer-1"),
         workspace={},
     )
@@ -572,7 +575,7 @@ async def test_product_search_adds_profile_tags_and_respects_current_overrides(
     )
 
     context = AgentExecutionContext(
-        message=_message("帮我推荐一款"),
+        message=_message("帮我推荐一款", sop_scope="first_order"),
         user_state=UserState(user_id="customer-1"),
         workspace={
             "profile": {
@@ -595,7 +598,7 @@ async def test_product_search_adds_profile_tags_and_respects_current_overrides(
         "阳台",
     ]
 
-    context.message = _message("这次要清香建兰，预算100元以内，放室内")
+    context.message = _message("这次要清香建兰，预算100元以内，放室内", sop_scope="first_order")
     result = await agent_tools.execute_agent_tool(
         call_id="product-search-current",
         name="product.search",
@@ -606,7 +609,7 @@ async def test_product_search_adds_profile_tags_and_respects_current_overrides(
     assert captured[-1] == ("推荐清香建兰，预算100元以内，室内", 3, None)
     assert result.data["applied_customer_tags"] == []
 
-    context.message = _message("了解陪伴养兰服务")
+    context.message = _message("了解陪伴养兰服务", sop_scope="first_order")
     result = await agent_tools.execute_agent_tool(
         call_id="service-search", name="product.search",
         arguments={"query": "陪伴养兰"}, context=context,
@@ -624,7 +627,7 @@ async def test_product_card_rechecks_recommended_spec_price(monkeypatch):
     }
     monkeypatch.setattr(agent_tools, "get_catalog_product", lambda item_id: product)
     context = AgentExecutionContext(
-        message=_message("发链接"), user_state=UserState(user_id="customer-1"),
+        message=_message("发链接", sop_scope="first_order"), user_state=UserState(user_id="customer-1"),
         workspace={"product_recommendations": {"orchid": [{"sku_id": "eight", "price_cent": 7000}]}},
     )
     result = await agent_tools.execute_agent_tool(
@@ -1082,6 +1085,7 @@ async def test_agent_sends_companion_service_card_after_customer_interest(
                 judgment="客户明确想进一步了解陪伴服务，查询真实服务商品",
                 purpose="核实服务商品后进入试成交",
                 purchase_signal="interest",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 tools=[
@@ -1094,6 +1098,7 @@ async def test_agent_sends_companion_service_card_after_customer_interest(
                 judgment="客户主动询问服务收费，已有清晰正向意向",
                 purpose="发送真实服务入口试成交",
                 purchase_signal="interest",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 final={
@@ -1109,6 +1114,7 @@ async def test_agent_sends_companion_service_card_after_customer_interest(
                 judgment="客户已主动询问服务，卡片用于试成交",
                 purpose="让客户查看服务并承接购买问题",
                 purchase_signal="interest",
+                sop_node="first_order.need_discovery",
             ),
         ]
     )
@@ -1119,7 +1125,7 @@ async def test_agent_sends_companion_service_card_after_customer_interest(
 
     monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
     reply = await agent_runtime.run_sales_agent(
-        message=_message("这种有人带着养的服务我想了解一下，怎么收费？"),
+        message=_message("这种有人带着养的服务我想了解一下，怎么收费？", sop_scope="first_order"),
         user_state=UserState(user_id="customer-1"),
         workspace={},
     )
@@ -1158,6 +1164,7 @@ async def test_agent_advances_short_service_acceptance_to_trial_close(monkeypatc
                 ],
                 judgment="客户询问服务，先核实服务事实",
                 purpose="准备说明服务",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 final={
@@ -1181,6 +1188,7 @@ async def test_agent_advances_short_service_acceptance_to_trial_close(monkeypatc
                 },
                 judgment="客户还在询问服务内容",
                 purpose="再次介绍服务",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 tools=[
@@ -1193,6 +1201,7 @@ async def test_agent_advances_short_service_acceptance_to_trial_close(monkeypatc
                 judgment="是的是对上一轮服务价值的认可，已形成兴趣",
                 purpose="核实真实服务后试成交",
                 purchase_signal="interest",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 tools=[
@@ -1205,6 +1214,7 @@ async def test_agent_advances_short_service_acceptance_to_trial_close(monkeypatc
                 judgment="客户认可陪伴服务，可以进入试成交",
                 purpose="发送真实服务卡片",
                 purchase_signal="interest",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 final={
@@ -1220,6 +1230,7 @@ async def test_agent_advances_short_service_acceptance_to_trial_close(monkeypatc
                 judgment="客户已认可服务价值",
                 purpose="试成交并承接后续问题",
                 purchase_signal="interest",
+                sop_node="first_order.need_discovery",
             ),
         ]
     )
@@ -1230,7 +1241,7 @@ async def test_agent_advances_short_service_acceptance_to_trial_close(monkeypatc
 
     monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
     reply = await agent_runtime.run_sales_agent(
-        message=_message("是的"),
+        message=_message("是的", sop_scope="first_order"),
         user_state=UserState(user_id="customer-1"),
         workspace={
             "recent_turns": [
@@ -1305,7 +1316,7 @@ async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
                         "arguments": {"query": "建兰红君荷", "limit": 3},
                     }
                 ]
-            ),
+            , sop_node="first_order.need_discovery"),
             _decision(
                 tools=[
                     {
@@ -1315,6 +1326,7 @@ async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
                     }
                 ],
                 purchase_signal="direct",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 final={
@@ -1327,6 +1339,7 @@ async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
                 judgment="客户已明确选择，直接推进成交",
                 purpose="核实后给购买入口",
                 purchase_signal="direct",
+                sop_node="first_order.need_discovery",
             ),
         ]
     )
@@ -1337,7 +1350,7 @@ async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
 
     monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
     reply = await agent_runtime.run_sales_agent(
-        message=_message("就要红君荷，链接发我"),
+        message=_message("就要红君荷，链接发我", sop_scope="first_order"),
         user_state=UserState(user_id="customer-1"),
         workspace={},
     )
@@ -1518,6 +1531,7 @@ async def test_prepared_card_is_not_sent_when_agent_does_not_place_it(monkeypatc
                     }
                 ],
                 purchase_signal="interest",
+                sop_node="first_order.need_discovery",
             ),
             _decision(
                 final={
@@ -1526,7 +1540,7 @@ async def test_prepared_card_is_not_sent_when_agent_does_not_place_it(monkeypatc
                     ],
                     "need_human": False,
                 }
-            ),
+            , sop_node="first_order.need_discovery"),
         ]
     )
 
@@ -1536,7 +1550,7 @@ async def test_prepared_card_is_not_sent_when_agent_does_not_place_it(monkeypatc
 
     monkeypatch.setattr(agent_runtime, "generate_messages_json", fake_generate)
     reply = await agent_runtime.run_sales_agent(
-        message=_message("先等等，我想确认规格"),
+        message=_message("先等等，我想确认规格", sop_scope="first_order"),
         user_state=UserState(user_id="customer-1"),
         workspace={},
     )

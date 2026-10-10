@@ -19,7 +19,7 @@ def has_product_preferences(tags: list[str] | set[str]) -> bool:
 def eligible_sop_scopes(tags: list[str], settings: dict[str, bool] | None = None) -> list[str]:
     settings = get_sop_settings() if settings is None else settings
     values = {str(tag).strip().rpartition(":")[2] for tag in tags}
-    defaults = {"service": "服务中" in values, "seeding": has_product_preferences(values),
+    defaults = {"service": bool(values.intersection({"服务中", "抖音已购", "微信已购"})), "seeding": has_product_preferences(values),
                 "first_order": not values.intersection({"服务中", "抖音已购", "微信已购"})}
     scopes, fallback = [], []
     for scope in ("service", "seeding", "first_order"):

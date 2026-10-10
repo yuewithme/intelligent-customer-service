@@ -76,13 +76,13 @@ def _tag_service_customer(customer_id="customer-1"):
         session.commit()
 
 
-def test_service_tag_schedules_three_fixed_daily_slots(monkeypatch, tmp_path):
+def test_service_tag_schedules_two_fixed_daily_slots(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
     _insert_contact()
     _tag_service_customer()
     now = datetime(2026, 8, 4, 22, 30, tzinfo=timezone.utc)
 
-    assert service.ensure_service_material_touch_tasks(now=now) == 3
+    assert service.ensure_service_material_touch_tasks(now=now) == 2
     assert service.ensure_service_material_touch_tasks(now=now) == 0
     with service._database_session() as session:
         rows = list(
@@ -90,13 +90,12 @@ def test_service_tag_schedules_three_fixed_daily_slots(monkeypatch, tmp_path):
             .order_by(AgentWakeupModel.due_at.asc())
             .all()
         )
-    assert [row.kind for row in rows] == ["service_material_touch"] * 3
+    assert [row.kind for row in rows] == ["service_material_touch"] * 2
     assert [row.reason for row in rows] == [
-        "service_material:story",
         "service_material:knowledge",
         "service_material:topic",
     ]
-    assert [row.due_at.hour for row in rows] == [23, 2, 6]
+    assert [row.due_at.hour for row in rows] == [2, 6]
 
 
 def test_seeding_requires_both_preferences_and_runs_alongside_service(monkeypatch, tmp_path):
@@ -116,7 +115,7 @@ def test_seeding_requires_both_preferences_and_runs_alongside_service(monkeypatc
         profile = session.get(UserProfileModel, "customer-1")
         profile.customer_tags_json = json.dumps(["服务中", "建兰", "浓香"], ensure_ascii=False)
         session.commit()
-    assert service.ensure_service_material_touch_tasks(now=now) == 3
+    assert service.ensure_service_material_touch_tasks(now=now) == 2
     assert service.ensure_service_material_touch_tasks(now=now, sop_scope="seeding") == 1
     assert service.ensure_service_material_touch_tasks(now=now, sop_scope="seeding") == 0
     with service._database_session() as session:
@@ -174,7 +173,7 @@ def test_global_handoff_does_not_disable_service_touches(monkeypatch, tmp_path):
 
     assert service.ensure_service_material_touch_tasks(
         now=datetime(2026, 8, 4, 22, 30, tzinfo=timezone.utc)
-    ) == 3
+    ) == 2
 
 
 def test_late_service_tag_only_schedules_remaining_slot(monkeypatch, tmp_path):
@@ -238,8 +237,8 @@ async def test_due_service_touch_queues_copy_before_media(
     _configure(monkeypatch, tmp_path)
     _insert_contact()
     _tag_service_customer()
-    before_slot = datetime(2026, 8, 4, 22, 59, tzinfo=timezone.utc)
-    assert service.ensure_service_material_touch_tasks(now=before_slot) == 3
+    before_slot = datetime(2026, 8, 5, 1, 59, tzinfo=timezone.utc)
+    assert service.ensure_service_material_touch_tasks(now=before_slot) == 2
     monkeypatch.setattr(service, "select_scheduled_agent_media", lambda **_: media)
     queued = []
 
@@ -264,7 +263,7 @@ async def test_due_service_touch_queues_copy_before_media(
     )
 
     assert await service.process_due_service_material_touches(
-        now=datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+        now=datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)
     ) == 1
     assert [item["message_type"] for item in queued] == ["text", expected_type]
     assert queued[0]["depends_on_outbound_id"] is None
@@ -335,8 +334,8 @@ async def test_service_media_conversion_failure_retries_whole_bundle(
     _configure(monkeypatch, tmp_path)
     _insert_contact()
     _tag_service_customer()
-    before_slot = datetime(2026, 8, 4, 22, 59, tzinfo=timezone.utc)
-    assert service.ensure_service_material_touch_tasks(now=before_slot) == 3
+    before_slot = datetime(2026, 8, 5, 1, 59, tzinfo=timezone.utc)
+    assert service.ensure_service_material_touch_tasks(now=before_slot) == 2
     monkeypatch.setattr(
         service,
         "select_scheduled_agent_media",
@@ -364,13 +363,13 @@ async def test_service_media_conversion_failure_retries_whole_bundle(
     monkeypatch.setattr(
         message_risk_control_service, "enqueue_wechat_outbound", unexpected_enqueue
     )
-    due = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    due = datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)
 
     assert await service.process_due_service_material_touches(now=due) == 0
     with service._database_session() as session:
         row = session.scalar(
             service.select(AgentWakeupModel).where(
-                AgentWakeupModel.reason == "service_material:story"
+                AgentWakeupModel.reason == "service_material:knowledge"
             )
         )
     assert row.status == "pending"
@@ -435,7 +434,7 @@ def test_touch_completes_only_after_copy_and_media_are_confirmed(monkeypatch, tm
                 customer_id="customer-1",
                 kind="service_material_touch",
                 local_date="2026-08-05",
-                reason="service_material:story",
+                reason="service_material:knowledge",
                 checklist_json="[]",
                 status="queued",
                 due_at=now,
@@ -571,7 +570,7 @@ async def test_stale_service_task_recovers_its_lease(monkeypatch, tmp_path):
             customer_id="customer-1",
             kind="service_material_touch",
             local_date="2026-08-05",
-            reason="service_material:story",
+            reason="service_material:knowledge",
             checklist_json="[]",
             status="processing",
             due_at=now - timedelta(hours=1),
@@ -750,9 +749,9 @@ async def test_recent_chat_cancels_only_current_touch(monkeypatch, tmp_path, sen
     _configure(monkeypatch, tmp_path)
     _insert_contact()
     _tag_service_customer()
-    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(service, "_utcnow", lambda: now)
-    assert service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1)) == 3
+    assert service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1)) == 2
     message = await conversation_service.ensure_outbound_conversation_message(
         channel="wechat", user_id="customer-1", session_id=owner,
         sender_type=sender, content="正在聊天", delivery_status=status,
@@ -777,7 +776,7 @@ async def test_recent_chat_cancels_only_current_touch(monkeypatch, tmp_path, sen
     with service._database_session() as session:
         tasks = list(session.scalars(service.select(AgentWakeupModel).order_by(AgentWakeupModel.due_at)))
     assert tasks[0].status == ("cancelled" if cancelled else "queued")
-    assert [row.status for row in tasks[1:]] == ["pending", "pending"]
+    assert [row.status for row in tasks[1:]] == ["pending"]
     assert service.ensure_service_material_touch_tasks(now=now) == 0
 
 
@@ -789,7 +788,7 @@ async def test_chat_after_copy_cancels_queued_media_before_send(monkeypatch, tmp
     _configure(monkeypatch, tmp_path)
     _insert_contact()
     _tag_service_customer()
-    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(service, "_utcnow", lambda: now)
     service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1))
     with service._database_session() as session:
@@ -830,7 +829,7 @@ async def test_first_send_failure_stops_future_touches_but_keeps_chat_and_other_
     _tag_service_customer()
     _insert_contact("customer-2")
     _tag_service_customer("customer-2")
-    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(service, "_utcnow", lambda: now)
     monkeypatch.setattr(risk, "utcnow", lambda: now)
     async def ready_material(*args, **kwargs):
@@ -866,7 +865,7 @@ async def test_first_send_failure_stops_future_touches_but_keeps_chat_and_other_
     assert await risk.process_due_eyun_outbound_messages() == 1
     assert len(calls) == 1
     with service._database_session() as session:
-        assert [session.get(AgentWakeupModel, task_id).status for task_id in task_ids] == ["failed", "cancelled", "cancelled"]
+        assert [session.get(AgentWakeupModel, task_id).status for task_id in task_ids] == ["failed", "cancelled"]
     with service._chat_session() as session:
         assert session.get(EyunOutboundMessageModel, queued[0]["id"]).status == "failed"
         assert session.get(EyunOutboundMessageModel, queued[1]["id"]).status == "cancelled"
@@ -876,7 +875,7 @@ async def test_first_send_failure_stops_future_touches_but_keeps_chat_and_other_
             assert risk._validate_outbound_before_send(session, outbound)
     service._database_factories.clear()
     assert service.get_agent_relationship_state("customer-1")["touch_failed_at"]
-    assert service.ensure_service_material_touch_tasks(now=now + timedelta(days=1)) == 3
+    assert service.ensure_service_material_touch_tasks(now=now + timedelta(days=1)) == 2
     with service._database_session() as session:
         new_tasks = list(session.scalars(service.select(AgentWakeupModel).where(
             AgentWakeupModel.local_date == "2026-08-06",
@@ -906,7 +905,7 @@ def test_recorded_send_failure_stops_existing_and_future_tasks(monkeypatch, tmp_
     _configure(monkeypatch, tmp_path)
     _insert_contact()
     _tag_service_customer()
-    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(risk, "utcnow", lambda: now)
     service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1))
     with service._database_session() as session:
@@ -922,7 +921,7 @@ def test_recorded_send_failure_stops_existing_and_future_tasks(monkeypatch, tmp_
         session.flush()
         risk._record_outbound_delivery_event(session, outbound, event=event, error="历史记录")
         session.commit()
-    assert service.ensure_service_material_touch_tasks(now=now + timedelta(days=1)) == (0 if stopped else 3)
+    assert service.ensure_service_material_touch_tasks(now=now + timedelta(days=1)) == (0 if stopped else 2)
     assert bool(service.get_agent_relationship_state("customer-1")["touch_failed_at"]) == stopped
     with service._database_session() as session:
         tasks = list(session.scalars(service.select(AgentWakeupModel).where(
@@ -939,7 +938,7 @@ async def test_chat_during_material_preparation_cancels_bundle_before_queue(monk
     _configure(monkeypatch, tmp_path)
     _insert_contact()
     _tag_service_customer()
-    now = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 5, 2, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(service, "_utcnow", lambda: now)
     monkeypatch.setattr(conversation_service, "_now", lambda: now)
     service.ensure_service_material_touch_tasks(now=now - timedelta(minutes=1))
@@ -963,3 +962,55 @@ async def test_chat_during_material_preparation_cancels_bundle_before_queue(monk
         )))
     assert len(messages) == 2
     assert {row.delivery_status for row in messages} == {"cancelled"}
+
+
+@pytest.mark.parametrize("day,expected", [
+    (10, {"knowledge", "topic", "care_followup"}),
+    (11, {"knowledge", "personalized_knowledge"}),
+    (12, {"knowledge", "topic"}),
+    (17, {"knowledge", "topic", "care_followup"}),
+    (18, {"knowledge", "personalized_knowledge"}),
+])
+def test_weekly_service_schedule_and_sunday_merge(monkeypatch, tmp_path, day, expected):
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 10, day, 0, 0, tzinfo=timezone.utc)
+    assert service.ensure_service_material_touch_tasks(now=now) == len(expected)
+    assert service.ensure_service_material_touch_tasks(now=now) == 0
+    with service._database_session() as session:
+        rows = session.query(AgentWakeupModel).all()
+    assert {row.reason.split(":")[1] for row in rows} == expected
+    assert all(row.due_at.hour == 3 for row in rows if row.reason.endswith("care_followup"))
+    assert all(row.due_at.hour == 6 for row in rows if row.reason.endswith("personalized_knowledge"))
+
+
+@pytest.mark.asyncio
+async def test_weekly_care_followup_queues_text_and_remembers_only_after_delivery(monkeypatch, tmp_path):
+    from app.integrations.eyun.services import message_risk_control_service
+    from app.domains.conversations.services import conversation_service
+    from app.domains.customers.services.user_profile_service import get_profile_bundle
+    _configure(monkeypatch, tmp_path)
+    _insert_contact()
+    _tag_service_customer()
+    now = datetime(2026, 10, 10, 3, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "_utcnow", lambda: now)
+    text = "最近阳台的建兰长势怎么样，之前浇水拿不准的问题有改善吗？"
+    generated, queued = [], []
+    async def generate(**kwargs):
+        generated.append(kwargs)
+        return text
+    async def enqueue(**kwargs):
+        queued.append(kwargs)
+        return {"id": len(queued)}
+    monkeypatch.setattr(service, "_personalized_service_copy", generate)
+    monkeypatch.setattr(message_risk_control_service, "enqueue_wechat_outbound", enqueue)
+    assert service.ensure_service_material_touch_tasks(now=now) == 2
+    assert await service.process_due_service_material_touches(now=now) == 1
+    assert generated[0]["purpose"] == "care_followup"
+    assert [(row["message_type"], row["content"]) for row in queued] == [("text", text)]
+    bundle = await get_profile_bundle("customer-1", conversation_session_id="owner-1")
+    assert text not in [row["content"] for row in bundle["recent_memories"]]
+    conversation_service.update_outbound_message_delivery(queued[0]["conversation_message_id"], status="accepted", sent_at=now)
+    bundle = await get_profile_bundle("customer-1", conversation_session_id="owner-1")
+    assert text in [row["content"] for row in bundle["recent_memories"]]

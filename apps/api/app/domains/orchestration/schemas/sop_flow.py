@@ -7,6 +7,7 @@ SopScope = Literal["first_order", "service", "seeding"]
 
 class FlowEntryRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    any_tags: list[str] = Field(default_factory=list, max_length=30)
     required_tags: list[str] = Field(default_factory=list, max_length=30)
     tag_categories: list[str] = Field(default_factory=list, max_length=15)
     excluded_tags: list[str] = Field(default_factory=list, max_length=30)
@@ -18,6 +19,8 @@ class FlowSchedule(BaseModel):
     time: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     copy_type: Literal["名品故事", "养护科普", "话题种草"]
     match_preferences: bool = False
+    weekday: int | None = Field(default=None, ge=0, le=6)
+    purpose: Literal["material", "care_followup", "personalized_knowledge"] = "material"
 
 
 class FlowNode(BaseModel):
@@ -64,6 +67,7 @@ class FlowEdge(BaseModel):
 class SopFlowDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(default=0, ge=0)
+    service_sop_version: int = Field(default=0, ge=0)
     start_step_id: Identifier
     entry_rule: FlowEntryRule
     steps: list[FlowNode] = Field(min_length=1, max_length=60)

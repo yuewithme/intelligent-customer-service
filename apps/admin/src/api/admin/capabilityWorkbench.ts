@@ -85,7 +85,7 @@ export interface ExperienceStepCapability {
 }
 
 export interface ExperienceStep {
-  schedule?: { time: string; copy_type: '名品故事' | '养护科普' | '话题种草'; match_preferences: boolean } | null
+  schedule?: { time: string; copy_type: '名品故事' | '养护科普' | '话题种草'; match_preferences: boolean; weekday?: number | null; purpose?: 'material' | 'care_followup' | 'personalized_knowledge' } | null
   require_product_interest?: boolean
   step_id: string
   node_id?: string
@@ -130,7 +130,8 @@ export interface ExperienceOutcome {
 
 export interface ExperiencePackage {
   flow_revision: number
-  entry_rule: { required_tags: string[]; tag_categories: string[]; excluded_tags: string[]; fallback_only: boolean }
+  service_sop_version?: number
+  entry_rule: { any_tags?: string[]; required_tags: string[]; tag_categories: string[]; excluded_tags: string[]; fallback_only: boolean }
   sop_scope: 'first_order' | 'service' | 'seeding'
   enabled: boolean
   schema_version: string
@@ -211,6 +212,7 @@ export const saveWorkbenchFlow = (item: ExperiencePackage) => request.put<{ revi
   url: `/api/v1/admin/orchestration/workbench/flows/${item.sop_scope}`,
   data: {
     revision: item.flow_revision,
+    service_sop_version: item.service_sop_version || 0,
     start_step_id: item.entry.start_step_id,
     entry_rule: item.entry_rule,
     layout: item.layout,

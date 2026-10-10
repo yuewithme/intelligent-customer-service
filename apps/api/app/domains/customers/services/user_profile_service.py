@@ -1162,6 +1162,7 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
             else []
         ),
         "preference_summary": profile.preference_summary,
+        "service_facts": _json_loads(profile.service_facts_json, {}),
         "pain_points": (
             _json_loads(profile.pain_points_json, [])
             if is_tag_category_enabled("pain_point")
@@ -1178,6 +1179,9 @@ def _profile_to_dict(profile: UserProfileModel) -> dict:
 
 def _ensure_profile_columns(engine) -> None:
     columns = {column["name"] for column in inspect(engine).get_columns("user_profiles")}
+    if "service_facts_json" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE user_profiles ADD COLUMN service_facts_json TEXT DEFAULT '{}'"))
     if "active_opportunity_json" not in columns:
         with engine.begin() as connection:
             connection.execute(
@@ -1305,3 +1309,20 @@ def _datetime_to_iso(value: datetime | None) -> str | None:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def record_service_facts(user_id: str, facts: dict, *, trace_id: str) -> dict:
+    with _get_session() as session:
+        profile = _get_or_create_profile(session, user_id)
+        current = _json_loads(profile.service_facts_json, {})
+        before = dict(current)
+        current.update(facts)
+        profile.service_facts_json = _json_dumps(current)
+        if facts.get("preference"):
+            profile.preference_summary = str(facts["preference"]["value"])
+        profile.updated_at = _now()
+        session.add(ProfileEventModel(user_id=user_id, tenant_id=profile.tenant_id,
+            event_type="service_facts_recorded", before_json=_json_dumps(before),
+            after_json=_json_dumps(current), reason="客户原话支持的服务档案", trace_id=trace_id, created_at=_now()))
+        session.commit()
+        return current

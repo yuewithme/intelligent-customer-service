@@ -870,6 +870,7 @@ async def record_ai_turn(*, message, result: dict) -> None:
                 message_type,
                 outbound_content,
                 {
+                    **({"service_step": outbound["service_step"]} if outbound.get("service_step") else {}),
                     "sources": result.get("sources", []),
                     "template": result.get("template", {}),
                     "tenant_id": tenant_id,
@@ -962,6 +963,7 @@ def _result_outbound_messages(result: dict) -> list[dict[str, str]]:
             {
                 "type": str(message.get("type") or "").strip(),
                 "content": str(message.get("content") or "").strip(),
+                **({"service_step": message["service_step"]} if message.get("service_step") else {}),
             }
             for message in messages
             if isinstance(message, dict)
@@ -2826,3 +2828,22 @@ def _refresh_repaired_conversation(
     conversation.unread_count = sum(
         1 for row in rows if row.id in unread_message_ids
     )
+
+
+def get_service_delivery_state(user_id: str) -> dict:
+    delivered, pending = set(), set()
+    with _get_session() as session:
+        rows = session.execute(select(ConversationMessageModel.delivery_status, ConversationMessageModel.metadata_json)
+            .join(ConversationModel, ConversationModel.conversation_id == ConversationMessageModel.conversation_id)
+            .where(ConversationModel.user_id == user_id, ConversationMessageModel.metadata_json.contains('"service_step"'))
+            .order_by(ConversationMessageModel.id.desc()).limit(200)).all()
+    for status, raw in rows:
+        metadata = _load_metadata(raw)
+        step = metadata.get("service_step")
+        if not isinstance(step, str) or not step:
+            continue
+        if status in {"sent", "accepted", "confirmed"} or (status == "unconfirmed" and (metadata.get("delivery_timestamps") or {}).get("accepted_at")):
+            delivered.add(step)
+        elif status in {None, "queued", "sending", "waiting_material"}:
+            pending.add(step)
+    return {"delivered_steps": sorted(delivered), "pending_steps": sorted(pending - delivered)}

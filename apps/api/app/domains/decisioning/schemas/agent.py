@@ -26,6 +26,7 @@ SopNode = Literal[
     "first_order.value_building",
     "first_order.trial_close",
     "first_order.closing",
+    "service.order_intake",
     "service.basic_info_collection",
     "service.need_discovery",
     "service.member_benefit",
