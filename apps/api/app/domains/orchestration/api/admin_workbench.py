@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 
 from app.core.auth import require_api_key
 from app.domains.orchestration.schemas.sop_flow import SopFlowDefinition, SopScope
+from app.domains.orchestration.schemas.canvas_workflow import CreateCanvas, SaveCanvas, PublishCanvas
+from app.domains.orchestration.services import canvas_workflow_service as canvases
 from app.domains.orchestration.services.sop_flow_service import save_flow
 from app.domains.handoff.services.handoff_notification_service import update_sop_enabled
 from app.domains.conversations.schemas.chat import APIResponse
@@ -33,6 +35,32 @@ router = APIRouter(
 @router.get("/workbench", response_model=APIResponse)
 async def capability_workbench() -> APIResponse:
     return APIResponse(code=0, message="success", data=get_capability_workbench())
+
+
+@router.get("/workbench/canvas/workflows", response_model=APIResponse)
+async def canvas_list() -> APIResponse:
+    return APIResponse(code=0, message="success", data=canvases.list_canvases())
+
+
+@router.post("/workbench/canvas/workflows", response_model=APIResponse)
+async def canvas_create(request: CreateCanvas) -> APIResponse:
+    return APIResponse(code=0, message="草稿已创建", data=canvases.create_canvas(request.name))
+
+
+@router.get("/workbench/canvas/workflows/{workflow_id}", response_model=APIResponse)
+async def canvas_detail(workflow_id: str) -> APIResponse:
+    return APIResponse(code=0, message="success", data=canvases.get_canvas(workflow_id))
+
+
+@router.put("/workbench/canvas/workflows/{workflow_id}", response_model=APIResponse)
+async def canvas_save(workflow_id: str, request: SaveCanvas) -> APIResponse:
+    return APIResponse(code=0, message="草稿已保存", data=canvases.save_canvas(workflow_id, request.revision, request.definition))
+
+
+@router.post("/workbench/canvas/workflows/{workflow_id}/publish", response_model=APIResponse)
+async def canvas_publish(workflow_id: str, request: PublishCanvas) -> APIResponse:
+    result = await canvases.publish_canvas(workflow_id, request.revision)
+    return APIResponse(code=0, message="流程理解已发布" if result["published"] else "请修改流程后重新发布", data=result)
 
 
 @router.put("/workbench/sop-enabled", response_model=APIResponse)

@@ -1252,6 +1252,19 @@ class YouzanToolCallAuditModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class CanvasWorkflowModel(Base):
+    __tablename__ = "canvas_workflows"
+
+    workflow_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    draft_json: Mapped[str] = mapped_column(Text)
+    published_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class SopFlowModel(Base):
     __tablename__ = "sop_flows"
     scope: Mapped[str] = mapped_column(String(32), primary_key=True)

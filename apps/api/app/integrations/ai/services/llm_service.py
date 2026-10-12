@@ -387,6 +387,9 @@ def _model_config(
 
 
 def _timeout_for(settings, purpose: str) -> float:
+    if purpose == "workflow_publish":
+        # Two JSON attempts must finish within the admin proxy's 240-second timeout.
+        return min(settings.llm_timeout_seconds, 100)
     if purpose == "persona":
         return settings.persona_llm_timeout_seconds
     if purpose in {"rag", "rag_fast", "business"}:
