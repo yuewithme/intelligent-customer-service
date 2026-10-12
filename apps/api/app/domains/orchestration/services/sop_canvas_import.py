@@ -110,6 +110,13 @@ def sop_to_canvas(scope: str, name: str, flow: SopFlowDefinition, category_names
                 node.type = "condition"
         priorities = {f"edge_{index}": edge.priority for index, edge in enumerate(flow.transitions)}
         canvas.edges.sort(key=lambda edge: priorities.get(edge.id, 100))
+        data = canvas.model_dump()
+        for node in data["nodes"]:
+            if node["type"] == "condition":
+                node.pop("branches")
+            elif node["type"] == "scheduled_send":
+                node.pop("send_time")
+        return CanvasDefinition.model_validate(data)
     return canvas
 
 

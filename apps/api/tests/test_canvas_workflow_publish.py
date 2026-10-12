@@ -79,7 +79,8 @@ def test_sync_all_three_sops_preserves_nodes_branches_and_policies(client):
         old_names = {node["step_id"]: node["name"] for node in package["steps"]}
         assert {node.name for node in flow.nodes if node.type not in {"start", "end"}} == set(old_names.values())
         assert {node.type for node in flow.nodes} <= {"start", "general", "scheduled_send", "condition", "handoff", "end"}
-        actual_edges = {(names[edge.source], names[edge.target], edge.label) for edge in flow.edges}
+        branch_conditions = {(node.id, branch.id): branch.condition for node in flow.nodes for branch in node.branches}
+        actual_edges = {(names[edge.source], names[edge.target], branch_conditions.get((edge.source, edge.source_branch), edge.label)) for edge in flow.edges}
         for edge in package["transitions"]:
             assert (old_names[edge["from_step"]], old_names.get(edge["to_step"], "结束本次分支"), edge["label"]) in actual_edges
         for node in flow.nodes:
@@ -136,20 +137,20 @@ def test_sync_prefers_saved_flow_and_never_overwrites_edited_or_published_canvas
     assert len(canvases.list_canvases()) == 3
 
 
-def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(client, monkeypatch):
+@pytest.mark.parametrize("cycle", ["daily", "every_three_days", "weekly"])
+def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(client, monkeypatch, cycle):
     created = create(client)
     flow = created["definition"]
     condition = flow["nodes"][1]
-    condition.update(type="condition", name="判断客户需求", trigger_condition="读取客户当前消息和已有标签",
-                     action="匹配当前需求和时间事件", exit_condition="均未匹配时等待客户补充信息", branch_mode="all_matches")
-    timed = {**condition, "id": "timed", "type": "scheduled_send", "name": "养护内容", "trigger_condition": "客户仍带有服务中标签",
-             "schedule_rule": "每周三 09:25，北京时间", "send_content_type": "mixed", "action": "发送养护文字与匹配的视频", "exit_condition": "标签移除时停止；本次发送后结束本次分支"}
-    handoff = {**condition, "id": "handoff", "type": "handoff", "name": "人工接待", "trigger_condition": "客户明确要求人工",
-               "handoff_target": "按现有转人工设置通知负责人", "action": "交接客户需求与当前对话", "exit_condition": "通知成功后暂停 AI，由人工确认恢复"}
+    condition.update(type="condition", name="判断客户需求", trigger_condition="", action="", exit_condition="",
+                     branches=[{"id": "care", "condition": "客户有服务中标签且到了发送时间"}, {"id": "human", "condition": "客户要求人工"}])
+    timed = {**condition, "id": "timed", "type": "scheduled_send", "name": "养护内容", "branches": [],
+             "send_time": "09:25", "send_cycle": cycle, "send_content_type": "mixed", "action": "发送养护文字与匹配的视频"}
+    handoff = {**condition, "id": "handoff", "type": "handoff", "name": "人工接待", "branches": [], "handoff_target": ""}
     flow["nodes"].extend([timed, handoff])
     flow["edges"] = [flow["edges"][0],
-        {"id": "to_timed", "source": "step", "target": "timed", "label": "定时时间到且客户有服务中标签"},
-        {"id": "to_handoff", "source": "step", "target": "handoff", "label": "客户要求人工"},
+        {"id": "to_timed", "source": "step", "target": "timed", "source_branch": "care", "label": ""},
+        {"id": "to_handoff", "source": "step", "target": "handoff", "source_branch": "human", "label": ""},
         {"id": "timed_end", "source": "timed", "target": "end", "label": "本次发送完成"},
         {"id": "handoff_end", "source": "handoff", "target": "end", "label": "交接完成"},
     ]
@@ -158,21 +159,27 @@ def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(cl
     assert client.get(url).json()["data"]["definition"] == saved["definition"]
 
     async def review(prompt, **kwargs):
-        assert all(text in prompt for text in ["每周三 09:25", '"send_content_type": "mixed"', '"branch_mode": "all_matches"', "按现有转人工设置通知负责人", "底层打标能力"])
-        assert kwargs["prompt_version"] == "canvas_publish.v2"
+        payload = json.loads(prompt.split("下面是完整的待审核流程 JSON：\n")[1])
+        reviewed = {node["id"]: node for node in payload["nodes"]}
+        assert reviewed["step"]["branches"] == condition["branches"]
+        assert "action" not in reviewed["step"] and "handoff_target" not in reviewed["handoff"]
+        assert reviewed["timed"]["send_time"] == "09:25" and reviewed["timed"]["send_cycle"] == cycle
+        assert "现有转人工设置通知负责人" in prompt and "底层打标能力" in prompt
+        assert kwargs["prompt_version"] == "canvas_publish.v3"
         return {"summary": "按条件执行定时发送或转人工", "nodes": [{"node_id": node["id"], "understanding": node["name"]} for node in flow["nodes"]], "issues": []}
     monkeypatch.setattr(canvases, "generate_json", review)
     result = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
     assert result["published"] is True
     assert result["workflow"]["published"]["definition"] == saved["definition"]
 
-    timed["schedule_rule"] = ""
-    handoff["handoff_target"] = ""
-    flow["edges"][1]["label"] = ""
+    assert saved["definition"]["edges"][1]["label"] == "分支一"
+    assert saved["definition"]["edges"][2]["label"] == "分支二"
+    timed["send_time"] = ""
+    condition["branches"][0]["condition"] = ""
     issues = publication_issues(CanvasDefinition.model_validate(flow))
-    assert {(issue.node_id, issue.field) for issue in issues} == {("timed", "schedule_rule"), ("handoff", "handoff_target"), ("step", "graph")}
+    assert {(issue.node_id, issue.field) for issue in issues} == {("timed", "send_time"), ("step", "branches")}
     flow["edges"].pop(2)
-    assert any("两个出口" in issue.message for issue in publication_issues(CanvasDefinition.model_validate(flow)))
+    assert any("分支二还没有连接" in issue.message for issue in publication_issues(CanvasDefinition.model_validate(flow)))
 
 
 def test_upgrade_only_untouched_legacy_imports(client):
@@ -206,9 +213,73 @@ def test_upgrade_only_untouched_legacy_imports(client):
     assert service["revision"] == 2
     assert {node["type"] for node in service["definition"]["nodes"]} == {"start", "condition", "scheduled_send", "handoff", "general", "end"}
     assert [node["position"] for node in service["definition"]["nodes"]] == [node["position"] for node in service_before["definition"]["nodes"]]
-    assert service["definition"]["edges"] == service_before["definition"]["edges"]
+    assert {(edge["id"], edge["source"], edge["target"]) for edge in service["definition"]["edges"]} == {(edge["id"], edge["source"], edge["target"]) for edge in service_before["definition"]["edges"]}
     assert canvases.get_canvas("sop_first_order") == first and canvases.get_canvas("sop_seeding") == seeding
     assert canvases.sync_existing_sops() == {"created": [], "updated": []}
+
+
+def test_branch_identity_survives_insert_delete_and_shared_destination(client):
+    created = create(client)
+    flow = created["definition"]
+    branch_node = flow["nodes"][1]
+    branch_node.update(type="condition", trigger_condition="", action="", exit_condition="", branches=[
+        {"id": "a", "condition": "客户已完成首单"}, {"id": "b", "condition": "其他情况"},
+    ])
+    flow["edges"] = [flow["edges"][0],
+        {"id": "a_end", "source": "step", "source_branch": "a", "target": "end", "label": "分支一"},
+        {"id": "b_end", "source": "step", "source_branch": "b", "target": "end", "label": "分支二"},
+    ]
+    url = f"{BASE}/{created['workflow_id']}"
+    result = client.put(url, json={"revision": 2, "definition": flow})
+    assert result.status_code == 200
+    flow = result.json()["data"]["definition"]
+    assert not publication_issues(CanvasDefinition.model_validate(flow))
+    flow["nodes"][1]["branches"].insert(0, {"id": "new", "condition": "客户被标记为测试用户"})
+    flow["edges"].append({"id": "new_end", "source": "step", "source_branch": "new", "target": "end", "label": "任意旧显示名"})
+    saved = client.put(url, json={"revision": 3, "definition": flow}).json()["data"]
+    assert {edge["source_branch"]: edge["label"] for edge in saved["definition"]["edges"] if edge["source_branch"]} == {"new": "分支一", "a": "分支二", "b": "分支三"}
+    flow = saved["definition"]
+    flow["nodes"][1]["branches"] = [branch for branch in flow["nodes"][1]["branches"] if branch["id"] != "a"]
+    assert client.put(url, json={"revision": 4, "definition": flow}).status_code == 422
+    flow["edges"] = [edge for edge in flow["edges"] if edge["source_branch"] != "a"]
+    result = client.put(url, json={"revision": 4, "definition": flow})
+    assert result.status_code == 200
+    loaded = client.get(url).json()["data"]["definition"]
+    assert next(edge for edge in loaded["edges"] if edge["source_branch"] == "b")["label"] == "分支二"
+    assert not publication_issues(CanvasDefinition.model_validate(loaded))
+
+
+def test_legacy_conditions_and_weekday_are_exposed_without_modifying_snapshot(client):
+    legacy = {
+        "name": "旧每周回访", "nodes": [
+            {"id": "start", "type": "start", "name": "开始", "position": {"x": 0, "y": 0}, "trigger_condition": "服务客户触发"},
+            {"id": "choose", "type": "condition", "name": "区分需求", "position": {"x": 350, "y": 0}},
+            {"id": "send", "type": "scheduled_send", "name": "周六回访", "position": {"x": 700, "y": 0}, "schedule_rule": "北京时间每周六 11:00", "action": "发送季节养护提醒"},
+            {"id": "end", "type": "end", "name": "结束", "position": {"x": 1050, "y": 0}},
+        ], "edges": [
+            {"id": "entry", "source": "start", "target": "choose", "label": "开始"},
+            {"id": "care", "source": "choose", "target": "send", "label": "客户需要季节养护服务"},
+            {"id": "other", "source": "choose", "target": "end", "label": "其他情况"},
+            {"id": "sent", "source": "send", "target": "end", "label": "发送完成"},
+        ],
+    }
+    snapshot = json.dumps({"definition": legacy, "revision": 7}, ensure_ascii=False)
+    with canvases._session() as session:
+        session.add(canvases.CanvasWorkflowModel(workflow_id="legacy", revision=7, draft_json=json.dumps(legacy, ensure_ascii=False),
+                                                published_json=snapshot, published_revision=7, updated_at=datetime.now(timezone.utc)))
+        session.commit()
+    loaded = client.get(f"{BASE}/legacy").json()["data"]
+    condition, timer = loaded["definition"]["nodes"][1:3]
+    assert [branch["condition"] for branch in condition["branches"]] == ["客户需要季节养护服务", "其他情况"]
+    assert (timer["send_time"], timer["send_cycle"], timer["send_weekday"]) == ("11:00", "weekly", 5)
+    assert loaded["definition"]["edges"][1]["source_branch"] == condition["branches"][0]["id"]
+    assert loaded["published"] == json.loads(snapshot) and loaded["revision"] == 7
+    assert client.get(f"{BASE}/legacy").json()["data"] == loaded
+    assert not publication_issues(CanvasDefinition.model_validate(loaded["definition"]))
+    legacy["nodes"][2]["schedule_rule"] = "每天 09:00 和 18:00"
+    ambiguous = CanvasDefinition.model_validate(legacy)
+    assert ambiguous.nodes[2].send_time == ""
+    assert any(issue.node_id == "send" and issue.field == "send_time" for issue in publication_issues(ambiguous))
 
 
 def test_structural_errors_locate_fields_without_model_call(client, monkeypatch):

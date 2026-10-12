@@ -20,12 +20,22 @@
           <button v-if="node.type !== 'start'" class="port input" :data-input-id="node.id" :disabled="locked" :aria-label="`连接到${node.name}`" @pointerdown.stop @click.stop="finishConnection(node.id)"></button>
           <div class="node-type"><span class="type-icon">{{ typeIcons[node.type] }}</span>{{ typeLabels[node.type] }}<span v-if="nodeIssues(node.id).length" class="node-error">待修改</span></div>
           <strong class="node-name">{{ node.name || '未命名节点' }}</strong>
-          <template v-if="editableNodeTypes.includes(node.type)">
-            <div v-for="field in previewFields(node)" :key="field.key" class="node-preview"><span>{{ field.label }}</span><p>{{ node[field.key] || '待填写' }}</p></div>
+          <div v-if="node.type === 'condition'" class="canvas-branches">
+            <button v-if="!node.branches.length" class="add-branch" :disabled="locked" @pointerdown.stop @click.stop="addBranch(node)">增加分支</button>
+            <div v-for="(branch, index) in node.branches" :key="branch.id" class="canvas-branch">
+              <div class="branch-heading"><span>{{ branchName(index) }}</span><button v-if="index === 0" class="add-branch" :disabled="locked || node.branches.length >= 150" @pointerdown.stop @click.stop="addBranch(node)">增加分支</button><button v-if="node.branches.length > 1" class="delete-branch" :disabled="locked" :aria-label="`删除${branchName(index)}`" @pointerdown.stop @click.stop="removeBranch(node, branch.id)">×</button></div>
+              <ElInput v-model="branch.condition" type="textarea" :rows="2" :disabled="locked" maxlength="4000" placeholder="填写这个分支的条件" resize="none" @pointerdown.stop="selectNode(node.id)" @click.stop @keydown.stop="keyDown" @wheel.stop />
+              <button class="port output branch-port" :class="{ active: connectionFrom === node.id && connectionBranch === branch.id }" :disabled="locked" :aria-label="`从${node.name}的${branchName(index)}连线`" @pointerdown.stop="beginConnection($event, node.id, branch.id)" @click.stop></button>
+            </div>
+          </div>
+          <template v-else-if="node.type === 'general'">
+            <div v-for="field in businessFields" :key="field.key" class="node-preview"><span>{{ field.label }}</span><p>{{ node[field.key] || '待填写' }}</p></div>
           </template>
+          <template v-else-if="node.type === 'scheduled_send'"><div class="schedule-summary">{{ scheduleSummary(node) }}</div><div class="node-preview"><span>{{ contentOptions.find(item => item.value === node.send_content_type)?.label }}</span><p>{{ node.action || '填写发送内容' }}</p></div></template>
+          <p v-else-if="node.type === 'handoff'" class="handoff-preview">按默认设置转交负责人<br>自动附带上下文，暂停 AI 回复</p>
           <p v-else-if="node.type === 'start'" class="start-preview">{{ node.trigger_condition || '标签被打上、加上好友或特定时间点…' }}</p>
           <p v-else class="end-preview">结束本次流程</p>
-          <button v-if="node.type !== 'end'" class="port output" :class="{ active: connectionFrom === node.id }" :disabled="locked" :aria-label="`从${node.name}连线`" @pointerdown.stop="beginConnection($event, node.id)" @click.stop></button>
+          <button v-if="node.type !== 'end' && node.type !== 'condition'" class="port output" :class="{ active: connectionFrom === node.id }" :disabled="locked" :aria-label="`从${node.name}连线`" @pointerdown.stop="beginConnection($event, node.id)" @click.stop></button>
         </div>
       </div>
     </div>
@@ -70,46 +80,38 @@
         </template>
         <template v-else-if="selectedNode">
           <label class="field-label">节点名称</label><ElInput v-model="selectedNode.name" :disabled="locked" maxlength="80" placeholder="给节点起一个业务名称" />
-          <template v-if="editableNodeTypes.includes(selectedNode.type)">
-            <label class="field-label">节点类型</label>
-            <ElSelect :model-value="selectedNode.type" :disabled="locked" @change="changeNodeType"><ElOption v-for="type in editableNodeTypes" :key="type" :value="type" :label="typeLabels[type]" /></ElSelect>
-          </template>
           <template v-if="selectedNode.type === 'start'">
             <label class="field-label">触发条件</label>
             <ElInput v-model="selectedNode.trigger_condition" type="textarea" :rows="7" :disabled="locked" maxlength="4000" show-word-limit placeholder="例如：客户被打上「服务中」标签时触发。&#10;或：客户加上好友时触发。&#10;或：每周四上午 10 点，对服务中的客户触发。" />
             <p class="field-help">用文字写清标签、加好友或时间触发条件。多种条件请说明满足任意一项还是全部满足。</p>
           </template>
-          <template v-else-if="editableNodeTypes.includes(selectedNode.type)">
-            <template v-if="selectedNode.type === 'scheduled_send'">
-              <label class="field-label">发送时间与周期</label><ElInput v-model="selectedNode.schedule_rule" type="textarea" :rows="3" :disabled="locked" maxlength="2000" show-word-limit placeholder="例如：每天 10:00，或每周六 11:00。默认北京时间。" />
-              <label class="field-label">发送内容</label><ElSelect v-model="selectedNode.send_content_type" :disabled="locked"><ElOption v-for="item in contentOptions" :key="item.value" :value="item.value" :label="item.label" /></ElSelect>
-              <p class="field-help">在下方说明具体内容或素材匹配规则，组合内容可包含文字、图片、视频等。</p>
-            </template>
-            <template v-else-if="selectedNode.type === 'condition'">
-              <label class="field-label">分支匹配方式</label><ElSelect v-model="selectedNode.branch_mode" :disabled="locked"><ElOption value="first_match" label="按顺序选择首个匹配分支" /><ElOption value="all_matches" label="执行所有匹配分支" /></ElSelect>
-            </template>
-            <template v-else-if="selectedNode.type === 'handoff'">
-              <label class="field-label">转交对象</label><ElInput v-model="selectedNode.handoff_target" :disabled="locked" maxlength="500" placeholder="例如：按现有转人工设置通知负责人" />
-            </template>
-            <div v-for="field in fieldsFor(selectedNode.type)" :key="field.key" :data-field="field.key"><label class="field-label">{{ field.label }}</label><ElInput v-model="selectedNode[field.key]" type="textarea" :rows="field.key === 'action' ? 6 : 4" :disabled="locked" :maxlength="field.key === 'action' ? 6000 : 4000" show-word-limit :placeholder="field.placeholder" /></div>
-            <p v-if="selectedNode.type === 'general'" class="field-help">采集到明确的客户信息时，底层能力负责按现有标签打标并记录档案。</p>
+          <template v-else-if="selectedNode.type === 'condition'">
+            <button v-if="!selectedNode.branches.length" class="add-branch empty-branch" :disabled="locked" @click="addBranch(selectedNode)">增加分支</button>
+            <div v-for="(branch, index) in selectedNode.branches" :key="branch.id" class="branch-editor">
+              <div class="branch-heading"><span>{{ branchName(index) }}</span><button v-if="index === 0" class="add-branch" :disabled="locked || selectedNode.branches.length >= 150" @click="addBranch(selectedNode)">增加分支</button><button v-if="selectedNode.branches.length > 1" class="delete-branch" :disabled="locked" :aria-label="`删除${branchName(index)}`" @click="removeBranch(selectedNode, branch.id)">×</button></div>
+              <ElInput v-model="branch.condition" type="textarea" :rows="3" :disabled="locked" maxlength="4000" placeholder="例如：客户明确提出选购需求" />
+            </div>
+          </template>
+          <template v-else-if="selectedNode.type === 'scheduled_send'">
+            <div class="schedule-controls"><div><label class="field-label">发送时间</label><ElTimePicker :model-value="selectedNode.send_time || null" :disabled="locked" :clearable="false" format="HH:mm" value-format="HH:mm" placeholder="选择时间" @update:model-value="setSendTime" /></div><div><label class="field-label">发送周期</label><ElSelect v-model="selectedNode.send_cycle" :disabled="locked" @change="changeCycle"><ElOption v-for="option in cycleOptions" :key="option.value" :value="option.value" :label="option.label" /></ElSelect></div></div>
+            <p class="field-help">{{ scheduleHint(selectedNode) }}</p>
+            <label class="field-label">发送内容</label><ElSelect v-model="selectedNode.send_content_type" :disabled="locked"><ElOption v-for="item in contentOptions" :key="item.value" :value="item.value" :label="item.label" /></ElSelect>
+            <ElInput v-model="selectedNode.action" class="send-content-input" type="textarea" :rows="5" :disabled="locked" maxlength="6000" placeholder="填写发送内容，或说明需要匹配什么素材" />
+          </template>
+          <p v-else-if="selectedNode.type === 'handoff'" class="field-help">默认通知转人工设置中的负责人，附带客户需求和对话上下文。人工接管后暂停 AI 回复，由人工确认恢复。</p>
+          <template v-else-if="selectedNode.type === 'general'">
+            <div v-for="field in businessFields" :key="field.key" :data-field="field.key"><label class="field-label">{{ field.label }}</label><ElInput v-model="selectedNode[field.key]" type="textarea" :rows="field.key === 'action' ? 6 : 4" :disabled="locked" :maxlength="field.key === 'action' ? 6000 : 4000" show-word-limit :placeholder="field.placeholder" /></div>
+            <p class="field-help">采集到明确的客户信息时，底层能力负责按现有标签打标并记录档案。</p>
           </template>
           <p v-else class="field-help">流程到达这个节点后结束。可以通过节点名称说明本次流程的结果。</p>
           <div v-for="(issue, index) in nodeIssues(selectedNode.id)" :key="index" class="inline-issue"><strong>{{ issue.message }}</strong><p>{{ issue.suggestion }}</p></div>
-          <div v-if="selectedNode.type === 'condition'" class="node-exits">
-            <label class="field-label">分支条件与去向</label><p class="field-help">从节点右侧圆点连接至少两个后续节点，再填写条件。兜底分支可写“其他情况”，仅在其余条件均未命中时使用。</p>
-            <div v-for="(edge, index) in outgoingEdges" :key="edge.id" class="branch-editor">
-              <div class="branch-heading"><span>{{ index + 1 }}. {{ nodeName(edge.target) }}</span><button :disabled="locked || index === 0" @click="moveBranch(edge.id, -1)">↑</button><button :disabled="locked || index === outgoingEdges.length - 1" @click="moveBranch(edge.id, 1)">↓</button></div>
-              <ElInput v-model="edge.label" :disabled="locked" maxlength="200" placeholder="例如：客户明确提出选购需求" />
-            </div>
-          </div>
-          <div v-else-if="selectedNode.type !== 'end'" class="node-exits"><label class="field-label">后续节点</label><p v-if="!outgoingEdges.length" class="muted">从节点右侧圆点拖线到下一个节点。</p><button v-for="edge in outgoingEdges" :key="edge.id" @click="selectEdge(edge.id)">{{ edge.label || '继续' }} → {{ nodeName(edge.target) }}</button></div>
+          <div v-if="selectedNode.type !== 'end' && selectedNode.type !== 'condition'" class="node-exits"><label class="field-label">后续节点</label><p v-if="!outgoingEdges.length" class="muted">从节点右侧圆点拖线到下一个节点。</p><button v-for="edge in outgoingEdges" :key="edge.id" @click="selectEdge(edge.id)">{{ edge.label || '继续' }} → {{ nodeName(edge.target) }}</button></div>
           <ElButton v-if="isAdmin()" type="danger" plain :disabled="busy" class="remove-button" @click="removeSelection">删除节点</ElButton>
         </template>
         <template v-else-if="selectedEdge">
           <p>{{ nodeName(selectedEdge.source) }} → {{ nodeName(selectedEdge.target) }}</p>
-          <label class="field-label">连线说明</label><ElInput v-model="selectedEdge.label" :disabled="locked" maxlength="200" placeholder="选填，例如：客户明确需要人工处理" />
-          <p class="field-help">有多条分支时，可在这里说明每条路径对应的条件。</p>
+          <template v-if="selectedEdge.source_branch"><label class="field-label">{{ edgeLabel(selectedEdge) }}</label><p class="field-help">{{ edgeCondition(selectedEdge) }}</p></template>
+          <template v-else><label class="field-label">连线说明</label><ElInput v-model="selectedEdge.label" :disabled="locked" maxlength="200" placeholder="选填，例如：客户明确需要人工处理" /></template>
           <ElButton v-if="isAdmin()" type="danger" plain :disabled="busy" class="remove-button" @click="removeSelection">删除连线</ElButton>
         </template>
       </div>
@@ -122,7 +124,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { ElButton, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect } from 'element-plus'
+import { ElButton, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect, ElTimePicker } from 'element-plus'
 import { isAdmin } from '@/utils/gate'
 import { createCanvasWorkflow, getCanvasWorkflow, listCanvasWorkflows, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
   type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
@@ -144,6 +146,7 @@ const panel = ref<'node' | 'review' | null>(null)
 const stage = ref<HTMLElement>()
 const view = reactive({ x: 0, y: 0, zoom: 1 })
 const connectionFrom = ref<string | null>(null)
+const connectionBranch = ref<string | null>(null)
 const connectionPoint = reactive({ x: 0, y: 0 })
 const gesture = ref<{ kind: 'pan' | 'node'; nodeId?: string; clientX: number; clientY: number; x: number; y: number } | null>(null)
 const editableNodeTypes: CanvasNodeType[] = ['general', 'scheduled_send', 'condition', 'handoff']
@@ -154,34 +157,38 @@ const contentOptions = [
   { value: 'text', label: '文字' }, { value: 'image', label: '图片' }, { value: 'video', label: '视频' },
   { value: 'link', label: '链接 / 小程序' }, { value: 'product_card', label: '商品卡片' }, { value: 'mixed', label: '组合内容' }
 ]
+const cycleOptions = [{ value: 'daily', label: '每天' }, { value: 'every_three_days', label: '每三天' }, { value: 'weekly', label: '每周' }]
+const branchName = (index: number) => {
+  const number = index + 1, digits = '零一二三四五六七八九'
+  const suffix = number < 10 ? digits[number] : number < 100 ? `${number >= 20 ? digits[Math.floor(number / 10)] : ''}十${number % 10 ? digits[number % 10] : ''}` : String(number)
+  return `分支${suffix}`
+}
+const scheduleSummary = (node: CanvasNode) => `${node.send_cycle === 'weekly' && node.send_weekday !== null ? `每周${'一二三四五六日'[node.send_weekday]}` : cycleOptions.find(option => option.value === node.send_cycle)?.label || '每天'} ${node.send_time || '待选择时间'}`
+const scheduleHint = (node: CanvasNode) => node.send_cycle === 'weekly' && node.send_weekday !== null
+  ? `北京时间，每周${'一二三四五六日'[node.send_weekday]}发送。`
+  : node.send_cycle === 'daily' ? '北京时间，每天在所选时间发送。' : '北京时间，从流程生效后的首次到期时间开始按周期重复。'
 const businessFields = [
   { key: 'trigger_condition' as const, label: '触发条件', placeholder: '什么情况下进入这一步？例如：客户已收到教程，并提出养护问题。' },
   { key: 'action' as const, label: '具体行动', placeholder: '进入后具体做什么？例如：结合养护手册回答客户的问题，了解种植环境，并记录客户明确提供的信息。' },
   { key: 'exit_condition' as const, label: '退出条件', placeholder: '什么情况下进入下一步或结束？例如：客户确认问题已解决；需要人工时进入人工处理分支。' }
 ]
-const fieldsFor = (type: CanvasNodeType) => {
-  const labels = type === 'scheduled_send' ? ['发送前条件', '发送内容说明', '停止条件与本次结束条件']
-    : type === 'condition' ? ['判断依据', '分支规则', '未命中时的处理']
-    : type === 'handoff' ? ['转交条件', '交接说明', '交接后的处理'] : businessFields.map(field => field.label)
-  const placeholders = type === 'scheduled_send' ? ['哪些客户可以发送？发送前需要满足什么条件？', '写清具体内容，或说明从哪些素材中如何匹配。', '什么时候停止重复发送？本次发送或跳过后如何结束？']
-    : type === 'condition' ? ['根据哪些客户标签、消息或事实判断？', '说明判断规则；各条分支条件在下方连线上配置。', '没有分支匹配时，等待客户补充信息，还是走其他情况分支？']
-    : type === 'handoff' ? ['什么情况下交给人工？', '向人工交接哪些需求和上下文？给客户怎样的承接说明？', '交接后 AI 是否暂停？由谁确认恢复，或何时结束本次流程？'] : businessFields.map(field => field.placeholder)
-  return businessFields.map((field, index) => ({ ...field, label: labels[index], placeholder: placeholders[index] }))
-}
-const previewFields = (node: CanvasNode) => node.type === 'scheduled_send'
-  ? [{ key: 'schedule_rule' as const, label: '发送时间与周期' }, { key: 'action' as const, label: `发送内容 · ${contentOptions.find(item => item.value === node.send_content_type)?.label || '文字'}` }, { key: 'exit_condition' as const, label: '停止条件' }]
-  : node.type === 'handoff' ? [{ key: 'trigger_condition' as const, label: '转交条件' }, { key: 'handoff_target' as const, label: '转交对象' }, { key: 'action' as const, label: '交接说明' }] : fieldsFor(node.type)
-const fieldLabels = { name: '名称', trigger_condition: '触发条件', action: '具体行动', exit_condition: '退出条件', schedule_rule: '发送时间与周期', send_content_type: '发送内容', branch_mode: '分支匹配方式', handoff_target: '转交对象', graph: '连线与结构' }
+const fieldLabels = { name: '名称', trigger_condition: '触发条件', action: '具体行动', exit_condition: '退出条件', schedule_rule: '发送时间与周期', send_content_type: '发送内容', branch_mode: '分支匹配方式', handoff_target: '转交对象', branches: '分支条件', send_time: '发送时间', send_cycle: '发送周期', graph: '连线与结构' }
 const statusText = computed(() => {
   if (publishing.value) return '正在理解整张流程…'
   if (dirty.value) return '有未保存的修改'
   if (workflow.value?.published_revision === workflow.value?.revision) return '流程理解已发布'
   return workflow.value?.published_revision ? '草稿已保存 · 已有发布版本' : '草稿已保存'
 })
-const nodeHeight = (node: CanvasNode) => editableNodeTypes.includes(node.type) ? 252 : node.type === 'start' ? 144 : 98
+const nodeHeight = (node: CanvasNode) => node.type === 'condition' ? Math.max(184, 88 + node.branches.length * 108) : node.type === 'general' ? 252 : node.type === 'scheduled_send' ? 190 : node.type === 'end' ? 98 : 144
 const nodeName = (nodeId: string) => definition.value?.nodes.find(node => node.id === nodeId)?.name || nodeId
 const nodeIssues = (nodeId: string) => workflow.value?.last_review?.issues.filter(issue => issue.node_id === nodeId) || []
-const portPosition = (node: CanvasNode, output = false) => ({ x: node.position.x + (output ? 260 : 0), y: node.position.y + nodeHeight(node) / 2 })
+const portPosition = (node: CanvasNode, output = false, branchId: string | null = null) => ({ x: node.position.x + (output ? 260 : 0), y: node.position.y + (output && node.type === 'condition' && branchId ? 136 + node.branches.findIndex(branch => branch.id === branchId) * 108 : nodeHeight(node) / 2) })
+const edgeLabel = (edge: CanvasEdge) => {
+  const source = definition.value?.nodes.find(node => node.id === edge.source)
+  const index = source?.branches.findIndex(branch => branch.id === edge.source_branch) ?? -1
+  return source?.type === 'condition' && index >= 0 ? branchName(index) : edge.label
+}
+const edgeCondition = (edge: CanvasEdge) => definition.value?.nodes.find(node => node.id === edge.source)?.branches.find(branch => branch.id === edge.source_branch)?.condition || '待填写分支条件'
 const curve = (from: { x: number; y: number }, to: { x: number; y: number }) => {
   const bend = Math.max(70, Math.abs(to.x - from.x) * 0.5)
   return `M ${from.x} ${from.y} C ${from.x + bend} ${from.y}, ${to.x - bend} ${to.y}, ${to.x} ${to.y}`
@@ -189,12 +196,12 @@ const curve = (from: { x: number; y: number }, to: { x: number; y: number }) => 
 const drawnEdges = computed(() => (definition.value?.edges || []).flatMap(edge => {
   const source = definition.value?.nodes.find(node => node.id === edge.source), target = definition.value?.nodes.find(node => node.id === edge.target)
   if (!source || !target) return []
-  const from = portPosition(source, true), to = portPosition(target)
-  return [{ ...edge, path: curve(from, to), labelX: (from.x + to.x) / 2, labelY: (from.y + to.y) / 2 - 12 }]
+  const from = portPosition(source, true, edge.source_branch), to = portPosition(target)
+  return [{ ...edge, label: edgeLabel(edge), path: curve(from, to), labelX: (from.x + to.x) / 2, labelY: (from.y + to.y) / 2 - 12 }]
 }))
 const pendingPath = computed(() => {
   const source = definition.value?.nodes.find(node => node.id === connectionFrom.value)
-  return source ? curve(portPosition(source, true), connectionPoint) : ''
+  return source ? curve(portPosition(source, true, connectionBranch.value), connectionPoint) : ''
 })
 const worldPoint = (clientX: number, clientY: number) => {
   const rect = stage.value?.getBoundingClientRect()
@@ -205,6 +212,7 @@ const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll('-
 function applyWorkflow(value: CanvasWorkflow) {
   for (const node of value.definition.nodes) {
     node.schedule_rule ??= ''; node.send_content_type ??= 'text'; node.branch_mode ??= 'first_match'; node.handoff_target ??= ''
+    node.branches ??= []; node.send_time ??= ''; node.send_cycle ??= 'daily'; node.send_weekday ??= null
   }
   workflow.value = value
   savedFingerprint.value = JSON.stringify(value.definition)
@@ -212,7 +220,7 @@ function applyWorkflow(value: CanvasWorkflow) {
   if (existing) existing.name = value.definition.name
   else workflows.value.unshift({ workflow_id: value.workflow_id, name: value.definition.name })
 }
-function clearSelection() { selectedNodeId.value = null; selectedEdgeId.value = null; panel.value = null; connectionFrom.value = null }
+function clearSelection() { selectedNodeId.value = null; selectedEdgeId.value = null; panel.value = null; connectionFrom.value = null; connectionBranch.value = null }
 function selectNode(nodeId: string) {
   if (!definition.value?.nodes.some(node => node.id === nodeId)) return
   selectedNodeId.value = nodeId; selectedEdgeId.value = null; panel.value = 'node'
@@ -270,24 +278,26 @@ function addNode(type: CanvasNodeType) {
   if (type === 'start' && definition.value.nodes.some(node => node.type === 'start')) return
   const rect = stage.value?.getBoundingClientRect()
   const position = worldPoint((rect?.left || 0) + Math.max(320, ((rect?.width || 1000) - 360) / 2), (rect?.top || 0) + (rect?.height || 700) / 2)
-  const node: CanvasNode = { id: newId('node'), type, name: typeLabels[type], position: { x: Math.max(-10000, Math.min(10000, position.x - 130)), y: Math.max(-10000, Math.min(10000, position.y - 90)) }, trigger_condition: '', action: '', exit_condition: '', schedule_rule: '', send_content_type: 'text', branch_mode: 'first_match', handoff_target: type === 'handoff' ? '按现有转人工设置通知负责人' : '' }
+  const node: CanvasNode = { id: newId('node'), type, name: typeLabels[type], position: { x: Math.max(-10000, Math.min(10000, position.x - 130)), y: Math.max(-10000, Math.min(10000, position.y - 90)) }, trigger_condition: '', action: '', exit_condition: '', schedule_rule: '', send_content_type: 'text', branch_mode: 'first_match', handoff_target: '', branches: type === 'condition' ? [{ id: newId('branch'), condition: '' }, { id: newId('branch'), condition: '' }] : [], send_time: type === 'scheduled_send' ? '09:00' : '', send_cycle: 'daily', send_weekday: null }
   definition.value.nodes.push(node); selectNode(node.id)
 }
-function changeNodeType(type: CanvasNodeType) {
-  if (locked.value || !selectedNode.value || !editableNodeTypes.includes(type)) return
-  const node = selectedNode.value
-  if (node.name === typeLabels[node.type]) node.name = typeLabels[type]
-  node.type = type
-  if (type === 'handoff' && !node.handoff_target) node.handoff_target = '按现有转人工设置通知负责人'
+function addBranch(node: CanvasNode) {
+  if (locked.value || node.type !== 'condition' || node.branches.length >= 150) return
+  node.branches.push({ id: newId('branch'), condition: '' })
 }
-function moveBranch(edgeId: string, direction: number) {
-  if (locked.value || !definition.value) return
-  const index = outgoingEdges.value.findIndex(edge => edge.id === edgeId)
-  const neighbor = outgoingEdges.value[index + direction]
-  if (index < 0 || !neighbor) return
-  const edges = definition.value.edges
-  const from = edges.findIndex(edge => edge.id === edgeId), to = edges.findIndex(edge => edge.id === neighbor.id)
-  ;[edges[from], edges[to]] = [edges[to], edges[from]]
+function removeBranch(node: CanvasNode, branchId: string) {
+  if (locked.value || !definition.value || node.branches.length <= 1) return
+  node.branches = node.branches.filter(branch => branch.id !== branchId)
+  definition.value.edges = definition.value.edges.filter(edge => edge.source !== node.id || edge.source_branch !== branchId)
+  for (const edge of definition.value.edges) if (edge.source === node.id) edge.label = edgeLabel(edge)
+  if (connectionFrom.value === node.id && connectionBranch.value === branchId) { connectionFrom.value = null; connectionBranch.value = null }
+}
+function setSendTime(value: unknown) {
+  if (!locked.value && selectedNode.value && typeof value === 'string') selectedNode.value.send_time = value
+}
+function changeCycle() {
+  if (locked.value || !selectedNode.value) return
+  selectedNode.value.send_weekday = null
 }
 function removeSelection() {
   if (!definition.value || locked.value) return
@@ -309,18 +319,22 @@ function beginNodeDrag(event: PointerEvent, node: CanvasNode) {
   event.preventDefault()
   gesture.value = { kind: 'node', nodeId: node.id, clientX: event.clientX, clientY: event.clientY, x: node.position.x, y: node.position.y }
 }
-function beginConnection(event: PointerEvent, nodeId: string) {
+function beginConnection(event: PointerEvent, nodeId: string, branchId: string | null = null) {
   if (locked.value || event.button !== 0) return
-  event.preventDefault(); gesture.value = null; connectionFrom.value = nodeId
+  event.preventDefault(); gesture.value = null; connectionFrom.value = nodeId; connectionBranch.value = branchId
   Object.assign(connectionPoint, worldPoint(event.clientX, event.clientY))
 }
 function finishConnection(target: string) {
   if (!definition.value || locked.value || !connectionFrom.value) return
-  const source = connectionFrom.value
-  connectionFrom.value = null
-  if (source === target || definition.value.edges.some(edge => edge.source === source && edge.target === target)) return
+  const source = connectionFrom.value, sourceBranch = connectionBranch.value
+  connectionFrom.value = null; connectionBranch.value = null
+  if (source === target || definition.value.edges.some(edge => edge.source === source && edge.target === target && (edge.source_branch || null) === sourceBranch)) return
   if (definition.value.nodes.find(node => node.id === target)?.type === 'start' || definition.value.edges.length >= 150) return
-  const edge: CanvasEdge = { id: newId('edge'), source, target, label: '' }
+  const sourceNode = definition.value.nodes.find(node => node.id === source)
+  if (sourceNode?.type === 'condition' && !sourceNode.branches.some(branch => branch.id === sourceBranch)) return
+  if (sourceBranch) definition.value.edges = definition.value.edges.filter(edge => edge.source !== source || edge.source_branch !== sourceBranch)
+  const edge: CanvasEdge = { id: newId('edge'), source, target, label: '', source_branch: sourceBranch }
+  edge.label = edgeLabel(edge)
   definition.value.edges.push(edge); selectEdge(edge.id)
 }
 function pointerMove(event: PointerEvent) {
@@ -367,7 +381,8 @@ function locateIssue(issue: CanvasIssue) {
   view.x = Math.max(170, (stage.value.clientWidth - 360) / 2 - 130) - node.position.x * view.zoom
   view.y = Math.max(150, stage.value.clientHeight / 2 - nodeHeight(node) / 2) - node.position.y * view.zoom
 }
-function keyDown(event: KeyboardEvent) {
+function keyDown(event: Event) {
+  if (!(event instanceof KeyboardEvent)) return
   if (event.key === 'Escape') { connectionFrom.value = null; gesture.value = null; return }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); if (!busy.value) void saveDraft(); return }
   if ((event.target as HTMLElement)?.closest('input, textarea, [contenteditable="true"]')) return
@@ -426,8 +441,10 @@ onBeforeUnmount(() => {
 .condition .type-icon, .node-palette i.condition { color: #7961a5; background: #f2edfa; }
 .handoff .type-icon, .node-palette i.handoff { color: #ae6652; background: #fbeee8; }
 .panel-content :deep(.el-select) { width: 100%; }
-.branch-editor { margin-top: 14px; }.branch-heading { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; color: #597061; }.branch-heading span { flex: 1; }
-.node-exits .branch-heading button { flex: 0 0 26px; width: 26px; padding: 4px; text-align: center; border: 1px solid #e3eae5; border-radius: 4px; }.node-exits .branch-heading button:disabled { opacity: .35; cursor: default; }
+.branch-editor { margin-top: 20px; }.branch-heading { display: flex; align-items: center; gap: 6px; height: 24px; margin-bottom: 6px; font-size: 12px; color: #597061; }.branch-heading span { flex: 1; font-weight: 600; }
+.add-branch, .delete-branch { padding: 2px 5px; border: 0; border-radius: 4px; background: #f2edfa; color: #7961a5; font: inherit; font-size: 11px; cursor: pointer; }.delete-branch { color: #8e807f; background: transparent; font-size: 17px; }.add-branch:disabled, .delete-branch:disabled { opacity: .35; cursor: default; }.empty-branch { margin-top: 20px; }
+.canvas-branches { position: absolute; top: 76px; left: 18px; right: 18px; }.canvas-branch { position: relative; height: 108px; }.canvas-branch :deep(.el-textarea__inner) { height: 60px; min-height: 60px !important; padding: 5px 8px; font-size: 12px; line-height: 18px; user-select: text; touch-action: auto; }.canvas-branch .branch-port { top: 60px; right: -26px; border-color: #9e87bf; }
+.schedule-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }.schedule-controls :deep(.el-date-editor.el-input) { width: 100%; }.send-content-input { margin-top: 12px; }.schedule-summary { margin-top: 14px; color: #a37235; font-size: 13px; }.handoff-preview { font-size: 12px; color: #788b7e; line-height: 19px; margin-top: 12px; }
 .node-preview { display: flex; gap: 8px; border-top: 1px solid #f0f3f1; padding-top: 8px; margin-top: 8px; font-size: 11px; }.node-preview > span { color: #87978e; flex: 0 0 44px; }.node-preview p { margin: 0; color: #577163; line-height: 17px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .start-preview { color: #738b7c; font-size: 12px; line-height: 19px; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }.end-preview { font-size: 11px; color: #89988e; margin: 0; }
 .port { position: absolute; top: 50%; width: 14px; height: 14px; border: 2px solid #78a68c; border-radius: 50%; background: #fff; transform: translateY(-50%); cursor: crosshair; padding: 0; }.port::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }.port.input { left: -8px; }.port.output { right: -8px; }.port:hover, .port.active { background: #2e8867; border-color: #2e8867; }.port:disabled { cursor: default; }

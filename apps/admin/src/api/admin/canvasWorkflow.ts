@@ -1,6 +1,7 @@
 import request from '@/config/axios'
 
 export type CanvasNodeType = 'start' | 'general' | 'scheduled_send' | 'condition' | 'handoff' | 'end'
+export interface CanvasBranch { id: string; condition: string }
 export interface CanvasNode {
   id: string
   type: CanvasNodeType
@@ -13,12 +14,16 @@ export interface CanvasNode {
   send_content_type: 'text' | 'image' | 'video' | 'link' | 'product_card' | 'mixed'
   branch_mode: 'first_match' | 'all_matches'
   handoff_target: string
+  branches: CanvasBranch[]
+  send_time: string
+  send_cycle: 'daily' | 'every_three_days' | 'weekly'
+  send_weekday: number | null
 }
-export interface CanvasEdge { id: string; source: string; target: string; label: string }
+export interface CanvasEdge { id: string; source: string; target: string; label: string; source_branch: string | null }
 export interface CanvasDefinition { name: string; nodes: CanvasNode[]; edges: CanvasEdge[] }
 export interface CanvasIssue {
   node_id: string | null
-  field: 'name' | 'trigger_condition' | 'action' | 'exit_condition' | 'schedule_rule' | 'send_content_type' | 'branch_mode' | 'handoff_target' | 'graph'
+  field: 'name' | 'trigger_condition' | 'action' | 'exit_condition' | 'schedule_rule' | 'send_content_type' | 'branch_mode' | 'handoff_target' | 'branches' | 'send_time' | 'send_cycle' | 'graph'
   message: string
   suggestion: string
 }
