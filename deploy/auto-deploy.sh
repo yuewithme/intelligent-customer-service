@@ -8,7 +8,8 @@ compose_file="$repository/docker-compose.prod.yml"
 # 让宿主 nginx 做 TLS）。显式 -f 时 docker compose 不会自动叠加 override，必须手动带上。
 override_file="$repository/docker-compose.override.yml"
 
-export BACKEND_ENV_FILE="${BACKEND_ENV_FILE:-/etc/intelligent-customer-service/backend.env}"
+# CI 与补偿部署必须使用同一受保护配置，不能被 systemd 遗留的仓库 env 路径覆盖。
+export BACKEND_ENV_FILE="/etc/intelligent-customer-service/backend.env"
 export APP_DATA_DIR="${APP_DATA_DIR:-/srv/intelligent-customer-service/data}"
 export HF_CACHE_DIR="${HF_CACHE_DIR:-/srv/intelligent-customer-service/cache/huggingface}"
 deploy_log_dir="${DEPLOY_LOG_DIR:-/srv/intelligent-customer-service/logs}"
@@ -77,13 +78,14 @@ compose config --quiet
 compose up -d --build
 
 for attempt in $(seq 1 24); do
-  if curl -fsS --max-time 5 http://127.0.0.1/health >/dev/null; then
+  if curl -fsS --max-time 5 http://127.0.0.1/health >/dev/null &&
+    [[ "$(curl -sS --max-time 5 --output /dev/null --write-out '%{http_code}' http://127.0.0.1/api/gate/login)" == "302" ]]; then
     log "Deployment healthy at revision $target_revision"
     exit 0
   fi
   sleep 5
 done
 
-log "ERROR: deployment health check failed at revision $target_revision"
+log "ERROR: deployment health or login configuration check failed at revision $target_revision"
 compose ps | tee -a "$log_file"
 exit 1
