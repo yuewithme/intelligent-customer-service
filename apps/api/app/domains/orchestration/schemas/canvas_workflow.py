@@ -16,12 +16,16 @@ class NodePosition(CanvasModel):
 
 class CanvasNode(CanvasModel):
     id: Identifier
-    type: Literal["start", "general", "end"]
+    type: Literal["start", "general", "scheduled_send", "condition", "handoff", "end"]
     name: str = Field(max_length=80)
     position: NodePosition
     trigger_condition: str = Field(default="", max_length=4000)
     action: str = Field(default="", max_length=6000)
     exit_condition: str = Field(default="", max_length=4000)
+    schedule_rule: str = Field(default="", max_length=2000)
+    send_content_type: Literal["text", "image", "video", "link", "product_card", "mixed"] = "text"
+    branch_mode: Literal["first_match", "all_matches"] = "first_match"
+    handoff_target: str = Field(default="", max_length=500)
 
 
 class CanvasEdge(CanvasModel):
@@ -65,7 +69,7 @@ class PublishCanvas(CanvasModel):
 
 class CanvasIssue(CanvasModel):
     node_id: Identifier | None = None
-    field: Literal["name", "trigger_condition", "action", "exit_condition", "graph"]
+    field: Literal["name", "trigger_condition", "action", "exit_condition", "schedule_rule", "send_content_type", "branch_mode", "handoff_target", "graph"]
     message: str = Field(min_length=1, max_length=1000)
     suggestion: str = Field(min_length=1, max_length=2000)
 
@@ -105,8 +109,21 @@ def publication_issues(flow: CanvasDefinition) -> list[CanvasIssue]:
     for node in flow.nodes:
         if not node.name.strip():
             issue(node.id, "name", "节点名称不能为空", "填写便于识别的业务名称。")
-        fields = ("trigger_condition", "action", "exit_condition") if node.type == "general" else ("trigger_condition",) if node.type == "start" else ()
+        fields = ("trigger_condition", "action", "exit_condition") if node.type not in {"start", "end"} else ("trigger_condition",) if node.type == "start" else ()
         labels = {"trigger_condition": "触发条件", "action": "具体行动", "exit_condition": "退出条件"}
+        if node.type == "scheduled_send":
+            fields += ("schedule_rule",)
+            labels.update(trigger_condition="发送前条件", action="发送内容说明", exit_condition="停止条件", schedule_rule="发送时间与周期")
+        elif node.type == "condition":
+            labels.update(trigger_condition="判断依据", action="分支规则", exit_condition="未命中时的处理")
+            branches = [edge for edge in flow.edges if edge.source == node.id]
+            if len(branches) < 2:
+                issue(node.id, "graph", "条件分支至少需要两个出口", "连接不同的后续节点，并填写各自的分支条件。")
+            if any(not edge.label.strip() for edge in branches):
+                issue(node.id, "graph", "条件分支的连线缺少判断条件", "为每条向外连线填写条件；兜底路径可填写“其他情况”。")
+        elif node.type == "handoff":
+            fields += ("handoff_target",)
+            labels.update(action="交接说明", exit_condition="交接后的处理", handoff_target="转交对象")
         for field in fields:
             if not getattr(node, field).strip():
                 issue(node.id, field, f"请填写{labels[field]}", f"用文字说明此节点的{labels[field]}，无需编写代码。")

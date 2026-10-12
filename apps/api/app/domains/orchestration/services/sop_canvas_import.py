@@ -31,7 +31,7 @@ def _entry_text(flow: SopFlowDefinition, category_names: dict[str, str]) -> str:
     return text
 
 
-def sop_to_canvas(scope: str, name: str, flow: SopFlowDefinition, category_names: dict[str, str]) -> CanvasDefinition:
+def sop_to_canvas(scope: str, name: str, flow: SopFlowDefinition, category_names: dict[str, str], *, specialized: bool = True) -> CanvasDefinition:
     # Generated IDs avoid collisions with legacy nodes named start/end or maximum-length IDs.
     ids = {node.step_id: f"step_{index}" for index, node in enumerate(flow.steps)}
     by_id = {node.step_id: node for node in flow.steps}
@@ -95,7 +95,22 @@ def sop_to_canvas(scope: str, name: str, flow: SopFlowDefinition, category_names
                       "target": ids[edge.to_step] if edge.to_step else "end", "label": edge.label})
     nodes.append({"id": "end", "type": "end", "name": "结束本次分支"})
     _layout(nodes, edges, {ids[key]: pos.y for key, pos in flow.layout.items()})
-    return CanvasDefinition.model_validate({"name": name, "nodes": nodes, "edges": edges})
+    canvas = CanvasDefinition.model_validate({"name": name, "nodes": nodes, "edges": edges})
+    if specialized:
+        for source, node in zip(flow.steps, canvas.nodes[1:-1]):
+            if source.schedule:
+                node.type = "scheduled_send"
+                node.schedule_rule = _schedule_text(source.schedule)
+                # Legacy material matching did not restrict the media format.
+                node.send_content_type = "mixed"
+            elif source.handoff_enabled:
+                node.type = "handoff"
+                node.handoff_target = "按现有转人工设置通知负责人"
+            elif source.type == "decision" and len(outgoing[source.step_id]) >= 2:
+                node.type = "condition"
+        priorities = {f"edge_{index}": edge.priority for index, edge in enumerate(flow.transitions)}
+        canvas.edges.sort(key=lambda edge: priorities.get(edge.id, 100))
+    return canvas
 
 
 def _layout(nodes: list[dict], edges: list[dict], old_y: dict[str, float]) -> None:

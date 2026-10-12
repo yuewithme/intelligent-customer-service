@@ -1,6 +1,6 @@
 import request from '@/config/axios'
 
-export type CanvasNodeType = 'start' | 'general' | 'end'
+export type CanvasNodeType = 'start' | 'general' | 'scheduled_send' | 'condition' | 'handoff' | 'end'
 export interface CanvasNode {
   id: string
   type: CanvasNodeType
@@ -9,12 +9,16 @@ export interface CanvasNode {
   trigger_condition: string
   action: string
   exit_condition: string
+  schedule_rule: string
+  send_content_type: 'text' | 'image' | 'video' | 'link' | 'product_card' | 'mixed'
+  branch_mode: 'first_match' | 'all_matches'
+  handoff_target: string
 }
 export interface CanvasEdge { id: string; source: string; target: string; label: string }
 export interface CanvasDefinition { name: string; nodes: CanvasNode[]; edges: CanvasEdge[] }
 export interface CanvasIssue {
   node_id: string | null
-  field: 'name' | 'trigger_condition' | 'action' | 'exit_condition' | 'graph'
+  field: 'name' | 'trigger_condition' | 'action' | 'exit_condition' | 'schedule_rule' | 'send_content_type' | 'branch_mode' | 'handoff_target' | 'graph'
   message: string
   suggestion: string
 }
@@ -35,7 +39,7 @@ export interface CanvasWorkflow {
 export interface CanvasSummary { workflow_id: string; name: string }
 const base = '/api/v1/admin/orchestration/workbench/canvas/workflows'
 export const listCanvasWorkflows = () => request.get<CanvasSummary[]>({ url: base })
-export const syncExistingSops = () => request.post<{ created: string[] }>({ url: '/api/v1/admin/orchestration/workbench/canvas/sync-sops' })
+export const syncExistingSops = () => request.post<{ created: string[]; updated: string[] }>({ url: '/api/v1/admin/orchestration/workbench/canvas/sync-sops' })
 export const createCanvasWorkflow = () => request.post<CanvasWorkflow>({ url: base, data: { name: '未命名流程' } })
 export const getCanvasWorkflow = (id: string) => request.get<CanvasWorkflow>({ url: `${base}/${id}` })
 export const saveCanvasWorkflow = (id: string, revision: number, definition: CanvasDefinition) =>

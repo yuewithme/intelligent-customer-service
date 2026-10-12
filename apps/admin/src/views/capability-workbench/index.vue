@@ -20,8 +20,8 @@
           <button v-if="node.type !== 'start'" class="port input" :data-input-id="node.id" :disabled="locked" :aria-label="`连接到${node.name}`" @pointerdown.stop @click.stop="finishConnection(node.id)"></button>
           <div class="node-type"><span class="type-icon">{{ typeIcons[node.type] }}</span>{{ typeLabels[node.type] }}<span v-if="nodeIssues(node.id).length" class="node-error">待修改</span></div>
           <strong class="node-name">{{ node.name || '未命名节点' }}</strong>
-          <template v-if="node.type === 'general'">
-            <div v-for="field in businessFields" :key="field.key" class="node-preview"><span>{{ field.label }}</span><p>{{ node[field.key] || '待填写' }}</p></div>
+          <template v-if="editableNodeTypes.includes(node.type)">
+            <div v-for="field in previewFields(node)" :key="field.key" class="node-preview"><span>{{ field.label }}</span><p>{{ node[field.key] || '待填写' }}</p></div>
           </template>
           <p v-else-if="node.type === 'start'" class="start-preview">{{ node.trigger_condition || '标签被打上、加上好友或特定时间点…' }}</p>
           <p v-else class="end-preview">结束本次流程</p>
@@ -70,17 +70,40 @@
         </template>
         <template v-else-if="selectedNode">
           <label class="field-label">节点名称</label><ElInput v-model="selectedNode.name" :disabled="locked" maxlength="80" placeholder="给节点起一个业务名称" />
+          <template v-if="editableNodeTypes.includes(selectedNode.type)">
+            <label class="field-label">节点类型</label>
+            <ElSelect :model-value="selectedNode.type" :disabled="locked" @change="changeNodeType"><ElOption v-for="type in editableNodeTypes" :key="type" :value="type" :label="typeLabels[type]" /></ElSelect>
+          </template>
           <template v-if="selectedNode.type === 'start'">
             <label class="field-label">触发条件</label>
             <ElInput v-model="selectedNode.trigger_condition" type="textarea" :rows="7" :disabled="locked" maxlength="4000" show-word-limit placeholder="例如：客户被打上「服务中」标签时触发。&#10;或：客户加上好友时触发。&#10;或：每周四上午 10 点，对服务中的客户触发。" />
             <p class="field-help">用文字写清标签、加好友或时间触发条件。多种条件请说明满足任意一项还是全部满足。</p>
           </template>
-          <template v-else-if="selectedNode.type === 'general'">
-            <div v-for="field in businessFields" :key="field.key" :data-field="field.key"><label class="field-label">{{ field.label }}</label><ElInput v-model="selectedNode[field.key]" type="textarea" :rows="field.key === 'action' ? 6 : 4" :disabled="locked" :maxlength="field.key === 'action' ? 6000 : 4000" show-word-limit :placeholder="field.placeholder" /></div>
+          <template v-else-if="editableNodeTypes.includes(selectedNode.type)">
+            <template v-if="selectedNode.type === 'scheduled_send'">
+              <label class="field-label">发送时间与周期</label><ElInput v-model="selectedNode.schedule_rule" type="textarea" :rows="3" :disabled="locked" maxlength="2000" show-word-limit placeholder="例如：每天 10:00，或每周六 11:00。默认北京时间。" />
+              <label class="field-label">发送内容</label><ElSelect v-model="selectedNode.send_content_type" :disabled="locked"><ElOption v-for="item in contentOptions" :key="item.value" :value="item.value" :label="item.label" /></ElSelect>
+              <p class="field-help">在下方说明具体内容或素材匹配规则，组合内容可包含文字、图片、视频等。</p>
+            </template>
+            <template v-else-if="selectedNode.type === 'condition'">
+              <label class="field-label">分支匹配方式</label><ElSelect v-model="selectedNode.branch_mode" :disabled="locked"><ElOption value="first_match" label="按顺序选择首个匹配分支" /><ElOption value="all_matches" label="执行所有匹配分支" /></ElSelect>
+            </template>
+            <template v-else-if="selectedNode.type === 'handoff'">
+              <label class="field-label">转交对象</label><ElInput v-model="selectedNode.handoff_target" :disabled="locked" maxlength="500" placeholder="例如：按现有转人工设置通知负责人" />
+            </template>
+            <div v-for="field in fieldsFor(selectedNode.type)" :key="field.key" :data-field="field.key"><label class="field-label">{{ field.label }}</label><ElInput v-model="selectedNode[field.key]" type="textarea" :rows="field.key === 'action' ? 6 : 4" :disabled="locked" :maxlength="field.key === 'action' ? 6000 : 4000" show-word-limit :placeholder="field.placeholder" /></div>
+            <p v-if="selectedNode.type === 'general'" class="field-help">采集到明确的客户信息时，底层能力负责按现有标签打标并记录档案。</p>
           </template>
           <p v-else class="field-help">流程到达这个节点后结束。可以通过节点名称说明本次流程的结果。</p>
           <div v-for="(issue, index) in nodeIssues(selectedNode.id)" :key="index" class="inline-issue"><strong>{{ issue.message }}</strong><p>{{ issue.suggestion }}</p></div>
-          <div v-if="selectedNode.type !== 'end'" class="node-exits"><label class="field-label">后续节点</label><p v-if="!outgoingEdges.length" class="muted">从节点右侧圆点拖线到下一个节点。</p><button v-for="edge in outgoingEdges" :key="edge.id" @click="selectEdge(edge.id)">{{ edge.label || '继续' }} → {{ nodeName(edge.target) }}</button></div>
+          <div v-if="selectedNode.type === 'condition'" class="node-exits">
+            <label class="field-label">分支条件与去向</label><p class="field-help">从节点右侧圆点连接至少两个后续节点，再填写条件。兜底分支可写“其他情况”，仅在其余条件均未命中时使用。</p>
+            <div v-for="(edge, index) in outgoingEdges" :key="edge.id" class="branch-editor">
+              <div class="branch-heading"><span>{{ index + 1 }}. {{ nodeName(edge.target) }}</span><button :disabled="locked || index === 0" @click="moveBranch(edge.id, -1)">↑</button><button :disabled="locked || index === outgoingEdges.length - 1" @click="moveBranch(edge.id, 1)">↓</button></div>
+              <ElInput v-model="edge.label" :disabled="locked" maxlength="200" placeholder="例如：客户明确提出选购需求" />
+            </div>
+          </div>
+          <div v-else-if="selectedNode.type !== 'end'" class="node-exits"><label class="field-label">后续节点</label><p v-if="!outgoingEdges.length" class="muted">从节点右侧圆点拖线到下一个节点。</p><button v-for="edge in outgoingEdges" :key="edge.id" @click="selectEdge(edge.id)">{{ edge.label || '继续' }} → {{ nodeName(edge.target) }}</button></div>
           <ElButton v-if="isAdmin()" type="danger" plain :disabled="busy" class="remove-button" @click="removeSelection">删除节点</ElButton>
         </template>
         <template v-else-if="selectedEdge">
@@ -123,22 +146,39 @@ const view = reactive({ x: 0, y: 0, zoom: 1 })
 const connectionFrom = ref<string | null>(null)
 const connectionPoint = reactive({ x: 0, y: 0 })
 const gesture = ref<{ kind: 'pan' | 'node'; nodeId?: string; clientX: number; clientY: number; x: number; y: number } | null>(null)
-const nodeTypes: CanvasNodeType[] = ['start', 'general', 'end']
-const typeLabels = { start: '开始', general: '一般节点', end: '结束' }
-const typeIcons = { start: '▷', general: '◇', end: '□' }
+const editableNodeTypes: CanvasNodeType[] = ['general', 'scheduled_send', 'condition', 'handoff']
+const nodeTypes: CanvasNodeType[] = ['start', ...editableNodeTypes, 'end']
+const typeLabels = { start: '开始', general: '一般节点', scheduled_send: '定时发送', condition: '条件分支', handoff: '转人工', end: '结束' }
+const typeIcons = { start: '▷', general: '◇', scheduled_send: '◷', condition: '⑂', handoff: '↗', end: '□' }
+const contentOptions = [
+  { value: 'text', label: '文字' }, { value: 'image', label: '图片' }, { value: 'video', label: '视频' },
+  { value: 'link', label: '链接 / 小程序' }, { value: 'product_card', label: '商品卡片' }, { value: 'mixed', label: '组合内容' }
+]
 const businessFields = [
   { key: 'trigger_condition' as const, label: '触发条件', placeholder: '什么情况下进入这一步？例如：客户已收到教程，并提出养护问题。' },
   { key: 'action' as const, label: '具体行动', placeholder: '进入后具体做什么？例如：结合养护手册回答客户的问题，了解种植环境，并记录客户明确提供的信息。' },
   { key: 'exit_condition' as const, label: '退出条件', placeholder: '什么情况下进入下一步或结束？例如：客户确认问题已解决；需要人工时进入人工处理分支。' }
 ]
-const fieldLabels = { name: '名称', trigger_condition: '触发条件', action: '具体行动', exit_condition: '退出条件', graph: '连线与结构' }
+const fieldsFor = (type: CanvasNodeType) => {
+  const labels = type === 'scheduled_send' ? ['发送前条件', '发送内容说明', '停止条件与本次结束条件']
+    : type === 'condition' ? ['判断依据', '分支规则', '未命中时的处理']
+    : type === 'handoff' ? ['转交条件', '交接说明', '交接后的处理'] : businessFields.map(field => field.label)
+  const placeholders = type === 'scheduled_send' ? ['哪些客户可以发送？发送前需要满足什么条件？', '写清具体内容，或说明从哪些素材中如何匹配。', '什么时候停止重复发送？本次发送或跳过后如何结束？']
+    : type === 'condition' ? ['根据哪些客户标签、消息或事实判断？', '说明判断规则；各条分支条件在下方连线上配置。', '没有分支匹配时，等待客户补充信息，还是走其他情况分支？']
+    : type === 'handoff' ? ['什么情况下交给人工？', '向人工交接哪些需求和上下文？给客户怎样的承接说明？', '交接后 AI 是否暂停？由谁确认恢复，或何时结束本次流程？'] : businessFields.map(field => field.placeholder)
+  return businessFields.map((field, index) => ({ ...field, label: labels[index], placeholder: placeholders[index] }))
+}
+const previewFields = (node: CanvasNode) => node.type === 'scheduled_send'
+  ? [{ key: 'schedule_rule' as const, label: '发送时间与周期' }, { key: 'action' as const, label: `发送内容 · ${contentOptions.find(item => item.value === node.send_content_type)?.label || '文字'}` }, { key: 'exit_condition' as const, label: '停止条件' }]
+  : node.type === 'handoff' ? [{ key: 'trigger_condition' as const, label: '转交条件' }, { key: 'handoff_target' as const, label: '转交对象' }, { key: 'action' as const, label: '交接说明' }] : fieldsFor(node.type)
+const fieldLabels = { name: '名称', trigger_condition: '触发条件', action: '具体行动', exit_condition: '退出条件', schedule_rule: '发送时间与周期', send_content_type: '发送内容', branch_mode: '分支匹配方式', handoff_target: '转交对象', graph: '连线与结构' }
 const statusText = computed(() => {
   if (publishing.value) return '正在理解整张流程…'
   if (dirty.value) return '有未保存的修改'
   if (workflow.value?.published_revision === workflow.value?.revision) return '流程理解已发布'
   return workflow.value?.published_revision ? '草稿已保存 · 已有发布版本' : '草稿已保存'
 })
-const nodeHeight = (node: CanvasNode) => node.type === 'general' ? 252 : node.type === 'start' ? 144 : 98
+const nodeHeight = (node: CanvasNode) => editableNodeTypes.includes(node.type) ? 252 : node.type === 'start' ? 144 : 98
 const nodeName = (nodeId: string) => definition.value?.nodes.find(node => node.id === nodeId)?.name || nodeId
 const nodeIssues = (nodeId: string) => workflow.value?.last_review?.issues.filter(issue => issue.node_id === nodeId) || []
 const portPosition = (node: CanvasNode, output = false) => ({ x: node.position.x + (output ? 260 : 0), y: node.position.y + nodeHeight(node) / 2 })
@@ -163,6 +203,9 @@ const worldPoint = (clientX: number, clientY: number) => {
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`
 
 function applyWorkflow(value: CanvasWorkflow) {
+  for (const node of value.definition.nodes) {
+    node.schedule_rule ??= ''; node.send_content_type ??= 'text'; node.branch_mode ??= 'first_match'; node.handoff_target ??= ''
+  }
   workflow.value = value
   savedFingerprint.value = JSON.stringify(value.definition)
   const existing = workflows.value.find(item => item.workflow_id === value.workflow_id)
@@ -227,8 +270,24 @@ function addNode(type: CanvasNodeType) {
   if (type === 'start' && definition.value.nodes.some(node => node.type === 'start')) return
   const rect = stage.value?.getBoundingClientRect()
   const position = worldPoint((rect?.left || 0) + Math.max(320, ((rect?.width || 1000) - 360) / 2), (rect?.top || 0) + (rect?.height || 700) / 2)
-  const node: CanvasNode = { id: newId('node'), type, name: typeLabels[type], position: { x: Math.max(-10000, Math.min(10000, position.x - 130)), y: Math.max(-10000, Math.min(10000, position.y - 90)) }, trigger_condition: '', action: '', exit_condition: '' }
+  const node: CanvasNode = { id: newId('node'), type, name: typeLabels[type], position: { x: Math.max(-10000, Math.min(10000, position.x - 130)), y: Math.max(-10000, Math.min(10000, position.y - 90)) }, trigger_condition: '', action: '', exit_condition: '', schedule_rule: '', send_content_type: 'text', branch_mode: 'first_match', handoff_target: type === 'handoff' ? '按现有转人工设置通知负责人' : '' }
   definition.value.nodes.push(node); selectNode(node.id)
+}
+function changeNodeType(type: CanvasNodeType) {
+  if (locked.value || !selectedNode.value || !editableNodeTypes.includes(type)) return
+  const node = selectedNode.value
+  if (node.name === typeLabels[node.type]) node.name = typeLabels[type]
+  node.type = type
+  if (type === 'handoff' && !node.handoff_target) node.handoff_target = '按现有转人工设置通知负责人'
+}
+function moveBranch(edgeId: string, direction: number) {
+  if (locked.value || !definition.value) return
+  const index = outgoingEdges.value.findIndex(edge => edge.id === edgeId)
+  const neighbor = outgoingEdges.value[index + direction]
+  if (index < 0 || !neighbor) return
+  const edges = definition.value.edges
+  const from = edges.findIndex(edge => edge.id === edgeId), to = edges.findIndex(edge => edge.id === neighbor.id)
+  ;[edges[from], edges[to]] = [edges[to], edges[from]]
 }
 function removeSelection() {
   if (!definition.value || locked.value) return
@@ -363,6 +422,12 @@ onBeforeUnmount(() => {
 .flow-node.selected { border-color: #2e8867; box-shadow: 0 0 0 2px #2e886722; }.flow-node.invalid { border-color: #ce7a64; }
 .node-type { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #759083; }.type-icon { display: grid; place-items: center; width: 22px; height: 22px; color: #327958; background: #eaf5ee; border-radius: 6px; font-size: 15px; }.general .type-icon { color: #5874ad; background: #edf1fa; }.end .type-icon { color: #837184; background: #f1edf2; }.node-error { color: #b25b48; font-size: 10px; margin-left: auto; }
 .node-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; margin: 9px 0; }
+.scheduled_send .type-icon, .node-palette i.scheduled_send { color: #ae7832; background: #fff3df; }
+.condition .type-icon, .node-palette i.condition { color: #7961a5; background: #f2edfa; }
+.handoff .type-icon, .node-palette i.handoff { color: #ae6652; background: #fbeee8; }
+.panel-content :deep(.el-select) { width: 100%; }
+.branch-editor { margin-top: 14px; }.branch-heading { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; color: #597061; }.branch-heading span { flex: 1; }
+.node-exits .branch-heading button { flex: 0 0 26px; width: 26px; padding: 4px; text-align: center; border: 1px solid #e3eae5; border-radius: 4px; }.node-exits .branch-heading button:disabled { opacity: .35; cursor: default; }
 .node-preview { display: flex; gap: 8px; border-top: 1px solid #f0f3f1; padding-top: 8px; margin-top: 8px; font-size: 11px; }.node-preview > span { color: #87978e; flex: 0 0 44px; }.node-preview p { margin: 0; color: #577163; line-height: 17px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .start-preview { color: #738b7c; font-size: 12px; line-height: 19px; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }.end-preview { font-size: 11px; color: #89988e; margin: 0; }
 .port { position: absolute; top: 50%; width: 14px; height: 14px; border: 2px solid #78a68c; border-radius: 50%; background: #fff; transform: translateY(-50%); cursor: crosshair; padding: 0; }.port::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }.port.input { left: -8px; }.port.output { right: -8px; }.port:hover, .port.active { background: #2e8867; border-color: #2e8867; }.port:disabled { cursor: default; }

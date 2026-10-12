@@ -1,3 +1,6 @@
+import json
+from datetime import datetime, timezone
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -74,7 +77,8 @@ def test_sync_all_three_sops_preserves_nodes_branches_and_policies(client):
         assert detail["revision"] == 1 and detail["published"] is None
         names = {node.id: node.name for node in flow.nodes}
         old_names = {node["step_id"]: node["name"] for node in package["steps"]}
-        assert {node.name for node in flow.nodes if node.type == "general"} == set(old_names.values())
+        assert {node.name for node in flow.nodes if node.type not in {"start", "end"}} == set(old_names.values())
+        assert {node.type for node in flow.nodes} <= {"start", "general", "scheduled_send", "condition", "handoff", "end"}
         actual_edges = {(names[edge.source], names[edge.target], edge.label) for edge in flow.edges}
         for edge in package["transitions"]:
             assert (old_names[edge["from_step"]], old_names.get(edge["to_step"], "结束本次分支"), edge["label"]) in actual_edges
@@ -90,6 +94,9 @@ def test_sync_all_three_sops_preserves_nodes_branches_and_policies(client):
     seeding = client.get(f"{BASE}/sop_seeding").json()["data"]["definition"]
     assert "每天 15:00" in seeding["nodes"][0]["trigger_condition"]
     assert any("普通确认、感谢或仅有偏好标签" in node["trigger_condition"] for node in seeding["nodes"])
+    assert sum(node["type"] == "scheduled_send" for node in service["nodes"]) == 4
+    assert sum(node["type"] == "handoff" for node in service["nodes"]) == 1
+    assert next(node for node in seeding["nodes"] if node["type"] == "scheduled_send")["send_content_type"] == "mixed"
 
 
 def test_sync_prefers_saved_flow_and_never_overwrites_edited_or_published_canvas(client):
@@ -127,6 +134,81 @@ def test_sync_prefers_saved_flow_and_never_overwrites_edited_or_published_canvas
     assert result["created"] == []
     assert canvases.get_canvas("sop_first_order") == before
     assert len(canvases.list_canvases()) == 3
+
+
+def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(client, monkeypatch):
+    created = create(client)
+    flow = created["definition"]
+    condition = flow["nodes"][1]
+    condition.update(type="condition", name="判断客户需求", trigger_condition="读取客户当前消息和已有标签",
+                     action="匹配当前需求和时间事件", exit_condition="均未匹配时等待客户补充信息", branch_mode="all_matches")
+    timed = {**condition, "id": "timed", "type": "scheduled_send", "name": "养护内容", "trigger_condition": "客户仍带有服务中标签",
+             "schedule_rule": "每周三 09:25，北京时间", "send_content_type": "mixed", "action": "发送养护文字与匹配的视频", "exit_condition": "标签移除时停止；本次发送后结束本次分支"}
+    handoff = {**condition, "id": "handoff", "type": "handoff", "name": "人工接待", "trigger_condition": "客户明确要求人工",
+               "handoff_target": "按现有转人工设置通知负责人", "action": "交接客户需求与当前对话", "exit_condition": "通知成功后暂停 AI，由人工确认恢复"}
+    flow["nodes"].extend([timed, handoff])
+    flow["edges"] = [flow["edges"][0],
+        {"id": "to_timed", "source": "step", "target": "timed", "label": "定时时间到且客户有服务中标签"},
+        {"id": "to_handoff", "source": "step", "target": "handoff", "label": "客户要求人工"},
+        {"id": "timed_end", "source": "timed", "target": "end", "label": "本次发送完成"},
+        {"id": "handoff_end", "source": "handoff", "target": "end", "label": "交接完成"},
+    ]
+    url = f"{BASE}/{created['workflow_id']}"
+    saved = client.put(url, json={"revision": 2, "definition": flow}).json()["data"]
+    assert client.get(url).json()["data"]["definition"] == saved["definition"]
+
+    async def review(prompt, **kwargs):
+        assert all(text in prompt for text in ["每周三 09:25", '"send_content_type": "mixed"', '"branch_mode": "all_matches"', "按现有转人工设置通知负责人", "底层打标能力"])
+        assert kwargs["prompt_version"] == "canvas_publish.v2"
+        return {"summary": "按条件执行定时发送或转人工", "nodes": [{"node_id": node["id"], "understanding": node["name"]} for node in flow["nodes"]], "issues": []}
+    monkeypatch.setattr(canvases, "generate_json", review)
+    result = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
+    assert result["published"] is True
+    assert result["workflow"]["published"]["definition"] == saved["definition"]
+
+    timed["schedule_rule"] = ""
+    handoff["handoff_target"] = ""
+    flow["edges"][1]["label"] = ""
+    issues = publication_issues(CanvasDefinition.model_validate(flow))
+    assert {(issue.node_id, issue.field) for issue in issues} == {("timed", "schedule_rule"), ("handoff", "handoff_target"), ("step", "graph")}
+    flow["edges"].pop(2)
+    assert any("两个出口" in issue.message for issue in publication_issues(CanvasDefinition.model_validate(flow)))
+
+
+def test_upgrade_only_untouched_legacy_imports(client):
+    from app.domains.orchestration.services.sop_canvas_import import sop_to_canvas
+    from app.domains.orchestration.services.sop_flow_defaults import build_default_sop_packages
+    from app.domains.orchestration.services.sop_flow_service import default_flow
+    from app.domains.sales.services.tag_catalog import get_tag_categories
+
+    categories = {key: value.name for key, value in get_tag_categories().items()}
+    old_fields = {"schedule_rule", "send_content_type", "branch_mode", "handoff_target"}
+    with canvases._session() as session:
+        for package in build_default_sop_packages({}):
+            flow = sop_to_canvas(package["sop_scope"], package["name"], default_flow(package), categories, specialized=False)
+            legacy = flow.model_dump(exclude={"nodes": {"__all__": old_fields}})
+            row = canvases.CanvasWorkflowModel(workflow_id=f"sop_{package['sop_scope']}", revision=1,
+                                              draft_json=json.dumps(legacy, ensure_ascii=False), updated_at=datetime.now(timezone.utc))
+            if package["sop_scope"] == "first_order":
+                row.revision = 2
+                legacy["nodes"][1]["action"] = "用户已修改的行动"
+                row.draft_json = json.dumps(legacy, ensure_ascii=False)
+            if package["sop_scope"] == "seeding":
+                row.published_revision = 1
+                row.published_json = '{"summary":"published"}'
+            session.add(row)
+        session.commit()
+    first, seeding = canvases.get_canvas("sop_first_order"), canvases.get_canvas("sop_seeding")
+    service_before = canvases.get_canvas("sop_service")
+    result = canvases.sync_existing_sops()
+    assert result == {"created": [], "updated": ["sop_service"]}
+    service = canvases.get_canvas("sop_service")
+    assert service["revision"] == 2
+    assert {node["type"] for node in service["definition"]["nodes"]} == {"start", "condition", "scheduled_send", "handoff", "general", "end"}
+    assert [node["position"] for node in service["definition"]["nodes"]] == [node["position"] for node in service_before["definition"]["nodes"]]
+    assert service["definition"]["edges"] == service_before["definition"]["edges"]
+    assert canvases.get_canvas("sop_first_order") == first and canvases.get_canvas("sop_seeding") == seeding
+    assert canvases.sync_existing_sops() == {"created": [], "updated": []}
 
 
 def test_structural_errors_locate_fields_without_model_call(client, monkeypatch):
