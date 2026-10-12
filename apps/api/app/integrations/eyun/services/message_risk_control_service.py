@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import create_engine, inspect, or_, select, text
+from sqlalchemy import create_engine, inspect, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -1508,7 +1508,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
         if _pause_inbound_for_draft(batch_id, batch_data):
             return
         if _human_replied_after(_batch_conversation_id(batch_data), latest_input_at):
-            _mark_batch(batch_id, "skipped")
+            _mark_batch(batch_data, "skipped")
             return
         if _pause_inbound_for_media(batch_id, batch_data):
             return
@@ -1520,7 +1520,7 @@ async def _process_inbound_batch(batch_id: int) -> None:
             not inbound_payloads
             or not all(is_eyun_group_mention(payload) for payload in inbound_payloads)
         ):
-            _mark_batch(batch_id, "skipped")
+            _mark_batch(batch_data, "skipped")
             return
 
         has_opening_event = any(
@@ -1538,12 +1538,12 @@ async def _process_inbound_batch(batch_id: int) -> None:
         if has_opening_event and not inbound_payloads:
             if needs_opening:
                 await _send_opening_for_new_friend(batch_data)
-                _mark_batch(batch_id, "processed")
+                _mark_batch(batch_data, "processed")
             else:
-                _mark_batch(batch_id, "skipped")
+                _mark_batch(batch_data, "skipped")
             return
         if _only_platform_noise(inbound_payloads):
-            _mark_batch(batch_id, "skipped")
+            _mark_batch(batch_data, "skipped")
             return
 
         (
@@ -1566,10 +1566,13 @@ async def _process_inbound_batch(batch_id: int) -> None:
             )
             customer_snapshot["customer_tags"] = profile.get("customer_tags", [])
 
+        # Keep the image evidence and verified tag even when a newer question replaces this turn.
+        if not _inbound_batch_is_current(batch_data):
+            return
         if _conversation_blocks_ai(batch_data):
             if _pause_inbound_for_draft(batch_id, batch_data):
                 return
-            _mark_batch(batch_id, "skipped")
+            _mark_batch(batch_data, "skipped")
             return
 
         contact_snapshot = await get_eyun_contact_snapshot(
@@ -1589,6 +1592,8 @@ async def _process_inbound_batch(batch_id: int) -> None:
             if not batch_data["content"].strip():
                 batch_data["content"] = "[客户发送了一张图片]"
 
+        if not _inbound_batch_is_current(batch_data):
+            return
         if is_first_inbound or needs_opening:
             # The first real customer message stays context-driven. A standalone
             # new-friend event uses the dedicated opening package and queue below.
@@ -1654,15 +1659,19 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     },
                 )
             )
+        if not _inbound_batch_is_current(batch_data):
+            return
         if _pause_inbound_for_draft(batch_id, batch_data):
             return
         if _human_replied_after(_batch_conversation_id(batch_data), latest_input_at):
-            _mark_batch(batch_id, "skipped")
+            _mark_batch(batch_data, "skipped")
             return
         chat_result = await _finalize_eyun_handoff(
             batch=batch_data,
             chat_result=chat_result,
         )
+        if not _inbound_batch_is_current(batch_data):
+            return
         if batch_data["w_id"] and batch_data["target_wc_id"]:
             outbound_messages = _outbound_messages(chat_result)
             if batch_data["from_group"] and outbound_messages:
@@ -1737,10 +1746,10 @@ async def _process_inbound_batch(batch_id: int) -> None:
                 queued = await enqueue_eyun_outbound(**kwargs)
                 queued_id = queued.get("id") if isinstance(queued, dict) else None
                 dependency_id = int(queued_id) if queued_id is not None else None
-        _mark_batch(batch_id, "processed")
+        _mark_batch(batch_data, "processed")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
-        _mark_batch(batch_id, "failed")
+        _mark_batch(batch_data, "failed")
 
 
 async def _finalize_eyun_handoff(
@@ -2374,13 +2383,28 @@ def _is_material_expiry_error(exc: Exception) -> bool:
     )
 
 
-def _mark_batch(batch_id: int, status: str) -> None:
+def _inbound_batch_revision_filters(batch: dict[str, Any]) -> tuple:
+    return (
+        EyunInboundBatchModel.id == batch["id"],
+        EyunInboundBatchModel.status == "processing",
+        EyunInboundBatchModel.created_at == batch["created_at"],
+        EyunInboundBatchModel.updated_at == batch["updated_at"],
+        EyunInboundBatchModel.message_count == batch["message_count"],
+    )
+
+
+def _inbound_batch_is_current(batch: dict[str, Any]) -> bool:
     with _get_session() as session:
-        batch = session.get(EyunInboundBatchModel, batch_id)
-        if batch is None:
-            return
-        batch.status = status
-        batch.updated_at = utcnow()
+        return session.scalar(select(EyunInboundBatchModel.id).where(
+            *_inbound_batch_revision_filters(batch)
+        )) is not None
+
+
+def _mark_batch(batch: dict[str, Any], status: str) -> None:
+    with _get_session() as session:
+        session.execute(update(EyunInboundBatchModel).where(
+            *_inbound_batch_revision_filters(batch)
+        ).values(status=status, updated_at=utcnow()))
         session.commit()
 
 

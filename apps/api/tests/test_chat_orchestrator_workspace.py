@@ -89,8 +89,13 @@ def test_sop_scope_uses_service_tag_and_enabled_flows(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("media_context", [
+    [{"message_id": 10, "type": "image", "content": "[图片识别内容] 春兰九仙牡丹订单，已发货"}],
+    [{"message_id": 10, "type": "video", "content": "[视频识别内容] 阳台有多盆兰花，客户说叶片发黄"}],
+], ids=["order-image", "orchid-video"])
 async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
     monkeypatch,
+    media_context,
 ):
     state = UserState(
         user_id="customer-1",
@@ -117,8 +122,6 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
         ],
     )
     captured = {}
-    media_context = [{"message_id": 10, "type": "video", "content": "[视频识别内容] 阳台有多盆兰花，客户说叶片发黄"}]
-
     def recent_media(conversation_id):
         assert conversation_id == "wechat:customer-1:session-1"
         return media_context

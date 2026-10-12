@@ -137,3 +137,82 @@ def test_media_wait_does_not_block_another_conversation_or_playback_repair(media
         job.payload_json = json.dumps({"preserve_recognition": True})
         db.commit()
         assert not queue._pause_inbound_for_media(0, {"from_user": "customer", "wc_id": "bot"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arrival_stage", ["recognition", "generation", "generation_failure", "outbound"])
+async def test_image_followup_survives_inflight_batch_and_keeps_visual_context(media_db, monkeypatch, arrival_stage):
+    from app.integrations.ai.services import vision_service
+
+    clock = [media_db + timedelta(seconds=1)]
+    monkeypatch.setattr(queue, "utcnow", lambda: clock[0])
+    requests, queued = [], []
+    followup = "你好，你们兰园基地在滨江哪里的"
+    followup_enqueued = False
+
+    async def enqueue_followup():
+        nonlocal followup_enqueued
+        followup_enqueued = True
+        clock[0] += timedelta(seconds=90)
+        await queue.enqueue_eyun_inbound({"messageType": "60001", "wcId": "bot", "data": {
+            "wId": "wid", "fromUser": "customer", "content": followup, "newMsgId": "followup",
+        }})
+
+    async def analyze(_):
+        if arrival_stage == "recognition":
+            await enqueue_followup()
+        return vision_service.VisionAnalysis(category="order", summary="春兰九仙牡丹订单，已发货",
+            order=vision_service.OrderScreenshotAnalysis(product="春兰九仙牡丹", status="已发货"))
+
+    async def contact(**_):
+        return {}
+
+    async def generate(request):
+        requests.append(request)
+        if arrival_stage in {"generation", "generation_failure"} and not followup_enqueued:
+            await enqueue_followup()
+            if arrival_stage == "generation_failure":
+                raise RuntimeError("old generation failed")
+        return {"answer": "基地位置回复" if request.message == followup else "订单截图已收到", "route": "agent"}
+
+    async def finalize(**kwargs):
+        return kwargs["chat_result"]
+
+    async def outbound_message(**_):
+        return {"id": 7}
+
+    async def outbound(**kwargs):
+        queued.append(kwargs)
+        if arrival_stage == "outbound" and not followup_enqueued:
+            await enqueue_followup()
+        return {"id": len(queued)}
+
+    monkeypatch.setattr(vision_service, "analyze_image", analyze)
+    monkeypatch.setattr(queue, "get_eyun_contact_snapshot", contact)
+    monkeypatch.setattr(queue, "handle_chat", generate)
+    monkeypatch.setattr(queue, "_finalize_eyun_handoff", finalize)
+    monkeypatch.setattr(queue, "ensure_outbound_conversation_message", outbound_message)
+    monkeypatch.setattr(queue, "enqueue_eyun_outbound", outbound)
+    monkeypatch.setattr(queue, "random_reply_delay_seconds", lambda: 0)
+    image_batch = await queue.enqueue_eyun_inbound({"messageType": "60002", "wcId": "bot", "data": {
+        "wId": "wid", "fromUser": "customer", "content": "<msg><img /></msg>", "newMsgId": "0",
+        "_image_url": "https://example.com/order.jpg",
+    }})
+    clock[0] += timedelta(seconds=10)
+    assert await queue.process_due_eyun_inbound_batches(limit=1) == 1
+    with queue._get_session() as db:
+        batch = db.get(EyunInboundBatchModel, image_batch["id"])
+        assert batch.status == "pending"
+        assert batch.content == followup
+    assert [message["content"] for message in queued] == (["订单截图已收到"] if arrival_stage == "outbound" else [])
+    visual_context = context.get_recent_customer_media(CID)
+    assert "春兰九仙牡丹" in visual_context[0]["content"]
+    assert "已发货" in visual_context[0]["content"]
+
+    clock[0] += timedelta(seconds=10)
+    assert await queue.process_due_eyun_inbound_batches(limit=1) == 1
+    assert requests[-1].message == followup
+    expected = ["订单截图已收到", "基地位置回复"] if arrival_stage == "outbound" else ["基地位置回复"]
+    assert [message["content"] for message in queued] == expected
+    with queue._get_session() as db:
+        assert db.get(EyunInboundBatchModel, image_batch["id"]).status == "processed"
