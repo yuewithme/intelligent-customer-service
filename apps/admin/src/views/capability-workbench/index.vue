@@ -101,7 +101,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { onBeforeRouteLeave } from 'vue-router'
 import { ElButton, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect } from 'element-plus'
 import { isAdmin } from '@/utils/gate'
-import { createCanvasWorkflow, getCanvasWorkflow, listCanvasWorkflows, publishCanvasWorkflow, saveCanvasWorkflow,
+import { createCanvasWorkflow, getCanvasWorkflow, listCanvasWorkflows, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
   type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
 
 const workflows = ref<CanvasSummary[]>([])
@@ -323,7 +323,14 @@ onMounted(async () => {
   window.addEventListener('pointermove', pointerMove); window.addEventListener('pointerup', pointerUp)
   window.addEventListener('keydown', keyDown); window.addEventListener('beforeunload', beforeUnload)
   loading.value = true
-  try { workflows.value = await listCanvasWorkflows(); if (workflows.value[0]) await loadWorkflow(workflows.value[0].workflow_id) }
+  try {
+    if (isAdmin()) {
+      try { await syncExistingSops() }
+      catch { /* Existing canvases remain accessible if importing a legacy SOP fails. */ }
+    }
+    workflows.value = await listCanvasWorkflows()
+    if (workflows.value[0]) await loadWorkflow(workflows.value[0].workflow_id)
+  }
   catch { /* The shared request client displays the error. */ }
   finally { loading.value = false }
 })

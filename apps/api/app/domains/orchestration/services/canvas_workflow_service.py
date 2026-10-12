@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 from sqlalchemy import create_engine, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
@@ -60,6 +61,50 @@ def list_canvases():
     with _session() as session:
         rows = session.scalars(select(CanvasWorkflowModel).order_by(CanvasWorkflowModel.updated_at.desc())).all()
         return [{"workflow_id": row.workflow_id, "name": json.loads(row.draft_json)["name"]} for row in rows]
+
+
+def sync_existing_sops():
+    from app.domains.handoff.services.handoff_notification_service import get_sop_node_handoff_settings
+    from app.domains.orchestration.services.sop_canvas_import import sop_to_canvas
+    from app.domains.orchestration.services.sop_flow_defaults import build_default_sop_packages
+    from app.domains.orchestration.services.sop_flow_service import default_flow, get_saved_flow
+    from app.domains.sales.services.tag_catalog import get_tag_categories
+
+    workflow_ids = {scope: f"sop_{scope}" for scope in ("first_order", "service", "seeding")}
+    with _session() as session:
+        existing = set(session.scalars(select(CanvasWorkflowModel.workflow_id).where(
+            CanvasWorkflowModel.workflow_id.in_(workflow_ids.values()))))
+    if len(existing) == len(workflow_ids):
+        return {"created": []}
+    policies = get_sop_node_handoff_settings()["sop_node_handoff"]
+    categories = {key: value.name for key, value in get_tag_categories().items()}
+    drafts = []
+    for package in build_default_sop_packages(policies):
+        scope = package["sop_scope"]
+        workflow_id = workflow_ids[scope]
+        if workflow_id in existing:
+            continue
+        flow = get_saved_flow(scope) or default_flow(package)
+        try:
+            draft = sop_to_canvas(scope, package["name"], flow, categories)
+        except ValidationError as exc:
+            raise AppError(ErrorCode.REQUEST_INVALID, f"{package['name']} 的内容超出画布限制，请调整原流程后重试同步", status_code=422) from exc
+        drafts.append((workflow_id, draft))
+    created = []
+    with _session() as session:
+        for workflow_id, draft in drafts:
+            try:
+                # Multiple tabs may initialize together. A unique ID also protects later edits.
+                with session.begin_nested():
+                    session.add(CanvasWorkflowModel(workflow_id=workflow_id, revision=1,
+                                                    draft_json=draft.model_dump_json(), updated_at=datetime.now(timezone.utc)))
+                    session.flush()
+                created.append(workflow_id)
+            except IntegrityError:
+                if session.get(CanvasWorkflowModel, workflow_id) is None:
+                    raise
+        session.commit()
+    return {"created": created}
 
 
 def get_canvas(workflow_id):

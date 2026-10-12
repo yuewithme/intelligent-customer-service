@@ -5,8 +5,10 @@ from fastapi.testclient import TestClient
 from app.bootstrap.application import _register_exception_handlers
 from app.core.config import get_settings
 from app.domains.orchestration.api.admin_workbench import router
-from app.domains.orchestration.schemas.canvas_workflow import CanvasDefinition
+from app.domains.orchestration.schemas.canvas_workflow import CanvasDefinition, publication_issues
+from app.domains.orchestration.schemas.sop_flow import SopFlowDefinition
 from app.domains.orchestration.services import canvas_workflow_service as canvases
+from app.domains.orchestration.services.sop_flow_service import build_workbench_packages, save_flow
 from app.shared.schemas.common import AppError, ErrorCode
 
 
@@ -57,6 +59,74 @@ def test_incomplete_draft_round_trip_and_conflict(client):
     assert client.get(url).json()["data"]["definition"] == flow
     assert client.put(url, json={"revision": 1, "definition": flow}).status_code == 409
     assert client.get(BASE).json()["data"][0]["workflow_id"] == created["workflow_id"]
+
+
+def test_sync_all_three_sops_preserves_nodes_branches_and_policies(client):
+    response = client.post("/api/v1/admin/orchestration/workbench/canvas/sync-sops")
+    assert response.status_code == 200
+    assert response.json()["data"]["created"] == ["sop_first_order", "sop_service", "sop_seeding"]
+    packages = build_workbench_packages({}, {"first_order": True, "service": True, "seeding": False})
+    assert {item["name"] for item in client.get(BASE).json()["data"]} == {"首单 SOP", "服务 SOP", "种草 SOP"}
+    for package in packages:
+        detail = client.get(f"{BASE}/sop_{package['sop_scope']}").json()["data"]
+        flow = CanvasDefinition.model_validate(detail["definition"])
+        assert not publication_issues(flow)
+        assert detail["revision"] == 1 and detail["published"] is None
+        names = {node.id: node.name for node in flow.nodes}
+        old_names = {node["step_id"]: node["name"] for node in package["steps"]}
+        assert {node.name for node in flow.nodes if node.type == "general"} == set(old_names.values())
+        actual_edges = {(names[edge.source], names[edge.target], edge.label) for edge in flow.edges}
+        for edge in package["transitions"]:
+            assert (old_names[edge["from_step"]], old_names.get(edge["to_step"], "结束本次分支"), edge["label"]) in actual_edges
+        for node in flow.nodes:
+            for other in flow.nodes:
+                if node.id != other.id:
+                    assert abs(node.position.x - other.position.x) >= 260 or abs(node.position.y - other.position.y) >= 252
+        assert client.put(f"{BASE}/sop_{package['sop_scope']}", json={"revision": 1, "definition": flow.model_dump()}).status_code == 200
+
+    service = client.get(f"{BASE}/sop_service").json()["data"]["definition"]
+    service_text = "\n".join(node["trigger_condition"] + node["action"] for node in service["nodes"])
+    assert all(text in service_text for text in ["每天 10:00", "每天 14:00", "每周六 11:00", "每周日 14:00", "不直接查商品", "不发送商品卡片", "进入本节点即转人工", "每轮最多问一项"])
+    seeding = client.get(f"{BASE}/sop_seeding").json()["data"]["definition"]
+    assert "每天 15:00" in seeding["nodes"][0]["trigger_condition"]
+    assert any("普通确认、感谢或仅有偏好标签" in node["trigger_condition"] for node in seeding["nodes"])
+
+
+def test_sync_prefers_saved_flow_and_never_overwrites_edited_or_published_canvas(client):
+    saved = SopFlowDefinition.model_validate({
+        "start_step_id": "start", "entry_rule": {"any_tags": ["自定义入口"], "required_tags": ["已验证"], "excluded_tags": ["已退出"]},
+        "steps": [
+            {"step_id": "start", "name": "自定义判断", "type": "decision", "goal": "按事件选择分支"},
+            {"step_id": "end", "name": "自定义人工服务", "type": "agent_stage", "goal": "处理客户定制需求", "directions": ["先核对预约记录"], "handoff_enabled": True},
+            {"step_id": "appointment", "name": "预约提醒", "type": "action", "goal": "发送约定的养护内容", "schedule": {"time": "09:25", "weekday": 2, "copy_type": "养护科普"}},
+        ],
+        "transitions": [
+            {"transition_id": "one", "from_step": "start", "to_step": "end", "label": "收到定制请求", "priority": 10},
+            {"transition_id": "two", "from_step": "start", "to_step": "appointment", "label": "约定时间到达", "priority": 20},
+        ],
+        "layout": {key: {"x": 0, "y": 0} for key in ["start", "end", "appointment"]},
+    })
+    save_flow("first_order", saved)
+    assert canvases.sync_existing_sops()["created"]
+    imported = canvases.get_canvas("sop_first_order")
+    definition = CanvasDefinition.model_validate(imported["definition"])
+    assert not publication_issues(definition)
+    assert "自定义入口" in definition.nodes[0].trigger_condition and "每周三 09:25" in definition.nodes[0].trigger_condition
+    custom = next(node for node in definition.nodes if node.name == "自定义人工服务")
+    assert "先核对预约记录" in custom.action and "即转人工" in custom.action
+    definition.name = "团队修改后的流程"
+    custom.action = "由团队自定义行动"
+    canvases.save_canvas("sop_first_order", 1, definition)
+    with canvases._session() as session:
+        row = session.get(canvases.CanvasWorkflowModel, "sop_first_order")
+        row.published_revision = 2
+        row.published_json = '{"marker":"existing published snapshot"}'
+        session.commit()
+    before = canvases.get_canvas("sop_first_order")
+    result = client.post("/api/v1/admin/orchestration/workbench/canvas/sync-sops").json()["data"]
+    assert result["created"] == []
+    assert canvases.get_canvas("sop_first_order") == before
+    assert len(canvases.list_canvases()) == 3
 
 
 def test_structural_errors_locate_fields_without_model_call(client, monkeypatch):

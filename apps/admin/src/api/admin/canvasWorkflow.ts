@@ -35,6 +35,7 @@ export interface CanvasWorkflow {
 export interface CanvasSummary { workflow_id: string; name: string }
 const base = '/api/v1/admin/orchestration/workbench/canvas/workflows'
 export const listCanvasWorkflows = () => request.get<CanvasSummary[]>({ url: base })
+export const syncExistingSops = () => request.post<{ created: string[] }>({ url: '/api/v1/admin/orchestration/workbench/canvas/sync-sops' })
 export const createCanvasWorkflow = () => request.post<CanvasWorkflow>({ url: base, data: { name: '未命名流程' } })
 export const getCanvasWorkflow = (id: string) => request.get<CanvasWorkflow>({ url: `${base}/${id}` })
 export const saveCanvasWorkflow = (id: string, revision: number, definition: CanvasDefinition) =>

@@ -47,6 +47,11 @@ async def canvas_create(request: CreateCanvas) -> APIResponse:
     return APIResponse(code=0, message="草稿已创建", data=canvases.create_canvas(request.name))
 
 
+@router.post("/workbench/canvas/sync-sops", response_model=APIResponse)
+async def canvas_sync_sops() -> APIResponse:
+    return APIResponse(code=0, message="现有 SOP 已同步为画布草稿", data=canvases.sync_existing_sops())
+
+
 @router.get("/workbench/canvas/workflows/{workflow_id}", response_model=APIResponse)
 async def canvas_detail(workflow_id: str) -> APIResponse:
     return APIResponse(code=0, message="success", data=canvases.get_canvas(workflow_id))
