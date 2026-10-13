@@ -116,6 +116,7 @@ def sop_to_canvas(scope: str, name: str, flow: SopFlowDefinition, category_names
                 node.pop("branches")
             elif node["type"] == "scheduled_send":
                 node.pop("send_time")
+                node.pop("content_source")
         return CanvasDefinition.model_validate(data)
     return canvas
 

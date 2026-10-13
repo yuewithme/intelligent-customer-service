@@ -31,7 +31,7 @@
           <template v-else-if="node.type === 'general'">
             <div v-for="field in businessFields" :key="field.key" class="node-preview"><span>{{ field.label }}</span><p>{{ node[field.key] || '待填写' }}</p></div>
           </template>
-          <template v-else-if="node.type === 'scheduled_send'"><div class="schedule-summary">{{ scheduleSummary(node) }}</div><div class="node-preview"><span>{{ contentOptions.find(item => item.value === node.send_content_type)?.label }}</span><p>{{ node.action || '填写发送内容' }}</p></div></template>
+          <template v-else-if="node.type === 'scheduled_send'"><div class="schedule-summary">{{ scheduleSummary(node) }}</div><div class="node-preview"><span>发送内容</span><p>{{ contentSummary(node) }}</p></div></template>
           <p v-else-if="node.type === 'handoff'" class="handoff-preview">按默认设置转交负责人<br>自动附带上下文，暂停 AI 回复</p>
           <p v-else-if="node.type === 'start'" class="start-preview">{{ node.trigger_condition || '标签被打上、加上好友或特定时间点…' }}</p>
           <p v-else class="end-preview">结束本次流程</p>
@@ -95,8 +95,20 @@
           <template v-else-if="selectedNode.type === 'scheduled_send'">
             <div class="schedule-controls"><div><label class="field-label">发送时间</label><ElTimePicker :model-value="selectedNode.send_time || null" :disabled="locked" :clearable="false" format="HH:mm" value-format="HH:mm" placeholder="选择时间" @update:model-value="setSendTime" /></div><div><label class="field-label">发送周期</label><ElSelect v-model="selectedNode.send_cycle" :disabled="locked" @change="changeCycle"><ElOption v-for="option in cycleOptions" :key="option.value" :value="option.value" :label="option.label" /></ElSelect></div></div>
             <p class="field-help">{{ scheduleHint(selectedNode) }}</p>
-            <label class="field-label">发送内容</label><ElSelect v-model="selectedNode.send_content_type" :disabled="locked"><ElOption v-for="item in contentOptions" :key="item.value" :value="item.value" :label="item.label" /></ElSelect>
-            <ElInput v-model="selectedNode.action" class="send-content-input" type="textarea" :rows="5" :disabled="locked" maxlength="6000" placeholder="填写发送内容，或说明需要匹配什么素材" />
+            <div class="content-heading"><label class="field-label">内容库</label><button :disabled="contentLoading" @click="loadContentSources">{{ contentLoading ? '加载中…' : '刷新' }}</button></div>
+            <ElSelect :model-value="selectedNode.content_source?.library" :disabled="locked" placeholder="选择内容库" @change="changeContentLibrary"><ElOption v-for="item in libraryOptions" :key="item.id" :value="item.id" :label="item.label" /></ElSelect>
+            <template v-if="selectedNode.content_source?.library === 'cloud_video'">
+              <label class="field-label">内容分类</label>
+              <ElSelect v-model="selectedNode.content_source.category" :disabled="locked || contentLoading || !selectedLibrary?.available" :loading="contentLoading" placeholder="选择视频内容分类" filterable>
+                <ElOption v-if="selectedNode.content_source.category && !selectedCategory" :value="selectedNode.content_source.category" :label="`${selectedNode.content_source.category}（暂不可用）`" disabled />
+                <ElOption v-for="item in selectedLibrary?.categories || []" :key="item.id" :value="item.id" :label="`${item.name}（${item.count} 个视频）`" />
+              </ElSelect>
+            </template>
+            <p v-if="contentError || selectedLibrary?.message" class="content-warning">{{ contentError || selectedLibrary?.message }}</p>
+            <p v-else-if="selectedNode.content_source?.library === 'cloud_video' && selectedNode.content_source.category && selectedLibrary && !selectedCategory" class="content-warning">该分类已不存在或暂无可用视频，请重新选择。</p>
+            <p v-if="selectedNode.content_source" class="field-help">{{ selectedNode.content_source.library === 'care_manual' ? '从养护手册库按客户品种匹配内容，无匹配手册时跳过。' : '从所选分类中匹配视频，使用素材配套文案；无匹配视频时跳过。' }}</p>
+            <label class="field-label">补充内容要求<span class="muted">（选填）</span></label>
+            <ElInput v-model="selectedNode.action" type="textarea" :rows="3" :disabled="locked" maxlength="6000" placeholder="默认按所选内容库匹配；有额外要求时再填写，例如优先匹配客户的养护痛点。" />
           </template>
           <p v-else-if="selectedNode.type === 'handoff'" class="field-help">默认通知转人工设置中的负责人，附带客户需求和对话上下文。人工接管后暂停 AI 回复，由人工确认恢复。</p>
           <template v-else-if="selectedNode.type === 'general'">
@@ -126,8 +138,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { onBeforeRouteLeave } from 'vue-router'
 import { ElButton, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect, ElTimePicker } from 'element-plus'
 import { isAdmin } from '@/utils/gate'
-import { createCanvasWorkflow, getCanvasWorkflow, listCanvasWorkflows, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
-  type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
+import { createCanvasWorkflow, getCanvasWorkflow, listCanvasWorkflows, listCanvasContentSources, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
+  type CanvasContentLibrary, type CanvasContentLibraryOption, type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
 
 const workflows = ref<CanvasSummary[]>([])
 const workflow = ref<CanvasWorkflow | null>(null)
@@ -153,10 +165,28 @@ const editableNodeTypes: CanvasNodeType[] = ['general', 'scheduled_send', 'condi
 const nodeTypes: CanvasNodeType[] = ['start', ...editableNodeTypes, 'end']
 const typeLabels = { start: '开始', general: '一般节点', scheduled_send: '定时发送', condition: '条件分支', handoff: '转人工', end: '结束' }
 const typeIcons = { start: '▷', general: '◇', scheduled_send: '◷', condition: '⑂', handoff: '↗', end: '□' }
-const contentOptions = [
-  { value: 'text', label: '文字' }, { value: 'image', label: '图片' }, { value: 'video', label: '视频' },
-  { value: 'link', label: '链接 / 小程序' }, { value: 'product_card', label: '商品卡片' }, { value: 'mixed', label: '组合内容' }
-]
+const contentLibraries = ref<CanvasContentLibraryOption[]>([])
+const contentLoading = ref(false), contentError = ref('')
+const libraryNames: Record<CanvasContentLibrary, string> = { care_manual: '养护手册', cloud_video: '云端视频' }
+const libraryOptions = computed(() => (Object.keys(libraryNames) as CanvasContentLibrary[]).map(id => {
+  const source = contentLibraries.value.find(item => item.id === id)
+  return { id, label: source?.available ? `${source.name}（${source.count} ${id === 'care_manual' ? '篇' : '个视频'}）` : libraryNames[id] }
+}))
+const selectedLibrary = computed(() => contentLibraries.value.find(item => item.id === selectedNode.value?.content_source?.library))
+const selectedCategory = computed(() => selectedLibrary.value?.categories.find(item => item.id === selectedNode.value?.content_source?.category))
+const contentSummary = (node: CanvasNode) => node.content_source ? `${libraryNames[node.content_source.library]}${node.content_source.library === 'cloud_video' ? ` · ${node.content_source.category || '待选择分类'}` : ''}` : '请选择内容库'
+async function loadContentSources() {
+  if (contentLoading.value) return
+  contentLoading.value = true
+  contentError.value = ''
+  try { contentLibraries.value = await listCanvasContentSources() }
+  catch { contentLibraries.value = []; contentError.value = '内容库暂时无法加载，请点击刷新重试。' }
+  finally { contentLoading.value = false }
+}
+function changeContentLibrary(library: CanvasContentLibrary) {
+  if (!selectedNode.value || locked.value || selectedNode.value.content_source?.library === library) return
+  selectedNode.value.content_source = { library, category: '' }
+}
 const cycleOptions = [{ value: 'daily', label: '每天' }, { value: 'every_three_days', label: '每三天' }, { value: 'weekly', label: '每周' }]
 const branchName = (index: number) => {
   const number = index + 1, digits = '零一二三四五六七八九'
@@ -172,7 +202,7 @@ const businessFields = [
   { key: 'action' as const, label: '具体行动', placeholder: '进入后具体做什么？例如：结合养护手册回答客户的问题，了解种植环境，并记录客户明确提供的信息。' },
   { key: 'exit_condition' as const, label: '退出条件', placeholder: '什么情况下进入下一步或结束？例如：客户确认问题已解决；需要人工时进入人工处理分支。' }
 ]
-const fieldLabels = { name: '名称', trigger_condition: '触发条件', action: '具体行动', exit_condition: '退出条件', schedule_rule: '发送时间与周期', send_content_type: '发送内容', branch_mode: '分支匹配方式', handoff_target: '转交对象', branches: '分支条件', send_time: '发送时间', send_cycle: '发送周期', graph: '连线与结构' }
+const fieldLabels = { name: '名称', trigger_condition: '触发条件', action: '具体行动', exit_condition: '退出条件', schedule_rule: '发送时间与周期', send_content_type: '发送内容', branch_mode: '分支匹配方式', handoff_target: '转交对象', branches: '分支条件', send_time: '发送时间', send_cycle: '发送周期', content_source: '内容库与分类', graph: '连线与结构' }
 const statusText = computed(() => {
   if (publishing.value) return '正在理解整张流程…'
   if (dirty.value) return '有未保存的修改'
@@ -213,6 +243,7 @@ function applyWorkflow(value: CanvasWorkflow) {
   for (const node of value.definition.nodes) {
     node.schedule_rule ??= ''; node.send_content_type ??= 'text'; node.branch_mode ??= 'first_match'; node.handoff_target ??= ''
     node.branches ??= []; node.send_time ??= ''; node.send_cycle ??= 'daily'; node.send_weekday ??= null
+    node.content_source ??= null
   }
   workflow.value = value
   savedFingerprint.value = JSON.stringify(value.definition)
@@ -278,7 +309,7 @@ function addNode(type: CanvasNodeType) {
   if (type === 'start' && definition.value.nodes.some(node => node.type === 'start')) return
   const rect = stage.value?.getBoundingClientRect()
   const position = worldPoint((rect?.left || 0) + Math.max(320, ((rect?.width || 1000) - 360) / 2), (rect?.top || 0) + (rect?.height || 700) / 2)
-  const node: CanvasNode = { id: newId('node'), type, name: typeLabels[type], position: { x: Math.max(-10000, Math.min(10000, position.x - 130)), y: Math.max(-10000, Math.min(10000, position.y - 90)) }, trigger_condition: '', action: '', exit_condition: '', schedule_rule: '', send_content_type: 'text', branch_mode: 'first_match', handoff_target: '', branches: type === 'condition' ? [{ id: newId('branch'), condition: '' }, { id: newId('branch'), condition: '' }] : [], send_time: type === 'scheduled_send' ? '09:00' : '', send_cycle: 'daily', send_weekday: null }
+  const node: CanvasNode = { id: newId('node'), type, name: typeLabels[type], position: { x: Math.max(-10000, Math.min(10000, position.x - 130)), y: Math.max(-10000, Math.min(10000, position.y - 90)) }, trigger_condition: '', action: '', exit_condition: '', schedule_rule: '', send_content_type: 'text', branch_mode: 'first_match', handoff_target: '', branches: type === 'condition' ? [{ id: newId('branch'), condition: '' }, { id: newId('branch'), condition: '' }] : [], send_time: type === 'scheduled_send' ? '09:00' : '', send_cycle: 'daily', send_weekday: null, content_source: null }
   definition.value.nodes.push(node); selectNode(node.id)
 }
 function addBranch(node: CanvasNode) {
@@ -396,6 +427,7 @@ onBeforeRouteLeave(async () => {
 onMounted(async () => {
   window.addEventListener('pointermove', pointerMove); window.addEventListener('pointerup', pointerUp)
   window.addEventListener('keydown', keyDown); window.addEventListener('beforeunload', beforeUnload)
+  void loadContentSources()
   loading.value = true
   try {
     if (isAdmin()) {
@@ -444,7 +476,7 @@ onBeforeUnmount(() => {
 .branch-editor { margin-top: 20px; }.branch-heading { display: flex; align-items: center; gap: 6px; height: 24px; margin-bottom: 6px; font-size: 12px; color: #597061; }.branch-heading span { flex: 1; font-weight: 600; }
 .add-branch, .delete-branch { padding: 2px 5px; border: 0; border-radius: 4px; background: #f2edfa; color: #7961a5; font: inherit; font-size: 11px; cursor: pointer; }.delete-branch { color: #8e807f; background: transparent; font-size: 17px; }.add-branch:disabled, .delete-branch:disabled { opacity: .35; cursor: default; }.empty-branch { margin-top: 20px; }
 .canvas-branches { position: absolute; top: 76px; left: 18px; right: 18px; }.canvas-branch { position: relative; height: 108px; }.canvas-branch :deep(.el-textarea__inner) { height: 60px; min-height: 60px !important; padding: 5px 8px; font-size: 12px; line-height: 18px; user-select: text; touch-action: auto; }.canvas-branch .branch-port { top: 60px; right: -26px; border-color: #9e87bf; }
-.schedule-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }.schedule-controls :deep(.el-date-editor.el-input) { width: 100%; }.send-content-input { margin-top: 12px; }.schedule-summary { margin-top: 14px; color: #a37235; font-size: 13px; }.handoff-preview { font-size: 12px; color: #788b7e; line-height: 19px; margin-top: 12px; }
+.schedule-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }.schedule-controls :deep(.el-date-editor.el-input) { width: 100%; }.content-heading { display: flex; align-items: baseline; justify-content: space-between; }.content-heading button { border: 0; background: transparent; color: #21745b; cursor: pointer; font-size: 12px; }.content-warning { color: #ad6229; font-size: 12px; line-height: 1.6; margin-top: 10px; }.schedule-summary { margin-top: 14px; color: #a37235; font-size: 13px; }.handoff-preview { font-size: 12px; color: #788b7e; line-height: 19px; margin-top: 12px; }
 .node-preview { display: flex; gap: 8px; border-top: 1px solid #f0f3f1; padding-top: 8px; margin-top: 8px; font-size: 11px; }.node-preview > span { color: #87978e; flex: 0 0 44px; }.node-preview p { margin: 0; color: #577163; line-height: 17px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .start-preview { color: #738b7c; font-size: 12px; line-height: 19px; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }.end-preview { font-size: 11px; color: #89988e; margin: 0; }
 .port { position: absolute; top: 50%; width: 14px; height: 14px; border: 2px solid #78a68c; border-radius: 50%; background: #fff; transform: translateY(-50%); cursor: crosshair; padding: 0; }.port::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }.port.input { left: -8px; }.port.output { right: -8px; }.port:hover, .port.active { background: #2e8867; border-color: #2e8867; }.port:disabled { cursor: default; }

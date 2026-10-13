@@ -2,6 +2,16 @@ import request from '@/config/axios'
 
 export type CanvasNodeType = 'start' | 'general' | 'scheduled_send' | 'condition' | 'handoff' | 'end'
 export interface CanvasBranch { id: string; condition: string }
+export type CanvasContentLibrary = 'care_manual' | 'cloud_video'
+export interface CanvasContentSource { library: CanvasContentLibrary; category: string }
+export interface CanvasContentLibraryOption {
+  id: CanvasContentLibrary
+  name: string
+  available: boolean
+  count: number | null
+  categories: Array<{ id: string; name: string; count: number }>
+  message: string
+}
 export interface CanvasNode {
   id: string
   type: CanvasNodeType
@@ -18,12 +28,13 @@ export interface CanvasNode {
   send_time: string
   send_cycle: 'daily' | 'every_three_days' | 'weekly'
   send_weekday: number | null
+  content_source: CanvasContentSource | null
 }
 export interface CanvasEdge { id: string; source: string; target: string; label: string; source_branch: string | null }
 export interface CanvasDefinition { name: string; nodes: CanvasNode[]; edges: CanvasEdge[] }
 export interface CanvasIssue {
   node_id: string | null
-  field: 'name' | 'trigger_condition' | 'action' | 'exit_condition' | 'schedule_rule' | 'send_content_type' | 'branch_mode' | 'handoff_target' | 'branches' | 'send_time' | 'send_cycle' | 'graph'
+  field: 'name' | 'trigger_condition' | 'action' | 'exit_condition' | 'schedule_rule' | 'send_content_type' | 'branch_mode' | 'handoff_target' | 'branches' | 'send_time' | 'send_cycle' | 'content_source' | 'graph'
   message: string
   suggestion: string
 }
@@ -43,6 +54,7 @@ export interface CanvasWorkflow {
 }
 export interface CanvasSummary { workflow_id: string; name: string }
 const base = '/api/v1/admin/orchestration/workbench/canvas/workflows'
+export const listCanvasContentSources = () => request.get<CanvasContentLibraryOption[]>({ url: '/api/v1/admin/orchestration/workbench/canvas/content-sources' })
 export const listCanvasWorkflows = () => request.get<CanvasSummary[]>({ url: base })
 export const syncExistingSops = () => request.post<{ created: string[]; updated: string[] }>({ url: '/api/v1/admin/orchestration/workbench/canvas/sync-sops' })
 export const createCanvasWorkflow = () => request.post<CanvasWorkflow>({ url: base, data: { name: '未命名流程' } })
@@ -51,5 +63,5 @@ export const saveCanvasWorkflow = (id: string, revision: number, definition: Can
   request.put<CanvasWorkflow>({ url: `${base}/${id}`, data: { revision, definition } })
 export const publishCanvasWorkflow = (id: string, revision: number) =>
   request.post<{ published: boolean; review: CanvasReview; workflow: CanvasWorkflow }>({
-    url: `${base}/${id}/publish`, data: { revision }, timeout: 230000
+    url: `${base}/${id}/publish`, data: { revision }, timeout: 235000
   })

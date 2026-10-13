@@ -34,6 +34,18 @@ class CanvasBranch(CanvasModel):
     condition: str = Field(default="", max_length=4000)
 
 
+class CanvasContentSource(CanvasModel):
+    library: Literal["care_manual", "cloud_video"]
+    category: str = Field(default="", max_length=120)
+
+    @model_validator(mode="after")
+    def category_matches_library(self):
+        self.category = self.category.strip()
+        if self.library == "care_manual" and self.category:
+            raise ValueError("养护手册无需选择视频分类")
+        return self
+
+
 class CanvasNode(CanvasModel):
     id: Identifier
     type: Literal["start", "general", "scheduled_send", "condition", "handoff", "end"]
@@ -50,6 +62,7 @@ class CanvasNode(CanvasModel):
     send_time: str = Field(default="", pattern=r"^(?:|(?:[01]\d|2[0-3]):[0-5]\d)$")
     send_cycle: Literal["daily", "every_three_days", "weekly"] = "daily"
     send_weekday: int | None = Field(default=None, ge=0, le=6)
+    content_source: CanvasContentSource | None = None
 
 
 class CanvasEdge(CanvasModel):
@@ -77,6 +90,13 @@ class CanvasDefinition(CanvasModel):
         for node in data.get("nodes", []):
             if not isinstance(node, dict):
                 continue
+            if node.get("type") == "scheduled_send" and "content_source" not in node:
+                # Only recover the explicit material marker written by the SOP importer.
+                action = node.get("action", "")
+                categories = re.findall(r"使用「([^「」\n]{1,120})」类型的素材。", action) if isinstance(action, str) else []
+                if len(set(categories)) == 1:
+                    node["content_source"] = {"library": "cloud_video", "category": categories[0]}
+                    node["action"] = re.sub(r"使用「[^「」\n]{1,120}」类型的素材。\n?", "", action).strip()
             if node.get("type") == "condition" and "branches" not in node:
                 # Old labels held conditions; stable per-branch IDs now connect them to exits.
                 branches = []
@@ -148,7 +168,7 @@ class PublishCanvas(CanvasModel):
 
 class CanvasIssue(CanvasModel):
     node_id: Identifier | None = None
-    field: Literal["name", "trigger_condition", "action", "exit_condition", "schedule_rule", "send_content_type", "branch_mode", "handoff_target", "branches", "send_time", "send_cycle", "graph"]
+    field: Literal["name", "trigger_condition", "action", "exit_condition", "schedule_rule", "send_content_type", "branch_mode", "handoff_target", "branches", "send_time", "send_cycle", "content_source", "graph"]
     message: str = Field(min_length=1, max_length=1000)
     suggestion: str = Field(min_length=1, max_length=2000)
 
@@ -191,8 +211,12 @@ def publication_issues(flow: CanvasDefinition) -> list[CanvasIssue]:
         fields = ("trigger_condition", "action", "exit_condition") if node.type == "general" else ("trigger_condition",) if node.type == "start" else ()
         labels = {"trigger_condition": "触发条件", "action": "具体行动", "exit_condition": "退出条件"}
         if node.type == "scheduled_send":
-            fields = ("send_time", "action")
-            labels.update(action="发送内容说明", send_time="发送时间")
+            fields = ("send_time",)
+            labels.update(send_time="发送时间")
+            if node.content_source is None:
+                issue(node.id, "content_source", "请选择发送内容库", "选择养护手册，或选择云端视频及其内容分类。")
+            elif node.content_source.library == "cloud_video" and not node.content_source.category:
+                issue(node.id, "content_source", "请选择视频内容分类", "从内容分类中选择养护科普等实际存在的分类。")
         elif node.type == "condition":
             if len(node.branches) < 2:
                 issue(node.id, "branches", "条件分支至少需要两个分支", "点击增加分支，填写不同情况下的条件。")

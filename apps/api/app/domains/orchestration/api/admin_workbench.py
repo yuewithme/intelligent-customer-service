@@ -6,6 +6,7 @@ from app.core.auth import require_api_key
 from app.domains.orchestration.schemas.sop_flow import SopFlowDefinition, SopScope
 from app.domains.orchestration.schemas.canvas_workflow import CreateCanvas, SaveCanvas, PublishCanvas
 from app.domains.orchestration.services import canvas_workflow_service as canvases
+from app.domains.orchestration.services.canvas_content_service import list_content_sources
 from app.domains.orchestration.services.sop_flow_service import save_flow
 from app.domains.handoff.services.handoff_notification_service import update_sop_enabled
 from app.domains.conversations.schemas.chat import APIResponse
@@ -40,6 +41,11 @@ async def capability_workbench() -> APIResponse:
 @router.get("/workbench/canvas/workflows", response_model=APIResponse)
 async def canvas_list() -> APIResponse:
     return APIResponse(code=0, message="success", data=canvases.list_canvases())
+
+
+@router.get("/workbench/canvas/content-sources", response_model=APIResponse)
+def canvas_content_sources() -> APIResponse:
+    return APIResponse(code=0, message="success", data=list_content_sources())
 
 
 @router.post("/workbench/canvas/workflows", response_model=APIResponse)

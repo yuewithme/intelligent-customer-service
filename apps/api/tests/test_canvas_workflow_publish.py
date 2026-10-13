@@ -11,6 +11,7 @@ from app.domains.orchestration.api.admin_workbench import router
 from app.domains.orchestration.schemas.canvas_workflow import CanvasDefinition, publication_issues
 from app.domains.orchestration.schemas.sop_flow import SopFlowDefinition
 from app.domains.orchestration.services import canvas_workflow_service as canvases
+from app.domains.orchestration.services import canvas_content_service as content
 from app.domains.orchestration.services.sop_flow_service import build_workbench_packages, save_flow
 from app.shared.schemas.common import AppError, ErrorCode
 
@@ -62,6 +63,83 @@ def test_incomplete_draft_round_trip_and_conflict(client):
     assert client.get(url).json()["data"]["definition"] == flow
     assert client.put(url, json={"revision": 1, "definition": flow}).status_code == 409
     assert client.get(BASE).json()["data"][0]["workflow_id"] == created["workflow_id"]
+
+
+def test_content_sources_use_ready_video_categories_and_manual_availability(client, monkeypatch):
+    from app.domains.catalog.services import agent_media_library_service as media
+
+    def manuals(**kwargs):
+        assert kwargs == {"page_size": 1, "source_type": "manual"}
+        return {"total": 9, "stats": {"active": 3}}
+
+    monkeypatch.setattr(content, "list_care_manuals", manuals)
+    monkeypatch.setattr(media, "_load_items", lambda: [
+        {"media_type": media_type, "copy_type": category, "copy_status": status}
+        for media_type, category, status in [
+            ("video", "养护科普", "ready"), ("video", "养护科普", "ready"),
+            ("video", "新内容分类", "ready"), ("video", "未完成分类", "pending"),
+            ("image", "图片内容", "ready"), ("video", "", "ready"),
+        ]
+    ])
+    sources = client.get("/api/v1/admin/orchestration/workbench/canvas/content-sources").json()["data"]
+    assert sources[0]["id"] == "care_manual" and sources[0]["count"] == 3
+    assert sources[1]["count"] == 3 and sources[1]["available"] is True
+    assert {item["id"]: item["count"] for item in sources[1]["categories"]} == {"养护科普": 2, "新内容分类": 1}
+
+    def unavailable():
+        raise AppError(ErrorCode.INTERNAL_ERROR, "不可用", status_code=503)
+
+    monkeypatch.setattr(media, "_load_items", unavailable)
+    partial = client.get("/api/v1/admin/orchestration/workbench/canvas/content-sources").json()["data"]
+    assert partial[0]["available"] is True and partial[0]["count"] == 3
+    assert partial[1]["available"] is False and partial[1]["count"] is None
+    assert "无法加载" in partial[1]["message"]
+    monkeypatch.setattr(media, "_load_items", lambda: [])
+    empty = client.get("/api/v1/admin/orchestration/workbench/canvas/content-sources").json()["data"][1]
+    assert empty["available"] is True and empty["count"] == 0 and "暂无" in empty["message"]
+
+
+def test_manual_source_publishes_without_copy_and_invalid_sources_do_not_reach_ai(client, monkeypatch):
+    created = create(client)
+    flow = created["definition"]
+    timer = flow["nodes"][1]
+    timer.update(type="scheduled_send", send_time="10:00", action="", content_source={"library": "care_manual", "category": ""})
+    monkeypatch.setattr(content, "list_care_manuals", lambda **kwargs: {"stats": {"active": 2}})
+
+    async def review(prompt, **kwargs):
+        payload = json.loads(prompt.split("下面是完整的待审核流程 JSON：\n")[1])
+        assert payload["nodes"][1]["content_source"] == {"library": "care_manual", "category": ""}
+        return accepted_review()
+
+    monkeypatch.setattr(canvases, "generate_json", review)
+    url = f"{BASE}/{created['workflow_id']}"
+    saved = client.put(url, json={"revision": 2, "definition": flow}).json()["data"]
+    assert client.get(url).json()["data"]["definition"] == saved["definition"]
+    result = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
+    assert result["published"] is True
+    snapshot = result["workflow"]["published"]
+
+    async def unexpected(*args, **kwargs):
+        pytest.fail("Invalid content sources must be checked before calling AI")
+
+    monkeypatch.setattr(canvases, "generate_json", unexpected)
+    monkeypatch.setattr(content, "list_agent_video_categories", lambda: [{"id": "养护科普", "name": "养护科普", "count": 1}])
+    for revision, source in enumerate([None, {"library": "cloud_video", "category": ""}, {"library": "cloud_video", "category": "已删除分类"}], 3):
+        timer["content_source"] = source
+        assert client.put(url, json={"revision": revision, "definition": flow}).status_code == 200
+        failed = client.post(f"{url}/publish", json={"revision": revision + 1}).json()["data"]
+        assert failed["published"] is False
+        assert failed["review"]["issues"][0]["field"] == "content_source"
+        assert failed["workflow"]["published"] == snapshot
+
+    def unavailable(**kwargs):
+        raise AppError(ErrorCode.INTERNAL_ERROR, "不可用", status_code=503)
+
+    monkeypatch.setattr(content, "list_care_manuals", unavailable)
+    timer["content_source"] = {"library": "care_manual", "category": ""}
+    assert client.put(url, json={"revision": 6, "definition": flow}).status_code == 200
+    failed = client.post(f"{url}/publish", json={"revision": 7}).json()["data"]
+    assert failed["published"] is False and "无法加载" in failed["review"]["issues"][0]["message"]
 
 
 def test_sync_all_three_sops_preserves_nodes_branches_and_policies(client):
@@ -145,7 +223,9 @@ def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(cl
     condition.update(type="condition", name="判断客户需求", trigger_condition="", action="", exit_condition="",
                      branches=[{"id": "care", "condition": "客户有服务中标签且到了发送时间"}, {"id": "human", "condition": "客户要求人工"}])
     timed = {**condition, "id": "timed", "type": "scheduled_send", "name": "养护内容", "branches": [],
-             "send_time": "09:25", "send_cycle": cycle, "send_content_type": "mixed", "action": "发送养护文字与匹配的视频"}
+             "send_time": "09:25", "send_cycle": cycle, "send_content_type": "mixed", "action": "",
+             "content_source": {"library": "cloud_video", "category": "养护科普"}}
+    monkeypatch.setattr(content, "list_agent_video_categories", lambda: [{"id": "养护科普", "name": "养护科普", "count": 2}])
     handoff = {**condition, "id": "handoff", "type": "handoff", "name": "人工接待", "branches": [], "handoff_target": ""}
     flow["nodes"].extend([timed, handoff])
     flow["edges"] = [flow["edges"][0],
@@ -164,8 +244,10 @@ def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(cl
         assert reviewed["step"]["branches"] == condition["branches"]
         assert "action" not in reviewed["step"] and "handoff_target" not in reviewed["handoff"]
         assert reviewed["timed"]["send_time"] == "09:25" and reviewed["timed"]["send_cycle"] == cycle
+        assert reviewed["timed"]["content_source"] == timed["content_source"]
+        assert "send_content_type" not in reviewed["timed"] and reviewed["timed"]["action"] == ""
         assert "现有转人工设置通知负责人" in prompt and "底层打标能力" in prompt
-        assert kwargs["prompt_version"] == "canvas_publish.v3"
+        assert kwargs["prompt_version"] == "canvas_publish.v4"
         return {"summary": "按条件执行定时发送或转人工", "nodes": [{"node_id": node["id"], "understanding": node["name"]} for node in flow["nodes"]], "issues": []}
     monkeypatch.setattr(canvases, "generate_json", review)
     result = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
@@ -254,7 +336,7 @@ def test_legacy_conditions_and_weekday_are_exposed_without_modifying_snapshot(cl
         "name": "旧每周回访", "nodes": [
             {"id": "start", "type": "start", "name": "开始", "position": {"x": 0, "y": 0}, "trigger_condition": "服务客户触发"},
             {"id": "choose", "type": "condition", "name": "区分需求", "position": {"x": 350, "y": 0}},
-            {"id": "send", "type": "scheduled_send", "name": "周六回访", "position": {"x": 700, "y": 0}, "schedule_rule": "北京时间每周六 11:00", "action": "发送季节养护提醒"},
+            {"id": "send", "type": "scheduled_send", "name": "周六回访", "position": {"x": 700, "y": 0}, "schedule_rule": "北京时间每周六 11:00", "action": "发送季节养护提醒\n使用「养护科普」类型的素材。"},
             {"id": "end", "type": "end", "name": "结束", "position": {"x": 1050, "y": 0}},
         ], "edges": [
             {"id": "entry", "source": "start", "target": "choose", "label": "开始"},
@@ -272,6 +354,8 @@ def test_legacy_conditions_and_weekday_are_exposed_without_modifying_snapshot(cl
     condition, timer = loaded["definition"]["nodes"][1:3]
     assert [branch["condition"] for branch in condition["branches"]] == ["客户需要季节养护服务", "其他情况"]
     assert (timer["send_time"], timer["send_cycle"], timer["send_weekday"]) == ("11:00", "weekly", 5)
+    assert timer["content_source"] == {"library": "cloud_video", "category": "养护科普"}
+    assert timer["action"] == "发送季节养护提醒"
     assert loaded["definition"]["edges"][1]["source_branch"] == condition["branches"][0]["id"]
     assert loaded["published"] == json.loads(snapshot) and loaded["revision"] == 7
     assert client.get(f"{BASE}/legacy").json()["data"] == loaded

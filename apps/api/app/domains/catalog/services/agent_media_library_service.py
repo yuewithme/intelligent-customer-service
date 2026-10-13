@@ -38,6 +38,15 @@ def agent_media_library_dir() -> Path:
     return Path(get_settings().upload_dir) / LIBRARY_DIR_NAME
 
 
+def list_agent_video_categories() -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for item in _load_items():
+        category = str(item.get("copy_type") or "").strip()
+        if item.get("media_type") == "video" and item.get("copy_status") == "ready" and category:
+            counts[category] = counts.get(category, 0) + 1
+    return [{"id": category, "name": category, "count": count} for category, count in sorted(counts.items())]
+
+
 def search_agent_media(
     query: str, *, category: str = "", copy_type: str = "", limit: int = 5
 ) -> list[dict[str, Any]]:

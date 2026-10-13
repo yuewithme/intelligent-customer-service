@@ -6,11 +6,13 @@ from pydantic import ValidationError
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.domains.orchestration.schemas.canvas_workflow import (
     CanvasDefinition, CanvasReview, publication_issues,
 )
+from app.domains.orchestration.services.canvas_content_service import content_source_issues
 from app.infrastructure.database.models import Base, CanvasWorkflowModel
 from app.integrations.ai.services.llm_service import generate_json
 from app.shared.schemas.common import AppError, ErrorCode
@@ -168,7 +170,7 @@ def _review_prompt(flow):
     data = flow.model_dump(exclude={"nodes": {"__all__": {"position"}}})
     fields = {
         "start": {"trigger_condition"}, "general": {"trigger_condition", "action", "exit_condition"},
-        "condition": {"branches"}, "scheduled_send": {"send_time", "send_cycle", "send_weekday", "send_content_type", "action"},
+        "condition": {"branches"}, "scheduled_send": {"send_time", "send_cycle", "send_weekday", "content_source", "action"},
         "handoff": set(), "end": set(),
     }
     data["nodes"] = [{key: value for key, value in node.items() if key in {"id", "type", "name"} | fields[node["type"]]} for node in data["nodes"]]
@@ -178,7 +180,8 @@ def _review_prompt(flow):
 业务背景是兰花客户接待、养护服务、商品咨询和人工协作。是否查商品、发商品卡片、转人工由用户的流程描述决定，不能因为服务客户身份而额外禁止商品工具。
 节点只有 start（开始）、general（一般）、scheduled_send（定时发送）、condition（条件分支）、handoff（转人工）、end（结束）。开始节点的 trigger_condition 描述标签被打上、加好友、特定时间点等事件。
 一般节点的 trigger_condition、action、exit_condition 分别是进入条件、具体行动和退出条件。客户尚未满足退出条件时可以停留在节点，不要求画自循环。
-定时发送只配置 send_time（北京时间 HH:mm）、send_cycle（daily每天/every_three_days每三天/weekly每周）、send_content_type（text文字/image图片/video视频/link链接或小程序/product_card商品卡片/mixed组合内容）及 action（发送内容或素材匹配说明）。默认继承入口和上游分支条件，发送前再次检查条件与流程开关，同一客户同一节点同一周期只发送一次；条件不再满足或流程关闭时停止。首次到期从流程生效后第一个符合条件的发送时间计算，每三天/每周按首次到期日期每3/7天重复；已有每周 SOP 的 send_weekday 为0周一至6周日，存在时沿用该星期。每次发送或无素材跳过后结束本次分支。不要要求用户补填发送前条件、停止条件或默认周期锚点。
+定时发送只配置 send_time（北京时间 HH:mm）、send_cycle（daily每天/every_three_days每三天/weekly每周）、content_source（内容库及分类）及可选的 action（补充内容要求）。默认继承入口和上游分支条件，发送前再次检查条件与流程开关，同一客户同一节点同一周期只发送一次；条件不再满足或流程关闭时停止。首次到期从流程生效后第一个符合条件的发送时间计算，每三天/每周按首次到期日期每3/7天重复；已有每周 SOP 的 send_weekday 为0周一至6周日，存在时沿用该星期。每次发送或无素材跳过后结束本次分支。不要要求用户补填发送前条件、停止条件或默认周期锚点。
+content_source.library 为 care_manual 时，从养护手册库按客户已购品种或明确养护对象匹配可用手册；不确定养护对象或无匹配内容时跳过并记录原因，不发送无关手册。为 cloud_video 时，只从 content_source.category 指定的业务分类中匹配视频（例如养护科普、话题种草、名品故事），使用素材配套文案，结合已有客户信息匹配；没有额外要求时沿用素材轮换策略。发布前已核对所选库和分类可用，不要求用户再写素材地址、格式、具体视频或必填文案。action 可以为空；其中的补充要求不能把选定库和分类替换成其他来源，冲突时提醒修改。
 条件分支只包含名称和 branches 列表；每项 id 是固定标识，condition 是用户填写的条件。分支名称按列表顺序为分支一、分支二等。连线的 source_branch 与对应分支 id 绑定，label 仅是显示名称，不能把“分支一”当作条件。默认按列表顺序选择首个匹配分支；“其他情况”仅在其余条件均未命中时执行；均未命中且无兜底时等待新的客户信息。检查各分支条件是否清楚、是否存在冲突及对应去向，不要求判断依据、分支模式、额外行动或退出条件。
 转人工只需节点名称：到达即按现有转人工设置通知负责人，自动附带客户需求与对话上下文，暂停 AI 自动回复；交接完成后由人工处理，只有人工明确恢复后才继续后续自动步骤。联系人、交接说明和恢复策略均采用以上默认值，不要求用户填写。
 审核只采用当前节点类型的可见配置与以上默认行为，不因旧版隐藏配置或缺少不再需要的字段而报错。
@@ -189,7 +192,7 @@ def _review_prompt(flow):
 不要擅自改写用户目标、替用户编造缺失业务信息，或将你偏好的销售策略当成发布要求。不要把尚未编码实现本流程本身当成错误。
 只返回 JSON，且必须完整包含这三个字段：
 {"summary":"整个流程的业务理解", "nodes":[{"node_id":"原始节点ID","understanding":"该节点在全流程中的含义、执行行动及进入退出关系"}],
- "issues":[{"node_id":"对应原始节点ID，整图问题则为null","field":"name或trigger_condition或action或exit_condition或branches或send_time或send_cycle或send_content_type或graph","message":"具体问题","suggestion":"用户应怎样修改"}]}
+ "issues":[{"node_id":"对应原始节点ID，整图问题则为null","field":"name或trigger_condition或action或exit_condition或branches或send_time或send_cycle或content_source或graph","message":"具体问题","suggestion":"用户应怎样修改"}]}
 有问题时 issues 非空，允许 nodes 只包含能够理解的节点；无问题时 issues 必须为空，summary 不可为空，nodes 必须包含每一个原始节点且不得重复或新增节点。
 下面是完整的待审核流程 JSON：\n""" + json.dumps(
         data, ensure_ascii=False,
@@ -205,6 +208,8 @@ async def publish_canvas(workflow_id, revision):
         flow = CanvasDefinition.model_validate_json(row.draft_json)
 
     issues = publication_issues(flow)
+    if not issues:
+        issues = await run_in_threadpool(content_source_issues, flow)
     review = CanvasReview(summary="", nodes=[], issues=issues)
     if not issues:
         if not get_settings().dashscope_api_key.strip():
@@ -212,7 +217,7 @@ async def publish_canvas(workflow_id, revision):
         try:
             result = await generate_json(_review_prompt(flow), purpose="workflow_publish",
                                          provider_override="dashscope", model_override=PUBLISH_MODEL,
-                                         prompt_version="canvas_publish.v3")
+                                         prompt_version="canvas_publish.v4")
             review = CanvasReview.model_validate(result)
             node_ids = {node.id for node in flow.nodes}
             reviewed_ids = [item.node_id for item in review.nodes]
