@@ -289,6 +289,11 @@ export const resolveConversationMessageMedia = (messageId: number) =>
     url: `/api/v1/admin/conversations/messages/${messageId}/resolve-media`
   })
 
+export const transcribeConversationMessage = (messageId: number) =>
+  request.post<ConversationMessage>({
+    url: `/api/v1/admin/conversations/messages/${messageId}/transcribe`
+  })
+
 export const retryConversationMessageDelivery = (messageId: number) =>
   request.post<ConversationMessage>({
     url: `/api/v1/admin/conversations/messages/${messageId}/retry-delivery`

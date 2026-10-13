@@ -87,7 +87,12 @@ def quote_message(session, conversation, source_message_id: int) -> dict:
     if not message_actions(source, metadata)["quote"]:
         raise _invalid("该消息不能引用")
     label = (origin.user_display_name or "客户") if source.sender_type == "customer" else "客服"
-    return {"id": source.id, "sender": label, "content": source.content[:500]}
+    media = metadata.get("media") or {}
+    recognition = media.get("recognition") or {}
+    content = source.content
+    if media.get("type") == "audio" and recognition.get("status") == "succeeded":
+        content = str(recognition.get("text") or "").strip() or content
+    return {"id": source.id, "sender": label, "content": content[:500]}
 
 
 async def forward_conversation_message(conversation_id: str, operator_id: str, source_message_id: int) -> dict:

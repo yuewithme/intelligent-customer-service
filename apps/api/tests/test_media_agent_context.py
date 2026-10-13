@@ -127,14 +127,15 @@ async def test_followup_waits_for_media_and_resumes_when_processing_finishes(med
         assert "老叶发黄，盆底积水" in calls[0]
 
 
-def test_media_wait_does_not_block_another_conversation_or_playback_repair(media_db):
+@pytest.mark.parametrize("manual_flag", ["preserve_recognition", "transcribe_only"])
+def test_media_wait_does_not_block_another_conversation_or_playback_repair(media_db, manual_flag):
     with queue._get_session() as db:
         video = db.scalar(select(ConversationMessageModel).where(ConversationMessageModel.conversation_id == CID, ConversationMessageModel.message_id == "2"))
         job = EyunInboundMediaJobModel(conversation_message_id=video.id, dedup_key="pending-video", media_type="video", status="pending", available_at=media_db, created_at=media_db, updated_at=media_db)
         db.add(job)
         db.commit()
         assert not queue._pause_inbound_for_media(0, {"from_user": "other-customer", "wc_id": "bot"})
-        job.payload_json = json.dumps({"preserve_recognition": True})
+        job.payload_json = json.dumps({manual_flag: True})
         db.commit()
         assert not queue._pause_inbound_for_media(0, {"from_user": "customer", "wc_id": "bot"})
 

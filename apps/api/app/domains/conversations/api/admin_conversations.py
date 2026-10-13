@@ -374,6 +374,12 @@ async def resolve_media(message_id: int) -> APIResponse:
     return APIResponse(code=0, message="success", data=data)
 
 
+@router.post("/messages/{message_id}/transcribe", response_model=APIResponse)
+async def transcribe_message(message_id: int) -> APIResponse:
+    data = await resolve_message_media(message_id, transcribe_only=True)
+    return APIResponse(code=0, message="success", data=data)
+
+
 @router.get("/{conversation_id:path}/orders", response_model=APIResponse)
 async def conversation_orders(conversation_id: str) -> APIResponse:
     detail = await get_conversation_detail(conversation_id)

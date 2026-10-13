@@ -188,6 +188,21 @@
             >
               重新加载
             </ElButton>
+            <div v-if="mediaType(message) === 'audio' && !message.metadata.revoked_at" class="voice-transcription" aria-live="polite">
+              <template v-if="voiceTranscript(message)">
+                <div class="transcription-header">
+                  <small>语音转文字</small>
+                  <ElButton type="primary" link size="small" @click.stop="copyMessages([message], voiceTranscript(message))">复制文字</ElButton>
+                </div>
+                <p>{{ voiceTranscript(message) }}</p>
+              </template>
+              <template v-else-if="canTranscribe(message)">
+                <ElButton type="primary" link :loading="transcriptionBusy(message)" @click.stop="transcribeVoice(message)">
+                  {{ transcriptionBusy(message) ? '转文字中…' : transcriptionFailed(message) ? '重新转文字' : '转文字' }}
+                </ElButton>
+                <small v-if="transcriptionFailed(message) && !transcriptionBusy(message)">转文字失败，请重试；也可以播放语音。</small>
+              </template>
+            </div>
           </div>
           <div class="message-footer">
             <ElButton v-if="!message.metadata.revoked_at && message.sender_type !== 'system'" text size="small" aria-label="消息操作" @click.stop="openMenu($event, message)">···</ElButton>
@@ -217,6 +232,7 @@
       <div v-if="menu" class="message-context-menu" role="menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @pointerdown.stop @contextmenu.prevent>
         <button type="button" role="menuitem" @click="copyMessages([menu.message], menu.selection)">{{ menu.selection ? '复制选中文字' : '复制' }}</button>
         <button v-if="isImageMessage(menu.message) && mediaSource(menu.message)" type="button" role="menuitem" @click="copyImage(menu.message)">复制图片</button>
+        <button v-if="canTranscribe(menu.message) && !voiceTranscript(menu.message)" type="button" role="menuitem" :disabled="transcriptionBusy(menu.message)" @click="transcribeVoice(menu.message)">{{ transcriptionBusy(menu.message) ? '转文字中…' : '转文字' }}</button>
         <button v-if="menu.message.actions?.quote && detail?.conversation.status !== 'resolved'" type="button" role="menuitem" @click="quoteFromMenu">引用</button>
         <button v-if="!readOnly && menu.message.actions?.forward" type="button" role="menuitem" @click="openForward([menu.message])">转发</button>
         <button v-if="!readOnly && menu.message.actions?.revoke" type="button" role="menuitem" :disabled="revokingIds.has(menu.message.id)" @click="revokeMessage(menu.message)">撤回</button>
@@ -236,6 +252,7 @@ import {
   getConversationDetail,
   retryConversationMessageDelivery,
   resolveConversationMessageMedia,
+  transcribeConversationMessage,
   revokeConversationMessage,
   type ConversationDetail,
   type ConversationItem,
@@ -259,6 +276,10 @@ interface MediaMetadata {
   file_name?: string
   filename?: string
   name?: string
+  recognition?: {
+    status?: 'pending' | 'processing' | 'succeeded' | 'failed'
+    text?: string
+  }
 }
 
 interface CommerceCardMetadata {
@@ -286,6 +307,7 @@ const loading = ref(false)
 const detail = ref<ConversationDetail>()
 const timelineRef = ref<HTMLElement>()
 const resolvingMediaIds = ref(new Set<number>())
+const transcribingIds = ref(new Set<number>())
 const failedMediaIds = ref(new Set<number>())
 const retryingDeliveryIds = ref(new Set<number>())
 const selectedMessageIds = ref(new Set<number>())
@@ -396,6 +418,40 @@ const messageMedia = (message: ConversationMessage): MediaMetadata | undefined =
 }
 
 const mediaType = (message: ConversationMessage) => messageMedia(message)?.type || ''
+
+const voiceTranscript = (message: ConversationMessage) => {
+  const recognition = messageMedia(message)?.recognition
+  return mediaType(message) === 'audio' && recognition?.status === 'succeeded' ? recognition.text?.trim() || '' : ''
+}
+const canTranscribe = (message: ConversationMessage) => !readOnly && !message.metadata.revoked_at &&
+  mediaType(message) === 'audio' && message.metadata.provider === 'eyun' &&
+  ['60004', '80004'].includes(String(message.metadata.message_type || ''))
+const transcriptionOverdue = (message: ConversationMessage) =>
+  Date.now() - new Date(messageMedia(message)?.resolve_updated_at || message.created_at).getTime() > 5 * 60 * 1000
+const transcriptionBusy = (message: ConversationMessage) => {
+  const media = messageMedia(message)
+  return transcribingIds.value.has(message.id) || (!transcriptionOverdue(message) &&
+    (['pending', 'processing'].includes(media?.recognition?.status || '') ||
+      (Boolean(media?.job_key) && ['pending', 'processing'].includes(media?.resolve_status || ''))))
+}
+const transcriptionFailed = (message: ConversationMessage) =>
+  messageMedia(message)?.recognition?.status === 'failed' ||
+  messageMedia(message)?.resolve_status === 'failed' ||
+  (['pending', 'processing'].includes(messageMedia(message)?.recognition?.status || '') && transcriptionOverdue(message))
+const transcribeVoice = async (message: ConversationMessage) => {
+  closeMenu()
+  if (transcriptionBusy(message)) return
+  transcribingIds.value.add(message.id)
+  try {
+    const updated = await transcribeConversationMessage(message.id)
+    message.metadata = updated.metadata
+    await load({ silent: true })
+  } catch {
+    ElMessage.warning('转文字请求失败，请稍后重试')
+  } finally {
+    transcribingIds.value.delete(message.id)
+  }
+}
 
 const canResolveMedia = (message: ConversationMessage) =>
   message.metadata.provider === 'eyun' &&
@@ -592,7 +648,10 @@ const openMenu = (event: MouseEvent, message: ConversationMessage) => {
   }
 }
 const quoteFromMenu = () => {
-  if (menu.value) emit('quote', menu.value.message)
+  if (menu.value) {
+    const message = menu.value.message
+    emit('quote', { ...message, content: voiceTranscript(message) || message.content })
+  }
   closeMenu()
 }
 const quotedContent = (message: ConversationMessage) => {
@@ -601,7 +660,7 @@ const quotedContent = (message: ConversationMessage) => {
 }
 const messageCopyText = (message: ConversationMessage) => {
   const card = linkCard(message)
-  const body = card ? [card.title, card.description, card.url].filter(Boolean).join('\n') : mediaSource(message) || displayContent(message)
+  const body = card ? [card.title, card.description, card.url].filter(Boolean).join('\n') : voiceTranscript(message) || mediaSource(message) || displayContent(message)
   const quote = quotedContent(message)
   return quote ? `「${quote}」\n${body}` : body
 }
@@ -1013,6 +1072,17 @@ p {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+.voice-transcription {
+  max-width: 360px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--app-border);
+}
+.transcription-header { display: flex; align-items: center; gap: 12px; }
+.voice-transcription small { color: var(--el-text-color-secondary); }
+.voice-transcription > small { display: block; margin-top: 4px; }
+.voice-transcription p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .header { min-height: 56px; padding: 10px 12px; }

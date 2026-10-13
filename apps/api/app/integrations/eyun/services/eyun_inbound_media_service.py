@@ -99,7 +99,7 @@ async def enqueue_eyun_inbound_media(
         return _job_to_dict(job)
 
 
-async def retry_eyun_message_media(message_id: int) -> None:
+async def retry_eyun_message_media(message_id: int, *, transcribe_only: bool = False) -> None:
     now = utcnow()
     with _get_session() as session:
         message = session.get(ConversationMessageModel, message_id)
@@ -108,9 +108,21 @@ async def retry_eyun_message_media(message_id: int) -> None:
         media_type, payload = _job_payload_from_message(message)
         if media_type not in SUPPORTED_MEDIA_TYPES:
             raise ValueError("当前消息不支持媒体解析")
+        if transcribe_only and media_type != "audio":
+            raise ValueError("仅语音消息支持转文字")
         media = _load_json(message.metadata_json).get("media") or {}
         recognition = media.get("recognition") or {}
+        if transcribe_only and recognition.get("status") == "succeeded" and str(recognition.get("text") or "").strip():
+            return
         payload["preserve_recognition"] = recognition.get("status") == "succeeded"
+        cached_url = ""
+        if transcribe_only:
+            payload["transcribe_only"] = True
+            payload["preserve_recognition"] = False
+            url = str(media.get("url") or "")
+            if url.startswith("/static/media/") and _local_media_path(url).is_file():
+                cached_url = url
+                payload["cached_url"] = url
 
         dedup_key = f"{message.id}:{media_type}"
         job = session.scalar(
@@ -127,6 +139,8 @@ async def retry_eyun_message_media(message_id: int) -> None:
                 created_at=now,
             )
             session.add(job)
+        elif transcribe_only and job.status == "pending":
+            return
         elif (
             job.status == "processing"
             and job.locked_at is not None
@@ -134,6 +148,9 @@ async def retry_eyun_message_media(message_id: int) -> None:
             > now - timedelta(minutes=STALE_PROCESSING_MINUTES)
         ):
             return
+        # Playback retries must not turn a manual transcription into a new customer turn.
+        if _load_json(job.payload_json).get("transcribe_only"):
+            payload["transcribe_only"] = True
         job.payload_json = json.dumps(payload, ensure_ascii=False)
         job.status = "pending"
         job.attempts = 0
@@ -145,10 +162,12 @@ async def retry_eyun_message_media(message_id: int) -> None:
         _update_message_media(
             message,
             media_type=media_type,
-            resolve_status="pending",
+            resolve_status="succeeded" if cached_url else "pending",
             resolve_error=None,
-            clear_url=True,
+            clear_url=not cached_url,
             job_key=dedup_key,
+            recognition={"status": "pending"}
+            if payload.get("transcribe_only") and not payload["preserve_recognition"] else None,
         )
         conversation_id = message.conversation_id
         session.commit()
@@ -194,12 +213,15 @@ async def process_due_eyun_media_jobs(limit: int = 2) -> int:
                 job.conversation_message_id,
             )
             if message is not None:
+                payload = _load_json(job.payload_json)
                 _update_message_media(
                     message,
                     media_type=job.media_type,
-                    resolve_status="processing",
+                    resolve_status="succeeded" if payload.get("cached_url") else "processing",
                     resolve_error=None,
                     job_key=job.dedup_key,
+                    recognition={"status": "processing"}
+                    if payload.get("transcribe_only") and not payload.get("preserve_recognition") else None,
                 )
                 conversation_ids.append(message.conversation_id)
             job_ids.append(job.id)
@@ -238,12 +260,16 @@ async def _process_media_job(job_id: int) -> None:
             download_eyun_voice,
         )
 
-        if media_type == "video":
+        cached_url = str(payload.get("cached_url") or "")
+        if payload.get("transcribe_only") and cached_url and _local_media_path(cached_url).is_file():
+            url = cached_url
+        elif media_type == "video":
             download = download_eyun_video(
                 w_id=str(payload.get("w_id") or ""),
                 msg_id=str(payload.get("provider_msg_id") or ""),
                 content=str(payload.get("raw_content") or ""),
             )
+            url = await asyncio.wait_for(download, timeout=MEDIA_DOWNLOAD_TIMEOUT_SECONDS)
         elif media_type == "audio":
             download = download_eyun_voice(
                 w_id=str(payload.get("w_id") or ""),
@@ -252,9 +278,9 @@ async def _process_media_job(job_id: int) -> None:
                 buf_id=str(payload.get("buf_id") or ""),
                 length=_positive_int(payload.get("length")),
             )
+            url = await asyncio.wait_for(download, timeout=MEDIA_DOWNLOAD_TIMEOUT_SECONDS)
         else:
             raise RuntimeError(f"unsupported Eyun media type: {media_type}")
-        url = await asyncio.wait_for(download, timeout=MEDIA_DOWNLOAD_TIMEOUT_SECONDS)
     except Exception as exc:  # noqa: BLE001
         _fail_media_job(job_id, exc)
         return
@@ -314,7 +340,7 @@ async def _process_media_job(job_id: int) -> None:
             logger.warning("Eyun video understanding failed job=%s error=%s", job_id, exc)
 
     _complete_media_job(job_id, url, recognition=recognition)
-    if media_type in {"audio", "video"}:
+    if media_type in {"audio", "video"} and not payload.get("transcribe_only"):
         try:
             await _enqueue_media_agent_input(job_id, agent_text)
         except Exception as exc:  # noqa: BLE001
@@ -392,6 +418,7 @@ def _fail_media_job(job_id: int, error: Exception) -> None:
         job.locked_at = None
         job.last_error = error_text
         job.updated_at = now
+        payload = _load_json(job.payload_json)
         message = session.get(ConversationMessageModel, job.conversation_message_id)
         conversation_id = ""
         if message is not None:
@@ -401,6 +428,8 @@ def _fail_media_job(job_id: int, error: Exception) -> None:
                 resolve_status="failed" if exhausted else "pending",
                 resolve_error=error_text,
                 job_key=job.dedup_key,
+                recognition={"status": "failed" if exhausted else "pending"}
+                if payload.get("transcribe_only") and not payload.get("preserve_recognition") else None,
             )
             conversation_id = message.conversation_id
         session.commit()
@@ -423,7 +452,7 @@ def _job_payload_from_message(
     message_type = str(metadata.get("message_type") or "")
     media_type = str(media.get("type") or "")
     if not media_type:
-        media_type = {"60003": "video", "60004": "audio"}.get(message_type, "")
+        media_type = {"60003": "video", "60004": "audio", "80003": "video", "80004": "audio"}.get(message_type, "")
     raw_content = str(metadata.get("raw_content") or "")
     voice_xml = _voice_xml_metadata(raw_content) if media_type == "audio" else {}
     return media_type, {

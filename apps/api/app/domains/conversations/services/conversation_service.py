@@ -1980,7 +1980,7 @@ async def unhide_conversation(conversation_id: str) -> dict:
     return result
 
 
-async def resolve_message_media(message_id: int) -> dict:
+async def resolve_message_media(message_id: int, *, transcribe_only: bool = False) -> dict:
     with _get_session() as session:
         message = session.get(ConversationMessageModel, message_id)
         if message is None:
@@ -1996,6 +1996,7 @@ async def resolve_message_media(message_id: int) -> dict:
         if (
             metadata.get("provider") != "eyun"
             or str(metadata.get("message_type") or "") not in {"60003", "60004", "80003", "80004"}
+            or metadata.get("revoked_at")
         ):
             raise AppError(
                 ErrorCode.REQUEST_INVALID,
@@ -2008,7 +2009,7 @@ async def resolve_message_media(message_id: int) -> dict:
     )
 
     try:
-        await retry_eyun_message_media(message_id)
+        await retry_eyun_message_media(message_id, transcribe_only=transcribe_only)
     except ValueError as exc:
         raise AppError(
             ErrorCode.REQUEST_INVALID,

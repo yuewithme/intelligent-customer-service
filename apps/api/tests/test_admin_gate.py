@@ -183,6 +183,7 @@ def test_workbench_actions_check_source_and_target_permissions(context, monkeypa
     assert client.post(allowed + "/forward", json=payload).status_code == 403
     assert client.post(allowed + "/reply", json=payload).status_code == 403
     assert client.post(f"/api/v1/admin/conversations/messages/{source_id}/revoke", json=payload).status_code == 403
+    assert client.post(f"/api/v1/admin/conversations/messages/{source_id}/transcribe").status_code == 403
 
 
 def test_employee_can_only_edit_authorized_customer_tags_and_note(context):

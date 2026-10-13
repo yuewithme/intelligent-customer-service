@@ -2025,7 +2025,11 @@ def _pause_inbound_for_media(batch_id: int, batch: dict[str, Any]) -> bool:
             ConversationMessageModel.conversation_id == _batch_conversation_id(batch),
             EyunInboundMediaJobModel.status.in_(("pending", "processing")),
         )).all()
-        if not any(not _load_message_metadata(job.payload_json).get("preserve_recognition") for job in jobs):
+        payloads = [_load_message_metadata(job.payload_json) for job in jobs]
+        if not any(
+            not (payload.get("preserve_recognition") or payload.get("transcribe_only"))
+            for payload in payloads
+        ):
             return False
         row = session.get(EyunInboundBatchModel, batch_id)
         if row:

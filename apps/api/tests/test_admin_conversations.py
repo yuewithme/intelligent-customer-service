@@ -1973,6 +1973,120 @@ def test_conversation_apis_require_authorization(monkeypatch, tmp_path):
     assert response.json()["code"] == 40100
 
 
+@pytest.mark.parametrize("cached_audio", [True, False])
+@pytest.mark.parametrize("initial_failure", ["", "recognition", "download"])
+def test_manual_voice_transcription_reuses_audio_and_never_replies(monkeypatch, tmp_path, cached_audio, initial_failure):
+    import asyncio
+    from app.domains.conversations.services import conversation_service as conversations
+    from app.domains.conversations.services.message_action_service import quote_message
+    from app.infrastructure.database.models import ConversationMessageModel, EyunInboundMediaJobModel
+    from app.integrations.ai.services import speech_recognition_service as speech
+    from app.integrations.eyun.services import eyun_callback_service as provider, eyun_inbound_media_service as jobs
+
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setattr(provider, "media_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr(jobs, "MAX_ATTEMPTS", 1)
+    audio = tmp_path / "voice.wav"
+    if cached_audio:
+        audio.write_bytes(b"audio")
+    media = {"type": "audio", "url": "/static/media/voice.wav", "resolve_status": "succeeded",
+             "recognition": {"status": "failed", "error": "previous failure"}}
+    asyncio.run(record_customer_message(channel="wechat", user_id="voice_customer", session_id="owner", content="[语音]",
+        metadata={"provider": "eyun", "message_type": "60004", "w_id": "wid", "from_user": "voice_customer", "media": media}))
+    client = TestClient(app)
+    detail_path = "/api/v1/admin/conversations/wechat:voice_customer:owner"
+    message_id = client.get(detail_path).json()["data"]["messages"][0]["id"]
+    action_path = f"/api/v1/admin/conversations/messages/{message_id}/transcribe"
+    calls = {"download": 0, "recognize": 0, "reply": 0}
+    fail = [initial_failure]
+
+    async def download(**kwargs):
+        calls["download"] += 1
+        if fail[0] == "download":
+            raise RuntimeError("download failed")
+        audio.write_bytes(b"audio")
+        return "/static/media/voice.wav"
+
+    async def recognize(path):
+        calls["recognize"] += 1
+        assert path == audio and path.is_file()
+        during = client.post(action_path).json()["data"]["metadata"]["media"]
+        assert during["recognition"]["status"] == "processing"
+        assert during["url"] == "/static/media/voice.wav"
+        if fail[0] == "recognition":
+            raise RuntimeError("recognition failed")
+        return speech.SpeechTranscript(text="这盆兰花应该怎么浇水？")
+
+    async def enqueue(*args):
+        calls["reply"] += 1
+
+    monkeypatch.setattr(provider, "download_eyun_voice", download)
+    monkeypatch.setattr(speech, "transcribe_audio_file", recognize)
+    monkeypatch.setattr(jobs, "_enqueue_media_agent_input", enqueue)
+    response = client.post(action_path)
+    assert response.status_code == 200
+    pending = response.json()["data"]["metadata"]["media"]
+    assert pending["recognition"]["status"] == "pending"
+    if cached_audio:
+        assert pending["url"] == media["url"] and pending["resolve_status"] == "succeeded"
+    assert client.post(action_path).status_code == 200
+    with jobs._get_session() as db:
+        assert db.query(EyunInboundMediaJobModel).count() == 1
+    assert asyncio.run(jobs.process_due_eyun_media_jobs()) == 1
+    failed = initial_failure == "recognition" or (initial_failure == "download" and not cached_audio)
+    if failed:
+        result = client.get(detail_path).json()["data"]["messages"][0]
+        assert result["metadata"]["media"]["recognition"]["status"] == "failed"
+        fail[0] = ""
+        assert client.post(action_path).status_code == 200
+        assert asyncio.run(jobs.process_due_eyun_media_jobs()) == 1
+    result = client.get(detail_path).json()["data"]["messages"][0]
+    assert result["metadata"]["media"]["recognition"]["text"] == "这盆兰花应该怎么浇水？"
+    assert result["metadata"]["media"]["resolve_status"] == "succeeded"
+    assert result["content"] == "[语音]"
+    assert client.post(action_path).status_code == 200
+    assert asyncio.run(jobs.process_due_eyun_media_jobs()) == 0
+    assert calls["reply"] == 0
+    assert calls["recognize"] == (2 if initial_failure == "recognition" else 1)
+    assert calls["download"] == (0 if cached_audio else 2 if initial_failure == "download" else 1)
+    fail[0] = ""
+    assert client.post(f"/api/v1/admin/conversations/messages/{message_id}/resolve-media").status_code == 200
+    assert asyncio.run(jobs.process_due_eyun_media_jobs()) == 1
+    repaired = client.get(detail_path).json()["data"]["messages"][0]
+    assert repaired["metadata"]["media"]["recognition"] == result["metadata"]["media"]["recognition"]
+    assert calls["reply"] == 0
+    with conversations._get_session() as db:
+        conversation = conversations._get_conversation_or_error(db, "wechat:voice_customer:owner")
+        assert quote_message(db, conversation, message_id)["content"] == "这盆兰花应该怎么浇水？"
+        row = db.get(ConversationMessageModel, message_id)
+        metadata = json.loads(row.metadata_json)
+        metadata["revoked_at"] = datetime.now(timezone.utc).isoformat()
+        row.metadata_json = json.dumps(metadata)
+        db.commit()
+    assert client.post(action_path).status_code == 400
+
+
+def test_voice_transcription_preserves_pending_automatic_job_and_rejects_video(monkeypatch, tmp_path):
+    import asyncio
+    from app.infrastructure.database.models import EyunInboundMediaJobModel
+    from app.integrations.eyun.services import eyun_inbound_media_service as jobs
+
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+    for kind, message_type in (("audio", "60004"), ("audio", "80004"), ("video", "60003")):
+        asyncio.run(record_customer_message(channel="wechat", user_id=message_type, session_id="owner", content="[媒体]", message_id=kind,
+            metadata={"provider": "eyun", "message_type": message_type, "media": {} if message_type == "80004" else {"type": kind}}))
+        cid = f"wechat:{message_type}:owner"
+        job = asyncio.run(jobs.enqueue_eyun_inbound_media(conversation_id=cid, message_id=kind))
+        message_id = client.get(f"/api/v1/admin/conversations/{cid}").json()["data"]["messages"][0]["id"]
+        response = client.post(f"/api/v1/admin/conversations/messages/{message_id}/transcribe")
+        assert response.status_code == (200 if kind == "audio" else 400)
+        with jobs._get_session() as db:
+            row = db.get(EyunInboundMediaJobModel, job["id"])
+            assert row.status == "pending" and not json.loads(row.payload_json).get("transcribe_only")
+    assert client.post("/api/v1/admin/conversations/messages/99999/transcribe").status_code == 404
+
+
 def test_workbench_quote_preserves_source_and_rejects_other_customer(monkeypatch, tmp_path):
     import asyncio
     from app.integrations.eyun.services import message_risk_control_service as queue
