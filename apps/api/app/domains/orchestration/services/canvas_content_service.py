@@ -66,11 +66,11 @@ def _content_source(library: str, name: str, unit: str, description: str) -> dic
     return source
 
 
-def resolve_content_sources(flow: CanvasDefinition) -> tuple[list[CanvasIssue], dict]:
+def resolve_content_sources(flow: CanvasDefinition, catalog: list[dict] | None = None) -> tuple[list[CanvasIssue], dict]:
     nodes = [node for node in flow.nodes if node.type == "scheduled_send" and node.content_source]
     if not nodes:
         return [], {}
-    sources = {source["id"]: source for source in list_content_sources({node.content_source.library for node in nodes})}
+    sources = {source["id"]: source for source in (catalog if catalog is not None else list_content_sources({node.content_source.library for node in nodes}))}
     issues, resolved = [], {}
     for node in nodes:
         selected = node.content_source

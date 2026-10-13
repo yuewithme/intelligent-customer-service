@@ -387,6 +387,9 @@ def _model_config(
 
 
 def _timeout_for(settings, purpose: str) -> float:
+    if purpose == "workflow_edit":
+        # Allow one structural repair, including JSON retries and catalog reads, within the proxy timeout.
+        return min(settings.llm_timeout_seconds, 40)
     if purpose == "workflow_publish":
         # Two JSON attempts must finish within the admin proxy's 240-second timeout.
         return min(settings.llm_timeout_seconds, 100)

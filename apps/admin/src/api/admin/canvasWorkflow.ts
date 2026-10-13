@@ -57,6 +57,7 @@ export interface CanvasWorkflow {
   published: { definition: CanvasDefinition; review: CanvasReview; model: string; revision: number; published_at: string } | null
 }
 export interface CanvasSummary { workflow_id: string; name: string }
+export interface CanvasChatMessage { role: 'user' | 'assistant'; content: string }
 const base = '/api/v1/admin/orchestration/workbench/canvas/workflows'
 export const listCanvasContentSources = () => request.get<CanvasContentLibraryOption[]>({ url: '/api/v1/admin/orchestration/workbench/canvas/content-sources' })
 export const listCanvasWorkflows = () => request.get<CanvasSummary[]>({ url: base })
@@ -65,6 +66,10 @@ export const createCanvasWorkflow = () => request.post<CanvasWorkflow>({ url: ba
 export const getCanvasWorkflow = (id: string) => request.get<CanvasWorkflow>({ url: `${base}/${id}` })
 export const saveCanvasWorkflow = (id: string, revision: number, definition: CanvasDefinition) =>
   request.put<CanvasWorkflow>({ url: `${base}/${id}`, data: { revision, definition } })
+export const editCanvasWorkflow = (id: string, revision: number, definition: CanvasDefinition, message: string, history: CanvasChatMessage[], selectedNodeId: string | null) =>
+  request.post<{ workflow_id: string; revision: number; reply: string; definition: CanvasDefinition | null }>({
+    url: `${base}/${id}/chat`, data: { revision, definition, message, history, selected_node_id: selectedNodeId }, timeout: 235000
+  })
 export const publishCanvasWorkflow = (id: string, revision: number) =>
   request.post<{ published: boolean; review: CanvasReview; workflow: CanvasWorkflow }>({
     url: `${base}/${id}/publish`, data: { revision }, timeout: 235000

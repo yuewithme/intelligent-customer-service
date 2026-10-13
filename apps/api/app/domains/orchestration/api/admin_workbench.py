@@ -4,7 +4,8 @@ from pydantic import BaseModel, Field
 
 from app.core.auth import require_api_key
 from app.domains.orchestration.schemas.sop_flow import SopFlowDefinition, SopScope
-from app.domains.orchestration.schemas.canvas_workflow import CreateCanvas, SaveCanvas, PublishCanvas
+from app.domains.orchestration.schemas.canvas_workflow import CreateCanvas, SaveCanvas, PublishCanvas, EditCanvas
+from app.domains.orchestration.services.canvas_chat_service import edit_canvas
 from app.domains.orchestration.services import canvas_workflow_service as canvases
 from app.domains.orchestration.services.canvas_content_service import list_content_sources
 from app.domains.orchestration.services.sop_flow_service import save_flow
@@ -72,6 +73,11 @@ async def canvas_save(workflow_id: str, request: SaveCanvas) -> APIResponse:
 async def canvas_publish(workflow_id: str, request: PublishCanvas) -> APIResponse:
     result = await canvases.publish_canvas(workflow_id, request.revision)
     return APIResponse(code=0, message="流程理解已发布" if result["published"] else "请修改流程后重新发布", data=result)
+
+
+@router.post("/workbench/canvas/workflows/{workflow_id}/chat", response_model=APIResponse)
+async def canvas_chat(workflow_id: str, request: EditCanvas) -> APIResponse:
+    return APIResponse(code=0, message="success", data=await edit_canvas(workflow_id, request))
 
 
 @router.put("/workbench/sop-enabled", response_model=APIResponse)

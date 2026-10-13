@@ -12,6 +12,7 @@ from app.domains.orchestration.schemas.canvas_workflow import CanvasDefinition, 
 from app.domains.orchestration.schemas.sop_flow import SopFlowDefinition
 from app.domains.orchestration.services import canvas_workflow_service as canvases
 from app.domains.orchestration.services import canvas_content_service as content
+from app.domains.orchestration.services import canvas_chat_service as chat
 from app.domains.orchestration.services.sop_flow_service import build_workbench_packages, save_flow
 from app.shared.schemas.common import AppError, ErrorCode
 
@@ -518,3 +519,153 @@ def test_incomplete_or_unavailable_model_does_not_publish(client, monkeypatch, f
     url = f"{BASE}/{created['workflow_id']}"
     assert client.post(f"{url}/publish", json={"revision": 2}).status_code == 502
     assert client.get(url).json()["data"]["published"] is None
+
+
+def test_chat_edits_current_unsaved_draft_without_writing_any_workflow(client, monkeypatch):
+    created = create(client)
+    other = client.post(BASE, json={"name": "另一个流程独有的名称"}).json()["data"]
+    before = client.get(f"{BASE}/{created['workflow_id']}").json()["data"]
+    flow = json.loads(json.dumps(created["definition"]))
+    flow["nodes"][1]["action"] = "用户尚未保存的具体行动"
+    node = flow["nodes"][1]
+    monkeypatch.setattr(chat, "list_content_sources", lambda: [])
+
+    async def edit(prompt, **kwargs):
+        assert "用户尚未保存的具体行动" in prompt and other["definition"]["name"] not in prompt
+        assert kwargs["model_override"] == "qwen3.8-max" and kwargs["purpose"] == "workflow_edit"
+        context = json.loads(prompt.split("下面是当前编辑上下文 JSON：\n")[1])
+        assert context["selected_node_id"] == "step" and context["history"][0]["content"] == "只调整当前接待"
+        return {"reply": "已调整接待说明，可在画布查看。", "edits": {"upsert_nodes": [{
+            "id": node["id"], "type": node["type"], "name": node["name"], "position": node["position"],
+            "action": "先询问养护问题，再查阅手册回答",
+        }]}}
+
+    monkeypatch.setattr(chat, "generate_json", edit)
+    url = f"{BASE}/{created['workflow_id']}"
+    response = client.post(f"{url}/chat", json={"revision": 2, "definition": flow, "message": "先问清问题再回答",
+                          "selected_node_id": "step", "history": [{"role": "user", "content": "只调整当前接待"}]})
+    assert response.status_code == 200
+    proposal = response.json()["data"]
+    assert proposal["workflow_id"] == created["workflow_id"] and proposal["revision"] == 2
+    assert proposal["definition"]["nodes"][1]["action"] == "先询问养护问题，再查阅手册回答"
+    assert proposal["definition"]["nodes"][1]["exit_condition"] == node["exit_condition"]
+    assert proposal["definition"]["edges"] == flow["edges"]
+    assert client.get(url).json()["data"] == before
+    assert client.get(f"{BASE}/{other['workflow_id']}").json()["data"] == other
+    assert client.put(url, json={"revision": 2, "definition": proposal["definition"]}).status_code == 200
+    assert client.get(url).json()["data"]["published"] is None
+
+
+def test_chat_clarifies_without_changes_and_rejects_foreign_context(client, monkeypatch):
+    created = create(client)
+    monkeypatch.setattr(chat, "list_content_sources", lambda: [])
+    async def clarify(*args, **kwargs):
+        return {"reply": "你希望修改哪个发送节点？", "edits": None}
+    monkeypatch.setattr(chat, "generate_json", clarify)
+    url = f"{BASE}/{created['workflow_id']}"
+    payload = {"revision": 2, "definition": created["definition"], "message": "改一下时间"}
+    result = client.post(f"{url}/chat", json=payload).json()["data"]
+    assert result["definition"] is None and result["reply"] == "你希望修改哪个发送节点？"
+    assert client.post(f"{url}/chat", json={**payload, "selected_node_id": "another_flow_node"}).status_code == 422
+    assert client.post(f"{url}/chat", json={**payload, "message": "   "}).status_code == 422
+    assert client.get(url).json()["data"] == created
+
+
+@pytest.mark.parametrize("result", [
+    {"reply": "修改其他流程", "workflow_id": "another_workflow", "edits": None},
+    {"reply": "添加连线", "edits": {"upsert_edges": [{"id": "foreign_edge", "source": "step", "target": "other_flow_node"}]}},
+    {"reply": "删除节点", "edits": {"remove_node_ids": ["missing_node"]}},
+    {"reply": "重连节点", "edits": {"remove_edge_ids": ["step_end"], "upsert_edges": [{"id": "step_end", "source": "step", "target": "end"}]}},
+])
+def test_chat_rejects_invalid_model_edits_without_changing_draft(client, monkeypatch, result):
+    created = create(client)
+    monkeypatch.setattr(chat, "list_content_sources", lambda: [])
+    async def invalid(*args, **kwargs):
+        return result
+    monkeypatch.setattr(chat, "generate_json", invalid)
+    url = f"{BASE}/{created['workflow_id']}"
+    response = client.post(f"{url}/chat", json={"revision": 2, "definition": created["definition"], "message": "调整当前流程"})
+    assert response.status_code == 502
+    assert client.get(url).json()["data"] == created
+
+
+def test_chat_adds_connected_branch_and_handoff_and_blocks_broken_paths(client, monkeypatch):
+    created = create(client)
+    monkeypatch.setattr(chat, "list_content_sources", lambda: [])
+    async def add_branch(*args, **kwargs):
+        return {"reply": "已增加商品咨询转人工的分支。", "edits": {
+            "upsert_nodes": [
+                {"id": "branch", "type": "condition", "name": "客户需求", "position": {"x": 320, "y": 100}, "branches": [
+                    {"id": "product", "condition": "客户询问商品"}, {"id": "care", "condition": "其他情况"}]},
+                {"id": "human", "type": "handoff", "name": "商品咨询转人工", "position": {"x": 680, "y": 400}},
+            ],
+            "upsert_edges": [
+                {"id": "start_step", "source": "start", "target": "branch"},
+                {"id": "to_human", "source": "branch", "source_branch": "product", "target": "human"},
+                {"id": "to_care", "source": "branch", "source_branch": "care", "target": "step"},
+                {"id": "human_end", "source": "human", "target": "end"},
+            ],
+        }}
+    monkeypatch.setattr(chat, "generate_json", add_branch)
+    url = f"{BASE}/{created['workflow_id']}"
+    payload = {"revision": 2, "definition": created["definition"], "message": "客户问商品时转人工，其他养护问题按原流程处理"}
+    response = client.post(f"{url}/chat", json=payload)
+    assert response.status_code == 200
+    flow = CanvasDefinition.model_validate(response.json()["data"]["definition"])
+    assert not publication_issues(flow)
+    assert next(edge for edge in flow.edges if edge.id == "to_human").label == "分支一"
+    async def break_graph(*args, **kwargs):
+        return {"reply": "已删除结束节点", "edits": {"remove_node_ids": ["end"]}}
+    monkeypatch.setattr(chat, "generate_json", break_graph)
+    rejected = client.post(f"{url}/chat", json=payload).json()["data"]
+    assert rejected["definition"] is None and "结束节点" in rejected["reply"]
+    assert client.get(url).json()["data"] == created
+
+
+def test_chat_rejects_unavailable_content_and_concurrent_saved_changes(client, monkeypatch):
+    created = create(client)
+    monkeypatch.setattr(chat, "list_content_sources", lambda: [{
+        "id": "care_manual", "name": "养护手册", "available": True, "count": 1, "categories": [], "message": "", "description": "",
+        "items": [{"id": "known", "name": "建兰养护手册", "category": "", "description": ""}],
+    }])
+    node = created["definition"]["nodes"][1]
+    async def unavailable(*args, **kwargs):
+        return {"reply": "已改为发送手册", "edits": {"upsert_nodes": [{
+            "id": "step", "type": "scheduled_send", "name": "手册发送", "position": node["position"], "send_time": "10:00",
+            "content_source": {"library": "care_manual", "selection": "specific", "item_ids": ["invented"]},
+        }]}}
+    monkeypatch.setattr(chat, "generate_json", unavailable)
+    url = f"{BASE}/{created['workflow_id']}"
+    payload = {"revision": 2, "definition": created["definition"], "message": "改成每天十点发送养护手册"}
+    rejected = client.post(f"{url}/chat", json=payload).json()["data"]
+    assert rejected["definition"] is None and "指定内容已失效" in rejected["reply"]
+    async def concurrent_edit(*args, **kwargs):
+        flow = CanvasDefinition.model_validate(created["definition"])
+        flow.name = "另一个窗口的新名称"
+        canvases.save_canvas(created["workflow_id"], 2, flow)
+        return {"reply": "已调整名称", "edits": {"name": "不应覆盖的新名称"}}
+    monkeypatch.setattr(chat, "generate_json", concurrent_edit)
+    assert client.post(f"{url}/chat", json=payload).status_code == 409
+    assert client.get(url).json()["data"]["definition"]["name"] == "另一个窗口的新名称"
+    assert client.post(f"{url}/chat", json=payload).status_code == 409
+
+
+def test_chat_repairs_a_broken_connection_once_before_returning_a_draft(client, monkeypatch):
+    created = create(client)
+    monkeypatch.setattr(chat, "list_content_sources", lambda: [])
+    prompts = []
+    async def repair(prompt, **kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return {"reply": "已修改路径", "edits": {"remove_edge_ids": ["step_end"]}}
+        assert "节点缺少后续路径" in prompt and "重新针对原草稿" in prompt
+        return {"reply": "已更新接待节点名称，连线保持完整。", "edits": {"upsert_nodes": [{
+            "id": "step", "type": "general", "name": "养护接待", "position": {"x": 440, "y": 120},
+        }]}}
+    monkeypatch.setattr(chat, "generate_json", repair)
+    url = f"{BASE}/{created['workflow_id']}"
+    result = client.post(f"{url}/chat", json={"revision": 2, "definition": created["definition"], "message": "把一般节点改名为养护接待"}).json()["data"]
+    assert len(prompts) == 2
+    assert result["definition"]["nodes"][1]["name"] == "养护接待"
+    assert result["definition"]["edges"] == created["definition"]["edges"]
+    assert client.get(url).json()["data"] == created

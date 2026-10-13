@@ -50,6 +50,7 @@
         <span :class="{ unsaved: dirty }">{{ statusText }}</span>
       </div>
       <div class="toolbar-actions">
+        <ElButton v-if="isAdmin()" :disabled="loading || !workflow" @click="toggleChat">对话改流程</ElButton>
         <ElButton v-if="review" :disabled="busy" @click="panel = panel === 'review' ? null : 'review'">流程理解<span v-if="review.issues.length"> · {{ review.issues.length }}</span></ElButton>
         <ElButton :disabled="busy || !workflow" @click="reloadWorkflow">重新加载</ElButton>
         <ElButton v-if="isAdmin()" :disabled="busy || !workflow || !dirty" :loading="saving" @click="saveDraft">保存草稿</ElButton>
@@ -68,8 +69,22 @@
     </div>
 
     <aside v-if="panel" class="configuration-panel">
-      <div class="panel-heading"><strong>{{ panel === 'review' ? '整张流程的理解与检查' : selectedNode ? typeLabels[selectedNode.type] : '连线配置' }}</strong><button aria-label="关闭配置" @click="panel = null">×</button></div>
-      <div class="panel-content">
+      <div class="panel-heading"><strong>{{ panel === 'chat' ? '对话改流程' : panel === 'review' ? '整张流程的理解与检查' : selectedNode ? typeLabels[selectedNode.type] : '连线配置' }}</strong><button aria-label="关闭配置" @click="panel = null">×</button></div>
+      <template v-if="panel === 'chat'">
+        <div class="chat-scope">当前流程：{{ definition?.name || '未命名流程' }}<p>对话修改会直接显示在画布草稿中，保存和发布使用上方按钮。</p><span v-if="selectedNode">已选节点：{{ selectedNode.name }}</span></div>
+        <div ref="chatFeed" class="chat-feed" role="log" aria-label="当前流程对话" aria-live="polite">
+          <p v-if="!chatMessages.length" class="chat-empty">说说你想怎么调整。<br>例如：“把养护科普改为每天 11 点发送。”<br>也可以先选中节点，再说“修改这个节点”。</p>
+          <div v-for="(message, index) in chatMessages" :key="index" class="chat-message" :class="message.role"><span>{{ message.role === 'user' ? '你' : '流程助手' }}</span><p>{{ message.content }}</p></div>
+          <p v-if="chatting" class="chat-progress" role="status">正在理解要求并调整当前流程…</p>
+          <p v-if="chatError" class="chat-error" role="alert">{{ chatError }}</p>
+        </div>
+        <div class="chat-composer">
+          <div v-if="chatUndo" class="chat-undo"><ElButton size="small" :disabled="busy || !canUndoChat" @click="undoChatEdit">撤销上次对话修改</ElButton><span v-if="!canUndoChat">画布已有后续修改</span></div>
+          <ElInput v-model="chatDraft" aria-label="告诉助手如何修改当前流程" type="textarea" :rows="3" maxlength="4000" show-word-limit :disabled="locked" placeholder="告诉我这条流程要怎么改…" @keydown="chatKeyDown" />
+          <div class="chat-send"><span>Enter 发送 · Shift + Enter 换行</span><ElButton type="primary" :disabled="locked || !chatDraft.trim()" :loading="chatting" @click="sendChat">发送</ElButton></div>
+        </div>
+      </template>
+      <div v-else class="panel-content">
         <template v-if="panel === 'review' && review">
           <div class="review-status" :class="{ failed: review.issues.length }">{{ review.issues.length ? `发布未通过 · ${review.issues.length} 项需要修改` : '流程理解已发布' }}</div>
           <p v-if="dirty || !workflow?.last_review" class="muted">{{ dirty ? '流程已修改，以下为上次检查结果，请重新发布。' : '以下为上次已发布版本的理解。' }}</p>
@@ -153,14 +168,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { onBeforeRouteLeave } from 'vue-router'
 import { ElButton, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect, ElTimePicker } from 'element-plus'
 import { isAdmin } from '@/utils/gate'
-import { createCanvasWorkflow, getCanvasWorkflow, listCanvasWorkflows, listCanvasContentSources, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
-  type CanvasContentItem, type CanvasContentLibrary, type CanvasContentLibraryOption, type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
+import { createCanvasWorkflow, editCanvasWorkflow, getCanvasWorkflow, listCanvasWorkflows, listCanvasContentSources, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
+  type CanvasChatMessage, type CanvasDefinition, type CanvasContentItem, type CanvasContentLibrary, type CanvasContentLibraryOption, type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
 
 const workflows = ref<CanvasSummary[]>([])
 const workflow = ref<CanvasWorkflow | null>(null)
 const savedFingerprint = ref('')
-const loading = ref(false), saving = ref(false), publishing = ref(false)
-const busy = computed(() => loading.value || saving.value || publishing.value)
+const loading = ref(false), saving = ref(false), publishing = ref(false), chatting = ref(false)
+const busy = computed(() => loading.value || saving.value || publishing.value || chatting.value)
 const locked = computed(() => busy.value || !isAdmin())
 const definition = computed(() => workflow.value?.definition)
 const dirty = computed(() => Boolean(definition.value && JSON.stringify(definition.value) !== savedFingerprint.value))
@@ -169,7 +184,13 @@ const selectedNodeId = ref<string | null>(null), selectedEdgeId = ref<string | n
 const selectedNode = computed(() => definition.value?.nodes.find(node => node.id === selectedNodeId.value))
 const selectedEdge = computed(() => definition.value?.edges.find(edge => edge.id === selectedEdgeId.value))
 const outgoingEdges = computed(() => definition.value?.edges.filter(edge => edge.source === selectedNodeId.value) || [])
-const panel = ref<'node' | 'review' | null>(null)
+const panel = ref<'node' | 'review' | 'chat' | null>(null)
+const chatDraft = ref(''), chatError = ref('')
+const chatMessages = ref<CanvasChatMessage[]>([])
+const chatFeed = ref<HTMLElement>()
+const chatUndo = ref<{ before: CanvasDefinition; after: string } | null>(null)
+const canUndoChat = computed(() => Boolean(chatUndo.value && JSON.stringify(definition.value) === chatUndo.value.after))
+let chatGeneration = 0
 const stage = ref<HTMLElement>()
 const view = reactive({ x: 0, y: 0, zoom: 1 })
 const connectionFrom = ref<string | null>(null)
@@ -241,6 +262,7 @@ const businessFields = [
 ]
 const fieldLabels = { name: '名称', trigger_condition: '触发条件', action: '具体行动', exit_condition: '退出条件', schedule_rule: '发送时间与周期', send_content_type: '发送内容', branch_mode: '分支匹配方式', handoff_target: '转交对象', branches: '分支条件', send_time: '发送时间', send_cycle: '发送周期', content_source: '内容库与分类', graph: '连线与结构' }
 const statusText = computed(() => {
+  if (chatting.value) return '正在根据对话调整流程…'
   if (publishing.value) return '正在理解整张流程…'
   if (dirty.value) return '有未保存的修改'
   if (workflow.value?.published_revision === workflow.value?.revision) return '流程理解已发布'
@@ -276,7 +298,62 @@ const worldPoint = (clientX: number, clientY: number) => {
 }
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`
 
+function resetChat() {
+  chatGeneration++; chatting.value = false; chatDraft.value = ''; chatError.value = ''; chatMessages.value = []; chatUndo.value = null
+}
+async function scrollChat() {
+  await nextTick()
+  if (chatFeed.value) chatFeed.value.scrollTop = chatFeed.value.scrollHeight
+}
+function toggleChat() {
+  panel.value = panel.value === 'chat' ? null : 'chat'
+  if (panel.value === 'chat') void scrollChat()
+}
+async function sendChat() {
+  if (locked.value || !workflow.value || !definition.value || !chatDraft.value.trim()) return
+  const message = chatDraft.value.trim(), currentId = workflow.value.workflow_id, revision = workflow.value.revision
+  const before = JSON.stringify(definition.value), history = chatMessages.value.slice(-20)
+  const generation = ++chatGeneration
+  chatting.value = true; chatError.value = ''; chatDraft.value = ''; gesture.value = null; connectionFrom.value = null
+  chatMessages.value.push({ role: 'user', content: message })
+  void scrollChat()
+  try {
+    const result = await editCanvasWorkflow(currentId, revision, JSON.parse(before), message, history, selectedNodeId.value)
+    if (generation !== chatGeneration || workflow.value?.workflow_id !== currentId) return
+    if (result.workflow_id !== currentId || result.revision !== workflow.value.revision || JSON.stringify(definition.value) !== before) {
+      chatError.value = '画布已发生变化，本次修改未应用，请按最新画布重新描述。'; return
+    }
+    if (result.definition) {
+      workflow.value.definition = result.definition
+      chatUndo.value = { before: JSON.parse(before), after: JSON.stringify(result.definition) }
+      clearSelection(); panel.value = 'chat'; await nextTick(); fitCanvas()
+    }
+    chatMessages.value.push({ role: 'assistant', content: result.reply })
+  } catch {
+    if (generation === chatGeneration && workflow.value?.workflow_id === currentId) {
+      chatMessages.value.pop(); chatDraft.value = message
+      chatError.value = '这次修改未完成，当前草稿保持不变。可以重新发送。'
+    }
+  } finally {
+    if (generation === chatGeneration) { chatting.value = false; void scrollChat() }
+  }
+}
+function undoChatEdit() {
+  if (locked.value || !workflow.value || !chatUndo.value || !canUndoChat.value) return
+  workflow.value.definition = JSON.parse(JSON.stringify(chatUndo.value.before))
+  chatUndo.value = null; clearSelection(); panel.value = 'chat'
+  chatMessages.value.push({ role: 'assistant', content: '已撤销上次对话修改，草稿已恢复到修改前。' })
+  void scrollChat(); void nextTick(fitCanvas)
+}
+function chatKeyDown(event: Event) {
+  if (!(event instanceof KeyboardEvent)) return
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+    event.preventDefault(); void sendChat()
+  }
+}
+
 function applyWorkflow(value: CanvasWorkflow) {
+  if (workflow.value?.workflow_id !== value.workflow_id) resetChat()
   for (const node of value.definition.nodes) {
     node.schedule_rule ??= ''; node.send_content_type ??= 'text'; node.branch_mode ??= 'first_match'; node.handoff_target ??= ''
     node.branches ??= []; node.send_time ??= ''; node.send_cycle ??= 'daily'; node.send_weekday ??= null
@@ -292,17 +369,17 @@ function applyWorkflow(value: CanvasWorkflow) {
 function clearSelection() { selectedNodeId.value = null; selectedEdgeId.value = null; panel.value = null; connectionFrom.value = null; connectionBranch.value = null }
 function selectNode(nodeId: string) {
   if (!definition.value?.nodes.some(node => node.id === nodeId)) return
-  selectedNodeId.value = nodeId; selectedEdgeId.value = null; panel.value = 'node'
+  selectedNodeId.value = nodeId; selectedEdgeId.value = null; if (panel.value !== 'chat') panel.value = 'node'
 }
 function selectEdge(edgeId: string) { selectedEdgeId.value = edgeId; selectedNodeId.value = null; panel.value = 'node' }
 async function loadWorkflow(workflowId: string) {
   loading.value = true
-  try { applyWorkflow(await getCanvasWorkflow(workflowId)); clearSelection(); await nextTick(); fitCanvas() }
+  try { applyWorkflow(await getCanvasWorkflow(workflowId)); resetChat(); clearSelection(); await nextTick(); fitCanvas() }
   catch { /* The shared request client displays the error. */ }
   finally { loading.value = false }
 }
 async function saveDraft(): Promise<boolean> {
-  if (!workflow.value || !definition.value || saving.value || !isAdmin()) return false
+  if (!workflow.value || !definition.value || saving.value || chatting.value || !isAdmin()) return false
   if (!dirty.value) return true
   saving.value = true
   try { applyWorkflow(await saveCanvasWorkflow(workflow.value.workflow_id, workflow.value.revision, JSON.parse(JSON.stringify(definition.value)))); return true }
@@ -457,8 +534,9 @@ function keyDown(event: Event) {
   if ((event.target as HTMLElement)?.closest('input, textarea, [contenteditable="true"]')) return
   if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); removeSelection() }
 }
-function beforeUnload(event: BeforeUnloadEvent) { if (dirty.value || publishing.value) { event.preventDefault(); event.returnValue = '' } }
+function beforeUnload(event: BeforeUnloadEvent) { if (dirty.value || publishing.value || chatting.value) { event.preventDefault(); event.returnValue = '' } }
 onBeforeRouteLeave(async () => {
+  if (chatting.value) { ElMessage.info('正在调整当前流程，请等待对话结果'); return false }
   if (publishing.value) { ElMessage.info('正在理解流程，请等待发布结果'); return false }
   return dirty.value ? await saveDraft() : true
 })
@@ -479,6 +557,7 @@ onMounted(async () => {
   finally { loading.value = false }
 })
 onBeforeUnmount(() => {
+  chatGeneration++
   window.removeEventListener('pointermove', pointerMove); window.removeEventListener('pointerup', pointerUp)
   window.removeEventListener('keydown', keyDown); window.removeEventListener('beforeunload', beforeUnload)
 })
@@ -520,6 +599,13 @@ onBeforeUnmount(() => {
 .start-preview { color: #738b7c; font-size: 12px; line-height: 19px; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }.end-preview { font-size: 11px; color: #89988e; margin: 0; }
 .port { position: absolute; top: 50%; width: 14px; height: 14px; border: 2px solid #78a68c; border-radius: 50%; background: #fff; transform: translateY(-50%); cursor: crosshair; padding: 0; }.port::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }.port.input { left: -8px; }.port.output { right: -8px; }.port:hover, .port.active { background: #2e8867; border-color: #2e8867; }.port:disabled { cursor: default; }
 .configuration-panel { position: absolute; z-index: 3; top: 98px; right: 16px; bottom: 64px; width: 350px; display: flex; flex-direction: column; background: #fff; border: 1px solid #dce5df; border-radius: 12px; box-shadow: 0 5px 25px #21452f12; }
+.chat-scope { padding: 14px 18px; font-size: 12px; color: #3e795c; border-bottom: 1px solid #edf1ee; overflow-wrap: anywhere; }
+.chat-scope p { margin: 6px 0; color: #88978e; line-height: 1.6; }.chat-scope span { color: #54745f; }
+.chat-feed { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px; }.chat-empty { font-size: 12px; line-height: 1.9; color: #88978e; margin: 0; }
+.chat-message { margin-bottom: 16px; }.chat-message > span { font-size: 11px; color: #88978e; }.chat-message p { margin: 5px 0 0; padding: 10px 12px; border-radius: 9px; background: #f4f7f4; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; }
+.chat-message.user { margin-left: 26px; }.chat-message.user p { background: #eaf4ee; }.chat-progress, .chat-error { font-size: 12px; line-height: 1.7; color: #548169; }.chat-error { color: #a25b43; }
+.chat-composer { padding: 12px 16px; border-top: 1px solid #edf1ee; }.chat-composer :deep(.el-textarea__inner) { font-size: 13px; line-height: 1.7; padding-bottom: 22px; }
+.chat-send { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; }.chat-send > span, .chat-undo > span { font-size: 10px; color: #88978e; }.chat-undo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 20px; border-bottom: 1px solid #edf1ee; font-size: 14px; }.panel-heading button { border: 0; background: transparent; color: #8a9b8f; font-size: 24px; line-height: 20px; cursor: pointer; }
 .panel-content { padding: 0 20px 20px; overflow-y: auto; min-height: 0; }.field-label { display: block; font-size: 12px; font-weight: 600; margin: 20px 0 9px; }.panel-content :deep(.el-textarea__inner) { font-size: 12px; line-height: 1.8; padding: 10px 12px 22px; }.panel-content :deep(.el-input__count) { font-size: 10px; }
 .field-help, .muted { font-size: 12px; color: #88978e; line-height: 1.8; }.node-exits button { display: block; width: 100%; padding: 9px 0; text-align: left; border: 0; background: transparent; color: #548169; font: inherit; font-size: 12px; cursor: pointer; }.remove-button { margin-top: 26px; }

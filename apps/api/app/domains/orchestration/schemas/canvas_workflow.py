@@ -172,6 +172,39 @@ class PublishCanvas(CanvasModel):
     revision: int = Field(ge=1)
 
 
+class CanvasChatMessage(CanvasModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class EditCanvas(SaveCanvas):
+    message: str = Field(min_length=1, max_length=4000)
+    history: list[CanvasChatMessage] = Field(default_factory=list, max_length=20)
+    selected_node_id: Identifier | None = None
+
+    @model_validator(mode="after")
+    def valid_context(self):
+        self.message = self.message.strip()
+        if not self.message:
+            raise ValueError("请先输入要调整的内容")
+        if self.selected_node_id and not any(node.id == self.selected_node_id for node in self.definition.nodes):
+            raise ValueError("选中的节点不属于当前流程")
+        return self
+
+
+class CanvasEdits(CanvasModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    upsert_nodes: list[CanvasNode] = Field(default_factory=list, max_length=60)
+    remove_node_ids: list[Identifier] = Field(default_factory=list, max_length=60)
+    upsert_edges: list[CanvasEdge] = Field(default_factory=list, max_length=150)
+    remove_edge_ids: list[Identifier] = Field(default_factory=list, max_length=150)
+
+
+class CanvasChatAnswer(CanvasModel):
+    reply: str = Field(min_length=1, max_length=4000)
+    edits: CanvasEdits | None = None
+
+
 class CanvasIssue(CanvasModel):
     node_id: Identifier | None = None
     field: Literal["name", "trigger_condition", "action", "exit_condition", "schedule_rule", "send_content_type", "branch_mode", "handoff_target", "branches", "send_time", "send_cycle", "content_source", "graph"]
