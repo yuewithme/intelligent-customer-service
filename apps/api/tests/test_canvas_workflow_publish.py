@@ -23,6 +23,7 @@ BASE = "/api/v1/admin/orchestration/workbench/canvas/workflows"
 def client(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'canvas.db'}")
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-only-placeholder")
+    monkeypatch.setattr(content, "list_activities", lambda **kwargs: {"items": [], "total": 0})
     get_settings.cache_clear()
     app = FastAPI()
     _register_exception_handlers(app)
@@ -69,17 +70,19 @@ def test_content_sources_use_ready_video_categories_and_manual_availability(clie
     from app.domains.catalog.services import agent_media_library_service as media
 
     def manuals(**kwargs):
-        assert kwargs == {"page_size": 1, "source_type": "manual"}
-        return {"total": 9, "stats": {"active": 3}}
+        assert kwargs["page_size"] == 200 and kwargs["enabled"] is True
+        if kwargs["source_type"] == "course":
+            return {"items": [], "total": 0}
+        return {"items": [{"id": i, "title": f"手册 {i}", "source_type": "manual", "auto_send_allowed": True} for i in range(3)], "total": 3}
 
     monkeypatch.setattr(content, "list_care_manuals", manuals)
     monkeypatch.setattr(media, "_load_items", lambda: [
-        {"media_type": media_type, "copy_type": category, "copy_status": status}
-        for media_type, category, status in [
+        {"id": str(index), "title": f"素材 {index}", "media_type": media_type, "copy_type": category, "copy_status": status}
+        for index, (media_type, category, status) in enumerate([
             ("video", "养护科普", "ready"), ("video", "养护科普", "ready"),
             ("video", "未知分类", "ready"), ("video", "名品故事", "pending"),
             ("image", "图片内容", "ready"), ("video", "", "ready"),
-        ]
+        ])
     ])
     sources = client.get("/api/v1/admin/orchestration/workbench/canvas/content-sources").json()["data"]
     assert sources[0]["id"] == "care_manual" and sources[0]["count"] == 3
@@ -109,11 +112,11 @@ def test_manual_source_publishes_without_copy_and_invalid_sources_do_not_reach_a
     flow = created["definition"]
     timer = flow["nodes"][1]
     timer.update(type="scheduled_send", send_time="10:00", action="", content_source={"library": "care_manual", "category": ""})
-    monkeypatch.setattr(content, "list_care_manuals", lambda **kwargs: {"stats": {"active": 2}})
+    monkeypatch.setattr(content, "list_care_manuals", lambda **kwargs: {"items": [{"id": 1, "title": "手册", "source_type": "manual", "auto_send_allowed": True}], "total": 1})
 
     async def review(prompt, **kwargs):
         payload = json.loads(prompt.split("下面是完整的待审核流程 JSON：\n")[1])
-        assert payload["nodes"][1]["content_source"] == {"library": "care_manual", "category": ""}
+        assert payload["nodes"][1]["content_source"] == {"library": "care_manual", "category": "", "selection": "auto", "item_ids": []}
         return accepted_review()
 
     monkeypatch.setattr(canvases, "generate_json", review)
@@ -128,9 +131,9 @@ def test_manual_source_publishes_without_copy_and_invalid_sources_do_not_reach_a
         pytest.fail("Invalid content sources must be checked before calling AI")
 
     monkeypatch.setattr(canvases, "generate_json", unexpected)
-    monkeypatch.setattr(content, "list_agent_video_categories", lambda: [
-        {"id": "养护科普", "name": "养护科普", "count": 1}, {"id": "名品故事", "name": "名品故事", "count": 0},
-    ])
+    monkeypatch.setattr(content, "list_agent_content", lambda media_type: {"categories": [], "items": [
+        {"id": "care-video", "name": "养护视频", "category": "养护科普", "description": ""},
+    ]})
     for revision, source in enumerate([None, {"library": "cloud_video", "category": ""}, {"library": "cloud_video", "category": "已删除分类"}, {"library": "cloud_video", "category": "名品故事"}], 3):
         timer["content_source"] = source
         assert client.put(url, json={"revision": revision, "definition": flow}).status_code == 200
@@ -147,6 +150,81 @@ def test_manual_source_publishes_without_copy_and_invalid_sources_do_not_reach_a
     assert client.put(url, json={"revision": 7, "definition": flow}).status_code == 200
     failed = client.post(f"{url}/publish", json={"revision": 8}).json()["data"]
     assert failed["published"] is False and "无法加载" in failed["review"]["issues"][0]["message"]
+
+
+def test_other_content_libraries_filter_unavailable_rows_and_include_later_pages(client, monkeypatch):
+    from app.domains.catalog.services import agent_media_library_service as media
+
+    def manuals(**kwargs):
+        if kwargs["source_type"] == "manual":
+            rows = [{"id": index, "source_type": "manual", "title": f"养护手册 {index}", "auto_send_allowed": True} for index in range(201)]
+            rows.append({"id": 900, "source_type": "manual", "title": "已停用手册", "auto_send_allowed": False})
+        else:
+            rows = [{"id": 301, "source_type": "course", "title": "免费入门课程", "auto_send_allowed": True, "price_cent": 0},
+                    {"id": 302, "source_type": "course", "title": "付费课程", "auto_send_allowed": True, "price_cent": 100},
+                    {"id": 303, "source_type": "course", "title": "未发布课程", "auto_send_allowed": False, "price_cent": 0}]
+        offset = (kwargs["page"] - 1) * kwargs["page_size"]
+        return {"items": rows[offset:offset + kwargs["page_size"]], "total": len(rows)}
+
+    monkeypatch.setattr(content, "list_care_manuals", manuals)
+    monkeypatch.setattr(content, "list_activities", lambda **kwargs: {"total": 3, "items": [
+        {"id": 401, "title": "会员日活动", "enabled": True, "ai_enabled": True, "effective_status": "active", "item_count": 2},
+        {"id": 402, "title": "仅人工活动", "enabled": True, "ai_enabled": False, "effective_status": "active", "item_count": 2},
+        {"id": 403, "title": "已过期活动", "enabled": True, "ai_enabled": True, "effective_status": "expired", "item_count": 2},
+    ]})
+    monkeypatch.setattr(media, "_load_items", lambda: [
+        {"id": "care-image", "title": "养护图文", "media_type": "image", "copy_type": "养护科普", "copy_status": "ready"},
+        {"id": "care-video", "title": "养护视频", "media_type": "video", "copy_type": "养护科普", "copy_status": "ready"},
+    ])
+    sources = {item["id"]: item for item in client.get("/api/v1/admin/orchestration/workbench/canvas/content-sources").json()["data"]}
+    assert set(sources) == {"care_manual", "cloud_video", "cloud_image", "care_course", "sales_activity"}
+    assert sources["care_manual"]["count"] == 201 and sources["care_manual"]["items"][-1]["id"] == "200"
+    assert [item["id"] for item in sources["care_course"]["items"]] == ["301"]
+    assert [item["id"] for item in sources["sales_activity"]["items"]] == ["401"]
+    assert [item["id"] for item in sources["cloud_image"]["items"]] == ["care-image"]
+    assert [item["id"] for item in sources["cloud_video"]["items"]] == ["care-video"]
+
+
+@pytest.mark.parametrize("library,category", [("care_manual", ""), ("cloud_video", "养护科普"), ("cloud_image", "养护科普"), ("care_course", ""), ("sales_activity", "")])
+def test_specific_content_references_round_trip_and_resolve_titles_for_review(client, monkeypatch, library, category):
+    created = create(client)
+    flow = created["definition"]
+    timer = flow["nodes"][1]
+    timer.update(type="scheduled_send", send_time="10:00", action="", content_source={
+        "library": library, "category": category, "selection": "specific", "item_ids": ["item-1"],
+    })
+    available = {"id": library, "name": "选择的内容库", "description": "内容匹配规则", "message": "", "available": True, "count": 1,
+                 "items": [{"id": "item-1", "name": "建兰夏季养护内容", "category": category, "description": "适合建兰客户"}]}
+    monkeypatch.setattr(content, "list_content_sources", lambda libraries: [available])
+
+    async def review(prompt, **kwargs):
+        payload = json.loads(prompt.split("下面是完整的待审核流程 JSON：\n")[1])
+        assert payload["nodes"][1]["content_source"] == timer["content_source"]
+        assert payload["selected_contents"]["step"]["items"][0]["name"] == "建兰夏季养护内容"
+        return accepted_review()
+
+    monkeypatch.setattr(canvases, "generate_json", review)
+    url = f"{BASE}/{created['workflow_id']}"
+    saved = client.put(url, json={"revision": 2, "definition": flow}).json()["data"]
+    assert client.get(url).json()["data"]["definition"] == saved["definition"]
+    published = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
+    assert published["published"] is True
+
+    async def unexpected(*args, **kwargs):
+        pytest.fail("Invalid item references must not reach AI")
+
+    monkeypatch.setattr(canvases, "generate_json", unexpected)
+    for revision, item_ids in enumerate([[], ["removed-item"]], 3):
+        timer["content_source"]["item_ids"] = item_ids
+        assert client.put(url, json={"revision": revision, "definition": flow}).status_code == 200
+        failed = client.post(f"{url}/publish", json={"revision": revision + 1}).json()["data"]
+        assert failed["published"] is False and failed["review"]["issues"][0]["field"] == "content_source"
+        assert failed["workflow"]["published"] == published["workflow"]["published"]
+    if category:
+        timer["content_source"].update(category="名品故事", item_ids=["item-1"])
+        assert client.put(url, json={"revision": 5, "definition": flow}).status_code == 200
+        failed = client.post(f"{url}/publish", json={"revision": 6}).json()["data"]
+        assert failed["published"] is False and failed["review"]["issues"][0]["field"] == "content_source"
 
 
 def test_sync_all_three_sops_preserves_nodes_branches_and_policies(client):
@@ -232,7 +310,9 @@ def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(cl
     timed = {**condition, "id": "timed", "type": "scheduled_send", "name": "养护内容", "branches": [],
              "send_time": "09:25", "send_cycle": cycle, "send_content_type": "mixed", "action": "",
              "content_source": {"library": "cloud_video", "category": "养护科普"}}
-    monkeypatch.setattr(content, "list_agent_video_categories", lambda: [{"id": "养护科普", "name": "养护科普", "count": 2}])
+    monkeypatch.setattr(content, "list_agent_content", lambda media_type: {"categories": [], "items": [
+        {"id": "care-video", "name": "养护视频", "category": "养护科普", "description": ""},
+    ]})
     handoff = {**condition, "id": "handoff", "type": "handoff", "name": "人工接待", "branches": [], "handoff_target": ""}
     flow["nodes"].extend([timed, handoff])
     flow["edges"] = [flow["edges"][0],
@@ -251,10 +331,10 @@ def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(cl
         assert reviewed["step"]["branches"] == condition["branches"]
         assert "action" not in reviewed["step"] and "handoff_target" not in reviewed["handoff"]
         assert reviewed["timed"]["send_time"] == "09:25" and reviewed["timed"]["send_cycle"] == cycle
-        assert reviewed["timed"]["content_source"] == timed["content_source"]
+        assert reviewed["timed"]["content_source"] == {**timed["content_source"], "selection": "auto", "item_ids": []}
         assert "send_content_type" not in reviewed["timed"] and reviewed["timed"]["action"] == ""
         assert "现有转人工设置通知负责人" in prompt and "底层打标能力" in prompt
-        assert kwargs["prompt_version"] == "canvas_publish.v4"
+        assert kwargs["prompt_version"] == "canvas_publish.v5"
         return {"summary": "按条件执行定时发送或转人工", "nodes": [{"node_id": node["id"], "understanding": node["name"]} for node in flow["nodes"]], "issues": []}
     monkeypatch.setattr(canvases, "generate_json", review)
     result = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
@@ -361,7 +441,7 @@ def test_legacy_conditions_and_weekday_are_exposed_without_modifying_snapshot(cl
     condition, timer = loaded["definition"]["nodes"][1:3]
     assert [branch["condition"] for branch in condition["branches"]] == ["客户需要季节养护服务", "其他情况"]
     assert (timer["send_time"], timer["send_cycle"], timer["send_weekday"]) == ("11:00", "weekly", 5)
-    assert timer["content_source"] == {"library": "cloud_video", "category": "养护科普"}
+    assert timer["content_source"] == {"library": "cloud_video", "category": "养护科普", "selection": "auto", "item_ids": []}
     assert timer["action"] == "发送季节养护提醒"
     assert loaded["definition"]["edges"][1]["source_branch"] == condition["branches"][0]["id"]
     assert loaded["published"] == json.loads(snapshot) and loaded["revision"] == 7

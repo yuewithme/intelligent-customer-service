@@ -2,14 +2,18 @@ import request from '@/config/axios'
 
 export type CanvasNodeType = 'start' | 'general' | 'scheduled_send' | 'condition' | 'handoff' | 'end'
 export interface CanvasBranch { id: string; condition: string }
-export type CanvasContentLibrary = 'care_manual' | 'cloud_video'
-export interface CanvasContentSource { library: CanvasContentLibrary; category: string }
+export type CanvasContentLibrary = 'care_manual' | 'cloud_video' | 'cloud_image' | 'care_course' | 'sales_activity'
+export interface CanvasContentSource { library: CanvasContentLibrary; category: string; selection: 'auto' | 'specific'; item_ids: string[] }
+export interface CanvasContentItem { id: string; name: string; category: string; description: string }
 export interface CanvasContentLibraryOption {
   id: CanvasContentLibrary
   name: string
+  unit: string
+  description: string
   available: boolean
   count: number | null
   categories: Array<{ id: string; name: string; description: string; count: number | null }>
+  items: CanvasContentItem[]
   message: string
 }
 export interface CanvasNode {

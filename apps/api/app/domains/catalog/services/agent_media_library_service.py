@@ -18,7 +18,7 @@ from app.domains.catalog.services.agent_media_copy_service import COPY_TYPES, CO
 
 LIBRARY_DIR_NAME = "agent-material-library"
 MATERIAL_REF_PREFIX = "agent-media:"
-VIDEO_CONTENT_CATEGORIES = tuple(
+MEDIA_CONTENT_CATEGORIES = tuple(
     {"id": name, "name": name, "description": description}
     for name, description in COPY_TYPE_DESCRIPTIONS.items()
 )
@@ -42,13 +42,17 @@ def agent_media_library_dir() -> Path:
     return Path(get_settings().upload_dir) / LIBRARY_DIR_NAME
 
 
-def list_agent_video_categories() -> list[dict[str, Any]]:
+def list_agent_content(media_type: str) -> dict[str, Any]:
     counts = dict.fromkeys(COPY_TYPE_DESCRIPTIONS, 0)
+    items = []
     for item in _load_items():
         category = str(item.get("copy_type") or "").strip()
-        if item.get("media_type") == "video" and item.get("copy_status") == "ready" and category in counts:
+        if item.get("media_type") == media_type and item.get("copy_status") == "ready" and category in counts:
             counts[category] += 1
-    return [{**category, "count": counts[category["id"]]} for category in VIDEO_CONTENT_CATEGORIES]
+            items.append({"id": str(item["id"]), "name": str(item.get("title") or item.get("copy_topic") or item["id"]),
+                          "category": category, "description": str(item.get("relative_path") or "")})
+    return {"categories": [{**category, "count": counts[category["id"]]} for category in MEDIA_CONTENT_CATEGORIES],
+            "items": sorted(items, key=lambda item: (item["category"], item["name"], item["id"]))}
 
 
 def search_agent_media(

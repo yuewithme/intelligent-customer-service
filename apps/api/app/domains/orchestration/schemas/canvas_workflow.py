@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 from copy import deepcopy
 import re
 
@@ -35,14 +35,20 @@ class CanvasBranch(CanvasModel):
 
 
 class CanvasContentSource(CanvasModel):
-    library: Literal["care_manual", "cloud_video"]
+    library: Literal["care_manual", "cloud_video", "cloud_image", "care_course", "sales_activity"]
     category: str = Field(default="", max_length=120)
+    selection: Literal["auto", "specific"] = "auto"
+    item_ids: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def category_matches_library(self):
         self.category = self.category.strip()
-        if self.library == "care_manual" and self.category:
-            raise ValueError("养护手册无需选择视频分类")
+        if self.library not in {"cloud_video", "cloud_image"} and self.category:
+            raise ValueError("只有云端视频和图文需要内容分类")
+        if len(self.item_ids) != len(set(self.item_ids)):
+            raise ValueError("选择的内容不能重复")
+        if self.selection == "auto" and self.item_ids:
+            raise ValueError("自动匹配不能同时指定内容条目")
         return self
 
 
@@ -214,9 +220,12 @@ def publication_issues(flow: CanvasDefinition) -> list[CanvasIssue]:
             fields = ("send_time",)
             labels.update(send_time="发送时间")
             if node.content_source is None:
-                issue(node.id, "content_source", "请选择发送内容库", "选择养护手册，或选择云端视频及其内容分类。")
-            elif node.content_source.library == "cloud_video" and not node.content_source.category:
-                issue(node.id, "content_source", "请选择视频内容分类", "从内容分类中选择养护科普等实际存在的分类。")
+                issue(node.id, "content_source", "请选择发送内容库", "选择手册、云端视频、云端图文、课程或活动。")
+            else:
+                if node.content_source.library in {"cloud_video", "cloud_image"} and not node.content_source.category:
+                    issue(node.id, "content_source", "请选择内容分类", "从内容分类中选择养护科普等实际存在的分类。")
+                if node.content_source.selection == "specific" and not node.content_source.item_ids:
+                    issue(node.id, "content_source", "还没有指定具体内容", "搜索并选择至少一项内容，或改为自动匹配。")
         elif node.type == "condition":
             if len(node.branches) < 2:
                 issue(node.id, "branches", "条件分支至少需要两个分支", "点击增加分支，填写不同情况下的条件。")

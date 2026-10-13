@@ -97,18 +97,31 @@
             <p class="field-help">{{ scheduleHint(selectedNode) }}</p>
             <div class="content-heading"><label class="field-label">内容库</label><button :disabled="contentLoading" @click="loadContentSources">{{ contentLoading ? '加载中…' : '刷新' }}</button></div>
             <ElSelect :model-value="selectedNode.content_source?.library" :disabled="locked" placeholder="选择内容库" @change="changeContentLibrary"><ElOption v-for="item in libraryOptions" :key="item.id" :value="item.id" :label="item.label" /></ElSelect>
-            <template v-if="selectedNode.content_source?.library === 'cloud_video'">
+            <template v-if="selectedNode.content_source && hasContentCategories">
               <label class="field-label">内容分类</label>
-              <div class="content-categories" role="radiogroup" aria-label="视频内容分类">
-                <button v-for="item in selectedLibrary?.categories || []" :key="item.id" class="content-category" :class="{ selected: selectedNode.content_source.category === item.id }" role="radio" :aria-checked="selectedNode.content_source.category === item.id" :disabled="locked || contentLoading || !selectedLibrary?.available || !item.count" @click="selectedNode.content_source.category = item.id">
-                  <span class="category-heading"><strong>{{ item.name }}</strong><small>{{ item.count === null ? '未加载' : item.count ? `${item.count} 个视频` : '暂无视频' }}</small></span>
+              <div class="content-categories" role="group" aria-label="内容分类">
+                <button v-for="item in selectedLibrary?.categories || []" :key="item.id" class="content-category" :class="{ selected: selectedNode.content_source.category === item.id }" :aria-pressed="selectedNode.content_source.category === item.id" :disabled="locked || contentLoading || !selectedLibrary?.available || !item.count" @click="changeContentCategory(item.id)">
+                  <span class="category-heading"><strong>{{ item.name }}</strong><small>{{ item.count === null ? '未加载' : item.count ? `${item.count} ${selectedLibrary?.unit}` : '暂无内容' }}</small></span>
                   <span class="category-description">{{ item.description }}</span>
                 </button>
               </div>
             </template>
             <p v-if="contentError || selectedLibrary?.message" class="content-warning">{{ contentError || selectedLibrary?.message }}</p>
-            <p v-else-if="selectedNode.content_source?.library === 'cloud_video' && selectedNode.content_source.category && selectedLibrary && !selectedCategory?.count" class="content-warning">该分类已不存在或暂无可用视频，请重新选择。</p>
-            <p v-if="selectedNode.content_source" class="field-help">{{ selectedNode.content_source.library === 'care_manual' ? '从养护手册库按客户品种匹配内容，无匹配手册时跳过。' : '从所选分类中匹配视频，使用素材配套文案；无匹配视频时跳过。' }}</p>
+            <p v-else-if="hasContentCategories && selectedNode.content_source?.category && selectedLibrary && !selectedCategory?.count" class="content-warning">该分类已不存在或暂无可用内容，请重新选择。</p>
+            <p v-if="selectedLibrary" class="field-help">{{ selectedLibrary.description }}</p>
+            <template v-if="selectedNode.content_source">
+              <label class="field-label">选择范围</label>
+              <ElSelect :model-value="selectedNode.content_source.selection" :disabled="locked" @change="changeContentSelection"><ElOption value="auto" label="自动匹配合适内容" /><ElOption value="specific" label="指定内容" /></ElSelect>
+              <template v-if="selectedNode.content_source.selection === 'specific'">
+                <label class="field-label">指定内容</label>
+                <ElSelect v-model="selectedNode.content_source.item_ids" multiple filterable :multiple-limit="50" collapse-tags collapse-tags-tooltip :disabled="locked || contentLoading || !selectedLibrary?.available || (hasContentCategories && !selectedNode.content_source.category)" placeholder="输入名称搜索，可选择多项" no-data-text="暂无可选内容" no-match-text="没有找到匹配内容">
+                  <ElOption v-for="item in selectableContentItems" :key="item.id" :value="item.id" :label="contentItemLabel(item)" />
+                  <ElOption v-for="id in unavailableContentIds" :key="id" :value="id" :label="contentLoading || !selectedLibrary?.available ? '待加载的已选内容' : '已失效内容（请移除）'" />
+                </ElSelect>
+                <p v-if="unavailableContentIds.length && selectedLibrary?.available" class="content-warning">部分已选内容不再可用，请移除或重新选择。</p>
+                <p class="field-help">每次从所选范围匹配一项，多项轮换；没有匹配内容时跳过。</p>
+              </template>
+            </template>
             <label class="field-label">补充内容要求<span class="muted">（选填）</span></label>
             <ElInput v-model="selectedNode.action" type="textarea" :rows="3" :disabled="locked" maxlength="6000" placeholder="默认按所选内容库匹配；有额外要求时再填写，例如优先匹配客户的养护痛点。" />
           </template>
@@ -141,7 +154,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import { ElButton, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect, ElTimePicker } from 'element-plus'
 import { isAdmin } from '@/utils/gate'
 import { createCanvasWorkflow, getCanvasWorkflow, listCanvasWorkflows, listCanvasContentSources, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
-  type CanvasContentLibrary, type CanvasContentLibraryOption, type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
+  type CanvasContentItem, type CanvasContentLibrary, type CanvasContentLibraryOption, type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
 
 const workflows = ref<CanvasSummary[]>([])
 const workflow = ref<CanvasWorkflow | null>(null)
@@ -169,14 +182,24 @@ const typeLabels = { start: '开始', general: '一般节点', scheduled_send: '
 const typeIcons = { start: '▷', general: '◇', scheduled_send: '◷', condition: '⑂', handoff: '↗', end: '□' }
 const contentLibraries = ref<CanvasContentLibraryOption[]>([])
 const contentLoading = ref(false), contentError = ref('')
-const libraryNames: Record<CanvasContentLibrary, string> = { care_manual: '养护手册', cloud_video: '云端视频' }
+const libraryNames: Record<CanvasContentLibrary, string> = { care_manual: '养护手册', cloud_video: '云端视频', cloud_image: '云端图文', care_course: '视频课程', sales_activity: '销售活动' }
 const libraryOptions = computed(() => (Object.keys(libraryNames) as CanvasContentLibrary[]).map(id => {
   const source = contentLibraries.value.find(item => item.id === id)
-  return { id, label: source?.available ? `${source.name}（${source.count} ${id === 'care_manual' ? '篇' : '个视频'}）` : libraryNames[id] }
+  return { id, label: source?.available ? `${source.name}（${source.count} ${source.unit}）` : libraryNames[id] }
 }))
 const selectedLibrary = computed(() => contentLibraries.value.find(item => item.id === selectedNode.value?.content_source?.library))
 const selectedCategory = computed(() => selectedLibrary.value?.categories.find(item => item.id === selectedNode.value?.content_source?.category))
-const contentSummary = (node: CanvasNode) => node.content_source ? `${libraryNames[node.content_source.library]}${node.content_source.library === 'cloud_video' ? ` · ${node.content_source.category || '待选择分类'}` : ''}` : '请选择内容库'
+const hasContentCategories = computed(() => ['cloud_video', 'cloud_image'].includes(selectedNode.value?.content_source?.library || ''))
+const selectableContentItems = computed(() => (selectedLibrary.value?.items || []).filter(item => !hasContentCategories.value || item.category === selectedNode.value?.content_source?.category))
+const unavailableContentIds = computed(() => (selectedNode.value?.content_source?.item_ids || []).filter(id => !selectableContentItems.value.some(item => item.id === id)))
+const contentItemLabel = (item: CanvasContentItem) => item.description ? `${item.name} · ${item.description}` : item.name
+const contentSummary = (node: CanvasNode) => {
+  const source = node.content_source
+  if (!source) return '请选择内容库'
+  const category = ['cloud_video', 'cloud_image'].includes(source.library) ? ` · ${source.category || '待选择分类'}` : ''
+  const scope = source.selection === 'specific' ? ` · 已选 ${source.item_ids.length} 项` : ''
+  return `${libraryNames[source.library]}${category}${scope}`
+}
 async function loadContentSources() {
   if (contentLoading.value) return
   contentLoading.value = true
@@ -187,7 +210,19 @@ async function loadContentSources() {
 }
 function changeContentLibrary(library: CanvasContentLibrary) {
   if (!selectedNode.value || locked.value || selectedNode.value.content_source?.library === library) return
-  selectedNode.value.content_source = { library, category: '' }
+  selectedNode.value.content_source = { library, category: '', selection: 'auto', item_ids: [] }
+}
+function changeContentCategory(category: string) {
+  const source = selectedNode.value?.content_source
+  if (locked.value || !source || source.category === category) return
+  source.category = category
+  source.item_ids = []
+}
+function changeContentSelection(selection: 'auto' | 'specific') {
+  const source = selectedNode.value?.content_source
+  if (locked.value || !source) return
+  source.selection = selection
+  source.item_ids = []
 }
 const cycleOptions = [{ value: 'daily', label: '每天' }, { value: 'every_three_days', label: '每三天' }, { value: 'weekly', label: '每周' }]
 const branchName = (index: number) => {
@@ -246,6 +281,7 @@ function applyWorkflow(value: CanvasWorkflow) {
     node.schedule_rule ??= ''; node.send_content_type ??= 'text'; node.branch_mode ??= 'first_match'; node.handoff_target ??= ''
     node.branches ??= []; node.send_time ??= ''; node.send_cycle ??= 'daily'; node.send_weekday ??= null
     node.content_source ??= null
+    if (node.content_source) { node.content_source.selection ??= 'auto'; node.content_source.item_ids ??= [] }
   }
   workflow.value = value
   savedFingerprint.value = JSON.stringify(value.definition)
