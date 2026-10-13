@@ -19,6 +19,36 @@ def clear_settings_cache_after_test():
 
 
 @pytest.mark.asyncio
+async def test_forward_and_revoke_provider_contract(monkeypatch):
+    import httpx
+
+    monkeypatch.setenv("EYUN_BASE_URL", "https://eyun.example.com")
+    monkeypatch.setenv("EYUN_AUTHORIZATION", "test-token")
+    get_settings.cache_clear()
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, json={"code": "1000", "data": None})
+
+    factory = httpx.AsyncClient
+    monkeypatch.setattr(eyun_callback_service.httpx, "AsyncClient", lambda **kwargs: factory(transport=httpx.MockTransport(respond), **kwargs))
+    for kind, endpoint in (("received_file", "sendRecvFile"), ("received_link", "forwardUrl"), ("received_mini_program", "sendApplet")):
+        payload = {"content": "<appmsg />"}
+        if kind == "received_mini_program":
+            payload["imgUrl"] = "https://example.com/cover.jpg"
+        content = json.dumps(payload) if kind == "received_mini_program" else payload["content"]
+        encoded = _encode_outbound_content(kind, content)
+        assert _decode_outbound_content(encoded) == (kind, content)
+        await eyun_callback_service.send_eyun_received_media(w_id="wid", wc_id="customer", content=content, message_type=kind)
+        assert requests[-1].url.path == f"/{endpoint}"
+        assert json.loads(requests[-1].content) == {"wId": "wid", "wcId": "customer", **payload}
+    await eyun_callback_service.revoke_eyun_message({"wId": "wid", "wcId": "customer", "msgId": "123", "newMsgId": "4792296942111367533", "createTime": "1641456307"})
+    assert requests[-1].url.path == "/revokeMsg"
+    assert json.loads(requests[-1].content)["newMsgId"] == 4792296942111367533
+
+
+@pytest.mark.asyncio
 async def test_send_eyun_link_card_uses_send_url(monkeypatch):
     monkeypatch.setenv("EYUN_BASE_URL", "https://eyun.example.com")
     monkeypatch.setenv("EYUN_AUTHORIZATION", "test-token")

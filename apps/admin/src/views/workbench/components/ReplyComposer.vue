@@ -1,18 +1,24 @@
 <template>
   <div class="composer">
     <template v-if="status !== 'resolved'">
+      <div v-if="quotedMessage" class="quote-draft">
+        <div><strong>引用 · {{ quotedMessage.sender_type === 'customer' ? '客户' : '客服' }}</strong><span>{{ quotedMessage.content }}</span><small>引用内容将随回复文字发送</small></div>
+        <ElButton text :disabled="sending" aria-label="取消引用" @click="emit('clearQuote')">×</ElButton>
+      </div>
       <div class="composer-main">
         <ElInput
+          ref="replyInput"
           v-model="content"
           class="reply-input"
           type="textarea"
           :rows="4"
           :disabled="sending"
           resize="none"
-          placeholder="输入回复或粘贴图片，Enter 发送，Shift+Enter 换行"
+          placeholder="输入或粘贴文字、图片，Enter 发送，Shift+Enter 换行"
           aria-label="回复客户"
           @keydown="handleKeydown"
           @paste="handlePaste"
+          @contextmenu.stop
           @compositionstart="composing = true"
           @compositionend="composing = false"
         />
@@ -52,22 +58,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import 'emoji-picker-element'
 import {
   getConversationEmojis, replyConversation, replyConversationEmoji,
   replyConversationImage, updateReplyDraft,
-  type ConversationEmoji, type ConversationItem
+  type ConversationEmoji, type ConversationItem, type ConversationMessage
 } from '@/api/admin/conversations'
 import { useUserStore } from '@/store/modules/user'
 import { isTestGate } from '@/utils/gate'
 
-const props = defineProps<{ status: string; conversationId: string }>()
+const props = defineProps<{ status: string; conversationId: string; quotedMessage?: ConversationMessage }>()
 const emit = defineEmits<{
   changed: []
   receptionChanged: [conversation: ConversationItem]
+  clearQuote: []
 }>()
 const userStore = useUserStore()
 const router = useRouter()
@@ -75,6 +82,8 @@ const operatorId = userStore.user.nickname || 'admin'
 const editorId = crypto.randomUUID()
 const conversationId = props.conversationId
 const content = ref('')
+const replyInput = ref<{ focus: () => void }>()
+watch(() => props.quotedMessage, async message => { if (message) { await nextTick(); replyInput.value?.focus() } })
 const pendingImages = ref<{ file: File; url: string }[]>([])
 const hasDraft = computed(() => Boolean(content.value.trim()) || pendingImages.value.length > 0)
 const sending = ref(false)
@@ -155,6 +164,11 @@ const send = async (action: () => Promise<unknown>, clearText = false) => {
 const sendReply = () => {
   if (!hasDraft.value) return
   const text = content.value.trim()
+  if (props.quotedMessage && !text) {
+    ElMessage.warning('请填写引用回复的文字')
+    return
+  }
+  const sourceMessageId = props.quotedMessage?.id
   const images = [...pendingImages.value]
   void send(async () => {
     for (const item of images) {
@@ -162,7 +176,8 @@ const sendReply = () => {
       removeImage(item.url)
       if (!disposed) emit('changed')
     }
-    if (text) await replyConversation(conversationId, operatorId, text)
+    if (text) await replyConversation(conversationId, operatorId, text, sourceMessageId)
+    emit('clearQuote')
   }, true)
 }
 
@@ -174,6 +189,7 @@ const handleKeydown = (rawEvent: Event | KeyboardEvent) => {
 }
 
 const handlePaste = (event: ClipboardEvent) => {
+  if (event.clipboardData?.getData('text/plain')) return
   const files = Array.from(event.clipboardData?.items || [])
     .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
     .map(item => item.getAsFile())
@@ -236,7 +252,11 @@ onBeforeUnmount(() => {
 .composer { flex: 0 0 auto; padding: 12px 14px 8px; border-top: 1px solid var(--app-border); background: #fff; }
 .composer-main { display: flex; align-items: stretch; gap: 12px; }
 .reply-input { flex: 1; min-width: 0; }
-.reply-input :deep(.el-textarea__inner) { min-height: 112px; padding: 10px 12px; line-height: 1.6; font-size: 14px; }
+.reply-input :deep(.el-textarea__inner) { min-height: 112px; padding: 10px 12px; line-height: 1.6; font-size: 14px; user-select: text; -webkit-user-select: text; }
+.quote-draft { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; margin-bottom: 8px; border-left: 3px solid var(--app-accent); background: #f3f6f4; border-radius: 4px; font-size: 12px; }
+.quote-draft > div { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.quote-draft span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quote-draft small { color: var(--app-text-secondary); }
 .send-area { display: flex; flex: 0 0 92px; flex-direction: column; align-items: stretch; justify-content: flex-end; gap: 12px; }
 .reply-status { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 4px; border-radius: 6px; background: #edf5f1; color: var(--app-accent); font-size: 13px; white-space: nowrap; }
 .reply-status.human { background: #fff4e4; color: #a56616; }

@@ -180,6 +180,19 @@ def _sync_conversation_delivery_from_bundle(
             None,
         )
         conversation_message_id = row.conversation_message_id
+        accepted_events = session.scalars(
+            select(EyunOutboundDeliveryEventModel).where(
+                EyunOutboundDeliveryEventModel.outbound_message_id.in_(bundle_row_ids),
+                EyunOutboundDeliveryEventModel.event == "accepted",
+            ).order_by(EyunOutboundDeliveryEventModel.id)
+        ).all()
+        receipts = {}
+        receipt_row_ids = set()
+        for event in accepted_events:
+            receipt = _load_message_metadata(event.metadata_json).get("revoke_receipt")
+            if isinstance(receipt, dict):
+                receipts[receipt["newMsgId"]] = receipt
+                receipt_row_ids.add(event.outbound_message_id)
     if statuses and all(status in {"confirmed", "sent"} for status in statuses):
         aggregate = "confirmed"
     elif "failed" in statuses:
@@ -216,6 +229,8 @@ def _sync_conversation_delivery_from_bundle(
             "delivery_key": row.delivery_key,
             "provider_message_ids": provider_message_ids,
             "last_delivery_event": latest_event.event if latest_event else None,
+            "revoke_receipts": list(receipts.values()),
+            "revoke_receipts_complete": receipt_row_ids == set(bundle_row_ids),
         },
     )
 
@@ -1329,7 +1344,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                         wc_id=row.wc_id,
                         card=json.loads(content),
                     )
-                elif message_type in {"received_image", "received_video"}:
+                elif message_type in {"received_image", "received_video", "received_file", "received_link", "received_mini_program"}:
                     send_result = await send_eyun_received_media(
                         w_id=row.w_id,
                         wc_id=row.wc_id,
@@ -1443,7 +1458,7 @@ async def process_due_eyun_outbound_messages(limit: int = 5) -> int:
                 event="accepted",
                 status_from=previous_status,
                 provider_result=send_result,
-                metadata={"sent_at": sent_at},
+                metadata={"sent_at": sent_at, "revoke_receipt": _revoke_receipt(send_result, row)},
             )
             _store_provider_message_ids(
                 session,
@@ -2346,6 +2361,9 @@ def _encode_outbound_content(message_type: str, content: str) -> str:
         "mini_program",
         "received_image",
         "received_video",
+        "received_file",
+        "received_link",
+        "received_mini_program",
         "emoji",
     }:
         return json.dumps({"type": message_type, "content": content}, ensure_ascii=False)
@@ -2367,12 +2385,25 @@ def _decode_outbound_content(content: str) -> tuple[str, str]:
             "mini_program",
             "received_image",
             "received_video",
+            "received_file",
+            "received_link",
+            "received_mini_program",
             "emoji",
         }
         and payload.get("content")
     ):
         return str(payload["type"]), str(payload["content"])
     return "text", content
+
+
+def _revoke_receipt(result: dict, row) -> dict | None:
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return None
+    receipt = {key: str(data.get(key) or "") for key in ("msgId", "newMsgId", "createTime")}
+    if not all(value.isdigit() and int(value) > 0 for value in receipt.values()):
+        return None
+    return {"wId": row.w_id, "wcId": row.wc_id, **receipt}
 
 
 def _is_material_expiry_error(exc: Exception) -> bool:
@@ -2846,6 +2877,8 @@ def _validate_outbound_before_send(
         message = session.get(ConversationMessageModel, row.conversation_message_id)
         if message:
             metadata = _load_message_metadata(message.metadata_json)
+            if metadata.get("revoked_at"):
+                return False
             if message.sender_type == "ai":
                 context_at = datetime.fromisoformat(metadata["reply_context_at"]) if metadata.get("reply_context_at") else message.created_at
                 if _human_replied_after(message.conversation_id, context_at):

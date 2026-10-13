@@ -24,20 +24,24 @@
       <ElButton :disabled="!conversationIds.length" :icon="Refresh" circle aria-label="刷新聊天记录" @click="load()" />
     </div>
 
-    <div ref="timelineRef" v-loading="loading" class="timeline" :class="{ 'is-empty': !detail?.messages.length }">
-      <div v-if="selectionMode && isAdmin()" class="selection-toolbar">
+    <div ref="timelineRef" v-loading="loading" class="timeline" :class="{ 'is-empty': !detail?.messages.length }" @scroll="closeMenu">
+      <div v-if="selectionMode" class="selection-toolbar">
         <span>已选 {{ selectedMessageIds.size }} 条</span>
         <div>
           <ElButton size="small" @click="clearSelection">取消</ElButton>
+          <ElButton size="small" :disabled="!selectedIds.length" @click="copyMessages(selectedMessages)">复制</ElButton>
+          <ElButton v-if="!readOnly" size="small" :disabled="!canForwardSelection" @click="openForward(selectedMessages)">转发</ElButton>
           <ElButton
+            v-if="isAdmin()"
             size="small"
             type="primary"
-            :disabled="!selectedMessageIds.size"
+            :disabled="!canSaveActivitySelection"
             @click="saveDialogVisible = true"
           >
             存为活动
           </ElButton>
           <ElButton
+            v-if="isAdmin()"
             size="small"
             type="success"
             :disabled="!selectedMaterialMessage"
@@ -56,10 +60,10 @@
         class="message-row"
         :class="[
           message.sender_type,
-          { selectable: canSelectMessage(message), selected: selectedMessageIds.has(message.id), focused: focusedMessageId === message.id }
+          { selectable: selectionMode && canSelectMessage(message), selected: selectedMessageIds.has(message.id), focused: focusedMessageId === message.id }
         ]"
         @click="toggleSelectedMessage(message)"
-        @contextmenu.prevent="isAdmin() && startSelection(message)"
+        @contextmenu.prevent="openMenu($event, message)"
       >
         <div class="bubble">
           <span v-if="selectedMessageIds.has(message.id)" class="selected-mark">✓</span>
@@ -76,7 +80,9 @@
               发送失败
             </ElTag>
           </div>
-          <div class="content">
+          <div v-if="message.metadata.revoked_at" class="revoked-message">该消息已撤回</div>
+          <div v-else class="content">
+            <blockquote v-if="quotedContent(message)" class="quoted-message">{{ quotedContent(message) }}</blockquote>
             <small v-if="isPrivateFile(message)" class="file-network-hint">
               文件名已识别，原文件请在微信中查看
             </small>
@@ -184,6 +190,7 @@
             </ElButton>
           </div>
           <div class="message-footer">
+            <ElButton v-if="!message.metadata.revoked_at && message.sender_type !== 'system'" text size="small" aria-label="消息操作" @click.stop="openMenu($event, message)">···</ElButton>
             <ElButton
               v-if="!readOnly && canRetryDelivery(message)"
               type="primary"
@@ -205,6 +212,19 @@
       :message-ids="selectedIds"
       @saved="clearSelection"
     />
+    <ForwardMessagesDialog v-model="forwardDialogVisible" :messages="forwardMessages" @sent="clearSelection(); load({ silent: true })" />
+    <Teleport to="body">
+      <div v-if="menu" class="message-context-menu" role="menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @pointerdown.stop @contextmenu.prevent>
+        <button type="button" role="menuitem" @click="copyMessages([menu.message], menu.selection)">{{ menu.selection ? '复制选中文字' : '复制' }}</button>
+        <button v-if="isImageMessage(menu.message) && mediaSource(menu.message)" type="button" role="menuitem" @click="copyImage(menu.message)">复制图片</button>
+        <button v-if="menu.message.actions?.quote && detail?.conversation.status !== 'resolved'" type="button" role="menuitem" @click="quoteFromMenu">引用</button>
+        <button v-if="!readOnly && menu.message.actions?.forward" type="button" role="menuitem" @click="openForward([menu.message])">转发</button>
+        <button v-if="!readOnly && menu.message.actions?.revoke" type="button" role="menuitem" :disabled="revokingIds.has(menu.message.id)" @click="revokeMessage(menu.message)">撤回</button>
+        <button type="button" role="menuitem" @click="startSelection(menu.message); closeMenu()">多选</button>
+        <button v-if="isAdmin() && canSaveActivityMessage(menu.message)" type="button" role="menuitem" @click="saveActivityFromMenu">存为活动</button>
+        <button v-if="isAdmin() && canSaveActivityMessage(menu.message) && ['image', 'video'].includes(mediaType(menu.message))" type="button" role="menuitem" @click="saveMaterialFromMenu">存为微信素材</button>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -216,12 +236,15 @@ import {
   getConversationDetail,
   retryConversationMessageDelivery,
   resolveConversationMessageMedia,
+  revokeConversationMessage,
   type ConversationDetail,
   type ConversationItem,
   type ConversationMessage
 } from '@/api/admin/conversations'
 import { formatChinaTime } from '@/utils/time'
 import SaveActivityDialog from './SaveActivityDialog.vue'
+import ForwardMessagesDialog from './ForwardMessagesDialog.vue'
+import { useUserStore } from '@/store/modules/user'
 import { isTestGate, isAdmin } from '@/utils/gate'
 import { createWechatMaterialFromMessage } from '@/api/admin/wechatMaterials'
 
@@ -256,6 +279,7 @@ const readOnly = isTestGate()
 const emit = defineEmits<{
   loaded: [detail: ConversationDetail | undefined]
   'mobile-back': []
+  quote: [message: ConversationMessage]
 }>()
 
 const loading = ref(false)
@@ -267,6 +291,11 @@ const retryingDeliveryIds = ref(new Set<number>())
 const selectedMessageIds = ref(new Set<number>())
 const selectionMode = ref(false)
 const saveDialogVisible = ref(false)
+const menu = ref<{ message: ConversationMessage; x: number; y: number; selection: string }>()
+const forwardDialogVisible = ref(false)
+const forwardMessages = ref<ConversationMessage[]>([])
+const revokingIds = ref(new Set<number>())
+const userStore = useUserStore()
 const focusedMessageId = ref<number>()
 let focusTimer: number | undefined
 let reloadPending = false
@@ -344,7 +373,7 @@ const deliveryFailureStatuses = new Set(['failed', 'waiting_material'])
 const hasDeliveryFailure = (message: ConversationMessage) =>
   deliveryFailureStatuses.has(message.delivery_status || '')
 
-const canRetryDelivery = hasDeliveryFailure
+const canRetryDelivery = (message: ConversationMessage) => !message.metadata.revoked_at && hasDeliveryFailure(message)
 
 const retryDelivery = async (message: ConversationMessage) => {
   retryingDeliveryIds.value = new Set(retryingDeliveryIds.value).add(message.id)
@@ -486,7 +515,10 @@ const linkCard = (message: ConversationMessage) => cardMetadata(message, 'link_c
 const miniProgramCard = (message: ConversationMessage) =>
   cardMetadata(message, 'mini_program')
 
-const canSelectMessage = (message: ConversationMessage) => {
+const canSelectMessage = (message: ConversationMessage) => message.sender_type !== 'system' && !message.metadata.revoked_at
+
+const canSaveActivityMessage = (message: ConversationMessage) => {
+  if (!canSelectMessage(message)) return false
   if (message.conversation_id !== props.conversationId || message.sender_type !== 'customer') {
     return false
   }
@@ -497,7 +529,7 @@ const canSelectMessage = (message: ConversationMessage) => {
 
 const startSelection = (message: ConversationMessage) => {
   if (!canSelectMessage(message)) {
-    ElMessage.warning('该消息不支持保存为活动素材')
+    ElMessage.warning('该消息不能选择')
     return
   }
   selectionMode.value = true
@@ -521,13 +553,16 @@ const selectedIds = computed(() =>
     .filter((message) => selectedMessageIds.value.has(message.id))
     .map((message) => message.id)
 )
+const selectedMessages = computed(() => (detail.value?.messages || []).filter(message => selectedMessageIds.value.has(message.id)))
+const canForwardSelection = computed(() => selectedMessages.value.length > 0 && selectedMessages.value.every(message => message.actions?.forward))
+const canSaveActivitySelection = computed(() => selectedMessages.value.length > 0 && selectedMessages.value.every(canSaveActivityMessage))
 
 const selectedMaterialMessage = computed(() => {
   if (selectedMessageIds.value.size !== 1) return undefined
   const message = (detail.value?.messages || []).find((item) =>
     selectedMessageIds.value.has(item.id)
   )
-  return message && ['image', 'video'].includes(mediaType(message)) ? message : undefined
+  return message && canSaveActivityMessage(message) && ['image', 'video'].includes(mediaType(message)) ? message : undefined
 })
 
 const saveAsWechatMaterial = async () => {
@@ -542,6 +577,103 @@ const clearSelection = () => {
   selectedMessageIds.value = new Set()
   selectionMode.value = false
   saveDialogVisible.value = false
+}
+
+const closeMenu = () => { menu.value = undefined }
+const handleMenuKey = (event: KeyboardEvent) => { if (event.key === 'Escape') closeMenu() }
+const openMenu = (event: MouseEvent, message: ConversationMessage) => {
+  if (!canSelectMessage(message)) return
+  const selection = window.getSelection()
+  const row = (event.currentTarget as HTMLElement)?.closest('.message-row')
+  menu.value = {
+    message, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 176)),
+    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 310)),
+    selection: selection?.anchorNode && row?.contains(selection.anchorNode) ? selection.toString() : ''
+  }
+}
+const quoteFromMenu = () => {
+  if (menu.value) emit('quote', menu.value.message)
+  closeMenu()
+}
+const quotedContent = (message: ConversationMessage) => {
+  const quote = message.metadata.quoted_message as { sender: string; content: string } | undefined
+  return quote ? `${quote.sender}：${quote.content}` : ''
+}
+const messageCopyText = (message: ConversationMessage) => {
+  const card = linkCard(message)
+  const body = card ? [card.title, card.description, card.url].filter(Boolean).join('\n') : mediaSource(message) || displayContent(message)
+  const quote = quotedContent(message)
+  return quote ? `「${quote}」\n${body}` : body
+}
+const copyMessages = async (messages: ConversationMessage[], selectedText = '') => {
+  const text = selectedText || messages.map(messageCopyText).join('\n\n')
+  closeMenu()
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text)
+    else {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.cssText = 'position:fixed;left:-9999px;top:0'
+      document.body.append(textarea)
+      textarea.select()
+      try { if (!document.execCommand('copy')) throw new Error('copy failed') }
+      finally { textarea.remove() }
+    }
+    ElMessage.success('已复制，可粘贴到回复框')
+  } catch { ElMessage.warning('复制失败，请选中文字后按 Ctrl+C 或使用浏览器复制') }
+}
+const copyImage = async (message: ConversationMessage) => {
+  closeMenu()
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+    ElMessage.warning('当前浏览器不支持复制图片，请打开图片后复制')
+    return
+  }
+  try {
+    const blob = (async () => {
+      const response = await fetch(mediaSource(message))
+      if (!response.ok) throw new Error('image unavailable')
+      const bitmap = await createImageBitmap(await response.blob())
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const context = canvas.getContext('2d')
+      if (!context) { bitmap.close(); throw new Error('image conversion unavailable') }
+      context.drawImage(bitmap, 0, 0)
+      bitmap.close()
+      return await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('image conversion failed')), 'image/png'))
+    })()
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+    ElMessage.success('图片已复制，可粘贴到回复框')
+  } catch { ElMessage.warning('图片复制失败，请打开原图后复制') }
+}
+const openForward = (messages: ConversationMessage[]) => {
+  forwardMessages.value = [...messages]
+  forwardDialogVisible.value = true
+  closeMenu()
+}
+const revokeMessage = async (message: ConversationMessage) => {
+  if (revokingIds.value.has(message.id)) return
+  closeMenu()
+  revokingIds.value.add(message.id)
+  try {
+    await revokeConversationMessage(message.id, userStore.user.nickname || 'admin')
+    ElMessage.success('消息已撤回')
+    await load({ silent: true })
+  } finally { revokingIds.value.delete(message.id) }
+}
+const saveActivityFromMenu = () => {
+  if (!menu.value) return
+  clearSelection()
+  startSelection(menu.value.message)
+  saveDialogVisible.value = true
+  closeMenu()
+}
+const saveMaterialFromMenu = () => {
+  if (!menu.value) return
+  clearSelection()
+  startSelection(menu.value.message)
+  closeMenu()
+  void saveAsWechatMaterial()
 }
 
 const retryMedia = async (message: ConversationMessage) => {
@@ -582,12 +714,20 @@ const formatTime = formatChinaTime
 watch(
   () => [props.conversationId, props.conversationIds.join('|'), props.focusMessageId],
   () => {
+    closeMenu()
+    forwardDialogVisible.value = false
     clearSelection()
     void load()
   }
 )
-onMounted(load)
+onMounted(() => {
+  void load()
+  document.addEventListener('pointerdown', closeMenu)
+  document.addEventListener('keydown', handleMenuKey)
+})
 onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', closeMenu)
+  document.removeEventListener('keydown', handleMenuKey)
   if (focusTimer) window.clearTimeout(focusTimer)
 })
 
@@ -595,6 +735,12 @@ defineExpose({ load })
 </script>
 
 <style scoped>
+.message-context-menu { position: fixed; z-index: 4000; display: flex; flex-direction: column; min-width: 160px; padding: 5px; border: 1px solid var(--app-border); border-radius: 8px; background: #fff; box-shadow: 0 6px 24px #0002; }
+.message-context-menu button { padding: 8px 14px; border: 0; border-radius: 4px; background: transparent; color: var(--app-text); text-align: left; font-size: 13px; cursor: pointer; }
+.message-context-menu button:hover, .message-context-menu button:focus-visible { background: var(--app-accent-soft); }
+.content { user-select: text; -webkit-user-select: text; }
+.quoted-message { margin: 0 0 8px; padding: 7px 10px; border-left: 3px solid currentColor; background: #8881; font-size: 12px; opacity: .8; overflow-wrap: anywhere; }
+.revoked-message { font-style: italic; opacity: .7; }
 .message-panel {
   display: flex;
   flex-direction: column;
@@ -656,6 +802,8 @@ p {
   z-index: 2;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: space-between;
   padding: 10px 12px;
   margin: -8px -8px 14px;
@@ -664,6 +812,8 @@ p {
   border-radius: 8px;
   box-shadow: 0 4px 12px rgb(15 23 42 / 8%);
 }
+.selection-toolbar > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.selection-toolbar :deep(.el-button + .el-button) { margin-left: 0; }
 
 .message-row {
   display: flex;

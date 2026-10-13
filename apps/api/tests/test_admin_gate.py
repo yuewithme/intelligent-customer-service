@@ -168,6 +168,23 @@ def test_object_and_customer_scope(context):
     assert client.get("/api/v1/admin/conversations", params={"test_only": True}).status_code == 403
 
 
+def test_workbench_actions_check_source_and_target_permissions(context, monkeypatch):
+    from app.integrations.youzan.services import youzan_product_sync_service
+
+    client, _ = context
+    monkeypatch.setattr(youzan_product_sync_service, "list_products", lambda **kwargs: {"items": [], "total": 0})
+    assert client.get("/api/v1/admin/conversations/products").status_code == 200
+    assert client.get("/api/v1/admin/products").status_code == 403
+    with _get_session() as db:
+        source = db.query(ConversationMessageModel).filter_by(content="wx_denied").one()
+        source_id = source.id
+    allowed = "/api/v1/admin/conversations/wechat:customer_wx_allowed:wx_allowed"
+    payload = {"operator_id": "admin", "source_message_id": source_id, "content": "回复"}
+    assert client.post(allowed + "/forward", json=payload).status_code == 403
+    assert client.post(allowed + "/reply", json=payload).status_code == 403
+    assert client.post(f"/api/v1/admin/conversations/messages/{source_id}/revoke", json=payload).status_code == 403
+
+
 def test_employee_can_only_edit_authorized_customer_tags_and_note(context):
     client, state = context
     path = "/api/v1/users/customer_wx_allowed/profile"

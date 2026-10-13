@@ -165,7 +165,7 @@ async def reply(conversation_id: str, request: ReplyRequest) -> APIResponse:
     return APIResponse(
         code=0,
         message="success",
-        data=await reply_conversation(conversation_id, request.operator_id, request.content),
+        data=await reply_conversation(conversation_id, request.operator_id, request.content, source_message_id=request.source_message_id),
     )
 
 

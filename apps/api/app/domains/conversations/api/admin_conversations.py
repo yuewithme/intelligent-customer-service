@@ -13,11 +13,16 @@ from app.domains.conversations.schemas.conversation import (
     ReplyCareManualRequest,
     ReplyEmojiRequest,
     ReplyRequest,
+    ReplyProductRequest,
+    ForwardMessageRequest,
     ReplyDraftRequest,
     StatusActionRequest,
 )
 from app.domains.conversations.services.conversation_event_service import conversation_event_broker
 from app.domains.conversations.services.chat_review_service import get_chat_review
+from app.domains.conversations.services.message_action_service import (
+    forward_conversation_message, revoke_conversation_message, reply_conversation_product,
+)
 from app.domains.conversations.services.reply_draft_service import update_reply_draft
 from app.domains.conversations.services.conversation_service import (
     apply_conversation_list_action,
@@ -216,6 +221,43 @@ async def touch_delivery_stats(
     return APIResponse(code=0, message="success", data=data)
 
 
+@router.get("/products", response_model=APIResponse)
+async def reply_products(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = None,
+) -> APIResponse:
+    from app.integrations.youzan.services.youzan_product_sync_service import list_products
+
+    result = list_products(page=page, page_size=page_size, keyword=keyword, catalog_only=True)
+    fields = ("item_id", "title", "image_url", "price_cent", "stock", "h5_url", "page_url")
+    return APIResponse(code=0, message="success", data={
+        "items": [{key: item.get(key) for key in fields} for item in result["items"]],
+        "total": result["total"], "page": page, "page_size": page_size,
+    })
+
+
+@router.post("/messages/{message_id}/revoke", response_model=APIResponse)
+async def revoke_message(message_id: int, request: ClaimRequest, http_request: Request) -> APIResponse:
+    return APIResponse(code=0, message="success", data=await revoke_conversation_message(
+        message_id, operator_identity(http_request, request.operator_id),
+    ))
+
+
+@router.post("/{conversation_id:path}/forward", response_model=APIResponse)
+async def forward_message(conversation_id: str, request: ForwardMessageRequest, http_request: Request) -> APIResponse:
+    return APIResponse(code=0, message="success", data=await forward_conversation_message(
+        conversation_id, operator_identity(http_request, request.operator_id), request.source_message_id,
+    ))
+
+
+@router.post("/{conversation_id:path}/reply-product", response_model=APIResponse)
+async def reply_product(conversation_id: str, request: ReplyProductRequest, http_request: Request) -> APIResponse:
+    return APIResponse(code=0, message="success", data=await reply_conversation_product(
+        conversation_id, operator_identity(http_request, request.operator_id), request.item_id,
+    ))
+
+
 @router.post("/messages/{message_id}/retry-delivery", response_model=APIResponse)
 async def retry_message_delivery(message_id: int) -> APIResponse:
     return APIResponse(
@@ -248,7 +290,8 @@ async def reply_draft(conversation_id: str, request: ReplyDraftRequest, http_req
 @router.post("/{conversation_id:path}/reply", response_model=APIResponse)
 async def reply(conversation_id: str, request: ReplyRequest, http_request: Request) -> APIResponse:
     data = await reply_conversation(
-        conversation_id, operator_identity(http_request, request.operator_id), request.content
+        conversation_id, operator_identity(http_request, request.operator_id), request.content,
+        source_message_id=request.source_message_id,
     )
     return APIResponse(code=0, message="success", data=data)
 

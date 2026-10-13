@@ -21,6 +21,17 @@ class ReplyDraftRequest(BaseModel):
 class ReplyRequest(BaseModel):
     operator_id: str
     content: str
+    source_message_id: int | None = Field(default=None, gt=0)
+
+
+class ReplyProductRequest(BaseModel):
+    operator_id: str
+    item_id: str = Field(min_length=1, max_length=128)
+
+
+class ForwardMessageRequest(BaseModel):
+    operator_id: str
+    source_message_id: int = Field(gt=0)
 
 
 class ReplyEmojiRequest(BaseModel):

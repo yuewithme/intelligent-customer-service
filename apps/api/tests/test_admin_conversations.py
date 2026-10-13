@@ -1971,3 +1971,155 @@ def test_conversation_apis_require_authorization(monkeypatch, tmp_path):
 
     assert response.status_code == 401
     assert response.json()["code"] == 40100
+
+
+def test_workbench_quote_preserves_source_and_rejects_other_customer(monkeypatch, tmp_path):
+    import asyncio
+    from app.integrations.eyun.services import message_risk_control_service as queue
+
+    _reset_settings(monkeypatch, tmp_path)
+    queued = []
+
+    async def enqueue(**kwargs):
+        queued.append(kwargs)
+
+    monkeypatch.setattr(queue, "enqueue_wechat_outbound", enqueue)
+    client = TestClient(app)
+    ids = []
+    for user in ("quote_customer", "other_customer"):
+        asyncio.run(record_customer_message(
+            channel="wechat", user_id=user, session_id="owner", content="需要少浇水吗？",
+            metadata={"provider": "eyun", "w_id": "wid", "owner_wc_id": "owner", "from_user": user, "message_type": "60001"},
+        ))
+        ids.append(client.get(f"/api/v1/admin/conversations/wechat:{user}:owner").json()["data"]["messages"][0]["id"])
+    path = "/api/v1/admin/conversations/wechat:quote_customer:owner"
+    client.post(path + "/claim", json={"operator_id": "staff"})
+    response = client.post(path + "/reply", json={"operator_id": "staff", "content": "是的", "source_message_id": ids[0]})
+    assert response.status_code == 200
+    assert queued[0]["content"] == "「客户：需要少浇水吗？」\n是的"
+    message = client.get(path).json()["data"]["messages"][-1]
+    assert message["content"] == "是的"
+    assert message["metadata"]["quoted_message"]["id"] == ids[0]
+    assert client.post(path + "/reply", json={"operator_id": "staff", "content": "不能引用", "source_message_id": ids[1]}).status_code == 403
+    assert len(queued) == 1
+
+
+@pytest.mark.parametrize("media_type, raw, expected_type", [
+    ("file", '<msg><appmsg><type>6</type><title>手册.pdf</title></appmsg></msg>', "received_file"),
+    ("link", '<msg><appmsg><type>5</type><title>手册</title><url>https://example.com</url></appmsg></msg>', "received_link"),
+    ("mini_program", '<msg><appmsg><type>33</type><thumburl>https://example.com/cover.png</thumburl></appmsg></msg>', "received_mini_program"),
+])
+def test_workbench_forward_uses_queue_and_account_boundary(monkeypatch, tmp_path, media_type, raw, expected_type):
+    import asyncio
+    from app.integrations.eyun.services import message_risk_control_service as queue
+
+    _reset_settings(monkeypatch, tmp_path)
+    queued = []
+
+    async def enqueue(**kwargs):
+        queued.append(kwargs)
+
+    monkeypatch.setattr(queue, "enqueue_wechat_outbound", enqueue)
+    client = TestClient(app)
+    for user, owner in (("source", "owner"), ("target", "owner"), ("foreign", "other_owner")):
+        asyncio.run(record_customer_message(
+            channel="wechat", user_id=user, session_id=owner, content="[消息]",
+            metadata={"provider": "eyun", "w_id": "wid", "owner_wc_id": owner, "from_user": user,
+                      "message_type": "60999", "raw_content": raw, "media": {"type": media_type}},
+        ))
+    source = client.get("/api/v1/admin/conversations/wechat:source:owner").json()["data"]["messages"][0]
+    assert source["actions"]["forward"]
+    path = "/api/v1/admin/conversations/wechat:target:owner"
+    client.post(path + "/claim", json={"operator_id": "staff"})
+    response = client.post(path + "/forward", json={"operator_id": "staff", "source_message_id": source["id"]})
+    assert response.status_code == 200
+    assert queued[0]["message_type"] == expected_type
+    assert raw in queued[0]["content"] or json.loads(queued[0]["content"])["content"] == raw
+    response = client.post("/api/v1/admin/conversations/wechat:foreign:other_owner/forward", json={"operator_id": "staff", "source_message_id": source["id"]})
+    assert response.status_code == 409
+    assert len(queued) == 1
+
+
+def test_workbench_product_card_rechecks_catalog_and_limits_search_fields(monkeypatch, tmp_path):
+    import asyncio
+    from app.integrations.eyun.services import message_risk_control_service as queue
+    from app.integrations.youzan.services import youzan_product_sync_service as catalog
+
+    _reset_settings(monkeypatch, tmp_path)
+    product = {"item_id": "123", "title": "建兰", "image_url": "https://example.com/cover.jpg",
+               "h5_url": "https://example.com/product/123", "price_cent": 2980, "stock": 2, "internal_note": "内部备注"}
+    items = [product]
+    calls = []
+    queued = []
+
+    def list_products(**kwargs):
+        calls.append(kwargs)
+        return {"items": items, "total": len(items)}
+
+    async def enqueue(**kwargs):
+        queued.append(kwargs)
+
+    monkeypatch.setattr(catalog, "list_products", list_products)
+    monkeypatch.setattr(queue, "enqueue_wechat_outbound", enqueue)
+    asyncio.run(record_customer_message(channel="wechat", user_id="buyer", session_id="owner", content="看看商品",
+        metadata={"provider": "eyun", "w_id": "wid", "owner_wc_id": "owner", "from_user": "buyer"}))
+    client = TestClient(app)
+    result = client.get("/api/v1/admin/conversations/products?keyword=建兰").json()["data"]
+    assert "internal_note" not in result["items"][0]
+    assert calls[-1]["catalog_only"] is True
+    path = "/api/v1/admin/conversations/wechat:buyer:owner"
+    client.post(path + "/claim", json={"operator_id": "staff"})
+    assert client.post(path + "/reply-product", json={"operator_id": "staff", "item_id": "123"}).status_code == 200
+    card = json.loads(queued[0]["content"])
+    assert queued[0]["message_type"] == "link_card"
+    assert card["url"] == product["h5_url"]
+    assert "29.80" in card["description"]
+    items.clear()
+    assert client.post(path + "/reply-product", json={"operator_id": "staff", "item_id": "123"}).status_code == 404
+    assert len(queued) == 1
+
+
+def test_workbench_revoke_retains_receipt_and_rejects_resend(monkeypatch, tmp_path):
+    import asyncio
+    from app.integrations.eyun.services import message_risk_control_service as queue, eyun_callback_service as provider
+    from app.domains.conversations.services.conversation_service import update_outbound_message_delivery
+
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setattr(queue, "random_reply_delay_seconds", lambda: 0)
+    receipt = {"msgId": 123, "newMsgId": 4792296942111367533, "createTime": int(datetime.now(timezone.utc).timestamp())}
+    revoked = []
+
+    async def send(**kwargs):
+        return {"code": "1000", "data": receipt}
+
+    async def revoke(payload):
+        revoked.append(payload)
+        if len(revoked) == 1:
+            raise RuntimeError("too late")
+        return {"code": "1000"}
+
+    monkeypatch.setattr(provider, "send_eyun_text", send)
+    monkeypatch.setattr(provider, "revoke_eyun_message", revoke)
+    asyncio.run(record_customer_message(channel="wechat", user_id="revoke_customer", session_id="owner", content="你好",
+        metadata={"provider": "eyun", "w_id": "wid", "owner_wc_id": "owner", "from_user": "revoke_customer"}))
+    client = TestClient(app)
+    path = "/api/v1/admin/conversations/wechat:revoke_customer:owner"
+    client.post(path + "/claim", json={"operator_id": "staff"})
+    assert client.post(path + "/reply", json={"operator_id": "staff", "content": "待撤回回复"}).status_code == 200
+    assert asyncio.run(queue.process_due_eyun_outbound_messages()) == 1
+    message = client.get(path).json()["data"]["messages"][-1]
+    assert message["actions"]["revoke"] is True
+    assert message["metadata"]["revoke_receipts"][0]["newMsgId"] == str(receipt["newMsgId"])
+    revoke_path = f"/api/v1/admin/conversations/messages/{message['id']}/revoke"
+    assert client.post(revoke_path, json={"operator_id": "staff"}).status_code == 502
+    assert client.get(path).json()["data"]["messages"][-1]["delivery_status"] == "accepted"
+    response = client.post(revoke_path, json={"operator_id": "staff"})
+    assert response.status_code == 200
+    assert response.json()["data"]["delivery_status"] == "revoked"
+    assert revoked[-1]["wId"] == "wid"
+    assert revoked[-1]["wcId"] == "revoke_customer"
+    update_outbound_message_delivery(message["id"], status="confirmed")
+    assert client.get(path).json()["data"]["messages"][-1]["delivery_status"] == "revoked"
+    assert client.post(f"/api/v1/admin/conversations/messages/{message['id']}/retry-delivery").status_code == 409
+    assert client.post(revoke_path, json={"operator_id": "staff"}).status_code == 200
+    assert len(revoked) == 2

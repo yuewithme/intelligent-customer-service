@@ -45,6 +45,7 @@ export interface ConversationMessage {
     | 'sent'
     | 'failed'
     | 'cancelled'
+    | 'revoked'
     | null
   sender_type: 'customer' | 'ai' | 'human' | 'system'
   sender_id?: string | null
@@ -52,6 +53,7 @@ export interface ConversationMessage {
   route?: string | null
   primary_intent?: string | null
   metadata: Record<string, unknown>
+  actions?: { quote: boolean; forward: boolean; revoke: boolean }
   created_at: string
 }
 
@@ -183,10 +185,40 @@ export const updateReplyDraft = (conversationId: string, data: {
   timeout: 10_000
 })
 
-export const replyConversation = (conversationId: string, operator_id: string, content: string) =>
+export const replyConversation = (conversationId: string, operator_id: string, content: string, source_message_id?: number) =>
   request.post<ConversationItem>({
     url: `${conversationBase()}/${conversationPath(conversationId)}/reply`,
-    data: { operator_id, content }
+    data: { operator_id, content, source_message_id }
+  })
+
+export const revokeConversationMessage = (messageId: number, operator_id: string) =>
+  request.post<ConversationMessage>({
+    url: `/api/v1/admin/conversations/messages/${messageId}/revoke`, data: { operator_id }
+  })
+
+export const forwardConversationMessage = (conversationId: string, operator_id: string, source_message_id: number) =>
+  request.post<ConversationItem>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/forward`,
+    data: { operator_id, source_message_id }
+  })
+
+export interface ReplyProduct {
+  item_id: string
+  title: string
+  image_url?: string | null
+  price_cent?: number | null
+  stock?: number | null
+  h5_url?: string | null
+  page_url?: string | null
+}
+
+export const getReplyProducts = (params: { page: number; page_size: number; keyword?: string }) =>
+  request.get<{ items: ReplyProduct[]; total: number }>({ url: '/api/v1/admin/conversations/products', params })
+
+export const replyConversationProduct = (conversationId: string, operator_id: string, item_id: string) =>
+  request.post<ConversationItem>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/reply-product`,
+    data: { operator_id, item_id }
   })
 
 export const markConversationRead = (conversationId: string, automatic = false) =>

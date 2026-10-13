@@ -375,6 +375,8 @@ def retry_conversation_message_delivery(message_id: int) -> dict[str, Any]:
                 status_code=404,
             )
         metadata = _load_metadata(message.metadata_json)
+        if metadata.get("revoked_at"):
+            raise AppError(ErrorCode.REQUEST_INVALID, message="已撤回的消息不能重发", status_code=409)
         source_batch_key = str(metadata.get("source_batch_key") or "")
         delivery_status = str(message.delivery_status or "")
     from app.integrations.eyun.services.message_risk_control_service import (
@@ -1309,6 +1311,8 @@ def update_outbound_message_delivery(
         message = session.get(ConversationMessageModel, conversation_message_id)
         if message is None:
             return
+        if _load_metadata(message.metadata_json).get("revoked_at"):
+            return
         if provider_message_id:
             duplicate = session.scalar(
                 select(ConversationMessageModel).where(
@@ -1423,7 +1427,7 @@ async def claim_conversation(conversation_id: str, operator_id: str) -> dict:
 
 
 async def reply_conversation(
-    conversation_id: str, operator_id: str, content: str
+    conversation_id: str, operator_id: str, content: str, source_message_id: int | None = None
 ) -> dict:
     content = content.strip()
     if not content:
@@ -1443,6 +1447,15 @@ async def reply_conversation(
                 status_code=409,
             )
         eyun_target = _latest_eyun_reply_target(session, conversation)
+        quoted_message = None
+        if source_message_id is not None:
+            from app.domains.conversations.services.message_action_service import quote_message
+
+            quoted_message = quote_message(session, conversation, source_message_id)
+        outbound_content = (
+            f"「{quoted_message['sender']}：{quoted_message['content']}」\n{content}"
+            if quoted_message else content
+        )
         now = _now()
         message = ConversationMessageModel(
             conversation_id=conversation_id,
@@ -1452,7 +1465,7 @@ async def reply_conversation(
             sender_id=operator_id,
             content=content,
             metadata_json=json.dumps(
-                {
+                {**({
                     "provider": "eyun",
                     "direction": "outbound",
                     "message_type": "text",
@@ -1462,7 +1475,7 @@ async def reply_conversation(
                     "w_id": eyun_target["w_id"],
                 }
                 if eyun_target
-                else {},
+                else {}), **({"quoted_message": quoted_message} if quoted_message else {})},
                 ensure_ascii=False,
             ),
             created_at=now,
@@ -1488,7 +1501,7 @@ async def reply_conversation(
             await enqueue_wechat_outbound(
                 w_id=eyun_target["w_id"],
                 wc_id=eyun_target["wc_id"],
-                content=content,
+                content=outbound_content,
                 source_batch_key=f"workbench:{conversation_message_id}",
                 conversation_message_id=conversation_message_id,
             )
@@ -1507,7 +1520,7 @@ async def reply_conversation(
         tenant_id=memory_context["tenant_id"],
         session_id=memory_context["session_id"],
         role="human",
-        content=content,
+        content=outbound_content,
         channel=memory_context["channel"],
         source_id=f"workbench:{conversation_message_id}",
     )
@@ -2169,6 +2182,8 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
 
 
 def _message_to_dict(row: ConversationMessageModel) -> dict:
+    from app.domains.conversations.services.message_action_service import message_actions
+
     metadata = _load_metadata(row.metadata_json)
     metadata.pop("sales_stage", None)
     if metadata.get("provider") == "eyun" and not metadata.get("media"):
@@ -2227,6 +2242,7 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         "route": row.route,
         "primary_intent": row.primary_intent,
         "metadata": metadata,
+        "actions": message_actions(row, metadata),
         "created_at": _utc_isoformat(row.created_at),
     }
 

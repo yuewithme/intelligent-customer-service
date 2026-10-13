@@ -37,6 +37,12 @@
       :profile-loading="profileLoading"
       @profile-changed="$emit('profile-changed', $event)"
     />
+    <ProductPanel
+      v-if="activeTab === 'products'"
+      :conversation-id="conversationId"
+      :conversation="conversation"
+      @changed="$emit('changed')"
+    />
   </aside>
 </template>
 
@@ -48,6 +54,7 @@ import type {
 } from '@/api/admin/conversations'
 import type { UserProfile } from '@/api/user-profile'
 import CareManualPanel from './CareManualPanel.vue'
+import ProductPanel from './ProductPanel.vue'
 import SupervisionPanel from './SupervisionPanel.vue'
 import UserTagPanel from './UserTagPanel.vue'
 
@@ -67,6 +74,7 @@ const emit = defineEmits<{
 const tabs = [
   { label: '监督面板', value: 'supervision' },
   { label: '养护手册', value: 'care-manuals' },
+  { label: '商品', value: 'products' },
   { label: '客户标签', value: 'customer-tags' }
 ] as const
 const activeTab = ref<(typeof tabs)[number]['value']>('supervision')
@@ -82,7 +90,7 @@ const activeTab = ref<(typeof tabs)[number]['value']>('supervision')
 .side-switch {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   padding: 12px 12px 0;
   border-bottom: 1px solid var(--app-border);
 }

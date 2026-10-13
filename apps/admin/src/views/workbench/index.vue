@@ -23,12 +23,15 @@
         show-mobile-back
         @mobile-back="mobileView = 'conversations'"
         @loaded="handleConversationLoaded"
+        @quote="quotedMessage = $event"
       />
       <ReplyComposer
         v-if="conversation && conversation.conversation_id === selectedId"
         :key="selectedId"
         :conversation-id="selectedId"
         :status="conversation.status"
+        :quoted-message="quotedMessage"
+        @clear-quote="quotedMessage = undefined"
         @changed="handleChanged()"
         @reception-changed="handleReceptionChanged"
       />
@@ -74,7 +77,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { List, ChatDotRound, User } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import {
@@ -99,6 +102,8 @@ const FALLBACK_SYNC_INTERVAL_MS = 5_000
 const PROFILE_SYNC_INTERVAL_MS = 60_000
 
 const selectedId = ref('')
+const quotedMessage = ref<ConversationMessage>()
+watch(selectedId, () => { quotedMessage.value = undefined })
 const mobileView = ref<'conversations' | 'messages' | 'details'>('conversations')
 const pageVisible = ref(document.visibilityState === 'visible')
 const route = useRoute()
@@ -186,6 +191,9 @@ const handleConversationLoaded = (detail: ConversationDetail | undefined) => {
   if (detail && detail.conversation.conversation_id !== selectedId.value) return
   conversation.value = detail?.conversation
   messages.value = detail?.messages || []
+  if (quotedMessage.value && messages.value.find(message => message.id === quotedMessage.value?.id)?.metadata.revoked_at) {
+    quotedMessage.value = undefined
+  }
   void loadProfile(detail?.conversation.user_id)
   if (selectedUnreadCount.value > 0) {
     void markSelectedRead()

@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import json
 import logging
 import wave
 from pathlib import Path
@@ -1130,6 +1131,9 @@ async def send_eyun_received_media(
     endpoint = {
         "received_image": "/sendRecvImage",
         "received_video": "/sendRecvVideo",
+        "received_file": "/sendRecvFile",
+        "received_link": "/forwardUrl",
+        "received_mini_program": "/sendApplet",
     }.get(message_type)
     if endpoint is None:
         raise ValueError(f"unsupported received media type: {message_type}")
@@ -1145,12 +1149,32 @@ async def send_eyun_received_media(
                 "Authorization": authorization,
                 "Content-Type": "application/json",
             },
-            json={"wId": w_id, "wcId": wc_id, "content": content},
+            json={"wId": w_id, "wcId": wc_id, **(
+                json.loads(content) if message_type == "received_mini_program" else {"content": content}
+            )},
         )
     response.raise_for_status()
     result = response.json()
     if str(result.get("code")) != "1000":
         raise RuntimeError(f"Eyun received media send failed: {result}")
+    return result
+
+
+async def revoke_eyun_message(receipt: dict[str, Any]) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.eyun_base_url or not settings.eyun_authorization or not receipt.get("wId"):
+        raise RuntimeError("Eyun revokeMsg configuration is incomplete")
+    payload = {key: receipt[key] for key in ("wId", "wcId")}
+    payload.update({key: int(receipt[key]) for key in ("msgId", "newMsgId", "createTime")})
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{settings.eyun_base_url.rstrip('/')}/revokeMsg",
+            headers={"Authorization": settings.eyun_authorization.strip()}, json=payload,
+        )
+    response.raise_for_status()
+    result = response.json()
+    if str(result.get("code")) != "1000":
+        raise RuntimeError("Eyun rejected message revocation")
     return result
 
 
