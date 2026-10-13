@@ -5,7 +5,12 @@ import re
 from typing import Any
 
 
-COPY_TYPES = {"话题种草", "养护科普", "名品故事"}
+COPY_TYPE_DESCRIPTIONS = {
+    "养护科普": "浇水、施肥、上盆、病虫害等养护方法与兰花知识。",
+    "话题种草": "品种盘点、赏花话题、养兰交流等激发兴趣的内容。",
+    "名品故事": "具体名品的来历、品种特点与赏鉴故事。",
+}
+COPY_TYPES = set(COPY_TYPE_DESCRIPTIONS)
 
 _CURATED_COPY: tuple[tuple[tuple[str, ...], str, str], ...] = (
     (

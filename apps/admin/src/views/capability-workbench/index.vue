@@ -99,13 +99,15 @@
             <ElSelect :model-value="selectedNode.content_source?.library" :disabled="locked" placeholder="选择内容库" @change="changeContentLibrary"><ElOption v-for="item in libraryOptions" :key="item.id" :value="item.id" :label="item.label" /></ElSelect>
             <template v-if="selectedNode.content_source?.library === 'cloud_video'">
               <label class="field-label">内容分类</label>
-              <ElSelect v-model="selectedNode.content_source.category" :disabled="locked || contentLoading || !selectedLibrary?.available" :loading="contentLoading" placeholder="选择视频内容分类" filterable>
-                <ElOption v-if="selectedNode.content_source.category && !selectedCategory" :value="selectedNode.content_source.category" :label="`${selectedNode.content_source.category}（暂不可用）`" disabled />
-                <ElOption v-for="item in selectedLibrary?.categories || []" :key="item.id" :value="item.id" :label="`${item.name}（${item.count} 个视频）`" />
-              </ElSelect>
+              <div class="content-categories" role="radiogroup" aria-label="视频内容分类">
+                <button v-for="item in selectedLibrary?.categories || []" :key="item.id" class="content-category" :class="{ selected: selectedNode.content_source.category === item.id }" role="radio" :aria-checked="selectedNode.content_source.category === item.id" :disabled="locked || contentLoading || !selectedLibrary?.available || !item.count" @click="selectedNode.content_source.category = item.id">
+                  <span class="category-heading"><strong>{{ item.name }}</strong><small>{{ item.count === null ? '未加载' : item.count ? `${item.count} 个视频` : '暂无视频' }}</small></span>
+                  <span class="category-description">{{ item.description }}</span>
+                </button>
+              </div>
             </template>
             <p v-if="contentError || selectedLibrary?.message" class="content-warning">{{ contentError || selectedLibrary?.message }}</p>
-            <p v-else-if="selectedNode.content_source?.library === 'cloud_video' && selectedNode.content_source.category && selectedLibrary && !selectedCategory" class="content-warning">该分类已不存在或暂无可用视频，请重新选择。</p>
+            <p v-else-if="selectedNode.content_source?.library === 'cloud_video' && selectedNode.content_source.category && selectedLibrary && !selectedCategory?.count" class="content-warning">该分类已不存在或暂无可用视频，请重新选择。</p>
             <p v-if="selectedNode.content_source" class="field-help">{{ selectedNode.content_source.library === 'care_manual' ? '从养护手册库按客户品种匹配内容，无匹配手册时跳过。' : '从所选分类中匹配视频，使用素材配套文案；无匹配视频时跳过。' }}</p>
             <label class="field-label">补充内容要求<span class="muted">（选填）</span></label>
             <ElInput v-model="selectedNode.action" type="textarea" :rows="3" :disabled="locked" maxlength="6000" placeholder="默认按所选内容库匹配；有额外要求时再填写，例如优先匹配客户的养护痛点。" />
@@ -474,6 +476,7 @@ onBeforeUnmount(() => {
 .handoff .type-icon, .node-palette i.handoff { color: #ae6652; background: #fbeee8; }
 .panel-content :deep(.el-select) { width: 100%; }
 .branch-editor { margin-top: 20px; }.branch-heading { display: flex; align-items: center; gap: 6px; height: 24px; margin-bottom: 6px; font-size: 12px; color: #597061; }.branch-heading span { flex: 1; font-weight: 600; }
+.content-categories { display: grid; gap: 8px; }.content-category { padding: 11px 12px; border: 1px solid #d5e0da; border-radius: 8px; background: #fff; color: inherit; text-align: left; cursor: pointer; font: inherit; }.content-category.selected { border-color: #21745b; background: #edf5f0; }.content-category:disabled { cursor: default; }.content-category:disabled:not(.selected) { color: #84978c; background: #f7f9f8; }.content-category:focus-visible { outline: 2px solid #21745b; outline-offset: 2px; }.category-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }.category-heading small { font-size: 11px; font-weight: 400; color: #788b7e; }.category-description { display: block; margin-top: 5px; font-size: 12px; line-height: 18px; color: #788b7e; }
 .add-branch, .delete-branch { padding: 2px 5px; border: 0; border-radius: 4px; background: #f2edfa; color: #7961a5; font: inherit; font-size: 11px; cursor: pointer; }.delete-branch { color: #8e807f; background: transparent; font-size: 17px; }.add-branch:disabled, .delete-branch:disabled { opacity: .35; cursor: default; }.empty-branch { margin-top: 20px; }
 .canvas-branches { position: absolute; top: 76px; left: 18px; right: 18px; }.canvas-branch { position: relative; height: 108px; }.canvas-branch :deep(.el-textarea__inner) { height: 60px; min-height: 60px !important; padding: 5px 8px; font-size: 12px; line-height: 18px; user-select: text; touch-action: auto; }.canvas-branch .branch-port { top: 60px; right: -26px; border-color: #9e87bf; }
 .schedule-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }.schedule-controls :deep(.el-date-editor.el-input) { width: 100%; }.content-heading { display: flex; align-items: baseline; justify-content: space-between; }.content-heading button { border: 0; background: transparent; color: #21745b; cursor: pointer; font-size: 12px; }.content-warning { color: #ad6229; font-size: 12px; line-height: 1.6; margin-top: 10px; }.schedule-summary { margin-top: 14px; color: #a37235; font-size: 13px; }.handoff-preview { font-size: 12px; color: #788b7e; line-height: 19px; margin-top: 12px; }

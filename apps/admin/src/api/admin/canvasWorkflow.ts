@@ -9,7 +9,7 @@ export interface CanvasContentLibraryOption {
   name: string
   available: boolean
   count: number | null
-  categories: Array<{ id: string; name: string; count: number }>
+  categories: Array<{ id: string; name: string; description: string; count: number | null }>
   message: string
 }
 export interface CanvasNode {

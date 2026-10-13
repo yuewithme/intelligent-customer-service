@@ -13,11 +13,15 @@ from urllib.parse import quote
 import httpx
 
 from app.core.config import get_settings
-from app.domains.catalog.services.agent_media_copy_service import COPY_TYPES
+from app.domains.catalog.services.agent_media_copy_service import COPY_TYPES, COPY_TYPE_DESCRIPTIONS
 
 
 LIBRARY_DIR_NAME = "agent-material-library"
 MATERIAL_REF_PREFIX = "agent-media:"
+VIDEO_CONTENT_CATEGORIES = tuple(
+    {"id": name, "name": name, "description": description}
+    for name, description in COPY_TYPE_DESCRIPTIONS.items()
+)
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v"}
 _GENERIC_QUERY_WORDS = (
@@ -39,12 +43,12 @@ def agent_media_library_dir() -> Path:
 
 
 def list_agent_video_categories() -> list[dict[str, Any]]:
-    counts: dict[str, int] = {}
+    counts = dict.fromkeys(COPY_TYPE_DESCRIPTIONS, 0)
     for item in _load_items():
         category = str(item.get("copy_type") or "").strip()
-        if item.get("media_type") == "video" and item.get("copy_status") == "ready" and category:
-            counts[category] = counts.get(category, 0) + 1
-    return [{"id": category, "name": category, "count": count} for category, count in sorted(counts.items())]
+        if item.get("media_type") == "video" and item.get("copy_status") == "ready" and category in counts:
+            counts[category] += 1
+    return [{**category, "count": counts[category["id"]]} for category in VIDEO_CONTENT_CATEGORIES]
 
 
 def search_agent_media(

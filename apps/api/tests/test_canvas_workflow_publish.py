@@ -77,14 +77,16 @@ def test_content_sources_use_ready_video_categories_and_manual_availability(clie
         {"media_type": media_type, "copy_type": category, "copy_status": status}
         for media_type, category, status in [
             ("video", "养护科普", "ready"), ("video", "养护科普", "ready"),
-            ("video", "新内容分类", "ready"), ("video", "未完成分类", "pending"),
+            ("video", "未知分类", "ready"), ("video", "名品故事", "pending"),
             ("image", "图片内容", "ready"), ("video", "", "ready"),
         ]
     ])
     sources = client.get("/api/v1/admin/orchestration/workbench/canvas/content-sources").json()["data"]
     assert sources[0]["id"] == "care_manual" and sources[0]["count"] == 3
-    assert sources[1]["count"] == 3 and sources[1]["available"] is True
-    assert {item["id"]: item["count"] for item in sources[1]["categories"]} == {"养护科普": 2, "新内容分类": 1}
+    assert sources[1]["count"] == 2 and sources[1]["available"] is True
+    assert [item["id"] for item in sources[1]["categories"]] == ["养护科普", "话题种草", "名品故事"]
+    assert {item["id"]: item["count"] for item in sources[1]["categories"]} == {"养护科普": 2, "话题种草": 0, "名品故事": 0}
+    assert all(item["description"] for item in sources[1]["categories"])
 
     def unavailable():
         raise AppError(ErrorCode.INTERNAL_ERROR, "不可用", status_code=503)
@@ -94,9 +96,12 @@ def test_content_sources_use_ready_video_categories_and_manual_availability(clie
     assert partial[0]["available"] is True and partial[0]["count"] == 3
     assert partial[1]["available"] is False and partial[1]["count"] is None
     assert "无法加载" in partial[1]["message"]
+    assert [item["id"] for item in partial[1]["categories"]] == ["养护科普", "话题种草", "名品故事"]
+    assert all(item["count"] is None for item in partial[1]["categories"])
     monkeypatch.setattr(media, "_load_items", lambda: [])
     empty = client.get("/api/v1/admin/orchestration/workbench/canvas/content-sources").json()["data"][1]
     assert empty["available"] is True and empty["count"] == 0 and "暂无" in empty["message"]
+    assert len(empty["categories"]) == 3 and all(item["count"] == 0 for item in empty["categories"])
 
 
 def test_manual_source_publishes_without_copy_and_invalid_sources_do_not_reach_ai(client, monkeypatch):
@@ -123,8 +128,10 @@ def test_manual_source_publishes_without_copy_and_invalid_sources_do_not_reach_a
         pytest.fail("Invalid content sources must be checked before calling AI")
 
     monkeypatch.setattr(canvases, "generate_json", unexpected)
-    monkeypatch.setattr(content, "list_agent_video_categories", lambda: [{"id": "养护科普", "name": "养护科普", "count": 1}])
-    for revision, source in enumerate([None, {"library": "cloud_video", "category": ""}, {"library": "cloud_video", "category": "已删除分类"}], 3):
+    monkeypatch.setattr(content, "list_agent_video_categories", lambda: [
+        {"id": "养护科普", "name": "养护科普", "count": 1}, {"id": "名品故事", "name": "名品故事", "count": 0},
+    ])
+    for revision, source in enumerate([None, {"library": "cloud_video", "category": ""}, {"library": "cloud_video", "category": "已删除分类"}, {"library": "cloud_video", "category": "名品故事"}], 3):
         timer["content_source"] = source
         assert client.put(url, json={"revision": revision, "definition": flow}).status_code == 200
         failed = client.post(f"{url}/publish", json={"revision": revision + 1}).json()["data"]
@@ -137,8 +144,8 @@ def test_manual_source_publishes_without_copy_and_invalid_sources_do_not_reach_a
 
     monkeypatch.setattr(content, "list_care_manuals", unavailable)
     timer["content_source"] = {"library": "care_manual", "category": ""}
-    assert client.put(url, json={"revision": 6, "definition": flow}).status_code == 200
-    failed = client.post(f"{url}/publish", json={"revision": 7}).json()["data"]
+    assert client.put(url, json={"revision": 7, "definition": flow}).status_code == 200
+    failed = client.post(f"{url}/publish", json={"revision": 8}).json()["data"]
     assert failed["published"] is False and "无法加载" in failed["review"]["issues"][0]["message"]
 
 
