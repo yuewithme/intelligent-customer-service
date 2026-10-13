@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -152,15 +153,22 @@ async def test_any_preference_persists_and_stops_future_collection(monkeypatch, 
 
 
 @pytest.mark.asyncio
-async def test_tutorial_intro_and_member_link_use_real_delivery_state(monkeypatch, tmp_path):
+async def test_tutorial_intro_and_member_card_use_real_delivery_state(monkeypatch, tmp_path):
     from test_service_material_touch_service import _configure
     from test_agent_harness_v2 import _message
     from app.domains.decisioning.schemas.execution import AgentExecutionContext
     from app.domains.customers.schemas.state import UserState
     from app.domains.decisioning.services import agent_tools
-    from app.domains.conversations.services.conversation_service import record_ai_turn, get_service_delivery_state
-    from app.domains.decisioning.services.service_sop import MEMBER_DAY_LINK
+    from app.domains.conversations.services.conversation_service import record_ai_turn, get_service_delivery_state, get_conversation_detail, make_conversation_id
+    from app.core.config import get_settings
     _configure(monkeypatch, tmp_path)
+    card = {
+        "display_name": "萧岚苑", "app_id": "wx0123456789abcdef", "user_name": "gh_example@app",
+        "icon_url": "https://example.com/icon.png", "page_path": "pages/home/index",
+        "thumb_url": "https://example.com/member.png", "title": "萧岚苑会员日",
+    }
+    monkeypatch.setenv("SERVICE_MEMBER_DAY_MINI_PROGRAM_CARD", json.dumps(card, ensure_ascii=False))
+    get_settings.cache_clear()
     message = _message("这是我的宋梅订单截图")
     message.metadata.update(sop_scope="service", provider_delivery_mode="simulated")
     workspace = {"profile": {"customer_tags": ["服务中", "浙江省"]}, "service_sop": {"verified_purchase": False}}
@@ -179,10 +187,51 @@ async def test_tutorial_intro_and_member_link_use_real_delivery_state(monkeypatc
     assert (await execute_agent_tool(call_id="intro", name="service.introduce", arguments={}, context=context)).status == "forbidden"
     result = await execute_agent_tool(call_id="member", name="member_day.send", arguments={}, context=context)
     assert result.status == "prepared"
-    assert context.prepared["member"][-1].content == MEMBER_DAY_LINK
+    assert [item.type for item in context.prepared["member"]] == ["text", "mini_program"]
+    assert json.loads(context.prepared["member"][-1].content) == card
     await record_ai_turn(message=message, result={"outbound_messages": [m.model_dump() for m in context.prepared["member"]], "route": "agent"})
     workspace["service_sop"].update(get_service_delivery_state(message.user_id))
+    detail = await get_conversation_detail(make_conversation_id(message.channel, message.user_id, message.session_id))
+    assert detail["messages"][-1]["metadata"]["mini_program"] == card
+    assert detail["messages"][-1]["content"] == "[小程序] 萧岚苑会员日"
     assert (await execute_agent_tool(call_id="member-again", name="member_day.send", arguments={}, context=context)).status == "forbidden"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["missing", "shortlink"])
+async def test_member_card_missing_parameters_does_not_send_text_or_mark_prepared(monkeypatch, invalid):
+    from app.core.config import get_settings
+    card = {} if invalid == "missing" else {
+        "display_name": "萧岚苑", "app_id": "wx0123456789abcdef", "user_name": "gh_example@app",
+        "icon_url": "https://example.com/icon.png", "page_path": "#小程序://萧岚苑/cEdtXk4B8yCjmTy",
+        "thumb_url": "https://example.com/member.png", "title": "萧岚苑会员日",
+    }
+    monkeypatch.setenv("SERVICE_MEMBER_DAY_MINI_PROGRAM_CARD", json.dumps(card, ensure_ascii=False))
+    get_settings.cache_clear()
+    context = _context(sop_scope="service")
+    context.workspace["service_sop"] = {}
+    result = await execute_agent_tool(call_id="member", name="member_day.send", arguments={}, context=context)
+    assert result.status == "temporarily_unavailable"
+    assert result.data["reason"] == "member_day_mini_program_card_not_configured"
+    assert not context.prepared
+    assert not context.workspace["service_sop"].get("member_day_prepared")
+
+
+@pytest.mark.asyncio
+async def test_member_card_defaults_to_verified_official_card(monkeypatch):
+    from app.core.config import get_settings
+    from app.domains.decisioning.services.service_sop import MEMBER_DAY_MINI_PROGRAM_CARD
+
+    monkeypatch.delenv("SERVICE_MEMBER_DAY_MINI_PROGRAM_CARD", raising=False)
+    get_settings.cache_clear()
+    context = _context(sop_scope="service")
+    context.workspace["service_sop"] = {}
+    result = await execute_agent_tool(call_id="member", name="member_day.send", arguments={}, context=context)
+    assert result.status == "prepared"
+    card = json.loads(context.prepared["member"][-1].content)
+    assert card == MEMBER_DAY_MINI_PROGRAM_CARD
+    assert card["app_id"] == "wxdb64bd6b936d0fe9"
+    assert "%E5%91%A8%E5%9B%9B%E4%BC%9A%E5%91%98%E6%97%A5" in card["page_path"]
 
 
 @pytest.mark.asyncio

@@ -69,7 +69,7 @@ CAPABILITIES = (
     ),
     CapabilitySpec(
         "member_day.send", "tool", ("周四", "会员日", "小程序", "服务收尾"),
-        "输入 {}。首次接待基本完成、当前问题已解决且准备收尾时，准备周四会员日介绍和官方小程序入口；不要求购买意向，不推荐具体商品，不重复发送。",
+        "输入 {}。首次接待基本完成、当前问题已解决且准备收尾时，准备周四会员日介绍和官方小程序卡片；不要求购买意向，不推荐具体商品，不重复发送。",
         ("service",),
     ),
     CapabilitySpec(
@@ -1323,16 +1323,29 @@ async def _service_introduce(*, call_id, arguments, context):
 
 
 async def _member_day_send(*, call_id, arguments, context):
-    from app.domains.decisioning.services.service_sop import MEMBER_DAY_INTRODUCTION, MEMBER_DAY_LINK
+    from app.domains.decisioning.services.service_sop import MEMBER_DAY_INTRODUCTION, MEMBER_DAY_MINI_PROGRAM_CARD
     state = context.workspace.get("service_sop", {})
     if state.get("member_day_prepared") or "member_day" in state.get("delivered_steps", []) or "member_day" in state.get("pending_steps", []):
         return _result(call_id, "member_day.send", "forbidden", reason="member_day_already_delivered_or_pending")
+    configured = get_settings().service_member_day_mini_program_card
+    if configured is None:
+        configured = MEMBER_DAY_MINI_PROGRAM_CARD
+    card = {key: configured.get(key, "").strip() for key in (
+        "display_name", "app_id", "user_name", "icon_url", "page_path", "thumb_url", "title",
+    )}
+    missing = [key for key, value in card.items() if not value]
+    if missing or card["page_path"].startswith(("#", "http:", "https:", "weixin:")):
+        return _result(
+            call_id, "member_day.send", "temporarily_unavailable",
+            reason="member_day_mini_program_card_not_configured", missing_fields=missing,
+            final_response_instruction="小程序卡片暂不可用，继续养护服务；不要声称已发送，不编造卡片，不改发文字口令或链接，也不向客户索要配置参数。",
+        )
     state["member_day_prepared"] = True
     context.prepared[call_id] = [
         OutboundMessage(type="text", content=MEMBER_DAY_INTRODUCTION, service_step="member_day_intro"),
-        OutboundMessage(type="text", content=MEMBER_DAY_LINK, service_step="member_day"),
+        OutboundMessage(type="mini_program", content=json.dumps(card, ensure_ascii=False), service_step="member_day"),
     ]
-    return _result(call_id, "member_day.send", "prepared", prepared_refs=[call_id], delivery_truth="prepared_not_sent", final_response_instruction="引用此 prepared ref 即包含完整会员日介绍与官方入口；可在前面加一句养护承接，不再另写或复述活动、福利和小程序介绍。")
+    return _result(call_id, "member_day.send", "prepared", prepared_refs=[call_id], delivery_truth="prepared_not_sent", final_response_instruction="引用此 prepared ref 即包含完整会员日介绍与官方小程序卡片；可在前面加一句养护承接，不再另写或复述活动、福利和小程序介绍，不另发文字口令或链接。")
 
 
 async def _service_record(*, call_id, arguments, context):

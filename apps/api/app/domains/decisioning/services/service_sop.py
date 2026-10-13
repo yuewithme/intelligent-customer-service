@@ -19,7 +19,16 @@ MEMBER_DAY_INTRODUCTION = (
     "每周四还有会员活动，会挑选受欢迎的名品和会员放漏福利。"
     "当期品种和优惠以活动页面为准，有空可以进小程序逛逛、看看花，买不买都没关系～"
 )
-MEMBER_DAY_LINK = "#小程序://萧岚苑/cEdtXk4B8yCjmTy"
+
+MEMBER_DAY_MINI_PROGRAM_CARD = {
+    "display_name": "萧岚苑",
+    "app_id": "wxdb64bd6b936d0fe9",
+    "user_name": "gh_cd267efb4a39@app",
+    "icon_url": "https://mmbiz.qpic.cn/sz_mmbiz_png/q0LQTBxIkNbFkS6HSSLEI4VJKFic7Lnez2wrxHv5ibOFwZzNtHo2XK5oQwPQPZUQ5o1pHd5X0BwQiamia2QsOs0qcQ/640?wx_fmt=png&wxfrom=200",
+    "page_path": "pages/common/blank-page/index.html?weappSharePath=%2Fpages%2Fhome%2Ffeature%2Findex%3Ffrom_params%3Dwecom_uuid~1y4jvj349dg8c!helper_kdt_id~150122956!staff_id~23075918!from_source~wecom_helper!wa_alias~2ocrzx21d6xhz%26title%3D%E5%91%A8%E5%9B%9B%E4%BC%9A%E5%91%98%E6%97%A5%26from_uuid%3DqNgYfwKn5PNfprk1791787364489%26shopAutoEnter%3D1%26alias%3Dbv5eXgQNfZ%26kdt_id%3D180281510%26fromBiz%3Dwa%26isFromBlankPage%3D1%26share_cmpt%3Dnative_wechat",
+    "title": "萧岚苑",
+    "thumb_url": "https://sales-agent.hzwohu.com/service-member-day.jpg"
+}
 
 SERVICE_COLLECTION_GOAL = "进入服务后主动逐项了解基础信息，依据客户原话补齐已有标签槽位，为养护指导和后续触达积累事实。"
 SERVICE_COLLECTION_DIRECTIONS = [

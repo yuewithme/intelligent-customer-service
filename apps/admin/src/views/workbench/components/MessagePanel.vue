@@ -105,16 +105,23 @@
                 </small>
               </span>
             </a>
-            <div v-else-if="miniProgramCard(message)" class="commerce-card">
+            <div v-else-if="miniProgramCard(message)" class="mini-program-card">
+              <div class="mini-program-name">
+                <img v-if="miniProgramCard(message)?.icon_url" :src="miniProgramCard(message)?.icon_url" alt="" referrerpolicy="no-referrer" />
+                {{ miniProgramCard(message)?.display_name || '微信小程序' }}
+              </div>
+              <strong>{{ miniProgramCard(message)?.title || '微信小程序' }}</strong>
               <img
-                v-if="miniProgramCard(message)?.thumb_url"
+                v-if="miniProgramCard(message)?.thumb_url && !failedMediaIds.has(message.id)"
+                class="mini-program-cover"
                 :src="miniProgramCard(message)?.thumb_url"
-                alt=""
+                alt="小程序封面"
+                referrerpolicy="no-referrer"
+                loading="lazy"
+                @error="markMediaFailed(message)"
               />
-              <span>
-                <strong>{{ miniProgramCard(message)?.title || '微信小程序' }}</strong>
-                <small>商品小程序卡片</small>
-              </span>
+              <small v-else class="mini-program-cover-hint">封面暂不可用，可在微信查看</small>
+              <small class="mini-program-footer">小程序</small>
             </div>
             <ElImage
               v-else-if="isImageMessage(message) && mediaSource(message)"
@@ -283,6 +290,8 @@ interface MediaMetadata {
 }
 
 interface CommerceCardMetadata {
+  display_name?: string
+  icon_url?: string
   title?: string
   description?: string
   url?: string
@@ -1031,6 +1040,31 @@ p {
   border: 1px solid rgb(148 163 184 / 35%);
   border-radius: 8px;
 }
+
+.mini-program-card {
+  width: min(280px, 62vw);
+  overflow: hidden;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 8px;
+  color: var(--app-text);
+}
+
+.mini-program-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.mini-program-name img { width: 20px; height: 20px; border-radius: 50%; }
+.mini-program-card strong { display: block; margin-bottom: 10px; overflow-wrap: anywhere; }
+.mini-program-cover { display: block; width: 100%; height: auto; }
+.mini-program-cover-hint { display: block; padding: 24px 0; color: #6b7280; }
+.mini-program-footer { display: block; margin-top: 10px; padding-top: 8px; border-top: 1px solid #eee; color: #6b7280; }
 
 .commerce-card img {
   width: 88px;

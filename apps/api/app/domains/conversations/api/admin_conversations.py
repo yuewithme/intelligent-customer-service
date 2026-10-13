@@ -4,7 +4,7 @@ from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.conversations.schemas.conversation import (
@@ -161,6 +161,31 @@ async def message_recognition_stats(
             start_time=start_time,
             end_time=end_time,
         ),
+    )
+
+
+@router.get("/messages/{message_id}/mini-program-thumbnail")
+async def mini_program_thumbnail(message_id: int) -> Response:
+    from app.domains.conversations.services.conversation_service import _get_session, _load_metadata
+    from app.infrastructure.database.models import ConversationMessageModel
+    from app.integrations.eyun.services.eyun_callback_service import download_eyun_mini_program_thumbnail
+
+    with _get_session() as session:
+        message = session.get(ConversationMessageModel, message_id)
+        if message is None:
+            raise HTTPException(status_code=404, detail="message not found")
+        metadata = _load_metadata(message.metadata_json)
+    if metadata.get("provider") != "eyun" or metadata.get("revoked_at"):
+        raise HTTPException(status_code=404, detail="mini-program thumbnail not found")
+    try:
+        image = await download_eyun_mini_program_thumbnail(
+            w_id=str(metadata.get("w_id") or ""), content=str(metadata.get("raw_content") or ""),
+        )
+    except Exception:
+        raise HTTPException(status_code=502, detail="mini-program thumbnail unavailable")
+    return Response(
+        image, media_type="image/png" if image.startswith(b"\x89PNG") else "image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
     )
 
 

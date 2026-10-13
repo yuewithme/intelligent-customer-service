@@ -2187,6 +2187,15 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
 
     metadata = _load_metadata(row.metadata_json)
     metadata.pop("sales_stage", None)
+    if metadata.get("provider") == "eyun" and not metadata.get("mini_program"):
+        from app.integrations.eyun.services.eyun_callback_service import extract_eyun_mini_program_card
+
+        card = extract_eyun_mini_program_card(str(metadata.get("raw_content") or ""))
+        if card is not None:
+            if not card["thumb_url"] and card.pop("thumbnail_source", None) == "wechat_cdn":
+                card["thumb_url"] = f"/api/v1/admin/conversations/messages/{row.id}/mini-program-thumbnail"
+            metadata["mini_program"] = card
+            metadata["media"] = {"type": "mini_program", "file_name": card["title"]}
     if metadata.get("provider") == "eyun" and not metadata.get("media"):
         from app.integrations.eyun.services.eyun_callback_service import extract_eyun_media_metadata
 

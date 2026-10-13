@@ -281,6 +281,10 @@ class Settings(BaseSettings):
     youzan_mini_program_user_name: str = ""
     youzan_mini_program_display_name: str = ""
     youzan_mini_program_icon_url: str = ""
+    service_member_day_mini_program_card: dict[str, str] | None = Field(
+        default=None,
+        description="会员日小程序原卡参数：display_name、app_id、user_name、icon_url、page_path、thumb_url、title",
+    )
     youzan_product_sync_enabled: bool = True
     youzan_product_sync_interval_hours: int = Field(default=24, ge=1, le=168)
     youzan_product_sync_startup_delay_seconds: int = Field(default=30, ge=0, le=3600)

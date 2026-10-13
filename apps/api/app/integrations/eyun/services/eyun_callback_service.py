@@ -598,6 +598,9 @@ async def _eyun_media_metadata(
 def extract_eyun_media_metadata(
     message_type: str, data: dict[str, Any]
 ) -> dict[str, Any] | None:
+    card = extract_eyun_mini_program_card(str(data.get("content") or ""))
+    if card is not None:
+        return {"type": "mini_program", "file_name": card["title"], **card}
     kind = _eyun_message_kind(message_type)
     if kind == "non_text":
         return None
@@ -642,6 +645,69 @@ def extract_eyun_media_metadata(
 
     media["fallback"] = not bool(media.get("url"))
     return media
+
+
+def extract_eyun_mini_program_card(content: str) -> dict[str, str] | None:
+    if not content.lstrip().startswith("<"):
+        return None
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError:
+        return None
+    app = next((node for node in root.iter() if node.tag == "appmsg"), None)
+    if app is None or (app.findtext("type") or "").strip() not in {"33", "36"}:
+        return None
+    card = {
+        key: (app.findtext(path) or "").strip()
+        for key, path in (
+            ("title", "title"), ("display_name", "sourcedisplayname"),
+            ("app_id", "weappinfo/appid"), ("user_name", "weappinfo/username"),
+            ("page_path", "weappinfo/pagepath"), ("icon_url", "weappinfo/weappiconurl"),
+        )
+    }
+    card["thumb_url"] = next((
+        value for path in ("weappinfo/weapppagethumbrawurl", "thumburl")
+        if (value := (app.findtext(path) or "").strip()).startswith(("https://", "http://"))
+    ), "")
+    if not card["icon_url"].startswith(("https://", "http://")):
+        card["icon_url"] = ""
+    # The appmsg URL is WeChat's upgrade page, not the mini-program destination.
+    if app.findtext("appattach/cdnthumburl") and app.findtext("appattach/cdnthumbaeskey"):
+        card["thumbnail_source"] = "wechat_cdn"
+    return card
+
+
+async def download_eyun_mini_program_thumbnail(*, w_id: str, content: str) -> bytes:
+    from app.integrations.eyun.services.eyun_material_service import _download_cdn_bytes
+
+    root = ElementTree.fromstring(content)
+    app = next((node for node in root.iter() if node.tag == "appmsg"), None)
+    if app is None or extract_eyun_mini_program_card(content) is None:
+        raise ValueError("不是小程序消息")
+    attach = app.find("appattach")
+    if attach is None:
+        raise ValueError("小程序缺少封面")
+    cdn_url = attach.findtext("cdnthumburl") or ""
+    size = int(attach.findtext("cdnthumblength") or 0)
+    if not 0 < size <= 5 * 1024 * 1024:
+        raise ValueError("小程序封面大小无效")
+    cache = PROJECT_ROOT / "data" / "mini-program-thumbnails"
+    target = cache / (hashlib.sha256(f"{w_id}:{cdn_url}".encode()).hexdigest() + ".img")
+    if target.is_file():
+        return target.read_bytes()
+    image = await _download_cdn_bytes(
+        w_id=w_id, cdn_url=cdn_url,
+        aes_key=attach.findtext("cdnthumbaeskey") or "",
+        size=size, file_type=3,
+    )
+    expected_md5 = attach.findtext("cdnthumbmd5")
+    if expected_md5 and hashlib.md5(image).hexdigest() != expected_md5:
+        raise ValueError("小程序封面校验失败")
+    if not image.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")):
+        raise ValueError("小程序封面格式无效")
+    cache.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(image)
+    return image
 
 
 def _xml_media_metadata(content: str) -> dict[str, str]:
