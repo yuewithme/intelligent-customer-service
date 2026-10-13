@@ -334,7 +334,7 @@ def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(cl
         assert reviewed["timed"]["content_source"] == {**timed["content_source"], "selection": "auto", "item_ids": []}
         assert "send_content_type" not in reviewed["timed"] and reviewed["timed"]["action"] == ""
         assert "现有转人工设置通知负责人" in prompt and "底层打标能力" in prompt
-        assert kwargs["prompt_version"] == "canvas_publish.v5"
+        assert kwargs["prompt_version"] == "canvas_publish.v6"
         return {"summary": "按条件执行定时发送或转人工", "nodes": [{"node_id": node["id"], "understanding": node["name"]} for node in flow["nodes"]], "issues": []}
     monkeypatch.setattr(canvases, "generate_json", review)
     result = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
