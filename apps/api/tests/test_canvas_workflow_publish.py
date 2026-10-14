@@ -48,10 +48,7 @@ def create(client, *, complete=True):
 
 
 def accepted_review():
-    return {"summary": "新好友提出养护问题后提供帮助，确认解决后结束。", "nodes": [
-        {"node_id": key, "understanding": description}
-        for key, description in [("start", "加好友事件触发"), ("step", "根据养护资料回答问题，确认解决后退出"), ("end", "结束本次流程")]
-    ], "issues": []}
+    return {"issues": [], "resolved_issues": []}
 
 
 def test_incomplete_draft_round_trip_and_conflict(client):
@@ -335,7 +332,7 @@ def test_specialized_nodes_round_trip_validate_and_publish_full_configuration(cl
         assert reviewed["timed"]["content_source"] == {**timed["content_source"], "selection": "auto", "item_ids": []}
         assert "send_content_type" not in reviewed["timed"] and reviewed["timed"]["action"] == ""
         assert "现有转人工设置通知负责人" in prompt and "底层打标能力" in prompt
-        assert kwargs["prompt_version"] == "canvas_publish.v6"
+        assert kwargs["prompt_version"] == "canvas_publish.v7"
         return {"summary": "按条件执行定时发送或转人工", "nodes": [{"node_id": node["id"], "understanding": node["name"]} for node in flow["nodes"]], "issues": []}
     monkeypatch.setattr(canvases, "generate_json", review)
     result = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
@@ -508,12 +505,12 @@ def test_edit_during_model_review_cannot_publish_stale_draft(client, monkeypatch
     assert current["published"] is None
 
 
-@pytest.mark.parametrize("failure", ["missing_nodes", "unavailable"])
+@pytest.mark.parametrize("failure", ["missing_issues", "unavailable"])
 def test_incomplete_or_unavailable_model_does_not_publish(client, monkeypatch, failure):
     async def failed(*args, **kwargs):
         if failure == "unavailable":
             raise AppError(ErrorCode.LLM_FAILED)
-        return {"summary": "看起来可以", "nodes": [], "issues": []}
+        return {"summary": "看起来可以"}
     monkeypatch.setattr(canvases, "generate_json", failed)
     created = create(client)
     url = f"{BASE}/{created['workflow_id']}"
@@ -669,3 +666,209 @@ def test_chat_repairs_a_broken_connection_once_before_returning_a_draft(client, 
     assert result["definition"]["nodes"][1]["name"] == "养护接待"
     assert result["definition"]["edges"] == created["definition"]["edges"]
     assert client.get(url).json()["data"] == created
+
+
+def test_incremental_review_retains_unresolved_issues_and_reuses_layout_only_changes(client, monkeypatch):
+    created = create(client)
+    url = f"{BASE}/{created['workflow_id']}"
+    issue = {"node_id": "step", "field": "action", "message": "未说明何时转人工", "suggestion": "请在具体行动中写清转人工条件"}
+    contexts = []
+
+    async def review(prompt, **kwargs):
+        payload = json.loads(prompt.split("下面是完整的待审核流程 JSON：\n")[1])
+        context = payload["review_context"]
+        contexts.append(context)
+        if len(contexts) == 1:
+            assert context["mode"] == "full" and context["previous_issues"] == []
+            return {"issues": [issue]}
+        assert context["mode"] == "incremental" and context["previous_issues"] == [issue]
+        if len(contexts) == 2:
+            assert context["base_revision"] == 2 and set(context["changes"]) == {"name"}
+            return {"issues": []}
+        assert context["base_revision"] == 4
+        change = context["changes"]["nodes"][0]
+        assert change["id"] == "step" and change["before"]["action"] != change["after"]["action"]
+        assert "position" not in change["after"]
+        return {"issues": [], "resolved_issues": [{"index": 0, "reason": "具体行动已明确客户提出商品问题时转人工"}]}
+
+    monkeypatch.setattr(canvases, "generate_json", review)
+    first = client.post(f"{url}/publish", json={"revision": 2}).json()["data"]
+    assert not first["published"] and first["workflow"]["last_review_revision"] == 2
+    flow = created["definition"]
+    flow["name"] = "修改了流程名称"
+    saved = client.put(url, json={"revision": 2, "definition": flow}).json()["data"]
+    assert saved["last_review"]["issues"] == [issue] and saved["last_review_revision"] == 2
+    second = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
+    assert not second["published"] and second["review"]["issues"] == [issue]
+    flow["nodes"][1]["position"]["x"] += 10
+    client.put(url, json={"revision": 3, "definition": flow})
+    reused = client.post(f"{url}/publish", json={"revision": 4}).json()["data"]
+    assert reused["workflow"]["review_mode"] == "reused" and reused["review"]["issues"] == [issue]
+    assert len(contexts) == 2
+    flow["nodes"][1]["action"] = "回答养护问题，客户提出商品问题时转人工"
+    client.put(url, json={"revision": 4, "definition": flow})
+    final = client.post(f"{url}/publish", json={"revision": 5}).json()["data"]
+    assert final["published"] and final["review"]["issues"] == [] and len(contexts) == 3
+    assert final["workflow"]["review_base_revision"] == 4
+    flow["nodes"].reverse()
+    flow["edges"].reverse()
+    client.put(url, json={"revision": 5, "definition": flow})
+    assert client.post(f"{url}/publish", json={"revision": 6}).json()["data"]["published"]
+    assert len(contexts) == 3
+
+
+def test_validation_failures_do_not_replace_ai_review_baseline(client, monkeypatch):
+    created = create(client, complete=False)
+    url = f"{BASE}/{created['workflow_id']}"
+    contexts = []
+
+    async def review(prompt, **kwargs):
+        contexts.append(json.loads(prompt.split("下面是完整的待审核流程 JSON：\n")[1])["review_context"])
+        return accepted_review()
+
+    monkeypatch.setattr(canvases, "generate_json", review)
+    assert not client.post(f"{url}/publish", json={"revision": 1}).json()["data"]["published"]
+    flow = created["definition"]
+    flow["nodes"][0]["trigger_condition"] = "客户加好友时触发"
+    flow["nodes"][1].update(trigger_condition="客户提出问题", action="查手册回答养护问题", exit_condition="问题解决后结束")
+    client.put(url, json={"revision": 1, "definition": flow})
+    first = client.post(f"{url}/publish", json={"revision": 2}).json()["data"]
+    assert first["published"] and contexts[0]["mode"] == "full"
+    flow["nodes"][1]["action"] = ""
+    client.put(url, json={"revision": 2, "definition": flow})
+    failed = client.post(f"{url}/publish", json={"revision": 3}).json()["data"]
+    assert not failed["published"] and len(contexts) == 1
+    assert failed["workflow"]["published"] == first["workflow"]["published"]
+    flow["nodes"][1]["action"] = "先问清种植环境，再查手册回答养护问题"
+    client.put(url, json={"revision": 3, "definition": flow})
+    assert client.post(f"{url}/publish", json={"revision": 4}).json()["data"]["published"]
+    assert contexts[1]["mode"] == "incremental" and contexts[1]["base_revision"] == 2
+
+
+def test_review_detects_content_changes_and_rechecks_availability(client, monkeypatch):
+    created = create(client)
+    url = f"{BASE}/{created['workflow_id']}"
+    flow = created["definition"]
+    flow["nodes"][1].update(type="scheduled_send", send_time="10:00", action="", content_source={"library": "care_manual", "category": "", "selection": "specific", "item_ids": ["1"]})
+    client.put(url, json={"revision": 2, "definition": flow})
+    manuals = [{"id": 1, "title": "春季手册", "source_type": "manual", "auto_send_allowed": True}]
+    monkeypatch.setattr(content, "list_care_manuals", lambda **kwargs: {"items": manuals, "total": len(manuals)})
+    contexts = []
+
+    async def review(prompt, **kwargs):
+        contexts.append(json.loads(prompt.split("下面是完整的待审核流程 JSON：\n")[1])["review_context"])
+        return accepted_review()
+
+    monkeypatch.setattr(canvases, "generate_json", review)
+    assert client.post(f"{url}/publish", json={"revision": 3}).json()["data"]["published"]
+    manuals[0]["title"] = "秋季手册"
+    flow["nodes"][1]["position"]["x"] += 5
+    client.put(url, json={"revision": 3, "definition": flow})
+    assert client.post(f"{url}/publish", json={"revision": 4}).json()["data"]["published"]
+    assert set(contexts[1]["changes"]) == {"selected_contents"}
+    manuals.clear()
+    client.put(url, json={"revision": 4, "definition": flow})
+    failed = client.post(f"{url}/publish", json={"revision": 5}).json()["data"]
+    assert not failed["published"] and failed["review"]["issues"][0]["field"] == "content_source"
+    assert len(contexts) == 2
+
+
+def test_auto_fix_is_bound_to_review_and_only_returns_current_draft(client, monkeypatch):
+    created = create(client)
+    other = create(client)
+    url = f"{BASE}/{created['workflow_id']}"
+    issue = {"node_id": "step", "field": "action", "message": "需要说清回答所用资料", "suggestion": "在具体行动中说明使用养护手册"}
+
+    async def review(*args, **kwargs):
+        return {"issues": [issue]}
+
+    monkeypatch.setattr(canvases, "generate_json", review)
+    reviewed = client.post(f"{url}/publish", json={"revision": 2}).json()["data"]["workflow"]
+    monkeypatch.setattr(chat, "list_content_sources", lambda: [])
+    calls = []
+
+    async def fix(prompt, **kwargs):
+        context = json.loads(prompt.split("下面是当前编辑上下文 JSON：\n")[1])
+        calls.append(context)
+        assert context["issue_to_fix"] == issue and context["selected_node_id"] == "step"
+        assert context["definition"]["nodes"][0]["name"] == "手工改过的开始名称"
+        node = context["definition"]["nodes"][1]
+        return {"reply": "已补充养护资料来源。", "edits": {"upsert_nodes": [{**node, "action": "根据养护手册回答客户问题"}]}}
+
+    monkeypatch.setattr(chat, "generate_json", fix)
+    flow = created["definition"]
+    flow["nodes"][0]["name"] = "手工改过的开始名称"
+    payload = {"revision": 2, "definition": flow, "review_revision": 2, "issue": issue}
+    result = client.post(f"{url}/fix-issue", json=payload).json()["data"]
+    assert result["definition"]["nodes"][1]["action"] == "根据养护手册回答客户问题"
+    assert result["definition"]["nodes"][0] == flow["nodes"][0]
+    assert result["definition"]["edges"] == flow["edges"]
+    assert client.get(url).json()["data"] == reviewed
+    assert client.get(f"{BASE}/{other['workflow_id']}").json()["data"] == other
+    assert client.post(f"{url}/fix-issue", json={**payload, "review_revision": 1}).status_code == 409
+    assert client.post(f"{url}/fix-issue", json={**payload, "issue": {**issue, "message": "不属于这次检查的问题"}}).status_code == 409
+    assert len(calls) == 1
+    saved = client.put(url, json={"revision": 2, "definition": result["definition"]}).json()["data"]
+    assert saved["last_review_revision"] == 2 and saved["revision"] == 3
+
+    async def clarify(*args, **kwargs):
+        return {"reply": "这项问题已修改，请重新发布检查。", "edits": None}
+
+    monkeypatch.setattr(chat, "generate_json", clarify)
+    second = client.post(f"{url}/fix-issue", json={**payload, "revision": 3, "definition": saved["definition"]}).json()["data"]
+    assert second["definition"] is None and client.get(url).json()["data"] == saved
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "invalid_edits", "concurrent_review"])
+def test_auto_fix_failure_keeps_draft(client, monkeypatch, failure):
+    created = create(client)
+    url = f"{BASE}/{created['workflow_id']}"
+    issue = {"node_id": "step", "field": "action", "message": "具体行动需要补充", "suggestion": "说明要做什么"}
+
+    async def review(*args, **kwargs):
+        return {"issues": [issue]}
+
+    monkeypatch.setattr(canvases, "generate_json", review)
+    reviewed = client.post(f"{url}/publish", json={"revision": 2}).json()["data"]["workflow"]
+    monkeypatch.setattr(chat, "list_content_sources", lambda: [])
+
+    async def fix(*args, **kwargs):
+        if failure == "unavailable":
+            raise AppError(ErrorCode.LLM_FAILED)
+        if failure == "invalid_edits":
+            return {"reply": "已修改", "edits": {"remove_node_ids": ["foreign_node"]}}
+        with canvases._session() as session:
+            row = session.get(canvases.CanvasWorkflowModel, created["workflow_id"])
+            state = json.loads(row.review_json)
+            state["review"]["issues"] = []
+            row.review_json = json.dumps(state)
+            session.commit()
+        return {"reply": "已补充说明", "edits": {"upsert_nodes": [{**created["definition"]["nodes"][1], "action": "查手册回答养护问题"}]}}
+
+    monkeypatch.setattr(chat, "generate_json", fix)
+    response = client.post(f"{url}/fix-issue", json={"revision": 2, "definition": created["definition"], "review_revision": 2, "issue": issue})
+    assert response.status_code == (409 if failure == "concurrent_review" else 502)
+    current = client.get(url).json()["data"]
+    assert current["definition"] == reviewed["definition"] and current["published"] == reviewed["published"]
+
+
+def test_invalid_incremental_resolution_preserves_previous_review(client, monkeypatch):
+    created = create(client)
+    url = f"{BASE}/{created['workflow_id']}"
+
+    async def invalid(*args, **kwargs):
+        return {"issues": [], "resolved_issues": [{"index": 0, "reason": "不存在的问题"}]}
+
+    async def accepted(*args, **kwargs):
+        return accepted_review()
+
+    monkeypatch.setattr(canvases, "generate_json", accepted)
+    published = client.post(f"{url}/publish", json={"revision": 2}).json()["data"]["workflow"]
+    flow = created["definition"]
+    flow["name"] = "更新名称后的养护服务"
+    client.put(url, json={"revision": 2, "definition": flow})
+    monkeypatch.setattr(canvases, "generate_json", invalid)
+    assert client.post(f"{url}/publish", json={"revision": 3}).status_code == 502
+    current = client.get(url).json()["data"]
+    assert current["last_review"] == published["last_review"] and current["published"] == published["published"]
+    assert current["last_review_revision"] == 2

@@ -51,10 +51,10 @@
       </div>
       <div class="toolbar-actions">
         <ElButton v-if="isAdmin()" :disabled="loading || !workflow" @click="toggleChat">对话改流程</ElButton>
-        <ElButton v-if="review" :disabled="busy" @click="panel = panel === 'review' ? null : 'review'">流程理解<span v-if="review.issues.length"> · {{ review.issues.length }}</span></ElButton>
+        <ElButton v-if="review" :disabled="busy" @click="panel = panel === 'review' ? null : 'review'">流程检查<span v-if="review.issues.length"> · {{ review.issues.length }}</span></ElButton>
         <ElButton :disabled="busy || !workflow" @click="reloadWorkflow">重新加载</ElButton>
         <ElButton v-if="isAdmin()" :disabled="busy || !workflow || !dirty" :loading="saving" @click="saveDraft">保存草稿</ElButton>
-        <ElButton v-if="isAdmin()" type="primary" :disabled="busy || !workflow" :loading="publishing" @click="publish">{{ publishing ? 'Qwen 正在理解流程' : '发布' }}</ElButton>
+        <ElButton v-if="isAdmin()" type="primary" :disabled="busy || !workflow" :loading="publishing" @click="publish">{{ publishing ? 'Qwen 正在检查流程' : '发布' }}</ElButton>
       </div>
     </div>
 
@@ -69,7 +69,7 @@
     </div>
 
     <aside v-if="panel" class="configuration-panel">
-      <div class="panel-heading"><strong>{{ panel === 'chat' ? '对话改流程' : panel === 'review' ? '整张流程的理解与检查' : selectedNode ? typeLabels[selectedNode.type] : '连线配置' }}</strong><button aria-label="关闭配置" @click="panel = null">×</button></div>
+      <div class="panel-heading"><strong>{{ panel === 'chat' ? '对话改流程' : panel === 'review' ? '流程问题与修改' : selectedNode ? typeLabels[selectedNode.type] : '连线配置' }}</strong><button aria-label="关闭配置" @click="panel = null">×</button></div>
       <template v-if="panel === 'chat'">
         <div class="chat-scope">当前流程：{{ definition?.name || '未命名流程' }}<p>对话修改会直接显示在画布草稿中，保存和发布使用上方按钮。</p><span v-if="selectedNode">已选节点：{{ selectedNode.name }}</span></div>
         <div ref="chatFeed" class="chat-feed" role="log" aria-label="当前流程对话" aria-live="polite">
@@ -79,19 +79,25 @@
           <p v-if="chatError" class="chat-error" role="alert">{{ chatError }}</p>
         </div>
         <div class="chat-composer">
-          <div v-if="chatUndo" class="chat-undo"><ElButton size="small" :disabled="busy || !canUndoChat" @click="undoChatEdit">撤销上次对话修改</ElButton><span v-if="!canUndoChat">画布已有后续修改</span></div>
+          <div v-if="chatUndo" class="chat-undo"><ElButton size="small" :disabled="busy || !canUndoChat" @click="undoChatEdit">撤销上次 AI 修改</ElButton><span v-if="!canUndoChat">画布已有后续修改</span></div>
           <ElInput v-model="chatDraft" aria-label="告诉助手如何修改当前流程" type="textarea" :rows="3" maxlength="4000" show-word-limit :disabled="locked" placeholder="告诉我这条流程要怎么改…" @keydown="chatKeyDown" />
           <div class="chat-send"><span>Enter 发送 · Shift + Enter 换行</span><ElButton type="primary" :disabled="locked || !chatDraft.trim()" :loading="chatting" @click="sendChat">发送</ElButton></div>
         </div>
       </template>
       <div v-else class="panel-content">
         <template v-if="panel === 'review' && review">
-          <div class="review-status" :class="{ failed: review.issues.length }">{{ review.issues.length ? `发布未通过 · ${review.issues.length} 项需要修改` : '流程理解已发布' }}</div>
-          <p v-if="dirty || !workflow?.last_review" class="muted">{{ dirty ? '流程已修改，以下为上次检查结果，请重新发布。' : '以下为上次已发布版本的理解。' }}</p>
-          <button v-for="(issue, index) in review.issues" :key="index" class="review-issue" @click="locateIssue(issue)"><span>{{ issue.node_id ? nodeName(issue.node_id) : '整张流程' }} · {{ fieldLabels[issue.field] }}</span><strong>{{ issue.message }}</strong><p>{{ issue.suggestion }}</p><small v-if="issue.node_id">定位到节点 →</small></button>
-          <template v-if="review.summary"><h3>流程理解</h3><p class="review-copy">{{ review.summary }}</p></template>
-          <div v-for="item in review.nodes" :key="item.node_id" class="node-understanding"><button @click="selectNode(item.node_id)">{{ nodeName(item.node_id) }} ↗</button><p>{{ item.understanding }}</p></div>
-          <p v-if="!review.issues.length" class="review-note">已保存流程与 AI 理解，供后续实现实际执行逻辑使用。</p>
+          <div class="review-status" :class="{ failed: review.issues.length }">{{ review.issues.length ? `${review.issues.length} 项问题待处理` : '检查通过，没有待处理问题' }}</div>
+          <p v-if="reviewIsStale" class="muted">流程已修改，以下为上次检查结果。请点击发布检查本次改动。</p>
+          <p v-else-if="reviewModeText" class="muted">{{ reviewModeText }}</p>
+          <div v-if="chatUndo" class="review-undo"><ElButton size="small" :disabled="busy || !canUndoChat" @click="undoChatEdit">撤销上次 AI 修改</ElButton></div>
+          <article v-for="(issue, index) in review.issues" :key="index" class="review-issue">
+            <span>{{ issue.node_id ? nodeName(issue.node_id) : '整张流程' }} · {{ fieldLabels[issue.field] }}</span><strong>{{ issue.message }}</strong><p>{{ issue.suggestion }}</p>
+            <div class="review-actions">
+              <ElButton v-if="isAdmin() && workflow?.last_review_revision" size="small" type="primary" plain :disabled="locked || fixFeedback[index]?.applied" :loading="fixingIssue === index" @click="autoFixIssue(issue, index)">{{ fixFeedback[index]?.applied ? '已修改，待检查' : '自动修改' }}</ElButton>
+              <button v-if="issue.node_id" class="locate-issue" @click="locateIssue(issue)">定位到节点 →</button>
+            </div>
+            <p v-if="fixFeedback[index]" role="status">{{ fixFeedback[index].message }}</p>
+          </article>
         </template>
         <template v-else-if="selectedNode">
           <label class="field-label">节点名称</label><ElInput v-model="selectedNode.name" :disabled="locked" maxlength="80" placeholder="给节点起一个业务名称" />
@@ -168,18 +174,27 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { onBeforeRouteLeave } from 'vue-router'
 import { ElButton, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect, ElTimePicker } from 'element-plus'
 import { isAdmin } from '@/utils/gate'
-import { createCanvasWorkflow, editCanvasWorkflow, getCanvasWorkflow, listCanvasWorkflows, listCanvasContentSources, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
+import { createCanvasWorkflow, editCanvasWorkflow, fixCanvasWorkflowIssue, getCanvasWorkflow, listCanvasWorkflows, listCanvasContentSources, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
   type CanvasChatMessage, type CanvasDefinition, type CanvasContentItem, type CanvasContentLibrary, type CanvasContentLibraryOption, type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
 
 const workflows = ref<CanvasSummary[]>([])
 const workflow = ref<CanvasWorkflow | null>(null)
 const savedFingerprint = ref('')
 const loading = ref(false), saving = ref(false), publishing = ref(false), chatting = ref(false)
-const busy = computed(() => loading.value || saving.value || publishing.value || chatting.value)
+const fixingIssue = ref<number | null>(null)
+const fixFeedback = ref<Record<number, { message: string; applied: boolean }>>({})
+const busy = computed(() => loading.value || saving.value || publishing.value || chatting.value || fixingIssue.value !== null)
 const locked = computed(() => busy.value || !isAdmin())
 const definition = computed(() => workflow.value?.definition)
 const dirty = computed(() => Boolean(definition.value && JSON.stringify(definition.value) !== savedFingerprint.value))
 const review = computed(() => workflow.value?.last_review || workflow.value?.published?.review)
+const reviewIsStale = computed(() => dirty.value || (workflow.value?.last_review_revision ?? workflow.value?.published_revision) !== workflow.value?.revision)
+const reviewModeText = computed(() => {
+  if (workflow.value?.review_mode === 'incremental') return '已对比上次检查，检查本次改动、关联路径和待解决问题。'
+  if (workflow.value?.review_mode === 'reused') return '业务内容没有变化，沿用上次检查结果。'
+  if (workflow.value?.review_mode === 'full') return '首次检查，已检查整条流程。'
+  return ''
+})
 const selectedNodeId = ref<string | null>(null), selectedEdgeId = ref<string | null>(null)
 const selectedNode = computed(() => definition.value?.nodes.find(node => node.id === selectedNodeId.value))
 const selectedEdge = computed(() => definition.value?.edges.find(edge => edge.id === selectedEdgeId.value))
@@ -262,10 +277,11 @@ const businessFields = [
 ]
 const fieldLabels = { name: '名称', trigger_condition: '触发条件', action: '具体行动', exit_condition: '退出条件', schedule_rule: '发送时间与周期', send_content_type: '发送内容', branch_mode: '分支匹配方式', handoff_target: '转交对象', branches: '分支条件', send_time: '发送时间', send_cycle: '发送周期', content_source: '内容库与分类', graph: '连线与结构' }
 const statusText = computed(() => {
+  if (fixingIssue.value !== null) return '正在自动修改这项问题…'
   if (chatting.value) return '正在根据对话调整流程…'
-  if (publishing.value) return '正在理解整张流程…'
+  if (publishing.value) return '正在检查流程，本次改动会与上次检查对比…'
   if (dirty.value) return '有未保存的修改'
-  if (workflow.value?.published_revision === workflow.value?.revision) return '流程理解已发布'
+  if (workflow.value?.published_revision === workflow.value?.revision) return '流程已通过检查并发布'
   return workflow.value?.published_revision ? '草稿已保存 · 已有发布版本' : '草稿已保存'
 })
 const nodeHeight = (node: CanvasNode) => node.type === 'condition' ? Math.max(184, 88 + node.branches.length * 108) : node.type === 'general' ? 252 : node.type === 'scheduled_send' ? 190 : node.type === 'end' ? 98 : 144
@@ -300,6 +316,7 @@ const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll('-
 
 function resetChat() {
   chatGeneration++; chatting.value = false; chatDraft.value = ''; chatError.value = ''; chatMessages.value = []; chatUndo.value = null
+  fixingIssue.value = null; fixFeedback.value = {}
 }
 async function scrollChat() {
   await nextTick()
@@ -326,6 +343,7 @@ async function sendChat() {
     if (result.definition) {
       workflow.value.definition = result.definition
       chatUndo.value = { before: JSON.parse(before), after: JSON.stringify(result.definition) }
+      fixFeedback.value = {}
       clearSelection(); panel.value = 'chat'; await nextTick(); fitCanvas()
     }
     chatMessages.value.push({ role: 'assistant', content: result.reply })
@@ -340,10 +358,39 @@ async function sendChat() {
 }
 function undoChatEdit() {
   if (locked.value || !workflow.value || !chatUndo.value || !canUndoChat.value) return
+  const returnToReview = panel.value === 'review'
   workflow.value.definition = JSON.parse(JSON.stringify(chatUndo.value.before))
-  chatUndo.value = null; clearSelection(); panel.value = 'chat'
-  chatMessages.value.push({ role: 'assistant', content: '已撤销上次对话修改，草稿已恢复到修改前。' })
+  chatUndo.value = null; fixFeedback.value = {}; clearSelection(); panel.value = returnToReview ? 'review' : 'chat'
+  chatMessages.value.push({ role: 'assistant', content: '已撤销上次 AI 修改，草稿已恢复到修改前。' })
   void scrollChat(); void nextTick(fitCanvas)
+}
+async function autoFixIssue(issue: CanvasIssue, index: number) {
+  if (locked.value || !workflow.value?.last_review_revision || !definition.value) return
+  const currentId = workflow.value.workflow_id, revision = workflow.value.revision
+  const reviewRevision = workflow.value.last_review_revision, before = JSON.stringify(definition.value)
+  const generation = ++chatGeneration
+  fixingIssue.value = index; gesture.value = null; connectionFrom.value = null
+  delete fixFeedback.value[index]
+  try {
+    const result = await fixCanvasWorkflowIssue(currentId, revision, JSON.parse(before), reviewRevision, issue)
+    if (generation !== chatGeneration || workflow.value?.workflow_id !== currentId) return
+    if (result.workflow_id !== currentId || result.revision !== workflow.value.revision || JSON.stringify(definition.value) !== before) {
+      fixFeedback.value[index] = { message: '画布已发生变化，本次修改未应用，请重新检查。', applied: false }; return
+    }
+    if (result.definition) {
+      workflow.value.definition = result.definition
+      chatUndo.value = { before: JSON.parse(before), after: JSON.stringify(result.definition) }
+      clearSelection(); panel.value = 'review'; await nextTick(); fitCanvas()
+    }
+    fixFeedback.value[index] = { message: result.reply + (result.definition ? ' 点击发布重新检查。' : ''), applied: Boolean(result.definition) }
+    chatMessages.value.push({ role: 'user', content: `自动修改这项问题：${issue.message}` }, { role: 'assistant', content: result.reply })
+  } catch {
+    if (generation === chatGeneration && workflow.value?.workflow_id === currentId) {
+      fixFeedback.value[index] = { message: '自动修改未完成，当前草稿保持不变，请重试。', applied: false }
+    }
+  } finally {
+    if (generation === chatGeneration) fixingIssue.value = null
+  }
 }
 function chatKeyDown(event: Event) {
   if (!(event instanceof KeyboardEvent)) return
@@ -379,7 +426,7 @@ async function loadWorkflow(workflowId: string) {
   finally { loading.value = false }
 }
 async function saveDraft(): Promise<boolean> {
-  if (!workflow.value || !definition.value || saving.value || chatting.value || !isAdmin()) return false
+  if (!workflow.value || !definition.value || saving.value || chatting.value || fixingIssue.value !== null || !isAdmin()) return false
   if (!dirty.value) return true
   saving.value = true
   try { applyWorkflow(await saveCanvasWorkflow(workflow.value.workflow_id, workflow.value.revision, JSON.parse(JSON.stringify(definition.value)))); return true }
@@ -413,8 +460,8 @@ async function publish() {
   publishing.value = true; connectionFrom.value = null; gesture.value = null
   try {
     const result = await publishCanvasWorkflow(workflow.value.workflow_id, workflow.value.revision)
-    applyWorkflow(result.workflow); panel.value = 'review'
-    if (result.published) ElMessage.success('流程理解已发布')
+    applyWorkflow(result.workflow); fixFeedback.value = {}; panel.value = 'review'
+    if (result.published) ElMessage.success('流程已通过检查并发布')
     else ElMessage.warning(`发布未通过，请修改 ${result.review.issues.length} 项问题`)
   } catch { /* A failed review must leave the current draft and published result available. */ }
   finally { publishing.value = false }
@@ -534,10 +581,11 @@ function keyDown(event: Event) {
   if ((event.target as HTMLElement)?.closest('input, textarea, [contenteditable="true"]')) return
   if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); removeSelection() }
 }
-function beforeUnload(event: BeforeUnloadEvent) { if (dirty.value || publishing.value || chatting.value) { event.preventDefault(); event.returnValue = '' } }
+function beforeUnload(event: BeforeUnloadEvent) { if (dirty.value || publishing.value || chatting.value || fixingIssue.value !== null) { event.preventDefault(); event.returnValue = '' } }
 onBeforeRouteLeave(async () => {
+  if (fixingIssue.value !== null) { ElMessage.info('正在自动修改问题，请等待修改结果'); return false }
   if (chatting.value) { ElMessage.info('正在调整当前流程，请等待对话结果'); return false }
-  if (publishing.value) { ElMessage.info('正在理解流程，请等待发布结果'); return false }
+  if (publishing.value) { ElMessage.info('正在检查流程，请等待发布结果'); return false }
   return dirty.value ? await saveDraft() : true
 })
 onMounted(async () => {
@@ -610,8 +658,8 @@ onBeforeUnmount(() => {
 .panel-content { padding: 0 20px 20px; overflow-y: auto; min-height: 0; }.field-label { display: block; font-size: 12px; font-weight: 600; margin: 20px 0 9px; }.panel-content :deep(.el-textarea__inner) { font-size: 12px; line-height: 1.8; padding: 10px 12px 22px; }.panel-content :deep(.el-input__count) { font-size: 10px; }
 .field-help, .muted { font-size: 12px; color: #88978e; line-height: 1.8; }.node-exits button { display: block; width: 100%; padding: 9px 0; text-align: left; border: 0; background: transparent; color: #548169; font: inherit; font-size: 12px; cursor: pointer; }.remove-button { margin-top: 26px; }
 .review-status { padding: 12px; margin-top: 20px; border-radius: 8px; color: #286b50; background: #edf7f0; font-size: 13px; }.review-status.failed { color: #a25b43; background: #fff3ed; }
-.review-issue { display: block; width: 100%; text-align: left; padding: 12px; margin-top: 14px; border: 1px solid #f0d9ce; border-radius: 8px; background: #fffcfa; cursor: pointer; font: inherit; }.review-issue span, .review-issue small { color: #a17a68; font-size: 11px; }.review-issue strong { display: block; color: #915641; font-size: 13px; margin-top: 8px; }.review-issue p, .inline-issue p { color: #987864; font-size: 12px; line-height: 1.7; margin: 7px 0; }.inline-issue { padding: 10px; background: #fff5ef; border-radius: 6px; margin-top: 12px; font-size: 12px; color: #ad674b; }
-.panel-content h3 { font-size: 13px; margin: 22px 0 10px; }.review-copy, .node-understanding p { white-space: pre-wrap; font-size: 12px; line-height: 1.9; color: #597061; }.node-understanding { padding-top: 14px; margin-top: 14px; border-top: 1px solid #edf1ee; }.node-understanding button { padding: 0; border: 0; background: transparent; font-size: 12px; font-weight: 600; color: #3e795c; cursor: pointer; }.review-note { font-size: 11px; line-height: 1.8; color: #859388; background: #f4f7f4; border-radius: 8px; padding: 12px; margin-top: 22px; }
+.review-issue { display: block; width: 100%; text-align: left; padding: 12px; margin-top: 14px; border: 1px solid #f0d9ce; border-radius: 8px; background: #fffcfa; font: inherit; }.review-issue > span { color: #a17a68; font-size: 11px; }.review-issue strong { display: block; color: #915641; font-size: 13px; margin-top: 8px; }.review-issue p, .inline-issue p { color: #987864; font-size: 12px; line-height: 1.7; margin: 7px 0; }.inline-issue { padding: 10px; background: #fff5ef; border-radius: 6px; margin-top: 12px; font-size: 12px; color: #ad674b; }
+.review-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }.locate-issue { padding: 0; border: 0; background: transparent; color: #a17a68; font-size: 11px; cursor: pointer; }.review-undo { margin-top: 12px; }
 .canvas-controls { position: absolute; z-index: 2; left: 18px; bottom: 18px; display: flex; align-items: center; height: 38px; padding: 0 7px; border: 1px solid #dce5df; border-radius: 8px; background: #fff; box-shadow: 0 2px 8px #21452f08; }.canvas-controls button { width: 30px; height: 30px; border: 0; border-radius: 5px; color: #54745f; background: transparent; cursor: pointer; font-size: 17px; }.canvas-controls button:hover { background: #edf4ef; }.canvas-controls span { width: 42px; text-align: center; font-size: 11px; color: #738579; }.canvas-controls i { height: 16px; width: 1px; background: #e4eae5; margin: 0 7px; }.canvas-controls .fit-button { width: auto; padding: 0 10px; font-size: 12px; }
 .canvas-hint { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 11px; color: #8b9e91; pointer-events: none; }
 .empty-canvas { position: absolute; top: 44%; left: 50%; transform: translate(-50%, -50%); text-align: center; }.empty-symbol { margin: 0 auto 18px; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; color: #79a68a; background: #e8f1eb; font-size: 28px; }.empty-canvas h2 { font-size: 19px; }.empty-canvas p { color: #8b9b90; font-size: 13px; margin: 14px 0 24px; }

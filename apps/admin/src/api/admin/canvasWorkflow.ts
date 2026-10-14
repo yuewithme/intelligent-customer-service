@@ -54,6 +54,9 @@ export interface CanvasWorkflow {
   published_revision: number | null
   published_at: string | null
   last_review: CanvasReview | null
+  last_review_revision: number | null
+  review_mode: 'full' | 'incremental' | 'reused' | 'validation' | null
+  review_base_revision: number | null
   published: { definition: CanvasDefinition; review: CanvasReview; model: string; revision: number; published_at: string } | null
 }
 export interface CanvasSummary { workflow_id: string; name: string }
@@ -73,4 +76,8 @@ export const editCanvasWorkflow = (id: string, revision: number, definition: Can
 export const publishCanvasWorkflow = (id: string, revision: number) =>
   request.post<{ published: boolean; review: CanvasReview; workflow: CanvasWorkflow }>({
     url: `${base}/${id}/publish`, data: { revision }, timeout: 235000
+  })
+export const fixCanvasWorkflowIssue = (id: string, revision: number, definition: CanvasDefinition, reviewRevision: number, issue: CanvasIssue) =>
+  request.post<{ workflow_id: string; revision: number; reply: string; definition: CanvasDefinition | null }>({
+    url: `${base}/${id}/fix-issue`, data: { revision, definition, review_revision: reviewRevision, issue }, timeout: 235000
   })

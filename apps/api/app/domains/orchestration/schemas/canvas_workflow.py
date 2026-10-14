@@ -218,9 +218,23 @@ class NodeUnderstanding(CanvasModel):
 
 
 class CanvasReview(CanvasModel):
-    summary: str = Field(max_length=8000)
-    nodes: list[NodeUnderstanding] = Field(max_length=60)
+    summary: str = Field(default="", max_length=8000)
+    nodes: list[NodeUnderstanding] = Field(default_factory=list, max_length=60)
     issues: list[CanvasIssue] = Field(max_length=500)
+
+
+class ResolvedCanvasIssue(CanvasModel):
+    index: int = Field(ge=0, lt=500)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class CanvasReviewDecision(CanvasReview):
+    resolved_issues: list[ResolvedCanvasIssue] = Field(default_factory=list, max_length=500)
+
+
+class FixCanvasIssue(SaveCanvas):
+    review_revision: int = Field(ge=1)
+    issue: CanvasIssue
 
 
 def publication_issues(flow: CanvasDefinition) -> list[CanvasIssue]:
