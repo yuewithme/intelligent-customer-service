@@ -96,6 +96,64 @@ async def test_human_can_send_without_force_handoff_and_empty_returns_ai(draft_c
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("initial_status", ["ai_active", "ai_waiting", "handoff_pending", "typing"])
+async def test_manual_takeover_survives_typing_clear_and_expiry_until_release(draft_context, initial_status):
+    if initial_status == "typing":
+        await drafts.update_reply_draft(CID, "operator", "editor", active=True)
+    else:
+        with conversations._get_session() as db:
+            conversations._get_conversation_or_error(db, CID).status = initial_status
+            db.commit()
+    result = await conversations.claim_conversation(CID, "operator")
+    assert result["status"] == "human_active" and result["owner_id"] == "operator"
+    assert drafts.reply_draft_deadline(CID) is None
+    await drafts.update_reply_draft(CID, "operator", "editor", active=True)
+    await conversations.reply_conversation(CID, "operator", "我来帮您处理")
+    result = await drafts.update_reply_draft(CID, "operator", "editor", active=False)
+    assert result["status"] == "human_active"
+    draft_context[0] += timedelta(seconds=61)
+    assert await drafts.expire_reply_drafts() == 0
+    assert conversations.conversation_blocks_ai(channel="wechat", user_id="customer", session_id="bot")
+    with pytest.raises(AppError):
+        await conversations.claim_conversation(CID, "other")
+    with pytest.raises(AppError):
+        await conversations.release_to_ai(CID, "other")
+    result = await conversations.release_to_ai(CID, "operator")
+    assert result["status"] == "ai_active" and result["owner_id"] is None
+    assert not conversations.conversation_blocks_ai(channel="wechat", user_id="customer", session_id="bot")
+    await conversations.resolve_conversation(CID, "operator", "已处理")
+    with pytest.raises(AppError):
+        await conversations.claim_conversation(CID, "operator")
+
+
+@pytest.mark.asyncio
+async def test_explicit_release_clears_live_editor_lease(draft_context):
+    await drafts.update_reply_draft(CID, "operator", "editor", active=True)
+    await conversations.release_to_ai(CID, "operator")
+    assert drafts.reply_draft_deadline(CID) is None
+    result = await drafts.update_reply_draft(CID, "operator", "editor", active=False)
+    assert result["status"] == "ai_active"
+
+
+def test_manual_toggle_endpoints_use_authorized_identity(access_context):
+    client, state = access_context
+    cid = "wechat:customer_wx_allowed:wx_allowed"
+    with conversations._get_session() as db:
+        conversations._get_conversation_or_error(db, cid).status = "ai_active"
+        db.commit()
+    base = f"/api/v1/admin/conversations/{cid}"
+    claimed = client.post(base + "/claim", json={"operator_id": "spoofed"})
+    assert claimed.status_code == 200
+    assert claimed.json()["data"]["owner_id"] == state["account"]["username"]
+    assert client.post(base + "/release-to-ai", json={"operator_id": "spoofed"}).json()["data"]["status"] == "ai_active"
+    for action in ("claim", "release-to-ai"):
+        denied = f"/api/v1/admin/conversations/wechat:customer_wx_denied:wx_denied/{action}"
+        assert client.post(denied, json={"operator_id": "spoofed"}).status_code == 403
+    state["account"]["role"] = "test"
+    assert client.post(base + "/claim", json={"operator_id": "spoofed"}).status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_inbound_waits_for_typing_and_skips_if_human_already_replied(draft_context, monkeypatch):
     clock = draft_context
     await queue.enqueue_eyun_inbound({"messageType": "60001", "wcId": "bot", "data": {

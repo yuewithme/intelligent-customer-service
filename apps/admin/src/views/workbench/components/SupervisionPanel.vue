@@ -21,7 +21,18 @@
             <span v-else>-</span>
           </dd>
           <dt>转人工原因</dt>
-          <dd>{{ handoffReasonText(conversation.handoff_reason) }}</dd>
+          <dd class="handoff-actions">
+            <span>{{ handoffReasonText(conversation.handoff_reason) }}</span>
+            <ElButton
+              v-if="!isTestGate() && conversation.status !== 'resolved'"
+              type="primary"
+              size="small"
+              :loading="switching"
+              :disabled="otherOperator"
+              :title="otherOperator ? '其他客服正在接管' : undefined"
+              @click="toggleReception"
+            >{{ manuallyHeld ? '转AI' : '转人工' }}</ElButton>
+          </dd>
         </dl>
       </div>
 
@@ -41,10 +52,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { ConversationMessage, ConversationItem, ConversationStatus } from '@/api/admin/conversations'
+import { ElMessage } from 'element-plus'
+import { claimConversation, releaseToAi, type ConversationMessage, type ConversationItem, type ConversationStatus } from '@/api/admin/conversations'
 import { getTagCatalog } from '@/api/admin/tags'
 import type { UserProfile } from '@/api/user-profile'
 import { tagValueText } from '@/utils/tagDisplay'
+import { isTestGate } from '@/utils/gate'
+import { useUserStore } from '@/store/modules/user'
 import YouzanOrderPanel from './YouzanOrderPanel.vue'
 import ChatReviewPanel from './ChatReviewPanel.vue'
 
@@ -56,6 +70,28 @@ const props = defineProps<{
   profileLoading?: boolean
   reviewActive: boolean
 }>()
+const emit = defineEmits<{ changed: [conversation?: ConversationItem] }>()
+const userStore = useUserStore()
+const operatorId = computed(() => userStore.user.username || userStore.user.nickname || 'admin')
+const switching = ref(false)
+const manuallyHeld = computed(() => props.conversation?.status === 'human_active' && props.conversation.handoff_reason !== 'workbench_typing')
+const otherOperator = computed(() => props.conversation?.status === 'human_active' && props.conversation.owner_id !== operatorId.value)
+
+const toggleReception = async () => {
+  if (switching.value || otherOperator.value || isTestGate() || !props.conversation || props.conversation.status === 'resolved') return
+  const conversationId = props.conversationId
+  const release = manuallyHeld.value
+  switching.value = true
+  try {
+    const updated = await (release ? releaseToAi : claimConversation)(conversationId, operatorId.value)
+    emit('changed', updated)
+    ElMessage.success(release ? '已交还 AI 自动回复' : '已转人工，点击“转AI”可交还 AI')
+  } catch {
+    emit('changed')
+  } finally {
+    switching.value = false
+  }
+}
 
 const catalogTags = ref<string[]>([])
 const catalogLoading = ref(false)
@@ -157,6 +193,10 @@ dd {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+.handoff-actions { display: flex; align-items: center; gap: 12px; }
+.handoff-actions > span { flex: 1; min-width: 0; }
+.handoff-actions > .el-button { flex-shrink: 0; }
 
 .muted {
   color: #9ca3af;

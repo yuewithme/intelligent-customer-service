@@ -52,6 +52,9 @@ async def update_reply_draft(
                 conversation.status == HUMAN_ACTIVE and conversation.owner_id != operator_id
             ):
                 raise AppError(ErrorCode.REQUEST_INVALID, "其他客服正在回复，请稍后再试", status_code=409)
+            # Explicit takeover lasts until release, independently of editor activity.
+            if conversation.status == HUMAN_ACTIVE and conversation.handoff_reason != DRAFT_REASON:
+                return _conversation_to_dict(conversation)
             if draft is None:
                 draft = ConversationReplyDraftModel(
                     conversation_id=conversation_id, editor_id=editor_id, operator_id=operator_id,
@@ -74,6 +77,7 @@ async def update_reply_draft(
                     changed = True
         elif conversation.status == HANDOFF_PENDING or (
             conversation.status == HUMAN_ACTIVE and conversation.owner_id == operator_id
+            and conversation.handoff_reason == DRAFT_REASON
         ):
             _restore_ai(conversation)
             restore_user = conversation.user_id

@@ -22,6 +22,7 @@
       :profile="profile"
       :profile-loading="profileLoading"
       :review-active="reviewActive"
+      @changed="emit('changed', $event)"
     />
     <CareManualPanel
       v-else-if="activeTab === 'care-manuals'"

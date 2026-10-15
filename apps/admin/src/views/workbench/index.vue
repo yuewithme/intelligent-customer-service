@@ -30,6 +30,7 @@
         :key="selectedId"
         :conversation-id="selectedId"
         :status="conversation.status"
+        :handoff-reason="conversation.handoff_reason"
         :quoted-message="quotedMessage"
         @clear-quote="quotedMessage = undefined"
         @changed="handleChanged()"

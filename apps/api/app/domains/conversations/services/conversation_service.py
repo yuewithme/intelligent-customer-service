@@ -1410,13 +1410,21 @@ async def update_customer_identity(
 
 async def claim_conversation(conversation_id: str, operator_id: str) -> dict:
     with _get_session() as session:
+        session.execute(text("BEGIN IMMEDIATE"))
         conversation = _get_conversation_or_error(session, conversation_id)
-        if conversation.status != HANDOFF_PENDING:
+        if conversation.status == RESOLVED:
             raise AppError(
                 ErrorCode.REQUEST_INVALID,
-                message="只有待人工接管的会话可以领取",
+                message="已结束会话不能转人工",
                 status_code=409,
             )
+        if conversation.status == HUMAN_ACTIVE and conversation.owner_id != operator_id:
+            raise AppError(ErrorCode.REQUEST_INVALID, "其他客服正在接管，请稍后再试", status_code=409)
+        if conversation.status in {AI_ACTIVE, AI_WAITING} or conversation.handoff_reason == "workbench_typing":
+            conversation.handoff_reason = "manual_force_handoff"
+        draft = session.get(ConversationReplyDraftModel, conversation_id)
+        if draft:
+            session.delete(draft)
         conversation.status = HUMAN_ACTIVE
         conversation.owner_id = operator_id
         conversation.unread_count = 0
@@ -2066,6 +2074,7 @@ async def force_handoff(
 
 async def release_to_ai(conversation_id: str, operator_id: str) -> dict:
     with _get_session() as session:
+        session.execute(text("BEGIN IMMEDIATE"))
         conversation = _get_conversation_or_error(session, conversation_id)
         if conversation.status != HUMAN_ACTIVE or conversation.owner_id != operator_id:
             raise AppError(
@@ -2073,6 +2082,9 @@ async def release_to_ai(conversation_id: str, operator_id: str) -> dict:
                 message="只有当前接管人可以交回 AI",
                 status_code=409,
             )
+        draft = session.get(ConversationReplyDraftModel, conversation_id)
+        if draft:
+            session.delete(draft)
         conversation.status = AI_ACTIVE
         conversation.owner_id = None
         conversation.handoff_reason = None

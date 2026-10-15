@@ -42,7 +42,7 @@
         </ElPopover>
         <ElButton v-if="!isTestGate()" size="small" text :disabled="sending" @click="imageInput?.click()">发送图片</ElButton>
         <ElButton v-if="!isTestGate()" size="small" text @click="openCurrentActivities">目前活动</ElButton>
-        <span class="composer-hint">输入时人工回复，清空或停笔 1 分钟后 AI 回复</span>
+        <span class="composer-hint">{{ manuallyHeld ? '已手动接管，点击右侧“转AI”交还 AI' : '输入时人工回复，清空或停笔 1 分钟后 AI 回复' }}</span>
         <ElButton v-if="syncError" size="small" text type="danger" @click="syncReception().catch(() => {})">状态同步失败，重试</ElButton>
         <input ref="imageInput" class="file-input" type="file" accept=".jpg,.jpeg,.png,.gif,.webp" @change="selectImage" />
       </div>
@@ -70,7 +70,7 @@ import {
 import { useUserStore } from '@/store/modules/user'
 import { isTestGate } from '@/utils/gate'
 
-const props = defineProps<{ status: string; conversationId: string; quotedMessage?: ConversationMessage }>()
+const props = defineProps<{ status: string; conversationId: string; handoffReason?: string | null; quotedMessage?: ConversationMessage }>()
 const emit = defineEmits<{
   changed: []
   receptionChanged: [conversation: ConversationItem]
@@ -94,6 +94,7 @@ const confirmedStatus = ref(props.status)
 const imageInput = ref<HTMLInputElement>()
 const receivedEmojis = ref<ConversationEmoji[]>([])
 const isHumanReplying = computed(() => ['human_active', 'handoff_pending'].includes(confirmedStatus.value))
+const manuallyHeld = computed(() => confirmedStatus.value === 'human_active' && props.handoffReason !== 'workbench_typing')
 let lastEditedAt = 0
 let editTimer: ReturnType<typeof setTimeout> | undefined
 let expiryTimer: ReturnType<typeof setTimeout> | undefined
@@ -101,7 +102,16 @@ let syncQueue: Promise<void> = Promise.resolve()
 let syncVersion = 0
 let disposed = false
 
-watch(() => props.status, value => { confirmedStatus.value = value })
+watch(() => [props.status, props.handoffReason] as const, ([value, reason], [previous]) => {
+  confirmedStatus.value = value
+  if ((previous === 'human_active' && ['ai_active', 'ai_waiting'].includes(value)) ||
+      (value === 'human_active' && reason !== 'workbench_typing')) {
+    ++syncVersion
+    lastEditedAt = 0
+    clearTimeout(editTimer)
+    clearTimeout(expiryTimer)
+  }
+})
 
 const syncReception = () => {
   const version = ++syncVersion
@@ -115,7 +125,7 @@ const syncReception = () => {
         operator_id: operatorId, editor_id: editorId, active,
         remaining_seconds: sending.value ? 60 : Math.max(0.01, Math.min(60, remaining))
       })
-      if (!disposed) {
+      if (!disposed && version === syncVersion) {
         confirmedStatus.value = result.status
         syncError.value = false
         emit('receptionChanged', result)
