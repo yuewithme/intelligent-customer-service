@@ -44,6 +44,8 @@ def dual_write_conversation_event(
     role = role.strip().lower()
     if role not in _ROLE_MAP:
         raise ValueError(f"unsupported conversation role: {role}")
+    if channel == "wechat" and role in {"assistant", "human"} and not source_id.startswith("delivered_message:"):
+        return None
     tenant_id = _required(tenant_id, "tenant_id")
     channel = _required(channel, "channel")
     external_user_id = _required(external_user_id, "external_user_id")

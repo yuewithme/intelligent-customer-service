@@ -530,7 +530,7 @@ def test_episode_creation_is_evidence_linked_and_retry_safe(memory_db):
 
 
 @pytest.mark.asyncio
-async def test_deterministic_extraction_uses_customer_and_commitment_evidence(memory_db):
+async def test_deterministic_extraction_uses_customer_and_commitment_evidence(memory_db, monkeypatch):
     subject = _subject()
     customer = _append(
         subject, uid="message:extract:customer", text="这次预算提高到五千元"
@@ -548,6 +548,15 @@ async def test_deterministic_extraction_uses_customer_and_commitment_evidence(me
         subject_id=subject.id,
         session_id="session_1",
     )
+
+    from app.domains.conversations.services.conversation_service import _get_session
+    from app.infrastructure.database.models import ConversationMessageModel
+    monkeypatch.setattr(get_settings(), "chat_log_db_url", f"sqlite:///{memory_db.parent / 'delivered-chat.db'}")
+    with _get_session() as session:
+        session.add(ConversationMessageModel(conversation_id="wechat:user_1:session_1",
+            trace_id=assistant.source_id, sender_type="ai", content=assistant.content["text"],
+            delivery_status="confirmed", created_at=assistant.occurred_at))
+        session.commit()
 
     budget = await extract_memory_candidates(
         events=events, trigger_event_id=customer.id, use_llm=False

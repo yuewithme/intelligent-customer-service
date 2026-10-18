@@ -67,8 +67,10 @@ def test_context_keeps_human_customer_and_scheduled_messages_and_filters_deliver
     add_message("别的账号的私有对话", cid="wechat:context-customer:owner-2", offset=13)
     context = history.get_conversation_context(CID, 20_000)
     assert [turn["content"] for turn in context["turns"]] == [
-        "老叶发黄", "已发出的建议", "微信客户端人工追问", "人工服务期间补充的浇水情况", "今天的养护科普"]
-    assert len(context["delivery_notes"]) == 6
+        "老叶发黄", "已发出的建议", "微信客户端人工追问", "人工服务期间补充的浇水情况", "今天的养护科普",
+        "不可视为已发送：unconfirmed", "不可视为已发送：delivery_unknown"]
+    assert len(context["delivery_notes"]) == 4
+    assert context["turns"][-1]["delivery_status"] == "delivery_unknown"
     assert context["turns"][2]["sender_type"] == "human"
 
 
@@ -76,7 +78,7 @@ def test_long_turn_and_human_question_survive_workspace_and_prompt():
     text = "养护过程记录。" * 200 + "现在伤口还湿吗？"
     result = payload([{"role": "human", "content": text, "created_at": NOW.isoformat()}])
     assert result["full_conversation"]["turns"][0]["content"] == text
-    assert result["turn_focus"]["previous_assistant_messages"] == [text]
+    assert result["turn_focus"]["previous_assistant_turn_indexes"] == [0]
     assert result["full_conversation"]["turns"][0]["created_at"] == NOW.isoformat()
 
 

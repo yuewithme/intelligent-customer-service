@@ -49,7 +49,7 @@ CAPABILITIES = (
         "customer.get_context",
         "tool",
         ("客户", "历史", "记忆", "偏好", "承诺", "待办", "触达", "上下文"),
-        "输入 {}。返回当前客户画像、最近对话和证据化记忆；不能替代动态商品或订单查询。",
+        '输入 {"query":"可选的短关键词", "before_message_id":123, "limit":10}。查询当前客户当前账号的历史原文；query 不填时按时间翻页，before_message_id 为上一页游标，默认返回当前上下文之前的历史。首次关键词查询不受近期窗口限制。不能替代动态商品或订单查询。',
     ),
     CapabilitySpec(
         "customer.tag",
@@ -407,8 +407,23 @@ def _sop_scope(context: AgentExecutionContext) -> str:
 
 
 async def _customer_context(*, call_id, arguments, context) -> AgentToolResult:
-    del arguments
-    return _result(call_id, "customer.get_context", "found", workspace=context.workspace)
+    from app.domains.conversations.services.conversation_context_service import search_conversation_history
+    from app.domains.conversations.services.conversation_service import make_conversation_id
+
+    query = str(arguments.get("query") or "").strip()[:200]
+    try:
+        before = int(arguments["before_message_id"]) if arguments.get("before_message_id") is not None else None
+        limit = int(arguments.get("limit", 10))
+    except (ValueError, TypeError):
+        return _result(call_id, "customer.get_context", "invalid_arguments", reason="invalid_cursor_or_limit")
+    if not query and before is None:
+        ids = [item["message_id"] for item in context.workspace.get("recent_turns", []) if isinstance(item.get("message_id"), int)]
+        before = min(ids) if ids else None
+    if context.message.metadata.get("evaluation_id"):
+        return _result(call_id, "customer.get_context", "not_found", reason="evaluation_has_only_supplied_history")
+    history = search_conversation_history(make_conversation_id(context.message.channel,
+        context.message.user_id, context.message.session_id), query=query, before_message_id=before, limit=limit)
+    return _result(call_id, "customer.get_context", "found" if history["turns"] else "not_found", **history)
 
 
 async def _brand_service_facts(*, call_id, arguments, context) -> AgentToolResult:

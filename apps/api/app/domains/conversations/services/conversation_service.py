@@ -1298,6 +1298,9 @@ async def ensure_outbound_conversation_message(
         result = _message_to_dict(message)
 
     _publish_change(conversation_id, "message")
+    if delivery_status in {"sent", "confirmed"}:
+        from app.domains.customers.services.memory_delivery_service import record_delivered_message
+        record_delivered_message(result["id"])
     return result
 
 
@@ -1351,6 +1354,9 @@ def update_outbound_message_delivery(
         session.commit()
         conversation_id = message.conversation_id
     _publish_change(conversation_id, "message")
+    if status in {"sent", "confirmed"}:
+        from app.domains.customers.services.memory_delivery_service import record_delivered_message
+        record_delivered_message(conversation_message_id)
     if str(metadata.get("source_batch_key") or "").startswith("service_material_touch:"):
         from app.domains.sales.services.service_material_touch_service import record_service_material_touch_memory
 
@@ -2129,6 +2135,7 @@ def _publish_change(conversation_id: str, reason: str) -> None:
 
 
 def _get_session() -> Session:
+    from app.infrastructure.database.models import ConversationIssueProgressModel
     settings = get_settings()
     if settings.chat_log_provider != "sqlite":
         raise RuntimeError(f"unsupported chat log provider: {settings.chat_log_provider}")
@@ -2141,6 +2148,7 @@ def _get_session() -> Session:
                 ConversationModel.__table__,
                 ConversationReplyDraftModel.__table__,
                 ConversationMessageModel.__table__,
+                ConversationIssueProgressModel.__table__,
                 DemoPlatformStateModel.__table__,
                 ChatLogModel.__table__,
             ],

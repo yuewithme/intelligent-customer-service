@@ -36,6 +36,13 @@ CARE_REPLY_STYLE_PROMPT = """养护对话的表达原则（适用于当前启用
 """
 
 
+CONVERSATION_PROGRESS_PROMPT = """问题进展与历史承接：
+- 养护问题有实质进展、处理步骤改变或客户明确结束问题时，在决策 JSON 顶层可更新 issue_progress：{"summary":"当前问题、已核实的处理进展及仍需确认之处", "evidence":[{"message_id":"current", "quote":"客户本轮原话"},{"message_id":123,"quote":"对应历史原话"}]}。无变化时省略，不需要每轮更新或增加客户可见话术。
+- 摘要延续已有 issue_progress 中仍有效的信息，按客户最新说明修正；引用相应历史 message_id 和原文片段，current 只指客户本轮消息。客服给过建议不等于客户已执行，未确认发送的文案不作事实依据，本轮拟发回复也不能记成已交代。
+- 近期历史没有所需细节时调用 customer.get_context，使用短关键词搜索或 before_message_id 向前翻页，查回之前的处理步骤、日期和原话；不要凭摘要补出细节。摘要是辅助背景，原文和本轮新信息优先。
+"""
+
+
 FIRST_ORDER_CORE_PROMPT = """你叫小兰，是萧岚苑的在线兰花销售顾问，也是这段客户关系的负责人。
 
 首要任务：以长期信任为前提推进成交。先理解客户真正的问题并建立专业价值，再推荐合适的商品或服务；成交机会成熟时直接推进，不要为了多聊而拖延。每轮都必须有明确的商业判断和关系目的，但不必在客户可见回复里强行推荐、逼单或追问。
@@ -168,7 +175,7 @@ SHARED_TOOL_SHORT_DESCRIPTIONS = {
     "service.record": "输入 {\"facts\":[{\"field\":\"growing_years\",\"value\":\"两年\",\"evidence\":\"养兰两年\"}]}。field 只能是 growing_years（年限）、environment（环境）、existing_varieties（现有品种）、pain_points（痛点）、province（省份）、preference（喜好）、care_status（长势及养护近况），value为事实，evidence逐字引用客户本轮原话；不要用中文字段或其他英文别名。preference记录后永久停止例行挖需。",
     "service.introduce": "教程交付完成后，准备标准服务介绍与省份环境照片引导；输入 {}。",
     "member_day.send": "服务自然收尾时准备完整周四会员日介绍和官方小程序卡片；final_response 引用 prepared ref 即可，不另写重复介绍。当前仍在问养护问题时先回答，等待反馈再收尾。卡片不可用时不改发文字口令或链接。无需购买意向，输入 {}。",
-    "customer.get_context": "当前判断需要更多客户历史、偏好、购买、承诺、待办或今日触达证据时读取客户工作区。",
+    "customer.get_context": "按需查询当前客户当前账号更早的历史原文。输入可选 query（短关键词）、before_message_id（翻页游标）、limit；空参数读取近期上下文之前的历史，首次关键词搜索覆盖整个会话。",
     "customer.tag": "输入 {\"tag\":\"标签库准确名称\",\"evidence\":\"客户本轮原话片段\"}，每次一个标签，多项分别调用，evidence逐字引用本轮原话。客户本轮亲口提供等级、盆数、省份、喜欢的品类、产品需求、价格或养兰环境等稳定事实时，记录标签库中的准确标签；一条消息可以记录多个明确标签。标签辅助判断而不路由，两个已购标签禁止由模型写入。",
     "brand.service_facts": "需要使用萧岚苑品牌规模、效果与风险数据、全客户统一补发寄养赠品权益，或塑造与普通卖苗模式的服务差异时，读取已核实事实、交付方式和表达边界。",
     "knowledge.search": "需要核实兰花品种、养护、病害或操作知识时查询知识库。不能用它查询实时商品和订单。",
@@ -245,6 +252,7 @@ def build_system_prompt(sop_scope: str = "first_order", sop_scopes: list[str] | 
         f"{core_prompt}\n\n{CUSTOMER_FACING_IDENTITY_PROMPT}"
         f"\n\n{SERVICE_HANDOFF_INVITATION_PROMPT}"
         f"\n\n{CARE_REPLY_STYLE_PROMPT}"
+        f"\n\n{CONVERSATION_PROGRESS_PROMPT}"
         f"\n当前可发现能力（短说明）：\n{catalog}"
     )
 
@@ -260,19 +268,25 @@ def build_turn_payload(
         customer_workspace,
         customer_message=customer_message,
     )
-    previous_assistant_messages = _previous_assistant_messages({"recent_turns": full_conversation["turns"]})
+    previous_assistant_indexes = _previous_assistant_turn_indexes(full_conversation["turns"])
     workspace_without_conversation = dict(customer_workspace)
     workspace_without_conversation.pop("recent_turns", None)
+    included_content = {turn["message_id"]: turn["content"] for turn in full_conversation["turns"] if turn.get("message_id")}
+    media = workspace_without_conversation.get("recent_customer_media")
+    if isinstance(media, list):
+        workspace_without_conversation["recent_customer_media"] = [item for item in media
+            if not str(item.get("content") or "") or str(item["content"]) not in included_content.get(item.get("message_id"), "")]
     payload = {
         "customer_message": customer_message,
         "turn_focus": {
             "current_customer_message": customer_message,
-            "previous_assistant_messages": previous_assistant_messages,
+            "previous_assistant_turn_indexes": previous_assistant_indexes,
             "instruction": (
                 "只处理 current_customer_message，不要把更早的客户消息误当成本轮。"
                 "客户提出问题时，优先直接回答眼前能可靠解答的部分；缺少决定性信息时可以先澄清，"
                 "不要为了凑齐方案而猜测，也不要用泛泛索图代替已有依据的回答。"
-                "当前消息很短或省略主语时，必须结合 previous_assistant_messages 中紧邻的问题或提议理解；"
+                "当前消息很短或省略主语时，结合 previous_assistant_turn_indexes 指向的紧邻问题或提议理解；"
+                "这些是 full_conversation.turns 从0开始的位置，原文只在历史中保留一份。"
                 "先判断它是否真的在回答上一问；肯定回答应继承它所认可的对象，并推进下一步，不能重做上一轮。"
                 "若当前消息提出无关的新问题、新关注点或明确转换话题，以当前消息为主先承接回答，"
                 "不要为了完成上一轮提问或销售动作强行拉回原流程。"
@@ -291,6 +305,8 @@ def build_turn_payload(
             "客户说‘刚才的图片、视频、语音’时结合这些内容理解，不忽略已知画面和转写重复索要相同信息。"
             "媒体识别是有不确定性的观察，不是客户的原话或已核实诊断；未可靠识别的内容保持未知。"
             "conversation_history.delivery_notes 中的消息没有确认发送成功，不能当作已发送的上一轮回复。"
+            "历史中的 delivery_status=accepted 仅表示接口已受理，unconfirmed/delivery_unknown 表示结果未知；"
+            "这些原文可以帮助理解客户接话，但不能据此认定已送达、已读或服务已完成。"
             "历史中的 sender_type=human 是人工客服的发言，同样要承接，不让客户重复已经回答过的问题。"
             "历史卡片只提供已交流内容，不证明当前价格、库存或权益仍然有效。"
         ),
@@ -300,25 +316,21 @@ def build_turn_payload(
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
-def _previous_assistant_messages(customer_workspace: dict[str, Any]) -> list[str]:
-    recent = customer_workspace.get("recent_turns")
-    recent = recent if isinstance(recent, list) else []
-    messages: list[str] = []
-    for item in reversed(recent[-10:]):
-        if not isinstance(item, dict):
-            continue
+def _previous_assistant_turn_indexes(recent: list[dict]) -> list[int]:
+    indexes = []
+    for index in range(len(recent) - 1, max(-1, len(recent) - 11), -1):
+        item = recent[index]
         role = str(item.get("role") or "").lower()
         if role in {"assistant", "agent", "sales_agent", "ai", "human"}:
             content = str(item.get("content") or "").strip()
             if content:
-                messages.append(content)
-                if len(messages) >= 5:
+                indexes.append(index)
+                if len(indexes) >= 5:
                     break
             continue
-        if messages:
+        if indexes:
             break
-    messages.reverse()
-    return messages
+    return list(reversed(indexes))
 
 
 def _full_conversation_context(
@@ -334,6 +346,8 @@ def _full_conversation_context(
             "content": str(item.get("content") or "").strip(),
             **({"created_at": item["created_at"]} if item.get("created_at") else {}),
             **({"sender_type": item["sender_type"]} if item.get("sender_type") else {}),
+            **({"message_id": item["message_id"]} if item.get("message_id") else {}),
+            **({"delivery_status": item["delivery_status"]} if item.get("delivery_status") else {}),
         }
         for item in recent
         if isinstance(item, dict) and str(item.get("content") or "").strip()

@@ -71,6 +71,16 @@ class ServiceHandoffAssessment(BaseModel):
     evidence: str = Field(default="", max_length=200)
 
 
+class IssueProgressEvidence(BaseModel):
+    message_id: int | Literal["current"]
+    quote: str = Field(min_length=1, max_length=1000)
+
+
+class IssueProgress(BaseModel):
+    summary: str = Field(min_length=1, max_length=1200)
+    evidence: list[IssueProgressEvidence] = Field(min_length=1, max_length=12)
+
+
 class AgentTurnDecision(BaseModel):
     commercial_judgment: str = Field(min_length=1, max_length=800)
     relationship_purpose: str = Field(min_length=1, max_length=400)
@@ -78,6 +88,7 @@ class AgentTurnDecision(BaseModel):
     customer_signal: CustomerSignal = "none"
     purchase_signal: PurchaseSignal = "none"
     service_handoff: ServiceHandoffAssessment = Field(default_factory=ServiceHandoffAssessment)
+    issue_progress: IssueProgress | None = None
     tool_calls: list[AgentToolCall] = Field(default_factory=list, max_length=4)
     final_response: AgentFinalResponse | None = None
 

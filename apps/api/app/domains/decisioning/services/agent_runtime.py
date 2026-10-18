@@ -499,6 +499,8 @@ async def _finalize_reply(
         need_human = True
         offer_state["awaiting"] = False
     service_handoff.save_service_handoff(context.message, offer_state)
+    from app.domains.conversations.services.conversation_progress_service import save_issue_progress
+    save_issue_progress(context.message, decision.issue_progress)
     visible_texts = [item.content for item in outbound if item.type == "text"]
     answer = "\n\n".join(visible_texts)
     return FinalReply(

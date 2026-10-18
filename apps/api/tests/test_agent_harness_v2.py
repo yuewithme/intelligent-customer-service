@@ -264,7 +264,8 @@ def test_turn_payload_foregrounds_short_reply_and_previous_assistant_question():
     )
 
     assert payload["turn_focus"]["current_customer_message"] == "是的"
-    assert payload["turn_focus"]["previous_assistant_messages"] == [
+    indexes = payload["turn_focus"]["previous_assistant_turn_indexes"]
+    assert [payload["full_conversation"]["turns"][index]["content"] for index in indexes] == [
         "每个品种都有对应的单品养护教程。",
         "实际养护中还有师傅一对一指导。",
         "您觉得这种有人带着走的方式，是不是更踏实？",

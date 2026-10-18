@@ -181,6 +181,8 @@ async def handle_chat(request: ChatRequest) -> dict:
             profile_bundle=profile_bundle,
         )
         if not is_evaluation:
+            from app.domains.conversations.services.conversation_progress_service import load_issue_progress
+            workspace["issue_progress"] = load_issue_progress(message)
             workspace["recent_customer_media"] = get_recent_customer_media(
                 make_conversation_id(message.channel, message.user_id, message.session_id)
             )
@@ -391,6 +393,7 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
                 "created_at": item.get("created_at"),
                 **({"sender_type": item["sender_type"]} if item.get("sender_type") else {}),
                 **({"message_id": item["message_id"]} if item.get("message_id") else {}),
+                **({"delivery_status": item["delivery_status"]} if item.get("delivery_status") else {}),
             }
             for item in recent
             if isinstance(item, dict) and item.get("content")

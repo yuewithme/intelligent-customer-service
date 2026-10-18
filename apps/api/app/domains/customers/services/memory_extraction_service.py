@@ -32,6 +32,11 @@ async def extract_memory_candidates(
     trigger_event_id: int,
     use_llm: bool = True,
 ) -> list[MemoryOperationCandidate]:
+    from app.domains.customers.services.memory_delivery_service import invalid_delivery_event_ids
+    invalid = invalid_delivery_event_ids(events)
+    if trigger_event_id in invalid:
+        return []
+    events = [event for event in events if event.id not in invalid]
     event_by_id = {event.id: event for event in events}
     trigger = event_by_id.get(trigger_event_id)
     if trigger is None:

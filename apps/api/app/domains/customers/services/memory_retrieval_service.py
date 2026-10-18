@@ -27,6 +27,7 @@ from app.domains.customers.services.memory_query_planner import plan_memory_quer
 from app.domains.customers.services.memory_repository import get_memory_session
 from app.domains.customers.services.memory_rerank_service import score_memory_episode
 from app.domains.customers.services.memory_vector_service import search_memory_episodes
+from app.domains.customers.services.memory_delivery_service import invalid_delivery_event_ids
 
 
 logger = logging.getLogger(__name__)
@@ -138,6 +139,8 @@ def _load_fact_contexts(
     if not allow_sensitive:
         links_query = links_query.where(MemoryEventModel.sensitivity != "restricted")
     links = session.execute(links_query).all()
+    invalid = invalid_delivery_event_ids(session.scalars(select(MemoryEventModel).where(
+        MemoryEventModel.id.in_([event_id for _, event_id in links]))).all())
     evidence_by_fact: dict[int, list[int]] = {}
     for fact_id, event_id in links:
         evidence_by_fact.setdefault(fact_id, []).append(event_id)
@@ -146,6 +149,8 @@ def _load_fact_contexts(
     verified: list[MemoryFactContext] = []
     conflicts: list[MemoryFactContext] = []
     for fact in facts:
+        if any(event_id in invalid for event_id in evidence_by_fact.get(fact.id, [])):
+            continue
         if len(current) + len(verified) + len(conflicts) >= limit:
             break
         context = _fact_context(fact, evidence_by_fact.get(fact.id, []))
@@ -254,6 +259,10 @@ def _episode_evidence(
             reliability.get(episode_id, 0.5),
             _SOURCE_RELIABILITY.get(source_type, 0.5),
         )
+    invalid = invalid_delivery_event_ids(session.scalars(select(MemoryEventModel).where(
+        MemoryEventModel.id.in_([row.event_id for row in rows]))).all())
+    ids = {episode_id: event_ids for episode_id, event_ids in ids.items()
+        if not any(event_id in invalid for event_id in event_ids)}
     return ids, reliability, restricted_episode_ids
 
 

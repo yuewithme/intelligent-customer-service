@@ -91,15 +91,15 @@ def test_dual_write_is_flagged_and_idempotent(memory_db):
     assistant = _write_event(role="assistant", source_id="provider:reply:1")
 
     assert retry == first
-    assert assistant != first
+    assert assistant is None
     with memory_repository.get_memory_session() as session:
         assert session.scalar(select(func.count(MemorySubjectModel.id))) == 1
-        assert session.scalar(select(func.count(MemoryEventModel.id))) == 2
-        assert session.scalar(select(func.count(MemoryJobModel.id))) == 2
+        assert session.scalar(select(func.count(MemoryEventModel.id))) == 1
+        assert session.scalar(select(func.count(MemoryJobModel.id))) == 1
         actors = list(
             session.scalars(select(MemoryEventModel.actor_type).order_by(MemoryEventModel.id))
         )
-    assert actors == ["customer", "assistant"]
+    assert actors == ["customer"]
 
 
 @pytest.mark.asyncio

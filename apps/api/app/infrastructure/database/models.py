@@ -625,6 +625,14 @@ class ConversationServiceHandoffModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ConversationIssueProgressModel(Base):
+    __tablename__ = "conversation_issue_progress"
+
+    state_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    state_json: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ConversationReplyDraftModel(Base):
     __tablename__ = "conversation_reply_drafts"
 
