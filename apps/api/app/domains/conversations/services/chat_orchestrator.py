@@ -313,6 +313,7 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
             "customer_tags",
             "product_interests",
             "preference_summary",
+            "service_facts",
             "pain_points",
             "is_human_handoff",
             "human_handoff_status",

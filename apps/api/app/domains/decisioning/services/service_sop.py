@@ -1,3 +1,7 @@
+import hashlib
+import json
+
+
 SERVICE_OPENING = (
     "您好，我是萧岚苑的小兰，后面陪您一起把兰花养好～\n\n"
     "方便把直播间或线上购买兰花的订单截图发我吗？能看清店铺、品种和订单状态就行，"
@@ -19,6 +23,30 @@ MEMBER_DAY_INTRODUCTION = (
     "每周四还有会员活动，会挑选受欢迎的名品和会员放漏福利。"
     "当期品种和优惠以活动页面为准，有空可以进小程序逛逛、看看花，买不买都没关系～"
 )
+SERVICE_ENVIRONMENT_PHOTO_REQUEST = "为了给您更贴合的养护建议，方便拍一张家里摆放兰花的位置吗？我结合您所在的地区，再帮您看看光照、通风有没有需要调整的地方。"
+SERVICE_PROVINCE_REQUEST = "为了结合当地气候给您养护建议，您在什么省份呀？"
+SERVICE_ONCE_TEXTS = {
+    "order_intake": (SERVICE_OPENING,),
+    "introduction": (SERVICE_INTRODUCTION,),
+    "environment_request": (SERVICE_ENVIRONMENT_REQUEST, SERVICE_ENVIRONMENT_PHOTO_REQUEST, SERVICE_PROVINCE_REQUEST),
+    "member_day_intro": (MEMBER_DAY_INTRODUCTION,),
+}
+
+
+def service_action(step: str, content: str) -> str | None:
+    if not isinstance(step, str):
+        return None
+    if step in {*SERVICE_ONCE_TEXTS, "member_day"}:
+        return step
+    if step == "tutorial":
+        try:
+            card = json.loads(content)
+        except (ValueError, TypeError):
+            return None
+        url = str(card.get("url") or "").strip() if isinstance(card, dict) else ""
+        if url:
+            return "tutorial:" + hashlib.sha256(url.encode()).hexdigest()
+    return None
 
 MEMBER_DAY_MINI_PROGRAM_CARD = {
     "display_name": "萧岚苑",
@@ -33,11 +61,11 @@ MEMBER_DAY_MINI_PROGRAM_CARD = {
 SERVICE_COLLECTION_GOAL = "进入服务后主动逐项了解基础信息，依据客户原话补齐已有标签槽位，为养护指导和后续触达积累事实。"
 SERVICE_COLLECTION_DIRECTIONS = [
     "先读已有标签、客户记忆和近期对话；标签缺失不等于事实未知，已经回答或明确跳过的信息不重复问。",
-    "客户准备收尾时优先进入周四会员日介绍，不为补齐缺项延长对话；其余没有待处理问题的交流中主动了解一项尚未知的信息，不等客户先提问；有问题先有效承接，再自然采集。每轮最多问一项，不连续盘问。",
+    "客户准备收尾且会员日尚未介绍、未安排时才进入会员日介绍；已介绍则自然结束，不为补齐缺项延长对话。其余没有待处理问题的交流中主动了解一项尚未知的信息，不等客户先提问；有问题先有效承接，再自然采集。每轮最多问一项，不连续盘问。",
     "优先了解养兰年限与经验、地区与养兰环境、盆数、现有品种和养护痛点；仅在客户从未表达过任何喜好时，自然了解一项品类、花型或收藏喜好；任意喜好已表达后永久停止例行挖需。价格范围只在选品或预算话题中询问。",
     "依据 service_collection.tag_slots 中现行标签准确打标：本轮每项明确且可映射的事实分别调用 customer.tag 并引用原话；单次最多四个工具调用，更多事实分次记录。年限、现有品种、痛点及任意喜好用 service.record 保存到用户档案；能映射的标签仍调用 customer.tag。",
     "现有品种不等于喜欢的品类；不懂或没说不等于不限；L1-L2 对应新手、L3-L4 对应进阶、L5-L6 对应收藏级，依据多项稳定事实判断，不问客户 L1-L6，不新增等级标签；购买及服务状态由可信业务或运营维护。",
-    "客户拒绝、忙碌或不清楚时暂停或跳过；信息足以支撑当前服务即可自然收尾并介绍周四会员日，缺项在自然对话中逐步补齐，不把标签填满作为服务门槛。",
+    "客户拒绝、忙碌或不清楚时暂停或跳过；信息足以支撑当前服务即可自然收尾，尚未介绍、未安排会员日时才交付入口，缺项在自然对话中逐步补齐，不把标签填满作为服务门槛。",
     "四项档案维度为养兰年限、养护环境、现有品种、养护痛点；逐步补齐，不逼问，不把未知当成没有。",
     "采集与每日触达独立；不因信息缺失停发定时内容，不在对话中执行或补发定时触达，偏好采集不等于购买意向。",
 ]

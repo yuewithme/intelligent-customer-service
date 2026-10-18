@@ -38,6 +38,7 @@ from app.domains.conversations.services.conversation_service import (
     RESOLVED,
     ensure_outbound_conversation_message,
     force_handoff,
+    get_service_delivery_state,
     make_conversation_id,
     update_outbound_message_delivery,
 )
@@ -54,7 +55,7 @@ from app.domains.customers.services.user_profile_service import (
     add_verified_customer_tag,
     append_conversation_memory,
 )
-from app.domains.decisioning.services.service_sop import SERVICE_OPENING
+from app.domains.decisioning.services.service_sop import SERVICE_OPENING, service_action
 from app.domains.handoff.services.handoff_notification_service import (
     is_sop_node_handoff_enabled,
     is_sop_enabled,
@@ -746,6 +747,9 @@ async def enqueue_wechat_outbound(
     delivery_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_delivery_key = str(delivery_key or "").strip() or None
+    action = service_action((delivery_metadata or {}).get("service_step"), content)
+    if action:
+        normalized_delivery_key = f"service_sop:{channel}:{user_id or wc_id}:{action}"
     if normalized_delivery_key:
         with _get_session() as session:
             existing = session.scalar(
@@ -756,11 +760,16 @@ async def enqueue_wechat_outbound(
             )
             if existing is not None:
                 return _outbound_to_dict(existing)
+    if action:
+        state = get_service_delivery_state(user_id or wc_id)
+        if action in {*state["delivered_steps"], *state["pending_steps"]}:
+            return {"id": None, "status": "skipped", "delivery_key": normalized_delivery_key}
     original_message_type = message_type
     original_content = content
+    created_conversation_message = conversation_message_id is None
     if conversation_message_id is None:
         origin = source_type or _source_type_from_batch_key(source_batch_key)
-        message_role = str((delivery_metadata or {}).get("message_role") or "").strip()
+        message_role = action or str((delivery_metadata or {}).get("message_role") or "").strip()
         conversation_trace_id = source_batch_key
         if source_batch_key and message_role:
             conversation_trace_id = f"{source_batch_key}:{message_role}"
@@ -791,6 +800,7 @@ async def enqueue_wechat_outbound(
                 ),
                 "contact_wc_id": wc_id,
                 "wc_id": wc_id,
+                **(delivery_metadata or {}),
             },
         )
         conversation_message_id = int(conversation_message["id"])
@@ -859,6 +869,11 @@ async def enqueue_wechat_outbound(
                     )
                 )
                 if existing is not None:
+                    if action and created_conversation_message and conversation_message_id != existing.conversation_message_id:
+                        duplicate = session.get(ConversationMessageModel, conversation_message_id)
+                        if duplicate is not None and duplicate.delivery_status == "queued":
+                            session.delete(duplicate)
+                            session.commit()
                     return _outbound_to_dict(existing)
         update_outbound_message_delivery(conversation_message_id, status="failed")
         raise
@@ -1727,40 +1742,52 @@ async def _process_inbound_batch(batch_id: int) -> None:
                     due_at += timedelta(seconds=random_outbound_spacing_seconds())
             dependency_id: int | None = None
             for index, message in enumerate(outbound_messages):
-                conversation_message = await ensure_outbound_conversation_message(
-                    channel="wechat",
-                    user_id=batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"],
-                    session_id=_conversation_session_id(batch_data),
-                    tenant_id=_conversation_tenant_id(batch_data),
-                    content=message["content"],
-                    message_type=message["type"],
-                    sender_type="ai",
-                    sender_id="ai",
-                    route=str(chat_result.get("route") or ""),
-                    created_after=batch_data["created_at"],
-                    reconcile_pending=not bool(batch_data["from_group"]),
-                    metadata={
-                        **sales_metadata,
-                        **({"reply_at_wc_id": batch_data["from_user"]}
-                           if batch_data["from_group"] and index == 0 else {}),
-                    },
-                )
                 kwargs = {
                     "w_id": batch_data["w_id"],
                     "wc_id": batch_data["target_wc_id"],
                     "content": message["content"],
                     "source_batch_key": batch_data["batch_key"],
-                    "conversation_message_id": conversation_message["id"],
                     "depends_on_outbound_id": dependency_id,
                     "due_at": due_slots[index],
                 }
+                metadata = {
+                    **sales_metadata,
+                    **({"reply_at_wc_id": batch_data["from_user"]}
+                       if batch_data["from_group"] and index == 0 else {}),
+                }
+                if message.get("service_step"):
+                    kwargs.update(
+                        user_id=batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"],
+                        session_id=_conversation_session_id(batch_data),
+                        tenant_id=_conversation_tenant_id(batch_data),
+                        delivery_metadata={**metadata, "service_step": message["service_step"]},
+                        source_type=str(chat_result.get("route") or "ai_reply"),
+                    )
+                else:
+                    conversation_message = await ensure_outbound_conversation_message(
+                        channel="wechat",
+                        user_id=batch_data["from_group"] or batch_data["from_user"] or batch_data["target_wc_id"],
+                        session_id=_conversation_session_id(batch_data),
+                        tenant_id=_conversation_tenant_id(batch_data),
+                        content=message["content"],
+                        message_type=message["type"],
+                        sender_type="ai",
+                        sender_id="ai",
+                        route=str(chat_result.get("route") or ""),
+                        created_after=batch_data["created_at"],
+                        reconcile_pending=not bool(batch_data["from_group"]),
+                        metadata=metadata,
+                    )
+                    kwargs["conversation_message_id"] = conversation_message["id"]
                 if message.get("material_id"):
                     kwargs["material_id"] = int(message["material_id"])
                 if message["type"] not in {"text", "material"}:
                     kwargs["message_type"] = message["type"]
-                queued = await enqueue_eyun_outbound(**kwargs)
+                enqueue = enqueue_wechat_outbound if message.get("service_step") else enqueue_eyun_outbound
+                queued = await enqueue(**kwargs)
                 queued_id = queued.get("id") if isinstance(queued, dict) else None
-                dependency_id = int(queued_id) if queued_id is not None else None
+                if queued_id is not None and queued.get("status") not in {"failed", "cancelled", "delivery_unknown", "unconfirmed"}:
+                    dependency_id = int(queued_id)
         _mark_batch(batch_data, "processed")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Eyun inbound batch processing failed: %s", exc)
@@ -2126,6 +2153,7 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
                     if message.get("split") is False
                     else {}
                 ),
+                **({"service_step": message["service_step"]} if message.get("service_step") else {}),
             }
             for message in messages
             if isinstance(message, dict)
@@ -2143,7 +2171,7 @@ def _outbound_messages(chat_result: dict[str, Any]) -> list[dict[str, Any]]:
                 message["content"] = plain_customer_text(message["content"]).strip()
                 if not message["content"]:
                     continue
-                if message.get("split") is False:
+                if message.get("split") is False or message.get("service_step"):
                     message.pop("split", None)
                     formatted.append(message)
                     continue
@@ -2289,7 +2317,7 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
             reason="SOP 节点已配置转人工：破冰",
         )
         return
-    outbound_messages = [{"type": "text", "content": SERVICE_OPENING}]
+    outbound_messages = [{"type": "text", "content": SERVICE_OPENING, **({"service_step": "order_intake"} if scope == "service" else {})}]
     opening_answer = SERVICE_OPENING
     flow_metadata = {"sop_scope": scope, "flow_version": execution_version(flow) if flow else None}
     if flow and scope != "service":
@@ -2317,44 +2345,54 @@ async def _send_opening_for_new_friend(batch: dict[str, Any]) -> None:
     )
     dependency_id: int | None = None
     for index, message in enumerate(outbound_messages):
-        conversation_message = await ensure_outbound_conversation_message(
-            channel="wechat",
-            user_id=batch["from_user"] or batch["target_wc_id"],
-            session_id=_conversation_session_id(batch),
-            tenant_id=_conversation_tenant_id(batch),
-            content=message["content"],
-            message_type=message["type"],
-            sender_type="ai",
-            sender_id="ai",
-            route="opening",
-            created_after=batch["created_at"],
-            metadata={
-                "provider": "eyun",
-                "owner_wc_id": str(batch.get("wc_id") or ""),
-                "contact_wc_id": (
-                    batch["from_user"] or batch["target_wc_id"]
-                ),
-                "wc_id": str(batch.get("wc_id") or ""),
-                "tenant_id": _conversation_tenant_id(batch),
-                **flow_metadata,
-            },
-        )
         kwargs = {
             "w_id": batch["w_id"],
             "wc_id": batch["target_wc_id"],
             "content": message["content"],
             "source_batch_key": batch["batch_key"],
-            "conversation_message_id": conversation_message["id"],
             "depends_on_outbound_id": dependency_id,
             "due_at": due_slots[index],
         }
+        metadata = {
+            "provider": "eyun",
+            "owner_wc_id": str(batch.get("wc_id") or ""),
+            "contact_wc_id": batch["from_user"] or batch["target_wc_id"],
+            "wc_id": str(batch.get("wc_id") or ""),
+            "tenant_id": _conversation_tenant_id(batch),
+            **flow_metadata,
+        }
+        if message.get("service_step"):
+            kwargs.update(
+                user_id=batch["from_user"] or batch["target_wc_id"],
+                session_id=_conversation_session_id(batch),
+                tenant_id=_conversation_tenant_id(batch),
+                delivery_metadata={**metadata, "service_step": message["service_step"]},
+                source_type="opening",
+            )
+        else:
+            conversation_message = await ensure_outbound_conversation_message(
+                channel="wechat",
+                user_id=batch["from_user"] or batch["target_wc_id"],
+                session_id=_conversation_session_id(batch),
+                tenant_id=_conversation_tenant_id(batch),
+                content=message["content"],
+                message_type=message["type"],
+                sender_type="ai",
+                sender_id="ai",
+                route="opening",
+                created_after=batch["created_at"],
+                metadata=metadata,
+            )
+            kwargs["conversation_message_id"] = conversation_message["id"]
         if message.get("material_id"):
             kwargs["material_id"] = int(message["material_id"])
         if message["type"] not in {"text", "material"}:
             kwargs["message_type"] = message["type"]
-        queued = await enqueue_eyun_outbound(**kwargs)
+        enqueue = enqueue_wechat_outbound if message.get("service_step") else enqueue_eyun_outbound
+        queued = await enqueue(**kwargs)
         queued_id = queued.get("id") if isinstance(queued, dict) else None
-        dependency_id = int(queued_id) if queued_id is not None else None
+        if queued_id is not None and queued.get("status") not in {"failed", "cancelled", "delivery_unknown", "unconfirmed"}:
+            dependency_id = int(queued_id)
 
 
 def _encode_outbound_content(message_type: str, content: str) -> str:

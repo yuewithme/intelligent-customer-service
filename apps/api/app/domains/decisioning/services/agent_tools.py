@@ -300,7 +300,7 @@ CAPABILITIES = (
         "experience.post_service_repurchase_seed",
         "experience",
         ("已购", "问题解决", "服务收口", "种心智", "引导咨询", "会员福利", "挖产品需求", "鉴赏偏好", "花色", "瓣型"),
-        "当前问题未解决时先继续服务；问题解决且准备自然收尾时，以简短权益说明和 member_day.send 承接周四会员日。没有任何已知喜好时才柔性询问一项鉴赏偏好；客户任意喜好用 service.record 保存，现行标签用 customer.tag，随后永久停止例行挖需，不再补问花色瓣型香味。不把偏好当作购买意向。明确选购需求使用 human.handoff，由人工推荐；不触发 product.search、商品推荐或商品卡片。",
+        "当前问题未解决时先继续服务；问题解决且准备自然收尾时，仅在会员日未交付、未安排时调用 member_day.send，已介绍内容不另写权益说明或换说法复述。没有任何已知喜好时才柔性询问一项鉴赏偏好；客户任意喜好用 service.record 保存，现行标签用 customer.tag，随后永久停止例行挖需，不再补问花色瓣型香味。不把偏好当作购买意向。明确选购需求使用 human.handoff，由人工推荐；不触发 product.search、商品推荐或商品卡片。",
         ("service",),
     ),
     CapabilitySpec(
@@ -895,10 +895,16 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
         return _result(call_id, "material.send", "not_found")
     if not str(card.get("url") or "").strip():
         return _result(call_id, "material.send", "not_found", reason="material_url_unavailable")
-    if await _material_recently_sent(context, str(card.get("title") or "")):
-        return _result(call_id, "material.send", "forbidden", reason="material_sent_within_30_days")
     payload = {key: card.get(key) or "" for key in ("title", "url", "description", "thumb_url")}
     is_tutorial = material_id.startswith("care-manual:") and record.get("source_type") != "course" and context.message.metadata.get("sop_scope") == "service"
+    if is_tutorial:
+        from app.domains.decisioning.services.service_sop import service_action
+        state = context.workspace.get("service_sop", {})
+        action = service_action("tutorial", json.dumps(payload))
+        if action in {*state.get("delivered_steps", []), *state.get("pending_steps", [])}:
+            return _result(call_id, "material.send", "forbidden", reason="tutorial_already_delivered_or_pending")
+    elif await _material_recently_sent(context, str(card.get("title") or "")):
+        return _result(call_id, "material.send", "forbidden", reason="material_sent_within_30_days")
     context.prepared[call_id] = [
         OutboundMessage(type="link_card", content=json.dumps(payload, ensure_ascii=False),
                         **({"service_step": "tutorial"} if is_tutorial else {}))
@@ -1293,22 +1299,34 @@ def _now_iso() -> str:
 
 
 def _service_intro_messages(context):
-    from app.domains.decisioning.services.service_sop import SERVICE_INTRODUCTION, SERVICE_ENVIRONMENT_REQUEST
+    from app.domains.decisioning.services.service_sop import (
+        SERVICE_INTRODUCTION, SERVICE_ENVIRONMENT_REQUEST,
+        SERVICE_ENVIRONMENT_PHOTO_REQUEST, SERVICE_PROVINCE_REQUEST,
+    )
     state = context.workspace.setdefault("service_sop", {})
-    if state.get("intro_prepared") or "introduction" in state.get("delivered_steps", []) or "introduction" in state.get("pending_steps", []):
+    if state.get("intro_prepared"):
         return []
     state["intro_prepared"] = True
+    completed = {*state.get("delivered_steps", []), *state.get("pending_steps", [])}
+    messages = []
+    if "introduction" not in completed:
+        messages.append(OutboundMessage(type="text", content=SERVICE_INTRODUCTION, service_step="introduction"))
     facts = state.get("facts") or {}
     from app.domains.sales.services.tag_catalog import get_profile_tag_categories
     tags = {str(tag).removeprefix("customer_tag:") for tag in (context.workspace.get("profile") or {}).get("customer_tags", [])}
     categories = get_profile_tag_categories()
     province_known = bool(facts.get("province") or tags.intersection(value.name for value in categories["province"].values))
+    environment_known = bool(facts.get("environment") or tags.intersection(value.name for value in categories["growing_environment"].values))
+    if "environment_request" in completed or (province_known and environment_known):
+        return messages
     if province_known:
-        invitation = "为了给您更贴合的养护建议，方便拍一张家里摆放兰花的位置吗？我结合您所在的地区，再帮您看看光照、通风有没有需要调整的地方。"
+        invitation = SERVICE_ENVIRONMENT_PHOTO_REQUEST
+    elif environment_known:
+        invitation = SERVICE_PROVINCE_REQUEST
     else:
         invitation = SERVICE_ENVIRONMENT_REQUEST
-    return [OutboundMessage(type="text", content=SERVICE_INTRODUCTION, service_step="introduction"),
-            OutboundMessage(type="text", content=invitation, service_step="environment_request")]
+    messages.append(OutboundMessage(type="text", content=invitation, service_step="environment_request"))
+    return messages
 
 
 async def _service_introduce(*, call_id, arguments, context):
@@ -1324,8 +1342,9 @@ async def _service_introduce(*, call_id, arguments, context):
 
 async def _member_day_send(*, call_id, arguments, context):
     from app.domains.decisioning.services.service_sop import MEMBER_DAY_INTRODUCTION, MEMBER_DAY_MINI_PROGRAM_CARD
-    state = context.workspace.get("service_sop", {})
-    if state.get("member_day_prepared") or "member_day" in state.get("delivered_steps", []) or "member_day" in state.get("pending_steps", []):
+    state = context.workspace.setdefault("service_sop", {})
+    completed = {*state.get("delivered_steps", []), *state.get("pending_steps", [])}
+    if state.get("member_day_prepared") or {"member_day", "member_day_intro"} <= completed:
         return _result(call_id, "member_day.send", "forbidden", reason="member_day_already_delivered_or_pending")
     configured = get_settings().service_member_day_mini_program_card
     if configured is None:
@@ -1334,18 +1353,20 @@ async def _member_day_send(*, call_id, arguments, context):
         "display_name", "app_id", "user_name", "icon_url", "page_path", "thumb_url", "title",
     )}
     missing = [key for key, value in card.items() if not value]
-    if missing or card["page_path"].startswith(("#", "http:", "https:", "weixin:")):
+    if "member_day" not in completed and (missing or card["page_path"].startswith(("#", "http:", "https:", "weixin:"))):
         return _result(
             call_id, "member_day.send", "temporarily_unavailable",
             reason="member_day_mini_program_card_not_configured", missing_fields=missing,
             final_response_instruction="小程序卡片暂不可用，继续养护服务；不要声称已发送，不编造卡片，不改发文字口令或链接，也不向客户索要配置参数。",
         )
     state["member_day_prepared"] = True
-    context.prepared[call_id] = [
-        OutboundMessage(type="text", content=MEMBER_DAY_INTRODUCTION, service_step="member_day_intro"),
-        OutboundMessage(type="mini_program", content=json.dumps(card, ensure_ascii=False), service_step="member_day"),
-    ]
-    return _result(call_id, "member_day.send", "prepared", prepared_refs=[call_id], delivery_truth="prepared_not_sent", final_response_instruction="引用此 prepared ref 即包含完整会员日介绍与官方小程序卡片；可在前面加一句养护承接，不再另写或复述活动、福利和小程序介绍，不另发文字口令或链接。")
+    messages = []
+    if "member_day_intro" not in completed:
+        messages.append(OutboundMessage(type="text", content=MEMBER_DAY_INTRODUCTION, service_step="member_day_intro"))
+    if "member_day" not in completed:
+        messages.append(OutboundMessage(type="mini_program", content=json.dumps(card, ensure_ascii=False), service_step="member_day"))
+    context.prepared[call_id] = messages
+    return _result(call_id, "member_day.send", "prepared", prepared_refs=[call_id], delivery_truth="prepared_not_sent", final_response_instruction="只引用此 prepared ref，包含本次尚未交付的会员日介绍或官方小程序卡片；可在前面加一句养护承接，不再另写或复述活动、福利和小程序介绍，不另发文字口令或链接。")
 
 
 async def _service_record(*, call_id, arguments, context):

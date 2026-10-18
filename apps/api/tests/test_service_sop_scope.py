@@ -182,7 +182,8 @@ async def test_tutorial_intro_and_member_card_use_real_delivery_state(monkeypatc
     assert get_service_delivery_state(message.user_id)["delivered_steps"] == []
     await record_ai_turn(message=message, result={"outbound_messages": [m.model_dump() for m in messages], "route": "agent"})
     state = get_service_delivery_state(message.user_id)
-    assert set(state["delivered_steps"]) == {"tutorial", "introduction", "environment_request"}
+    assert {"tutorial", "introduction", "environment_request"} <= set(state["delivered_steps"])
+    assert any(step.startswith("tutorial:") for step in state["delivered_steps"])
     workspace["service_sop"].update(state)
     assert (await execute_agent_tool(call_id="intro", name="service.introduce", arguments={}, context=context)).status == "forbidden"
     result = await execute_agent_tool(call_id="member", name="member_day.send", arguments={}, context=context)
@@ -250,3 +251,52 @@ async def test_service_purchase_signal_hands_off_before_product_tools(monkeypatc
     reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id=message.user_id), workspace={"profile": {"customer_tags": ["服务中"]}})
     assert reply.need_human and reply.route == "human"
     assert [item["tool"] for item in reply.metadata["agent_runtime"]["tool_trace"]] == ["human.handoff"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("completed,remaining", [("member_day_intro", "member_day"), ("member_day", "member_day_intro")])
+async def test_member_delivery_only_prepares_missing_part(completed, remaining):
+    context = _context(sop_scope="service")
+    context.workspace["service_sop"] = {"delivered_steps": [completed]}
+    result = await execute_agent_tool(call_id="member", name="member_day.send", arguments={}, context=context)
+    assert result.status == "prepared"
+    assert [item.service_step for item in context.prepared["member"]] == [remaining]
+
+
+@pytest.mark.asyncio
+async def test_repeated_prepared_reference_only_expands_once(monkeypatch, tmp_path):
+    from test_service_material_touch_service import _configure
+    from test_agent_harness_v2 import _message, _decision
+    from app.domains.customers.schemas.state import UserState
+    from app.domains.decisioning.schemas.agent import AgentTurnDecision
+    from app.domains.decisioning.services.agent_runtime import _finalize_reply
+
+    _configure(monkeypatch, tmp_path)
+    message = _message("好的，谢谢")
+    context = AgentExecutionContext(message=message, user_state=UserState(user_id=message.user_id), workspace={})
+    await execute_agent_tool(call_id="member", name="member_day.send", arguments={}, context=context)
+    decision = AgentTurnDecision.model_validate(_decision(final={"messages": [
+        {"type": "prepared", "ref": "member"}, {"type": "prepared", "ref": "member"},
+    ]})["data"])
+    reply = await _finalize_reply(decision=decision, context=context, usage={}, tool_results=[], quality_flags=[], attempt_trace=[])
+    assert [item.type for item in reply.outbound_messages] == ["text", "mini_program"]
+
+
+def test_saved_service_facts_reach_workspace_and_prevent_repeated_environment_request(monkeypatch, tmp_path):
+    from test_service_material_touch_service import _configure
+    from test_agent_harness_v2 import _message
+    from app.domains.customers.schemas.state import UserState
+    from app.domains.conversations.services.chat_orchestrator import _customer_workspace
+    from app.domains.decisioning.services.service_sop import build_service_context
+    from app.domains.decisioning.services.agent_tools import _service_intro_messages
+
+    _configure(monkeypatch, tmp_path)
+    message = _message()
+    user_state = UserState(user_id=message.user_id)
+    facts = {"province": {"value": "浙江"}, "environment": {"value": "阳台"}, "preference": {"value": "喜欢香花"}}
+    workspace = _customer_workspace(message=message, user_state=user_state, profile_bundle={"profile": {"service_facts": facts}})
+    workspace["service_sop"] = build_service_context(workspace["profile"])
+    context = AgentExecutionContext(message=message, user_state=user_state, workspace=workspace)
+    assert workspace["service_sop"]["facts"] == facts
+    assert not workspace["service_sop"]["collect_preferences"]
+    assert [item.service_step for item in _service_intro_messages(context)] == ["introduction"]

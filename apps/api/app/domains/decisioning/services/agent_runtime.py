@@ -448,6 +448,7 @@ async def _finalize_reply(
     outbound: list[OutboundMessage] = []
     visible_texts: list[str] = []
     suppressed_invitation = False
+    used_refs: set[str] = set()
     for item in final.messages:
         if item.type == "text":
             content = str(item.content or "").strip()
@@ -461,7 +462,8 @@ async def _finalize_reply(
             continue
         ref = str(item.ref or "").strip()
         prepared = context.prepared.get(ref)
-        if prepared:
+        if prepared and ref not in used_refs:
+            used_refs.add(ref)
             outbound.extend(prepared)
     outbound = outbound[:7 if reply_policy.sop_scope_for_message(context.message) == "service" else 5]
     visible_texts = [message.content for message in outbound if message.type == "text"]

@@ -36,11 +36,13 @@ def risk_control_db(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_first_order_master_switch_prevents_opening(monkeypatch):
     from app.integrations.eyun.services import message_risk_control_service as service
+    from app.domains.sales.services import sop_policy_service
     monkeypatch.setattr(service, "is_sop_enabled", lambda scope: False)
+    monkeypatch.setattr(sop_policy_service, "get_sop_settings", lambda: {})
     async def unexpected(**kwargs):
         raise AssertionError("disabled first-order SOP must not send an opening")
     monkeypatch.setattr(service, "enqueue_eyun_outbound", unexpected)
-    await service._send_opening_for_new_friend({})
+    await service._send_opening_for_new_friend({"from_user": "customer", "target_wc_id": "customer"})
 
 
 def test_risk_control_defaults():
@@ -86,6 +88,187 @@ async def test_delivery_key_reuses_existing_outbound():
     assert first["delivery_key"] == "service_material_touch:501:copy"
     with service._get_session() as session:
         assert session.query(EyunOutboundMessageModel).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_service_actions_survive_real_inbound_queue_across_turns(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+    from app.domains.conversations.services.conversation_service import record_ai_turn
+    from app.domains.conversations.schemas.event import NormalizedMessage
+    from app.domains.decisioning.services.service_sop import MEMBER_DAY_INTRODUCTION, MEMBER_DAY_MINI_PROGRAM_CARD
+
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    messages = [
+        {"type": "text", "content": MEMBER_DAY_INTRODUCTION, "service_step": "member_day_intro"},
+        {"type": "mini_program", "content": json.dumps(MEMBER_DAY_MINI_PROGRAM_CARD), "service_step": "member_day"},
+    ]
+
+    async def answer(request):
+        result = {"route": "agent", "outbound_messages": messages + messages}
+        await record_ai_turn(message=NormalizedMessage(
+            trace_id="turn-" + request.message, channel=request.channel, user_id=request.user_id,
+            session_id=request.session_id, message=request.message, kb_id=request.kb_id, metadata=request.metadata,
+        ), result=result)
+        return result
+
+    async def contact(**kwargs):
+        return {}
+
+    monkeypatch.setattr(service, "handle_chat", answer)
+    monkeypatch.setattr(service, "get_eyun_contact_snapshot", contact)
+    for turn in range(2):
+        await service.enqueue_eyun_inbound({"account": "acct", "messageType": "60001", "wcId": "bot", "data": {
+            "wId": "wid", "fromUser": "customer", "content": f"谢谢{turn}", "newMsgId": turn + 1,
+        }})
+        now += timedelta(seconds=30)
+        assert await service.process_due_eyun_inbound_batches() == 1
+        service._sessionmakers.clear()
+
+    with service._get_session() as session:
+        rows = session.query(EyunOutboundMessageModel).all()
+        assert len(rows) == 2
+        assert len({row.delivery_key for row in rows}) == 2
+        assert rows[1].depends_on_outbound_id == rows[0].id
+        recorded = session.query(ConversationMessageModel).filter_by(sender_type="ai").all()
+        assert len(recorded) == 2
+        assert {json.loads(row.metadata_json)["service_step"] for row in recorded} == {"member_day_intro", "member_day"}
+
+
+@pytest.mark.asyncio
+async def test_service_card_retry_reuses_original_without_resending_intro(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+    from app.integrations.eyun.services import eyun_callback_service as callback
+    from app.domains.decisioning.services.service_sop import MEMBER_DAY_INTRODUCTION, MEMBER_DAY_MINI_PROGRAM_CARD
+
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    calls = []
+
+    async def send_text(**kwargs):
+        calls.append("intro")
+        return {"code": "1000", "data": {"newMsgId": "intro-1"}}
+
+    async def send_card(**kwargs):
+        calls.append("card")
+        if calls.count("card") == 1:
+            raise RuntimeError("Eyun send failed: code=2001")
+        return {"code": "1000", "data": {"newMsgId": "card-1"}}
+
+    monkeypatch.setattr(callback, "send_eyun_text", send_text)
+    monkeypatch.setattr(callback, "send_eyun_mini_program", send_card)
+    common = {"w_id": "wid", "wc_id": "customer", "source_batch_key": "test:sop", "due_at": now}
+    intro_args = {**common, "content": MEMBER_DAY_INTRODUCTION, "delivery_metadata": {"service_step": "member_day_intro"}}
+    intro = await service.enqueue_wechat_outbound(**intro_args)
+    card_args = {**common, "content": json.dumps(MEMBER_DAY_MINI_PROGRAM_CARD), "message_type": "mini_program",
+                 "depends_on_outbound_id": intro["id"], "delivery_metadata": {"service_step": "member_day"}}
+    card = await service.enqueue_wechat_outbound(**card_args)
+    await service.process_due_eyun_outbound_messages()
+    now += timedelta(seconds=30)
+    await service.process_due_eyun_outbound_messages()
+    assert calls == ["intro", "card"]
+    with service._get_session() as session:
+        assert session.get(EyunOutboundMessageModel, card["id"]).status == "failed"
+    assert (await service.enqueue_wechat_outbound(**intro_args))["id"] == intro["id"]
+    assert (await service.enqueue_wechat_outbound(**card_args))["id"] == card["id"]
+    service.retry_eyun_conversation_message_delivery(card["conversation_message_id"])
+    now += timedelta(seconds=30)
+    await service.process_due_eyun_outbound_messages()
+    assert calls == ["intro", "card", "card"]
+    with service._get_session() as session:
+        assert session.query(EyunOutboundMessageModel).count() == 2
+        assert session.get(EyunOutboundMessageModel, card["id"]).status == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_verified_historical_service_messages_block_new_queue_items():
+    from app.integrations.eyun.services import message_risk_control_service as service
+    from app.domains.conversations.services.conversation_service import ensure_outbound_conversation_message, get_service_delivery_state
+    from app.domains.decisioning.services.customer_reply_formatter import split_customer_messages
+    from app.domains.decisioning.services.service_sop import MEMBER_DAY_INTRODUCTION, MEMBER_DAY_MINI_PROGRAM_CARD, SERVICE_OPENING, service_action
+
+    for part in split_customer_messages(MEMBER_DAY_INTRODUCTION):
+        await ensure_outbound_conversation_message(channel="wechat", user_id="customer", session_id="old-owner",
+                                                  content=part, delivery_status="confirmed")
+    await ensure_outbound_conversation_message(channel="wechat", user_id="customer", session_id="old-owner",
+                                              message_type="mini_program", content=json.dumps(MEMBER_DAY_MINI_PROGRAM_CARD),
+                                              delivery_status="confirmed")
+    await ensure_outbound_conversation_message(channel="wechat", user_id="customer", session_id="old-owner",
+                                              content=SERVICE_OPENING, delivery_status="confirmed")
+    tutorial = json.dumps({"title": "宋梅养护", "url": "https://example.com/songmei"})
+    await ensure_outbound_conversation_message(channel="wechat", user_id="customer", session_id="old-owner",
+        message_type="link_card", content=tutorial, metadata={"service_step": "tutorial"}, delivery_status=None)
+    await ensure_outbound_conversation_message(channel="wechat", user_id="customer", session_id="old-owner",
+        message_type="link_card", content=tutorial, delivery_status="confirmed", reconcile_pending=False)
+    with service._get_session() as session:
+        for row in session.query(ConversationMessageModel).all():
+            row.created_at = datetime.now(timezone.utc) - timedelta(days=60)
+        session.commit()
+    state = get_service_delivery_state("customer")
+    assert {"member_day_intro", "member_day", "order_intake", service_action("tutorial", tutorial)} <= set(state["delivered_steps"])
+    for step, kind, content in [
+        ("member_day_intro", "text", MEMBER_DAY_INTRODUCTION),
+        ("member_day", "mini_program", json.dumps(MEMBER_DAY_MINI_PROGRAM_CARD)),
+        ("order_intake", "text", SERVICE_OPENING),
+        ("tutorial", "link_card", tutorial),
+    ]:
+        result = await service.enqueue_wechat_outbound(w_id="wid", wc_id="customer", source_batch_key="new-turn",
+            content=content, message_type=kind, delivery_metadata={"service_step": step})
+        assert result["status"] == "skipped"
+    with service._get_session() as session:
+        assert session.query(EyunOutboundMessageModel).count() == 0
+
+    await ensure_outbound_conversation_message(channel="wechat", user_id="other-customer", session_id="old-owner",
+        message_type="mini_program", content=json.dumps({**MEMBER_DAY_MINI_PROGRAM_CARD, "page_path": "pages/product"}),
+        delivery_status="confirmed")
+    assert "member_day" not in get_service_delivery_state("other-customer")["delivered_steps"]
+
+
+@pytest.mark.asyncio
+async def test_service_dedup_keeps_customers_materials_and_normal_messages_independent():
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    ids = []
+    for customer, url in [("one", "a"), ("one", "a"), ("one", "b"), ("two", "a")]:
+        row = await service.enqueue_wechat_outbound(w_id="wid", wc_id=customer, source_batch_key=f"test:{len(ids)}",
+            message_type="link_card", content=json.dumps({"title": "养护教程", "url": f"https://example.com/{url}"}),
+            delivery_metadata={"service_step": "tutorial"})
+        ids.append(row["id"])
+    assert ids[0] == ids[1]
+    assert len(set(ids)) == 3
+    for turn in range(2):
+        await service.enqueue_wechat_outbound(w_id="wid", wc_id="one", source_batch_key=f"question:{turn}", content="看植料干湿再浇水。")
+    with service._get_session() as session:
+        assert session.query(EyunOutboundMessageModel).count() == 5
+
+
+@pytest.mark.asyncio
+async def test_service_concurrent_stale_reads_still_create_one_delivery(monkeypatch):
+    import asyncio
+    from app.integrations.eyun.services import message_risk_control_service as service
+
+    ensure = service.ensure_outbound_conversation_message
+    waiting = asyncio.Event()
+    arrivals = []
+
+    async def overlap(**kwargs):
+        message = await ensure(**kwargs)
+        arrivals.append(message["id"])
+        if len(arrivals) == 2:
+            waiting.set()
+        await asyncio.wait_for(waiting.wait(), timeout=5)
+        return message
+
+    monkeypatch.setattr(service, "get_service_delivery_state", lambda _: {"delivered_steps": [], "pending_steps": []})
+    monkeypatch.setattr(service, "ensure_outbound_conversation_message", overlap)
+    results = await asyncio.gather(*[
+        service.enqueue_wechat_outbound(w_id="wid", wc_id="customer", source_batch_key=f"concurrent:{turn}",
+            content="会员介绍", delivery_metadata={"service_step": "member_day_intro"}) for turn in range(2)
+    ])
+    assert results[0]["id"] == results[1]["id"]
+    with service._get_session() as session:
+        assert session.query(EyunOutboundMessageModel).count() == 1
+        assert session.query(ConversationMessageModel).count() == 1
 
 
 def test_legacy_confirmation_retry_is_migrated_to_unconfirmed():
@@ -952,6 +1135,7 @@ async def test_opening_slots_persistently_serialize_customers(monkeypatch):
 async def test_opening_node_switch_hands_off_before_sending(monkeypatch):
     from app.integrations.eyun.services import message_risk_control_service as service
 
+    monkeypatch.setattr(service, "is_sop_enabled", lambda scope: scope == "first_order")
     captured = {}
 
     async def fake_force_handoff(conversation_id, operator_id, reason):
@@ -990,19 +1174,9 @@ async def test_new_friend_opening_sends_service_copy_without_first_order_package
     from app.integrations.eyun.services import message_risk_control_service as service
 
     now = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
-    queued = []
-    recorded = []
 
     async def ignore_memories(*args, **kwargs):
         return None
-
-    async def ensure_message(**kwargs):
-        recorded.append(kwargs)
-        return {"id": 100 + len(queued)}
-
-    async def enqueue(**kwargs):
-        queued.append(kwargs)
-        return {"id": 200 + len(queued)}
 
     async def reserve_slots(*, w_id, message_count):
         assert w_id == "wid"
@@ -1010,8 +1184,6 @@ async def test_new_friend_opening_sends_service_copy_without_first_order_package
         return [now]
 
     monkeypatch.setattr(service, "_record_opening_memories", ignore_memories)
-    monkeypatch.setattr(service, "ensure_outbound_conversation_message", ensure_message)
-    monkeypatch.setattr(service, "enqueue_eyun_outbound", enqueue)
     monkeypatch.setattr(service, "_reserve_opening_delivery_slots", reserve_slots)
 
     await service._send_opening_for_new_friend(
@@ -1025,12 +1197,16 @@ async def test_new_friend_opening_sends_service_copy_without_first_order_package
         }
     )
 
-    assert [item["due_at"] for item in queued] == [now]
-    assert [item["depends_on_outbound_id"] for item in queued] == [None]
-    assert [item["route"] for item in recorded] == ["opening"]
-    assert queued[0]["content"] == service.SERVICE_OPENING
-    assert "老朋友，欢迎加到我私人微信～" in queued[0]["content"]
-    assert "有老客专属铭品、成套组合福利" in queued[0]["content"]
+    with service._get_session() as session:
+        queued = session.query(EyunOutboundMessageModel).one()
+        recorded = session.query(ConversationMessageModel).filter_by(sender_type="ai").one()
+        assert queued.due_at.replace(tzinfo=timezone.utc) == now
+        assert queued.depends_on_outbound_id is None
+        assert queued.delivery_key.endswith(":order_intake")
+        assert recorded.route == "opening"
+        assert json.loads(recorded.metadata_json)["service_step"] == "order_intake"
+        assert queued.content == service.SERVICE_OPENING
+        assert "订单截图" in queued.content
 
 
 @pytest.mark.asyncio

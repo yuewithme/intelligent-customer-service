@@ -866,6 +866,9 @@ async def record_ai_turn(*, message, result: dict) -> None:
             )
         outbound_messages = _result_outbound_messages(result)
         for outbound in outbound_messages:
+            if outbound.get("service_step") and message.metadata.get("provider") == "eyun" and not simulated_delivery:
+                # The queue owns these records so a suppressed action cannot appear as pending delivery.
+                continue
             message_type = outbound["type"]
             outbound_content = outbound["content"]
             outbound_metadata = _outbound_metadata(
@@ -2869,19 +2872,56 @@ def _refresh_repaired_conversation(
 
 
 def get_service_delivery_state(user_id: str) -> dict:
+    from app.domains.decisioning.services.customer_reply_formatter import plain_customer_text, split_customer_messages
+    from app.domains.decisioning.services.service_sop import MEMBER_DAY_MINI_PROGRAM_CARD, SERVICE_ONCE_TEXTS, service_action
+
+    text_variants = {
+        step: [(whole, split_customer_messages(value)) for value in values for whole in {value, plain_customer_text(value)}]
+        for step, values in SERVICE_ONCE_TEXTS.items()
+    }
+    exact_texts = {value for variants in text_variants.values() for whole, parts in variants for value in [whole, *parts]}
     delivered, pending = set(), set()
     with _get_session() as session:
-        rows = session.execute(select(ConversationMessageModel.delivery_status, ConversationMessageModel.metadata_json)
+        rows = session.execute(select(ConversationMessageModel.delivery_status, ConversationMessageModel.metadata_json, ConversationMessageModel.content)
             .join(ConversationModel, ConversationModel.conversation_id == ConversationMessageModel.conversation_id)
-            .where(ConversationModel.user_id == user_id, ConversationMessageModel.metadata_json.contains('"service_step"'))
-            .order_by(ConversationMessageModel.id.desc()).limit(200)).all()
-    for status, raw in rows:
-        metadata = _load_metadata(raw)
-        step = metadata.get("service_step")
-        if not isinstance(step, str) or not step:
+            .where(ConversationModel.user_id == user_id,
+                   ConversationMessageModel.sender_type.in_(("ai", "human")),
+                   or_(ConversationMessageModel.metadata_json.contains('"service_step"'),
+                       ConversationMessageModel.metadata_json.contains('"mini_program"'),
+                       ConversationMessageModel.metadata_json.contains('"link_card"'),
+                       ConversationMessageModel.content.in_(exact_texts)))).all()
+    parsed = [(status, _load_metadata(raw), content) for status, raw, content in rows]
+    tutorial_urls = {metadata["link_card"].get("url") for _, metadata, _ in parsed
+                     if metadata.get("service_step") == "tutorial" and isinstance(metadata.get("link_card"), dict)}
+    cards = [MEMBER_DAY_MINI_PROGRAM_CARD, get_settings().service_member_day_mini_program_card or {}]
+    delivered_texts, pending_texts = set(), set()
+    for status, metadata, content in parsed:
+        if metadata.get("evaluation_id"):
             continue
+        target = None
         if status in {"sent", "accepted", "confirmed"} or (status == "unconfirmed" and (metadata.get("delivery_timestamps") or {}).get("accepted_at")):
+            target, texts = delivered, delivered_texts
+        elif status in {"queued", "sending", "waiting_material", "delivery_unknown", "unconfirmed"}:
+            target, texts = pending, pending_texts
+        if target is None:
+            continue
+        texts.add(content)
+        step = metadata.get("service_step")
+        mini = metadata.get("mini_program") or {}
+        link = metadata.get("link_card") or {}
+        if not step and isinstance(mini, dict) and any(
+            card.get("app_id") and mini.get("app_id") == card.get("app_id") and mini.get("page_path") == card.get("page_path") for card in cards
+        ):
+            step = "member_day"
+        if not step and isinstance(link, dict) and link.get("url") and link.get("url") in tutorial_urls:
+            step = "tutorial"
+        action = service_action(step, json.dumps(link))
+        if action:
+            target.update((step, action))
+    # Older text splitting dropped service_step; only complete, exact templates count.
+    for step, variants in text_variants.items():
+        if any(whole in delivered_texts or set(parts) <= delivered_texts for whole, parts in variants):
             delivered.add(step)
-        elif status in {None, "queued", "sending", "waiting_material"}:
+        elif any(whole in pending_texts or set(parts) <= delivered_texts | pending_texts for whole, parts in variants):
             pending.add(step)
     return {"delivered_steps": sorted(delivered), "pending_steps": sorted(pending - delivered)}
