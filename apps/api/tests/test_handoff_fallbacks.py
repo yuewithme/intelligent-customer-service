@@ -1,6 +1,14 @@
 from fastapi.testclient import TestClient
+import pytest
 
+from app.core.config import get_settings
+from app.domains.conversations.services.service_handoff_service import HANDOFF_CONFIRMATION
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def isolated_conversation_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(get_settings(), "chat_log_db_url", f"sqlite:///{tmp_path / 'chat.db'}")
 
 
 def _chat(message: str) -> dict:
@@ -18,10 +26,10 @@ def _chat(message: str) -> dict:
     return response.json()["data"]
 
 
-def test_explicit_human_request_triggers_handoff_without_reply():
+def test_explicit_human_request_confirms_handoff():
     data = _chat("我要转人工")
 
-    assert data["answer"] == ""
+    assert data["answer"] == HANDOFF_CONFIRMATION
     assert data["route"] == "human"
     assert data["reply_type"] == "human"
     assert data["need_human"] is True

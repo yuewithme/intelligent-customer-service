@@ -8,7 +8,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.core.config import get_settings
-from app.domains.decisioning.schemas.agent import AgentTurnDecision
+from app.domains.decisioning.schemas.agent import AgentFinalResponse, AgentTurnDecision, AgentVisibleMessage
+from app.domains.conversations.services import service_handoff_service as service_handoff
 from app.domains.decisioning.schemas.execution import AgentExecutionContext
 from app.domains.decisioning.schemas.reply import FinalReply, OutboundMessage
 from app.domains.decisioning.services import agent_reply_policy as reply_policy
@@ -75,6 +76,14 @@ async def run_sales_agent(
         user_state=user_state,
         workspace=workspace,
     )
+    offer_state = service_handoff.load_service_handoff(message)
+    workspace["service_handoff"] = offer_state
+    confirmed = service_handoff.confirmed_handoff_reason(message, offer_state)
+    if confirmed:
+        return await _confirmed_service_handoff(context, confirmed, {}, [])
+    if offer_state.get("awaiting") and not message.metadata.get("system_event"):
+        # Consume the pending question even if generation falls back or is interrupted.
+        service_handoff.save_service_handoff(message, {**offer_state, "awaiting": False})
     event_context = _event_context(message)
     conversation: list[dict[str, str]] = [
         {"role": "system", "content": build_system_prompt(sop_scope=sop_scope, sop_scopes=sop_scopes)},
@@ -183,6 +192,20 @@ async def run_sales_agent(
             )
 
         latest_decision = decision
+        confirmed = service_handoff.confirmed_handoff_reason(message, offer_state, decision.service_handoff)
+        if confirmed:
+            return await _confirmed_service_handoff(context, confirmed, usage, attempt_trace)
+        ask_before_handoff = (
+            (decision.service_handoff.invitation_reason != "none"
+             or decision.service_handoff.invitation_response != "none")
+            and not reply_policy.required_handoff_reason(str(message.message or ""))
+            and decision.purchase_signal == "none"
+        )
+        if ask_before_handoff:
+            requested_handoff = any(call.name == "human.handoff" for call in decision.tool_calls)
+            decision.tool_calls = [call for call in decision.tool_calls if call.name != "human.handoff"]
+            if (requested_handoff and not decision.tool_calls) or (decision.final_response and decision.final_response.need_human):
+                decision.final_response = AgentFinalResponse(messages=[AgentVisibleMessage(type="text", content="我会继续帮您处理这个问题。")])
         if scope in flows:
             cursors[scope] = step_id
         diagnostic = _decision_diagnostic(
@@ -424,9 +447,13 @@ async def _finalize_reply(
     assert final is not None
     outbound: list[OutboundMessage] = []
     visible_texts: list[str] = []
+    suppressed_invitation = False
     for item in final.messages:
         if item.type == "text":
             content = str(item.content or "").strip()
+            for invitation_text in (service_handoff.CLOSING_INVITATION, service_handoff.DISSATISFIED_INVITATION):
+                suppressed_invitation = suppressed_invitation or invitation_text in content
+                content = content.replace(invitation_text, "").strip()
             if content:
                 for message in split_customer_messages(content):
                     visible_texts.append(message)
@@ -450,20 +477,29 @@ async def _finalize_reply(
             context=context,
         )
     need_human = context.handoff is not None or final.need_human
-    answer = "\n\n".join(visible_texts)
+    if reply_policy.is_first_order_opening(context):
+        outbound = _insert_opening_image(outbound)
+    offer_state = dict(context.workspace.get("service_handoff") or {})
+    if need_human:
+        offer_state["awaiting"] = False
+    else:
+        offer_state, invitation = service_handoff.advance_service_handoff(context.message, offer_state, decision.service_handoff)
+        if invitation:
+            outbound.append(OutboundMessage(type="text", content=invitation, split=False))
+    if not outbound and not need_human and suppressed_invitation:
+        outbound.append(OutboundMessage(type="text", content="好的，我继续帮您解答。"))
     if not outbound and not need_human:
         await execute_agent_tool(
             call_id="system_empty_reply_handoff",
             name="human.handoff",
-            arguments={
-                "reason": "empty_agent_reply",
-                "summary": decision.commercial_judgment,
-            },
+            arguments={"reason": "empty_agent_reply", "summary": decision.commercial_judgment},
             context=context,
         )
         need_human = True
-    if reply_policy.is_first_order_opening(context):
-        outbound = _insert_opening_image(outbound)
+        offer_state["awaiting"] = False
+    service_handoff.save_service_handoff(context.message, offer_state)
+    visible_texts = [item.content for item in outbound if item.type == "text"]
+    answer = "\n\n".join(visible_texts)
     return FinalReply(
         answer=answer,
         answer_segments=visible_texts,
@@ -486,6 +522,7 @@ async def _finalize_reply(
                 "sop_node": decision.sop_node,
                 "customer_signal": decision.customer_signal,
                 "purchase_signal": decision.purchase_signal,
+                "service_handoff": {"assessment": decision.service_handoff.model_dump(), "state": offer_state},
                 "tool_trace": tool_results,
                 "hard_violations": [],
                 "quality_flags": quality_flags,
@@ -499,6 +536,24 @@ async def _finalize_reply(
             **({"handoff": context.handoff} if context.handoff else {}),
         },
     )
+
+
+async def _confirmed_service_handoff(
+    context: AgentExecutionContext, reason: str, usage: dict[str, int], attempt_trace: list[dict[str, Any]],
+) -> FinalReply:
+    decision = AgentTurnDecision(
+        commercial_judgment="客户明确要求或确认由人工继续处理当前问题",
+        relationship_purpose="按客户意愿转接人工并停止自动回复",
+        sop_node="general.reply",
+        final_response=AgentFinalResponse(
+            messages=[AgentVisibleMessage(type="text", content=service_handoff.HANDOFF_CONFIRMATION)],
+            need_human=True, handoff_reason=reason,
+        ),
+    )
+    reply = await _finalize_reply(decision=decision, context=context, usage=usage,
+        tool_results=[], quality_flags=[], attempt_trace=attempt_trace)
+    reply.reply_type = "human"
+    return reply
 
 
 async def _sop_node_handoff_reply(

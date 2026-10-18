@@ -136,6 +136,8 @@ const handoffReasonText = (value?: string | null) =>
   ({
     workbench_typing: '正在输入回复',
     manual_force_handoff: '人工主动接管',
+    customer_requested_human: '客户主动要求转人工',
+    service_handoff_invitation_accepted: '客户同意由业务主管接手',
     human_required: '需要人工处理',
     unsupported_message_type: '非文本消息需人工处理',
     advanced_customer_level: '高阶客户需人工处理',

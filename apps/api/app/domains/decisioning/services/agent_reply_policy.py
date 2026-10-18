@@ -746,7 +746,9 @@ def required_handoff_reason(text: str) -> str | None:
     normalized = re.sub(r"\s+", "", text)
     if not normalized:
         return None
-    if re.search(r"(?:转|找|要|叫|联系|换)(?:一下)?(?:人工|真人|客服)", normalized):
+    from app.domains.conversations.services.service_handoff_service import directly_requests_human
+
+    if directly_requests_human(normalized):
         return "customer_requested_human"
     if any(
         marker in normalized
