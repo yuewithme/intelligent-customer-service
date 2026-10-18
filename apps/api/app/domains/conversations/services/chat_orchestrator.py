@@ -9,6 +9,7 @@ from app.core.trace_context import reset_trace_id, set_trace_id
 from app.domains.conversations.schemas.chat import ChatRequest
 from app.domains.conversations.services.channel_service import normalize_chat_request
 from app.domains.conversations.services.media_context_service import get_recent_customer_media
+from app.domains.conversations.services.conversation_context_service import get_conversation_context
 from app.domains.conversations.services.chat_log_service import record_chat_log
 from app.domains.conversations.services.conversation_service import (
     AI_WAITING,
@@ -165,6 +166,15 @@ async def handle_chat(request: ChatRequest) -> dict:
             conversation_char_budget=FULL_CONVERSATION_CHAR_BUDGET,
             conversation_session_id=message.session_id,
         )
+        if not is_evaluation:
+            conversation_context = get_conversation_context(
+                make_conversation_id(message.channel, message.user_id, message.session_id),
+                # The gateway may already have stored the current message, which is removed from history later.
+                FULL_CONVERSATION_CHAR_BUDGET + len(message.message or ""),
+            )
+            if conversation_context is not None:
+                profile_bundle["recent_memories"] = conversation_context["turns"]
+                profile_bundle["conversation_context"] = conversation_context
         workspace = _customer_workspace(
             message=message,
             user_state=user_state,
@@ -377,8 +387,10 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
         "recent_turns": [
             {
                 "role": item.get("role"),
-                "content": str(item.get("content") or "")[:1200],
+                "content": str(item.get("content") or ""),
                 "created_at": item.get("created_at"),
+                **({"sender_type": item["sender_type"]} if item.get("sender_type") else {}),
+                **({"message_id": item["message_id"]} if item.get("message_id") else {}),
             }
             for item in recent
             if isinstance(item, dict) and item.get("content")
@@ -386,8 +398,16 @@ def _customer_workspace(*, message, user_state, profile_bundle: dict) -> dict[st
         "evidence_memory": (
             memory_context if isinstance(memory_context, dict) else {}
         ),
+        "memory_availability": {
+            key: (user_state.metadata.get("memory_v2_trace") or {}).get(key)
+            for key in ("status", "injected")
+        },
         "relationship_state": relationship,
         "known_business_context": _safe_business_context(message.metadata),
+        "conversation_history": {
+            "source": (profile_bundle.get("conversation_context") or {}).get("source", "legacy_memory"),
+            "delivery_notes": (profile_bundle.get("conversation_context") or {}).get("delivery_notes", []),
+        },
         "unknowns": [
             "动态商品、价格、库存、订单和权益必须在当前轮通过工具核实"
         ],

@@ -127,6 +127,10 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
         return media_context
 
     monkeypatch.setattr(chat_orchestrator, "get_recent_customer_media", recent_media)
+    actual_turns = [{"role": "assistant", "sender_type": "human", "content": "您喜欢什么花色？"}]
+    monkeypatch.setattr(chat_orchestrator, "get_conversation_context", lambda *_: {
+        "turns": actual_turns, "source": "conversation_messages", "delivery_notes": [],
+    })
 
     async def fake_recover_automatic_handoff(**kwargs):
         del kwargs
@@ -145,7 +149,7 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
 
     async def fake_get_profile_bundle(*args, **kwargs):
         del args, kwargs
-        return {"profile": {}, "recent_memories": []}
+        return {"profile": {}, "recent_memories": [{"role": "assistant", "content": "尚未发送的草稿"}]}
 
     async def fake_run_sales_agent(*, message, user_state, workspace):
         del user_state
@@ -202,6 +206,9 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
 
     expected = memory_context.model_dump(mode="json")
     assert captured["workspace"]["evidence_memory"] == expected
+    assert captured["workspace"]["recent_turns"][0]["content"] == "您喜欢什么花色？"
+    assert captured["workspace"]["conversation_history"]["source"] == "conversation_messages"
+    assert captured["workspace"]["memory_availability"] == {"status": "canary", "injected": True}
     from app.domains.decisioning.services.agent_prompt import build_turn_payload
     import json
     agent_input = json.loads(build_turn_payload(

@@ -40,9 +40,11 @@ def plain_customer_text(text: str) -> str:
     return "\n".join(lines)
 
 
-def split_customer_messages(text: str) -> list[str]:
+def split_customer_messages(text: str, *, split_long: bool = True) -> list[str]:
     """Preserve semantic paragraphs; split only genuinely long customer messages."""
     semantic_messages = _semantic_messages(text)
+    if not split_long:
+        return semantic_messages
     if len(semantic_messages) > 1:
         split_messages: list[str] = []
         pending = ""

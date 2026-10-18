@@ -7,7 +7,14 @@ from app.infrastructure.database.models import ConversationMessageModel
 
 
 def message_context_text(message: dict) -> str:
-    media = (message.get("metadata") or {}).get("media")
+    metadata = message.get("metadata") or {}
+    media = metadata.get("media")
+    for key, label in (("link_card", "链接卡片"), ("mini_program", "小程序")):
+        card = metadata.get(key)
+        if isinstance(card, dict):
+            details = [str(card.get(field) or "").strip() for field in ("title", "description")]
+            if any(details):
+                return f"[{label}] " + "；".join(part for part in details if part)
     labels = {"image": "图片", "audio": "语音", "video": "视频"}
     if not isinstance(media, dict) or media.get("type") not in labels:
         return str(message.get("content") or "").strip()
@@ -41,7 +48,7 @@ def get_recent_customer_media(conversation_id: str) -> list[dict]:
                 metadata = json.loads(row.metadata_json or "{}")
             except (ValueError, TypeError):
                 continue
-            if not isinstance(metadata, dict):
+            if not isinstance(metadata, dict) or metadata.get("revoked_at") or row.delivery_status == "revoked":
                 continue
             media = metadata.get("media") or {}
             if not isinstance(media, dict) or media.get("type") not in {"image", "audio", "video"}:

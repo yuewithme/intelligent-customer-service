@@ -281,11 +281,30 @@ def quality_flags(
     text = "\n".join(text_messages)
     flags: list[str] = []
     customer_text = re.sub(r"\s+", "", str(context.message.message or ""))
-    visible_chars = len(re.sub(r"\s+", "", text))
-    if len(text_messages) > 2:
+    from app.domains.decisioning.services.customer_reply_formatter import split_customer_messages
+    from app.domains.conversations.services.service_handoff_service import advance_service_handoff
+
+    visible_messages = [part for value in text_messages for part in split_customer_messages(value, split_long=False)]
+    prepared_refs = {str(item.ref or "") for item in final.messages if item.type == "prepared"}
+    for ref in prepared_refs:
+        visible_messages.extend(item.content for item in context.prepared.get(ref, [])
+            if item.type == "text" and not getattr(item, "service_step", None))
+    if not final.need_human and context.handoff is None:
+        _, invitation = advance_service_handoff(context.message,
+            context.workspace.get("service_handoff") or {}, decision.service_handoff)
+        if invitation:
+            visible_messages.append(invitation)
+            if any(getattr(item, "service_step", None) in {"introduction", "member_day_intro"}
+                   for ref in prepared_refs for item in context.prepared.get(ref, [])):
+                flags.append("service_introduction_overlaps_handoff_invitation")
+    visible_chars = sum(len(re.sub(r"\s+", "", value)) for value in visible_messages)
+    requested_detail = any(marker in customer_text for marker in (
+        "详细", "完整步骤", "一步一步", "从头到尾", "具体流程", "展开讲", "注意事项",
+    ))
+    if len(visible_messages) > 2 and not requested_detail:
         flags.append("too_many_text_messages")
-    if len(customer_text) <= 20 and visible_chars > 180:
-        flags.append("overexplained_short_turn")
+    if visible_chars > (400 if requested_detail else 180):
+        flags.append("reply_may_be_overexplained")
     if _customer_question_count(text) > 1:
         flags.append("too_many_customer_questions")
     if _LIST_STYLE_PATTERN.search(text) or _MARKDOWN_HEADING_PATTERN.search(text):
@@ -297,12 +316,15 @@ def quality_flags(
 
 def quality_rewrite_instruction(flags: list[str]) -> str:
     return (
-        "当前客户可见回复虽然事实边界安全，但聊天质量不合格。"
-        "请保留本轮商业判断和已经取得的工具事实，重新生成 final_response，不要重新调用已经完成的工具。"
+        "当前回复有可精简的地方，请结合客户实际需要复核。"
+        "请保留本轮商业判断和已经取得的工具事实，优化 final_response，不要重新调用已经完成的工具。"
         "只回应客户这一轮新增的信息；不要重启完整知识问答，也不要一次讲完判断、修剪、消毒、植料、浇水和后续养护等全部阶段。"
-        "普通咨询只发一到两条自然微信消息：先给客户现在最需要执行的一个关键动作；"
+        "普通咨询以60～120字、一到两条自然微信消息为参考，先给客户现在最需要的判断或关键动作；"
         "只有确实会改变下一步处理时才补一个容易回答的问题。删除重复解释、隐形清单、客服腔和说明书式收尾。"
-        "若客户明确要求完整步骤，才允许在不重复、不堆砌的前提下适度展开。"
+        "字数、条数是柔性提醒；客户要求详细、多个问题或操作所需条件和注意事项可以展开，不为达标删掉关键内容。"
+        "以最终会发出的文字整体考虑，给资料文案和主管邀请留出空间，已准备的固定服务交付无需改写，不额外复述。"
+        "主管邀请和大段会员介绍同时出现时，优先本轮服务承接与邀请，会员介绍可留待下次自然机会，不误称已经发出。"
+        "资料、图片或问题刚有新进展时，只承接变化，不重讲整套处理流程；确实缺关键证据时可以先澄清。"
         f"本次质量问题：{', '.join(flags)}"
     )
 
@@ -381,7 +403,7 @@ def sales_trajectory_violations(
     prior_topic_questions: dict[str, int] = {}
     prior_question_texts: list[str] = []
     for item in recent:
-        if str(item.get("role") or "").lower() not in {"assistant", "agent"}:
+        if str(item.get("role") or "").lower() not in {"assistant", "agent", "human"}:
             continue
         text = str(item.get("content") or "")
         if _customer_question_count(text) == 0:
@@ -477,6 +499,7 @@ def _repeats_recent_assistant_content(
             "agent",
             "sales_agent",
             "ai",
+            "human",
         }:
             continue
         prior_chunks.extend(_repeatable_text_chunks(str(item.get("content") or "")))
@@ -594,7 +617,7 @@ def _previous_assistant_turn_text(context: AgentExecutionContext) -> str:
         if not isinstance(item, dict):
             continue
         role = str(item.get("role") or "").lower()
-        if role in {"assistant", "agent", "sales_agent", "ai"}:
+        if role in {"assistant", "agent", "sales_agent", "ai", "human"}:
             content = str(item.get("content") or "").strip()
             if content:
                 chunks.append(content)

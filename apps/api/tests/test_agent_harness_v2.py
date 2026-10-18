@@ -310,8 +310,8 @@ def test_turn_payload_prioritizes_unrelated_current_question_over_previous_flow(
     assert "先判断它是否真的在回答上一问" in payload["turn_focus"]["instruction"]
     assert "以当前消息为主先承接回答" in payload["turn_focus"]["instruction"]
     assert "不要为了完成上一轮提问或销售动作强行拉回" in payload["turn_focus"]["instruction"]
-    assert "第一条可见文字必须先给答案或可执行处理办法" in payload["turn_focus"]["instruction"]
-    assert "索要照片、补充信息或让客户检查不算回答" in payload["turn_focus"]["instruction"]
+    assert "优先直接回答眼前能可靠解答的部分" in payload["turn_focus"]["instruction"]
+    assert "缺少决定性信息时可以先澄清" in payload["turn_focus"]["instruction"]
     assert "上一轮问题也不拥有续接权" in payload["context_priority"]
 
 
@@ -326,8 +326,8 @@ def test_agent_prompts_do_not_address_customer_by_profile_name():
         assert "图片证据不足本身不是转人工条件" in prompt
         assert "不向客户暴露 AI、模型、系统、识别" in prompt
 
-    assert "索要照片、询问症状或让客户自行检查都不算回答" in service_prompt
-    assert "先给安全的起步处理" in service_prompt
+    assert "不强凑处理方案" in service_prompt
+    assert "补图和接续提问只承接新增信息" in service_prompt
 
 
 def test_turn_payload_keeps_latest_full_conversation_within_char_budget():
@@ -2193,8 +2193,8 @@ def test_private_sales_experience_package_is_discoverable_and_service_first():
     prompt = build_system_prompt(sop_scope="first_order")
     assert "陪伴养兰服务＞兰花＞养护产品" in prompt
     assert "先调用 capability.search 加载对应销售经验" in prompt
-    assert "销售是这段关系的主要经营目的" in prompt
-    assert "不能因为问题简单就用“有问题再找我”被动结束" in prompt
+    assert "销售关系建立在有效服务上" in prompt
+    assert "不为了推进销售在每一轮附加服务介绍或试探" in prompt
 
     capabilities = {item.name: item for item in agent_tools.CAPABILITIES}
     expected = {

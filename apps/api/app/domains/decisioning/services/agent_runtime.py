@@ -456,16 +456,15 @@ async def _finalize_reply(
                 suppressed_invitation = suppressed_invitation or invitation_text in content
                 content = content.replace(invitation_text, "").strip()
             if content:
-                for message in split_customer_messages(content):
+                for message in split_customer_messages(content, split_long=False):
                     visible_texts.append(message)
-                    outbound.append(OutboundMessage(type="text", content=message))
+                    outbound.append(OutboundMessage(type="text", content=message, split=False))
             continue
         ref = str(item.ref or "").strip()
         prepared = context.prepared.get(ref)
         if prepared and ref not in used_refs:
             used_refs.add(ref)
             outbound.extend(prepared)
-    outbound = outbound[:7 if reply_policy.sop_scope_for_message(context.message) == "service" else 5]
     visible_texts = [message.content for message in outbound if message.type == "text"]
 
     if final.need_human and context.handoff is None:
