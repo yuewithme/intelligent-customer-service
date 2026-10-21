@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1>养护手册</h1>
-        <p>{{ sourceType === 'course' ? '已添加的有赞专栏每天同步价格、封面、期数和上架状态；Agent 仅可自动发送免费课程。' : '关联商品后，可按客户购买的商品匹配对应养护手册并发送卡片。' }}</p>
+        <p>{{ sourceType === 'course' ? '已添加的有赞专栏每天同步价格、封面、期数和上架状态；Agent 仅可自动发送免费课程。' : '同步时自动关联名称匹配的商品，忽略符号和空格差异；优先发送养护要点，没有时发送养护注意事项。' }}</p>
       </div>
       <div v-if="isAdmin()" class="head-actions">
         <ElButton v-if="sourceType === 'manual'" type="primary" @click="openProductSuggestions">批量关联商品</ElButton>

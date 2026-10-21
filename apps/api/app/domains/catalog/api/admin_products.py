@@ -5,10 +5,13 @@ from app.domains.catalog.schemas.admin_product import (
     ProductKnowledgePayload,
     ProductNoteRequest,
     ProductSortRequest,
+    ProductDeliverySettingsRequest,
 )
 from app.domains.conversations.schemas.chat import APIResponse
 from app.integrations.youzan.services.youzan_product_sync_service import (
     list_products,
+    get_product_delivery_settings,
+    update_product_delivery_settings,
     sync_youzan_products,
     update_product_note,
     update_product_sort,
@@ -63,6 +66,16 @@ async def products(
 async def sync_products() -> APIResponse:
     result = await sync_youzan_products(trigger="manual")
     return APIResponse(code=0, message="success", data=result)
+
+
+@router.get("/delivery-settings", response_model=APIResponse)
+async def product_delivery_settings() -> APIResponse:
+    return APIResponse(code=0, message="success", data=get_product_delivery_settings())
+
+
+@router.put("/delivery-settings", response_model=APIResponse)
+async def save_product_delivery_settings(request: ProductDeliverySettingsRequest) -> APIResponse:
+    return APIResponse(code=0, message="success", data=update_product_delivery_settings(request.ai_send_enabled))
 
 
 @router.get("/options", response_model=APIResponse)

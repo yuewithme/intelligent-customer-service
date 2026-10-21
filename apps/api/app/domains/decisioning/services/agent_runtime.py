@@ -449,6 +449,12 @@ async def _finalize_reply(
     visible_texts: list[str] = []
     suppressed_invitation = False
     used_refs: set[str] = set()
+    product_refs = {ref for ref, fact in context.tool_facts.items() if fact.get("tool") == "product.send_card"}
+    if product_refs:
+        from app.integrations.youzan.services.youzan_product_sync_service import get_product_delivery_settings
+        if not get_product_delivery_settings()["ai_send_enabled"]:
+            for ref in product_refs:
+                context.prepared.pop(ref, None)
     for item in final.messages:
         if item.type == "text":
             content = str(item.content or "").strip()

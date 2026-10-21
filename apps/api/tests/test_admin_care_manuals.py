@@ -31,6 +31,28 @@ def _configure(monkeypatch, tmp_path):
     reset_product_store_for_tests()
 
 
+def test_points_import_fuzzy_links_priority_and_fallback(monkeypatch, tmp_path):
+    from app.domains.sales.services.care_manual_service import _persist_notes, auto_link_care_manual_products
+    from app.integrations.youzan.services.youzan_product_sync_service import _persist_sync
+
+    _configure(monkeypatch, tmp_path)
+    _persist_sync({"101": {"title": "建兰【玉☆白丹红】3苗", "_status": "on_sale"}}, {})
+    _persist_notes([
+        {"note_id": 1, "title": "【建兰玉白丹红】养护注意事项", "note_status": "published", "note_url": "https://example.com/notice"},
+        {"note_id": 2, "title": "【建兰玉·白丹红】养护要点", "note_status": "published", "note_url": "https://example.com/points"},
+        {"note_id": 3, "title": "【春兰红宋梅】养护要点", "note_status": "published", "note_url": "https://example.com/other"},
+    ])
+    assert list_care_manuals()["total"] == 3
+    assert auto_link_care_manual_products()["created_count"] == 2
+    assert auto_link_care_manual_products()["created_count"] == 0
+    result = match_care_manuals(youzan_item_id="101", product_name="建兰玉 白丹红")
+    assert result["auto_send_eligible"] is True
+    assert result["matches"][0]["title"].endswith("养护要点")
+    points = result["matches"][0]["card_id"]
+    update_care_manual(points, {"orchid_name": "建兰玉白丹红", "enabled": False})
+    assert match_care_manuals(youzan_item_id="101")["matches"][0]["title"].endswith("养护注意事项")
+
+
 class FakeProductClient:
     async def call(self, method, version, params):
         del version

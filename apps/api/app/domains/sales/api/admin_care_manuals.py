@@ -10,6 +10,7 @@ from app.domains.sales.schemas.care_manual import (
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.sales.services.care_manual_service import (
     add_care_manual_product_links,
+    auto_link_care_manual_products,
     get_care_manual,
     list_care_manuals,
     suggest_care_manual_product_links,
@@ -56,6 +57,8 @@ async def care_manuals(
 async def run_sync(source_type: str = Query(default="manual", pattern="^(manual|course)$")) -> APIResponse:
     try:
         result = await sync_care_manuals(trigger="manual", source_type=source_type)
+        if source_type == "manual":
+            result["product_links"] = auto_link_care_manual_products()
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except httpx.HTTPError as exc:

@@ -111,6 +111,12 @@ export const syncProducts = () =>
     url: '/api/v1/admin/products/sync'
   })
 
+export const getProductDeliverySettings = () =>
+  request.get<{ ai_send_enabled: boolean }>({ url: '/api/v1/admin/products/delivery-settings' })
+
+export const updateProductDeliverySettings = (ai_send_enabled: boolean) =>
+  request.put<{ ai_send_enabled: boolean }>({ url: '/api/v1/admin/products/delivery-settings', data: { ai_send_enabled } })
+
 export const getProductOptions = () =>
   request.get<ProductOption[]>({ url: '/api/v1/admin/products/options' })
 

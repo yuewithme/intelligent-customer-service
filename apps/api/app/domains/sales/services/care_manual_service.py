@@ -31,7 +31,7 @@ from app.integrations.youzan.services.youzan_token_service import (
 
 
 logger = logging.getLogger("wechat_rag_bot.care_manual_sync")
-CARE_MANUAL_TITLE_MARKER = "养护注意事项"
+CARE_MANUAL_TITLE_MARKERS = ("养护要点", "养护注意事项")
 _PUBLISHED_STATUSES = {"published", "publish", "online", "on", "1", "true"}
 _ORCHID_CATEGORIES = ("莲瓣兰", "建兰", "春兰", "蕙兰", "墨兰", "寒兰", "春剑", "秋芝", "送春", "兰花")
 _TABLES = [
@@ -80,7 +80,7 @@ def list_care_manuals(
 ) -> dict[str, Any]:
     with _session() as session:
         base_filters = [or_(
-            (CareManualCardModel.source_type == "manual") & CareManualCardModel.title.contains(CARE_MANUAL_TITLE_MARKER),
+            (CareManualCardModel.source_type == "manual") & _manual_title_filter(),
             CareManualCardModel.source_type == "course",
         )]
         if source_type:
@@ -167,7 +167,7 @@ def list_care_manuals(
 def get_care_manual(card_id: int) -> dict[str, Any]:
     with _session() as session:
         row = session.get(CareManualCardModel, card_id)
-        if row is None or (row.source_type != "course" and CARE_MANUAL_TITLE_MARKER not in row.title):
+        if row is None or (row.source_type != "course" and not any(marker in row.title for marker in CARE_MANUAL_TITLE_MARKERS)):
             raise LookupError("养护手册不存在")
         links = _links_by_card(session, [card_id])
         return _serialize_card(row, links.get(card_id, []))
@@ -178,7 +178,7 @@ def update_care_manual(card_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     now = _now()
     with _session() as session:
         row = session.get(CareManualCardModel, card_id)
-        if row is None or (row.source_type != "course" and CARE_MANUAL_TITLE_MARKER not in row.title):
+        if row is None or (row.source_type != "course" and not any(marker in row.title for marker in CARE_MANUAL_TITLE_MARKERS)):
             raise LookupError("养护手册不存在")
         item_ids = list(dict.fromkeys(payload.get("youzan_item_ids") or []))
         products = {
@@ -237,13 +237,14 @@ def _product_variety_names(title: str) -> tuple[str, set[str]]:
             sources = [label, prefix]
         category_source = prefix + label
     else:
-        sources = [title.split()[0]] if title.strip() else []
+        sources = [re.split(r"\d", title, maxsplit=1)[0]] if title.strip() else []
         category_source = sources[0] if sources else ""
     category = next((name for name in _ORCHID_CATEGORIES if name != "兰花" and name in category_source), "")
     names = set()
     for source in sources:
-        for name in re.split(r"[\s+＋/\\、，,]+", source):
+        for name in [source, *re.split(r"[\s+＋/\\、，,]+", source)]:
             name = re.split(r"\d", name, maxsplit=1)[0]
+            name = _normalize(name)
             name = next((name[len(prefix):] for prefix in _ORCHID_CATEGORIES if name.startswith(prefix)), name)
             if len(_normalize(name)) >= 2:
                 names.add(_normalize(name))
@@ -306,9 +307,15 @@ def suggest_care_manual_product_links() -> dict[str, Any]:
                     "youzan_item_id": product.item_id,
                     "product_name": product.title,
                     "matched_name": name,
-                    "ambiguous": len(related_cards) > 1,
+                    "ambiguous": len({_manual_identity(card) for card in cards if card.id in related_cards}) > 1,
                 })
         return {"items": suggestions}
+
+
+@remote("manuals.auto_link_care_manual_products")
+def auto_link_care_manual_products() -> dict[str, int]:
+    suggestions = suggest_care_manual_product_links()["items"]
+    return add_care_manual_product_links([item for item in suggestions if not item["ambiguous"]])
 
 
 @remote("manuals.add_care_manual_product_links")
@@ -370,7 +377,7 @@ def test_match_care_manuals(
             session.scalars(
                 select(CareManualCardModel).where(
                     or_(
-                        (CareManualCardModel.source_type == "manual") & CareManualCardModel.title.contains(CARE_MANUAL_TITLE_MARKER),
+                        (CareManualCardModel.source_type == "manual") & _manual_title_filter(),
                         (CareManualCardModel.source_type == "course") & (CareManualCardModel.price_cent == 0),
                     ),
                     CareManualCardModel.enabled.is_(True),
@@ -412,12 +419,16 @@ def test_match_care_manuals(
         ):
             candidates.append((4, row, "candidate"))
 
-    candidates.sort(key=lambda item: (item[0], item[1].sort_order, item[1].id))
+    identity_priority: dict[str, int] = {}
+    for priority, row, _ in candidates:
+        identity = _manual_identity(row)
+        identity_priority[identity] = min(priority, identity_priority.get(identity, priority))
+    candidates.sort(key=lambda item: (identity_priority[_manual_identity(item[1])], _manual_preference(item[1]), item[0], item[1].sort_order, item[1].id))
     if not candidates:
         return {"decision": "not_found", "auto_send_eligible": False, "matches": []}
-    best_priority = candidates[0][0]
-    best = [item for item in candidates if item[0] == best_priority]
-    orchid_names = {_normalize(item[1].orchid_name or (item[1].title if item[1].source_type == "course" else "")) for item in best}
+    best_priority = identity_priority[_manual_identity(candidates[0][1])]
+    best = [item for item in candidates if identity_priority[_manual_identity(item[1])] == best_priority]
+    orchid_names = {_manual_identity(item[1]) for item in best}
     orchid_names.discard("")
     deterministic = best_priority < 4 and (
         len(orchid_names) == 1 or (best_priority == 0 and len(best) == 1)
@@ -580,7 +591,7 @@ def _persist_notes(notes: list[dict[str, Any]]) -> dict[str, int]:
             status = str(note.get("note_status") or "").strip().lower()
             note_url = str(note.get("note_url") or "").strip()
             qualified = (
-                CARE_MANUAL_TITLE_MARKER in title
+                any(marker in title for marker in CARE_MANUAL_TITLE_MARKERS)
                 and _status_is_published(status)
                 and bool(note_url)
             )
@@ -620,6 +631,8 @@ def _persist_notes(notes: list[dict[str, Any]]) -> dict[str, int]:
                 created_count += 1
             else:
                 changed = any(getattr(row, key) != value for key, value in external.items())
+                if not row.orchid_name or row.orchid_name == _orchid_name_from_title(row.title):
+                    row.orchid_name = _orchid_name_from_title(title)
                 for key, value in external.items():
                     setattr(row, key, value)
                 row.last_synced_at = now
@@ -787,7 +800,7 @@ def _serialize_sync_run(row: CareManualSyncRunModel | None) -> dict[str, Any] | 
 def _is_available(row: CareManualCardModel) -> bool:
     return (
         row.enabled
-        and (row.source_type == "course" or CARE_MANUAL_TITLE_MARKER in row.title)
+        and (row.source_type == "course" or any(marker in row.title for marker in CARE_MANUAL_TITLE_MARKERS))
         and _status_is_published(row.youzan_status)
         and bool(row.note_url)
     )
@@ -825,15 +838,27 @@ def _cover_url(value: Any) -> str | None:
 
 
 def _orchid_name_from_title(title: str) -> str | None:
-    match = re.search(r"[【\[]\s*([^】\]]+?)\s*[】\]]\s*养护注意事项", title)
-    value = match.group(1) if match else title.split(CARE_MANUAL_TITLE_MARKER, 1)[0]
+    value = re.split("|".join(CARE_MANUAL_TITLE_MARKERS), title, maxsplit=1)[0]
     value = value.strip("【】[]（）()：: -—_")
     return value or None
 
 
 def _normalize(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
-    return re.sub(r"[\s\-—_·,，。.!！?？:：;；【】\[\]（）()]", "", normalized)
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold().replace("连瓣兰", "莲瓣兰")
+    return "".join(char for char in normalized if char.isalnum())
+
+
+def _manual_title_filter():
+    return or_(*(CareManualCardModel.title.contains(marker) for marker in CARE_MANUAL_TITLE_MARKERS))
+
+
+def _manual_identity(row: CareManualCardModel) -> str:
+    value = row.orchid_name or (_orchid_name_from_title(row.title) if row.source_type == "manual" else row.title)
+    return _normalize(value or "")
+
+
+def _manual_preference(row: CareManualCardModel) -> int:
+    return 0 if row.source_type == "manual" and "养护要点" in row.title else 1
 
 
 def _dump_list(values: Any) -> str:

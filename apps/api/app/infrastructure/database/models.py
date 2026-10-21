@@ -1530,3 +1530,10 @@ class OrchidKnowledgeChunkModel(Base):
     chunk_title: Mapped[str] = mapped_column(String(512))
     content: Mapped[str] = mapped_column(Text)
     embedding_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ProductDeliverySettingModel(Base):
+    __tablename__ = "product_delivery_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ai_send_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

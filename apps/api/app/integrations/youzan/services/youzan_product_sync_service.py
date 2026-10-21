@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import (
-    and_,
     asc,
     delete,
     desc,
@@ -22,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.infrastructure.database.product_store import get_product_session
 from app.infrastructure.database.models import (
+    ProductDeliverySettingModel,
     YouzanProductKnowledgeModel,
     YouzanProductModel,
     YouzanProductSkuModel,
@@ -36,62 +36,6 @@ from app.integrations.youzan.services.youzan_token_service import (
 
 logger = logging.getLogger("wechat_rag_bot.youzan_product_sync")
 _STATUS_PRIORITY = {"missing": 0, "off_shelf": 1, "sold_out": 2, "on_sale": 3}
-_NON_FLOWER_TITLE_KEYWORDS = (
-    "会员",
-    "专属",
-    "链接",
-    "一物一拍",
-    "私域",
-    "拍卖",
-    "竞拍",
-    "补差",
-    "差价",
-    "运费",
-    "测试",
-    "勿拍",
-    "不发货",
-    "赠品",
-    "福袋",
-    "盲盒",
-    "兰画",
-)
-_NON_FLOWER_PRODUCT_KEYWORDS = (
-    "服务",
-    "用品",
-    "礼包",
-    "礼盒",
-    "课程",
-    "咨询",
-    "售后",
-    "补发",
-    "植料",
-    "紫砂盆",
-    "陶瓷盆",
-    "塑料盆",
-    "套盆",
-    "高脚盆",
-    "国风盆",
-    "花器",
-    "盆器",
-    "肥料",
-    "缓释肥",
-    "营养液",
-    "兰架",
-    "花架",
-    "支架",
-    "托盘",
-    "喷壶",
-    "剪刀",
-    "杀菌剂",
-    "杀虫剂",
-    "铺面石",
-    "覆面土",
-    "陶粒",
-    "水苔",
-    "挂画",
-    "花鸟画",
-    "国画",
-)
 
 
 @remote("catalog.list_products")
@@ -217,26 +161,42 @@ def list_products(
 
 
 def _catalog_filters() -> list[Any]:
-    title = YouzanProductModel.title
-    no_generic_markers = and_(
-        *(~title.ilike(f"%{keyword}%") for keyword in _NON_FLOWER_TITLE_KEYWORDS)
-    )
-    has_specific_bracketed_name = and_(
-        title.ilike("%【%】%"),
-        ~title.ilike("%【%会员%】%"),
-        ~title.ilike("%【%专用%】%"),
-        ~title.ilike("%【%链接%】%"),
-        ~title.ilike("%【%一物一拍%】%"),
-    )
-    filters: list[Any] = [
-        YouzanProductModel.status == "on_sale",
-        YouzanProductModel.stock > 0,
-        title.is_not(None),
-        func.length(func.trim(title)) > 0,
-        or_(no_generic_markers, has_specific_bracketed_name),
-        *(~title.ilike(f"%{keyword}%") for keyword in _NON_FLOWER_PRODUCT_KEYWORDS),
-    ]
-    return filters
+    # Keep source IDs intact for order/manual links; collapse duplicate listings only.
+    title = func.lower(func.trim(YouzanProductModel.title))
+    for marker in " ·・•-—_【】[]（）()":
+        title = func.replace(title, marker, "")
+    ranked = select(
+        YouzanProductModel.id.label("id"),
+        func.row_number().over(
+            partition_by=(title, YouzanProductModel.price_cent),
+            order_by=(
+                (YouzanProductModel.status == "on_sale").desc(),
+                (YouzanProductModel.stock > 0).desc(),
+                YouzanProductModel.youzan_updated_at.desc(),
+                YouzanProductModel.id.desc(),
+            ),
+        ).label("position"),
+    ).where(YouzanProductModel.status != "missing").subquery()
+    return [YouzanProductModel.id.in_(select(ranked.c.id).where(ranked.c.position == 1))]
+
+
+@remote("catalog.get_product_delivery_settings")
+def get_product_delivery_settings() -> dict[str, bool]:
+    with get_product_session() as session:
+        row = session.get(ProductDeliverySettingModel, 1)
+        return {"ai_send_enabled": bool(row and row.ai_send_enabled)}
+
+
+@remote("catalog.update_product_delivery_settings")
+def update_product_delivery_settings(ai_send_enabled: bool) -> dict[str, bool]:
+    with get_product_session() as session:
+        row = session.get(ProductDeliverySettingModel, 1)
+        if row is None:
+            row = ProductDeliverySettingModel(id=1)
+            session.add(row)
+        row.ai_send_enabled = ai_send_enabled
+        session.commit()
+    return {"ai_send_enabled": ai_send_enabled}
 
 
 @remote("catalog.update_product_sort")
@@ -356,6 +316,7 @@ async def _fetch_all_pages(
     page_size = get_settings().youzan_product_sync_page_size
     page_no = 1
     result: list[dict[str, Any]] = []
+    seen: set[str] = set()
     while True:
         data = await client.call(
             method,
@@ -363,9 +324,15 @@ async def _fetch_all_pages(
             {**extra, "page_no": page_no, "page_size": page_size},
         )
         items = _list_value(data, "items", "products", "goods_list")
+        ids = {_text(item, "item_id", "num_iid", "goods_id", "id") for item in items if isinstance(item, dict)}
+        if items and (not ids or "" in ids or ids <= seen):
+            raise RuntimeError("有赞商品分页重复或缺少商品编号，已保留原数据")
+        seen.update(ids)
         result.extend(item for item in items if isinstance(item, dict))
         total = _integer(data, "count", "total", "total_count")
-        if not items or len(items) < page_size or (total is not None and len(result) >= total):
+        if not items and total is not None and len(seen) < total:
+            raise RuntimeError("有赞商品分页数据不完整，已保留原数据")
+        if not items or (total is not None and len(seen) >= total) or (total is None and len(items) < page_size):
             break
         if page_no * page_size >= 4000:
             raise RuntimeError("有赞商品超过4000条，需要按更新时间分段同步")

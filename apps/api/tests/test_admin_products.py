@@ -27,6 +27,58 @@ def _configure(monkeypatch, tmp_path):
     reset_product_store_for_tests()
 
 
+def test_delivery_default_and_duplicate_products(monkeypatch, tmp_path):
+    from app.integrations.youzan.services.youzan_product_sync_service import _persist_sync
+    _configure(monkeypatch, tmp_path)
+    client = TestClient(app)
+    assert client.get("/api/v1/admin/products/delivery-settings").json()["data"] == {"ai_send_enabled": False}
+    assert client.put("/api/v1/admin/products/delivery-settings", json={"ai_send_enabled": True}).status_code == 200
+    reset_product_store_for_tests()
+    assert client.get("/api/v1/admin/products/delivery-settings").json()["data"] == {"ai_send_enabled": True}
+    assert client.put("/api/v1/admin/products/delivery-settings", json={"ai_send_enabled": False}).status_code == 200
+    _persist_sync({
+        "a": {"title": "兰花·植料 1kg", "price": 1000, "_status": "on_sale", "quantity": 5},
+        "b": {"title": "兰花植料1kg", "price": 1000, "_status": "off_shelf", "quantity": 0},
+        "c": {"title": "兰花植料2kg", "price": 2000, "_status": "on_sale", "quantity": 5},
+    }, {})
+    data = client.get("/api/v1/admin/products").json()["data"]
+    assert {item["item_id"] for item in data["items"]} == {"a", "c"}
+    assert data["total"] == data["product_total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_pagination_uses_total_and_rejects_repeated_pages(monkeypatch, tmp_path):
+    from app.integrations.youzan.services.youzan_product_sync_service import _fetch_all_pages
+    _configure(monkeypatch, tmp_path)
+    class Client:
+        repeated = False
+        async def call(self, method, version, params):
+            page = 1 if self.repeated else params["page_no"]
+            return {"count": 3, "items": [{"item_id": str(page)}]}
+    client = Client()
+    assert len(await _fetch_all_pages(client, "items", "1", {})) == 3
+    client.repeated = True
+    with pytest.raises(RuntimeError, match="分页重复"):
+        await _fetch_all_pages(client, "items", "1", {})
+
+
+@pytest.mark.asyncio
+async def test_product_ai_switch_blocks_all_product_cards(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from app.domains.decisioning.services import agent_tools
+    from app.integrations.youzan.services.youzan_product_sync_service import update_product_delivery_settings
+    _configure(monkeypatch, tmp_path)
+    context = SimpleNamespace(workspace={}, prepared={})
+    product = {"item_id": "pot", "title": "花盆", "status": "on_sale", "stock": 2, "h5_url": "https://example.com/pot"}
+    monkeypatch.setattr(agent_tools, "get_catalog_product", lambda item_id: product)
+    disabled = await agent_tools._product_send_card(call_id="blocked", arguments={"product_ref": "product:pot"}, context=context)
+    assert disabled.status == "forbidden" and not context.prepared
+    assert agent_tools._public_product(product, detail=True)["h5_url"] is None
+    update_product_delivery_settings(True)
+    enabled = await agent_tools._product_send_card(call_id="allowed", arguments={"product_ref": "product:pot"}, context=context)
+    assert enabled.status == "prepared" and context.prepared["allowed"]
+
+
 class FakeYouzanClient:
     def __init__(self):
         self.title = "建兰皇帝"
@@ -192,14 +244,14 @@ async def test_product_admin_api_lists_and_updates_sort(monkeypatch, tmp_path):
     updated = client.put("/api/v1/admin/products/1001/sort", json={"sort_order": 7})
 
     hidden_data = hidden.json()["data"]
-    assert hidden_data["total"] == 1
-    assert hidden_data["product_total"] == 1
+    assert hidden_data["total"] == 4
+    assert hidden_data["product_total"] == 5
     assert hidden_data["knowledge_linked_count"] == 0
     assert hidden_data["items"][0]["has_knowledge"] is False
     assert imported.status_code == 200
     assert imported.json()["data"]["newly_linked_count"] == 1
     assert response.status_code == 200
-    assert response.json()["data"]["total"] == 1
+    assert response.json()["data"]["total"] == 4
     assert response.json()["data"]["items"][0]["has_knowledge"] is True
     assert updated.status_code == 200
     assert updated.json()["data"]["sort_order"] == 7
@@ -209,7 +261,7 @@ async def test_product_admin_api_lists_and_updates_sort(monkeypatch, tmp_path):
         params={"status": "sold_out", "knowledge_linked": "false"},
     )
     assert hidden_sold_out.status_code == 200
-    assert hidden_sold_out.json()["data"]["total"] == 0
+    assert hidden_sold_out.json()["data"]["total"] == 1
 
 
 @pytest.mark.asyncio

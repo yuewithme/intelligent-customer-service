@@ -738,6 +738,9 @@ async def _product_get(*, call_id, arguments, context) -> AgentToolResult:
 
 
 async def _product_send_card(*, call_id, arguments, context) -> AgentToolResult:
+    from app.integrations.youzan.services.youzan_product_sync_service import get_product_delivery_settings
+    if not get_product_delivery_settings()["ai_send_enabled"]:
+        return _result(call_id, "product.send_card", "forbidden", reason="product_ai_send_disabled")
     item_id = _ref_value(arguments.get("product_ref"), "product")
     if not item_id:
         return _result(call_id, "product.send_card", "invalid_arguments", error="valid_product_ref_required")
@@ -861,6 +864,11 @@ async def _material_send(*, call_id, arguments, context) -> AgentToolResult:
             return _result(call_id, "material.send", "not_found")
         if not record.get("available"):
             return _result(call_id, "material.send", "forbidden", reason="material_not_published")
+        if record.get("source_type") == "manual" and record.get("orchid_name"):
+            preferred = test_match_care_manuals(query=record["orchid_name"])
+            selected = next((item for item in preferred.get("matches", []) if item.get("selected") and item.get("source_type") == "manual"), None)
+            if selected and selected["card_id"] != record["id"]:
+                record = get_care_manual(selected["card_id"])
         if record.get("source_type") == "course":
             from app.integrations.youzan.services.youzan_course_service import verify_free_course
 
@@ -1144,6 +1152,8 @@ def _result(call_id: str, tool: str, status: str, *, prepared_refs=None, **data)
 
 
 def _public_product(product: dict[str, Any], *, detail: bool = False) -> dict[str, Any]:
+    from app.integrations.youzan.services.youzan_product_sync_service import get_product_delivery_settings
+    ai_send_enabled = get_product_delivery_settings()["ai_send_enabled"]
     item_id = str(product.get("item_id") or "").strip()
     knowledge = product.get("knowledge") if isinstance(product.get("knowledge"), dict) else {}
     result = {
@@ -1153,7 +1163,8 @@ def _public_product(product: dict[str, Any], *, detail: bool = False) -> dict[st
         "stock": product.get("stock"),
         "status": product.get("status"),
         "image_url": product.get("image_url"),
-        "card_available": bool(product.get("page_path") or product.get("h5_url")),
+        "card_available": ai_send_enabled and bool(product.get("page_path") or product.get("h5_url")),
+        "ai_send_enabled": ai_send_enabled,
         "queried_at": _now_iso(),
     }
     for key in (
@@ -1177,8 +1188,8 @@ def _public_product(product: dict[str, Any], *, detail: bool = False) -> dict[st
         result["match_reasons"] = product["match_reasons"]
         result["matching_skus"] = product.get("matching_skus", [])
     if detail:
-        result["page_path"] = product.get("page_path")
-        result["h5_url"] = product.get("h5_url")
+        result["page_path"] = product.get("page_path") if ai_send_enabled else None
+        result["h5_url"] = product.get("h5_url") if ai_send_enabled else None
         result["skus"] = product.get("skus") if isinstance(product.get("skus"), list) else []
     return result
 

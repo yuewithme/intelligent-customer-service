@@ -5,13 +5,19 @@
     <div class="page-head">
       <div>
         <h1>产品信息</h1>
-        <p>仅展示有赞中在售、有库存且名称为具体花品的商品；每天自动同步一次。</p>
+        <p>同步有赞全部类别商品，包含下架和售罄商品；相同名称与价格的重复商品合并展示。</p>
       </div>
       <ElButton v-if="isAdmin()" type="primary" :loading="syncing" @click="runSync">立即同步有赞</ElButton>
     </div>
 
     <div class="sync-state">
-      <span>符合条件商品 <strong>{{ productTotal }}</strong></span>
+      <span>AI 发送商品</span>
+      <ElSwitch v-model="aiSendEnabled" :disabled="!isAdmin() || deliveryLoading" :loading="savingDelivery" :before-change="changeDeliverySettings" active-text="允许发送" inactive-text="禁止发送" />
+      <span>关闭后，AI 不发送任何商品卡片或购买链接；养护手册仍可发送。</span>
+    </div>
+
+    <div class="sync-state">
+      <span>商品总数 <strong>{{ productTotal }}</strong></span>
       <span>已关联知识 <strong>{{ knowledgeLinkedCount }}</strong></span>
       <span>待补充知识 <strong>{{ Math.max(0, productTotal - knowledgeLinkedCount) }}</strong></span>
       <span>最近同步 <strong>{{ lastSyncText }}</strong></span>
@@ -144,6 +150,8 @@ import { ElMessage } from 'element-plus'
 import KnowledgeTab from './KnowledgeTab.vue'
 import {
   getProducts,
+  getProductDeliverySettings,
+  updateProductDeliverySettings,
   syncProducts,
   updateProductNote,
   type ProductItem,
@@ -163,6 +171,9 @@ const sortBy = ref('updated_at')
 const sortDirection = ref('desc')
 const loading = ref(false)
 const syncing = ref(false)
+const aiSendEnabled = ref(false)
+const deliveryLoading = ref(true)
+const savingDelivery = ref(false)
 const lastSync = ref<ProductSyncRun | null>(null)
 const knowledgeTab = ref<InstanceType<typeof KnowledgeTab> | null>(null)
 
@@ -195,6 +206,27 @@ const loadProducts = async () => {
   }
 }
 
+const loadDeliverySettings = async () => {
+  try {
+    aiSendEnabled.value = (await getProductDeliverySettings()).ai_send_enabled
+  } finally {
+    deliveryLoading.value = false
+  }
+}
+
+const changeDeliverySettings = async () => {
+  savingDelivery.value = true
+  try {
+    await updateProductDeliverySettings(!aiSendEnabled.value)
+    ElMessage.success(aiSendEnabled.value ? '已禁止 AI 发送商品' : '已允许 AI 发送商品')
+    return true
+  } catch {
+    return false
+  } finally {
+    savingDelivery.value = false
+  }
+}
+
 const applyFilters = () => {
   page.value = 1
   void loadProducts()
@@ -205,6 +237,7 @@ const runSync = async () => {
   try {
     const result = await syncProducts()
     ElMessage.success(`同步完成：${result.product_count} 个商品，${result.sku_count} 个规格`)
+    page.value = 1
     await loadProducts()
   } finally {
     syncing.value = false
@@ -230,6 +263,7 @@ const statusText = (value: ProductItem['status']) => ({ on_sale: '出售中', of
 const statusType = (value: ProductItem['status']) => ({ on_sale: 'success', off_shelf: 'info', sold_out: 'warning', missing: 'danger' }[value] as 'success' | 'info' | 'warning' | 'danger')
 
 onMounted(loadProducts)
+onMounted(loadDeliverySettings)
 </script>
 
 <style scoped>

@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.infrastructure.database.models import (
     Base,
     YouzanProductKnowledgeModel,
+    ProductDeliverySettingModel,
     YouzanProductModel,
     YouzanProductSkuModel,
     YouzanProductSyncRunModel,
@@ -18,6 +19,7 @@ from app.infrastructure.database.models import (
 
 
 _TABLES = [
+    ProductDeliverySettingModel.__table__,
     YouzanProductModel.__table__,
     YouzanProductSkuModel.__table__,
     YouzanProductSyncRunModel.__table__,

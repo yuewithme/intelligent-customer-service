@@ -32,3 +32,7 @@ class ProductKnowledgePayload(BaseModel):
 
 class ProductKnowledgeImportRequest(BaseModel):
     records: list[ProductKnowledgePayload] = Field(min_length=1, max_length=5000)
+
+
+class ProductDeliverySettingsRequest(BaseModel):
+    ai_send_enabled: bool

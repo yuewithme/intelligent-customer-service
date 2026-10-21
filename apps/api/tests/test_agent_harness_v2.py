@@ -621,6 +621,8 @@ async def test_product_search_adds_profile_tags_and_respects_current_overrides(
 
 @pytest.mark.asyncio
 async def test_product_card_rechecks_recommended_spec_price(monkeypatch):
+    from app.integrations.youzan.services import youzan_product_sync_service
+    monkeypatch.setattr(youzan_product_sync_service, "get_product_delivery_settings", lambda: {"ai_send_enabled": True})
     product = {
         "item_id": "orchid", "title": "兰花", "price_cent": 3000, "stock": 3,
         "h5_url": "https://example.com/orchid",
@@ -1295,6 +1297,8 @@ async def test_agent_advances_short_service_acceptance_to_trial_close(monkeypatc
 
 @pytest.mark.asyncio
 async def test_agent_can_prepare_and_place_verified_product_card(monkeypatch):
+    from app.integrations.youzan.services import youzan_product_sync_service
+    monkeypatch.setattr(youzan_product_sync_service, "get_product_delivery_settings", lambda: {"ai_send_enabled": True})
     product = {
         "item_id": "item-39",
         "title": "建兰红君荷",
