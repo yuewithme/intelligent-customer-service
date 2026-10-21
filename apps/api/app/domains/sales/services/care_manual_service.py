@@ -231,6 +231,8 @@ def _product_variety_names(title: str) -> tuple[str, set[str]]:
         suffix = title[bracket.end():].strip()
         if label in _ORCHID_CATEGORIES:
             sources = [suffix.split()[0]] if suffix else []
+            if suffix:
+                sources.append(re.split(r"金黄花瓣|浓香|清香|经典|矮种|叶型|花色|花香|绿壳|正格", suffix, maxsplit=1)[0])
         elif any(marker in label for marker in ("会员", "专用", "专属", "团购", "组合装")):
             sources = [prefix, suffix.split()[0] if suffix else ""]
         else:
@@ -268,7 +270,7 @@ def suggest_care_manual_product_links() -> dict[str, Any]:
         for card in cards:
             names = [
                 name.strip()
-                for value in [card.orchid_name or "", *_load_list(card.aliases_json)]
+                for value in [card.orchid_name or "", _orchid_name_from_title(card.title) or "", *_load_list(card.aliases_json)]
                 for name in re.split(r"[/\\、]+", value)
             ]
             names += [
@@ -631,7 +633,8 @@ def _persist_notes(notes: list[dict[str, Any]]) -> dict[str, int]:
                 created_count += 1
             else:
                 changed = any(getattr(row, key) != value for key, value in external.items())
-                if not row.orchid_name or row.orchid_name == _orchid_name_from_title(row.title):
+                previous_name = re.split("|".join(CARE_MANUAL_TITLE_MARKERS), row.title, maxsplit=1)[0].strip("【】[]（）()：: -—_")
+                if not row.orchid_name or row.orchid_name in {_orchid_name_from_title(row.title), previous_name}:
                     row.orchid_name = _orchid_name_from_title(title)
                 for key, value in external.items():
                     setattr(row, key, value)
@@ -839,6 +842,9 @@ def _cover_url(value: Any) -> str | None:
 
 def _orchid_name_from_title(title: str) -> str | None:
     value = re.split("|".join(CARE_MANUAL_TITLE_MARKERS), title, maxsplit=1)[0]
+    bracket = re.fullmatch(r"\s*[【\[]\s*([^】\]]+?)\s*[】\]]\s*(?:单品)?\s*", value)
+    if bracket:
+        value = bracket.group(1)
     value = value.strip("【】[]（）()：: -—_")
     return value or None
 

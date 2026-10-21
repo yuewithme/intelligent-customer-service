@@ -39,7 +39,7 @@ def test_points_import_fuzzy_links_priority_and_fallback(monkeypatch, tmp_path):
     _persist_sync({"101": {"title": "建兰【玉☆白丹红】3苗", "_status": "on_sale"}}, {})
     _persist_notes([
         {"note_id": 1, "title": "【建兰玉白丹红】养护注意事项", "note_status": "published", "note_url": "https://example.com/notice"},
-        {"note_id": 2, "title": "【建兰玉·白丹红】养护要点", "note_status": "published", "note_url": "https://example.com/points"},
+        {"note_id": 2, "title": "【建兰玉·白丹红】单品养护要点", "note_status": "published", "note_url": "https://example.com/points"},
         {"note_id": 3, "title": "【春兰红宋梅】养护要点", "note_status": "published", "note_url": "https://example.com/other"},
     ])
     assert list_care_manuals()["total"] == 3
@@ -451,6 +451,7 @@ async def test_product_suggestions_use_variety_name_instead_of_marketing_text(mo
         ("春兰【大富贵】与宋梅并称经典", []),
         ("【春兰】宋梅 经典梅瓣", ["春兰宋梅"]),
         ("【建兰玉白丹红】3苗带盆", ["建兰玉白丹红"]),
+        ("【建兰】玉白丹红浓香好养", ["建兰玉白丹红"]),
     ]:
         with _session() as session:
             session.query(YouzanProductModel).first().title = title
