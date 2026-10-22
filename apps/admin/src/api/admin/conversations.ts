@@ -27,6 +27,14 @@ export interface ConversationItem {
   marked_unread: boolean
   created_at: string
   updated_at: string
+  search_score?: number
+  search_matches?: {
+    field: string
+    label: string
+    text: string
+    message_id?: number
+    created_at?: string
+  }[]
 }
 
 export interface ConversationMessage {

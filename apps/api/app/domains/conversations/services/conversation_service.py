@@ -132,8 +132,6 @@ async def list_conversations(
             filters.append(ConversationModel.status == status)
         if owner_id:
             filters.append(ConversationModel.owner_id == owner_id)
-        if keyword:
-            filters.append(ConversationModel.last_message.like(f"%{keyword}%"))
         if channels:
             filters.append(ConversationModel.channel.in_(channels))
         if tenant_id:
@@ -180,6 +178,19 @@ async def list_conversations(
                     ConversationModel.user_id.in_(wechat_group_allowlist),
                 )
             )
+        if keyword and keyword.strip():
+            from app.domains.conversations.services.conversation_search_service import search_conversations
+
+            ranked = search_conversations(session, filters, keyword.strip())
+            return {
+                "items": [
+                    {**_conversation_to_dict(row), **search}
+                    for row, search in ranked[(page - 1) * page_size : page * page_size]
+                ],
+                "total": len(ranked),
+                "page": page,
+                "page_size": page_size,
+            }
         total = session.scalar(
             select(func.count()).select_from(ConversationModel).where(*filters)
         )

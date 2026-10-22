@@ -21,7 +21,7 @@
       v-model="keyword"
       :prefix-icon="Search"
       clearable
-      placeholder="搜索最近消息"
+      placeholder="搜索昵称、备注、微信号、聊天记录"
       @clear="load()"
       @keyup.enter="load()"
     />
@@ -54,6 +54,10 @@
             </span>
           </div>
           <div class="preview">{{ item.last_message || '暂无消息' }}</div>
+          <div v-if="item.search_matches?.length" class="search-match">
+            <span class="search-source">{{ item.search_matches.map(match => match.label).join('、') }}</span>
+            <span>{{ item.search_matches.find(match => match.field === 'message')?.text || item.search_matches[0].text }}</span>
+          </div>
           <div class="meta">
             <ElTag :type="statusType(item.status)" size="small">{{ statusText(item.status) }}</ElTag>
             <span>{{ formatTime(item.updated_at) }}</span>
@@ -61,6 +65,17 @@
         </div>
       </button>
     </div>
+    <ElPagination
+      v-if="total > 50"
+      small
+      layout="prev, pager, next"
+      :pager-count="3"
+      :current-page="page"
+      :page-size="50"
+      :total="total"
+      :disabled="loading"
+      @current-change="load({ page: $event })"
+    />
     <Teleport to="body">
       <div
         v-if="contextMenu"
@@ -123,44 +138,51 @@ const status = ref('')
 const keyword = ref('')
 const testView = ref(testGate)
 const items = ref<ConversationGroupItem[]>([])
+const page = ref(1)
+const total = ref(0)
 const contextMenu = ref<{ item: ConversationGroupItem; x: number; y: number }>()
 const contextMenuRef = ref<HTMLElement>()
 const actionPending = ref(false)
 let contextMenuTrigger: HTMLElement | undefined
-let pendingLoad: Promise<void> | undefined
+let loadSequence = 0
+let appliedQuery = ''
 
-const load = async (options: { silent?: boolean } = {}) => {
-  if (pendingLoad) {
-    await pendingLoad
-    return
+const load = async (options: { silent?: boolean; page?: number } = {}) => {
+  const sequence = ++loadSequence
+  const params = {
+    status: status.value || undefined,
+    keyword: keyword.value.trim() || undefined,
+    channel: testView.value ? undefined : 'wechat',
+    test_only: testGate ? undefined : testView.value,
+    tenant_id: !testGate && !testView.value ? tenantStore.selectedTenantId || undefined : undefined
   }
-  if (!options.silent) {
-    loading.value = true
+  const query = JSON.stringify(params)
+  const requestedPage = query !== appliedQuery ? 1 : options.page ?? (options.silent ? page.value : 1)
+  if (query !== appliedQuery) {
+    items.value = []
+    total.value = 0
   }
-  pendingLoad = (async () => {
+  loading.value = !options.silent || loading.value
+  try {
     const data = await getConversations({
-      page: 1,
-      page_size: 50,
-      status: status.value || undefined,
-      keyword: keyword.value || undefined,
-      channel: testView.value ? undefined : 'wechat',
-      test_only: testGate ? undefined : testView.value,
-      tenant_id:
-        !testGate && !testView.value
-          ? tenantStore.selectedTenantId || undefined
-          : undefined
+      ...params,
+      page: requestedPage,
+      page_size: 50
     })
+    if (sequence !== loadSequence) return
+    const lastPage = Math.max(1, Math.ceil(data.total / 50))
+    if (requestedPage > lastPage) {
+      await load({ ...options, page: lastPage })
+      return
+    }
+    appliedQuery = query
+    page.value = data.page
+    total.value = data.total
     items.value = groupConversationsByCustomer(data.items, {
       collapseTestData: testGate
     })
-  })()
-  try {
-    await pendingLoad
   } finally {
-    pendingLoad = undefined
-    if (!options.silent) {
-      loading.value = false
-    }
+    if (sequence === loadSequence) loading.value = false
   }
 }
 
@@ -169,7 +191,6 @@ const toggleTestView = async () => {
   testView.value = !testView.value
   items.value = []
   emit('viewChange')
-  if (pendingLoad) await pendingLoad
   await load()
 }
 
@@ -227,7 +248,6 @@ const runAction = async (action: ConversationListAction) => {
     } else if (action === 'unread') {
       emit('markedUnread', ids)
     }
-    if (pendingLoad) await pendingLoad
     await load({ silent: true })
     ElMessage.success({
       hide: '对话已隐藏，收到新消息后会重新显示',
@@ -277,7 +297,6 @@ watch(
     closeContextMenu()
     items.value = []
     emit('viewChange')
-    if (pendingLoad) await pendingLoad
     await load()
   }
 )
@@ -292,6 +311,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  ++loadSequence
   document.removeEventListener('pointerdown', handleOutsidePointer)
   document.removeEventListener('keydown', handleEscape)
   window.removeEventListener('resize', closeContextMenu)
@@ -409,6 +429,16 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.search-match {
+  display: grid;
+  gap: 3px;
+  margin: -4px 0 10px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+.search-match span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-source { color: var(--el-color-primary); }
 
 .meta {
   flex-wrap: wrap;

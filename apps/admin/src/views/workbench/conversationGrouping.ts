@@ -12,12 +12,15 @@ export const conversationGroupKey = (item: ConversationItem) =>
 const byUpdatedDesc = (left: ConversationItem, right: ConversationItem) =>
   new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
 
+const byRelevance = (left: ConversationItem, right: ConversationItem) =>
+  (right.search_score || 0) - (left.search_score || 0)
+
 export const groupConversationsByCustomer = (
   conversations: ConversationItem[],
   options: { collapseTestData?: boolean } = {}
 ): ConversationGroupItem[] => {
   if (options.collapseTestData && conversations.length) {
-    const ordered = [...conversations].sort(byUpdatedDesc)
+    const ordered = [...conversations].sort((left, right) => byRelevance(left, right) || byUpdatedDesc(left, right))
     const latest = ordered[0]
     return [
       {
@@ -48,7 +51,7 @@ export const groupConversationsByCustomer = (
 
   return Array.from(groups.entries())
     .map(([group_key, group]) => {
-      const ordered = [...group].sort(byUpdatedDesc)
+      const ordered = [...group].sort((left, right) => byRelevance(left, right) || byUpdatedDesc(left, right))
       const latest = ordered[0]
 
       return {
@@ -62,5 +65,10 @@ export const groupConversationsByCustomer = (
         marked_unread: ordered.some((item) => item.marked_unread)
       }
     })
-    .sort((left, right) => Number(right.is_pinned) - Number(left.is_pinned) || byUpdatedDesc(left, right))
+    .sort((left, right) => {
+      if (left.search_score !== undefined || right.search_score !== undefined) {
+        return byRelevance(left, right) || byUpdatedDesc(left, right)
+      }
+      return Number(right.is_pinned) - Number(left.is_pinned) || byUpdatedDesc(left, right)
+    })
 }

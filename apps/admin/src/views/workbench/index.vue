@@ -127,11 +127,13 @@ let profileLoadedAt = 0
 let profilePendingUserId = ''
 
 const selectConversation = (item: ConversationGroupItem) => {
+  const matchedMessageId = item.search_matches?.find(match => match.field === 'message')?.message_id
   if (item.marked_unread) {
     void Promise.all(item.conversation_ids.map((id) => markConversationRead(id)))
       .then(() => conversationListRef.value?.load({ silent: true }))
   }
   if (selectedId.value === item.conversation_id && selectedGroupKey.value === item.group_key) {
+    focusMessageId.value = matchedMessageId
     mobileView.value = 'messages'
     return
   }
@@ -141,7 +143,7 @@ const selectConversation = (item: ConversationGroupItem) => {
   conversation.value = undefined
   messages.value = []
   profile.value = undefined
-  focusMessageId.value = undefined
+  focusMessageId.value = matchedMessageId
   selectedId.value = item.conversation_id
   selectedIds.value = item.conversation_ids
   selectedGroupKey.value = item.group_key
