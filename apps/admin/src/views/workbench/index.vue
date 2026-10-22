@@ -23,6 +23,7 @@
         show-mobile-back
         @mobile-back="mobileView = 'conversations'"
         @loaded="handleConversationLoaded"
+        @identity-changed="handleChanged"
         @quote="quotedMessage = $event"
       />
       <ReplyComposer
@@ -360,7 +361,7 @@ onBeforeUnmount(() => {
   grid-template-columns: clamp(240px, 21vw, 296px) minmax(0, 1fr) clamp(280px, 24vw, 344px);
   gap: 12px;
   height: calc(100dvh - var(--app-header-height));
-  padding: 16px;
+  padding: 8px 12px;
   overflow: hidden;
   background: var(--app-background);
 }
@@ -388,7 +389,7 @@ onBeforeUnmount(() => {
 @media (max-width: 1100px) {
   .workbench {
     grid-template-columns: 248px minmax(0, 1fr);
-    grid-template-rows: minmax(480px, calc(100dvh - var(--app-header-height) - 32px)) 520px;
+    grid-template-rows: minmax(480px, calc(100dvh - var(--app-header-height) - 16px)) 520px;
     height: auto;
     overflow: visible;
   }

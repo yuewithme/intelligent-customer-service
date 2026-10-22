@@ -11,7 +11,7 @@
           v-model="content"
           class="reply-input"
           type="textarea"
-          :rows="4"
+          :autosize="{ minRows: 2, maxRows: 6 }"
           :disabled="sending"
           resize="none"
           placeholder="输入或粘贴文字、图片，Enter 发送，Shift+Enter 换行"
@@ -259,19 +259,19 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.composer { flex: 0 0 auto; padding: 12px 14px 8px; border-top: 1px solid var(--app-border); background: #fff; }
+.composer { flex: 0 0 auto; padding: 8px 14px 6px; border-top: 1px solid var(--app-border); background: #fff; }
 .composer-main { display: flex; align-items: stretch; gap: 12px; }
 .reply-input { flex: 1; min-width: 0; }
-.reply-input :deep(.el-textarea__inner) { min-height: 112px; padding: 10px 12px; line-height: 1.6; font-size: 14px; user-select: text; -webkit-user-select: text; }
+.reply-input :deep(.el-textarea__inner) { min-height: 64px; padding: 8px 12px; line-height: 1.6; font-size: 14px; user-select: text; -webkit-user-select: text; }
 .quote-draft { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; margin-bottom: 8px; border-left: 3px solid var(--app-accent); background: #f3f6f4; border-radius: 4px; font-size: 12px; }
 .quote-draft > div { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
 .quote-draft span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quote-draft small { color: var(--app-text-secondary); }
-.send-area { display: flex; flex: 0 0 92px; flex-direction: column; align-items: stretch; justify-content: flex-end; gap: 12px; }
-.reply-status { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 4px; border-radius: 6px; background: #edf5f1; color: var(--app-accent); font-size: 13px; white-space: nowrap; }
+.send-area { display: flex; flex: 0 0 92px; flex-direction: column; align-items: stretch; justify-content: flex-end; gap: 8px; }
+.reply-status { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 4px; border-radius: 6px; background: #edf5f1; color: var(--app-accent); font-size: 13px; white-space: nowrap; }
 .reply-status.human { background: #fff4e4; color: #a56616; }
 .reply-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.send-area .el-button { margin: 0; min-height: 36px; }
+.send-area .el-button { margin: 0; min-height: 32px; }
 .composer-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .composer-tools :deep(.el-button + .el-button) { margin-left: 0; }
 .composer-hint { color: var(--app-text-secondary); font-size: 12px; }
@@ -290,7 +290,7 @@ onBeforeUnmount(() => {
   .composer { padding: 8px; }
   .composer-main { gap: 8px; }
   .send-area { flex-basis: 76px; gap: 8px; }
-  .reply-input :deep(.el-textarea__inner) { min-height: 88px; }
+  .reply-input :deep(.el-textarea__inner) { min-height: 64px; }
   .composer-tools .composer-hint { flex-basis: 100%; margin-left: 0; font-size: 11px; }
   .emoji-picker { height: min(320px, 50dvh); }
 }

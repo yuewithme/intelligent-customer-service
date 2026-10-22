@@ -9,6 +9,7 @@ export interface ConversationItem {
   channel: string
   user_id: string
   user_display_name?: string | null
+  customer_remark?: string | null
   user_avatar_url?: string | null
   session_id?: string | null
   tenant_id: string
@@ -170,6 +171,12 @@ export const getConversationTenants = () =>
 export const getConversationDetail = (conversationId: string) =>
   request.get<ConversationDetail>({
     url: `${conversationBase()}/${conversationPath(conversationId)}`
+  })
+
+export const updateConversationRemark = (conversationId: string, remark: string) =>
+  request.put<ConversationItem>({
+    url: `/api/v1/admin/conversations/${conversationPath(conversationId)}/remark`,
+    data: { remark }
   })
 
 export const claimConversation = (conversationId: string, operator_id: string) =>

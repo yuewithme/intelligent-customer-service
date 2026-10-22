@@ -1428,6 +1428,30 @@ async def update_customer_identity(
     return changed
 
 
+async def set_conversation_remark(conversation_id: str, remark: str) -> dict:
+    remark = remark.strip()
+    if len(remark) > 256:
+        raise AppError(ErrorCode.REQUEST_INVALID, message="备注不能超过 256 个字符", status_code=422)
+    with _get_session() as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        conversation = _get_conversation_or_error(session, conversation_id)
+        group = session.scalars(select(ConversationModel).where(
+            ConversationModel.tenant_id == conversation.tenant_id,
+            ConversationModel.channel == conversation.channel,
+            ConversationModel.user_id == conversation.user_id,
+            ConversationModel.owner_wc_id == conversation.owner_wc_id,
+        )).all()
+        for row in group:
+            row.customer_remark = remark or None
+        # A name edit must not move old chats to the top or alter unread/status state.
+        session.commit()
+        result = _conversation_to_dict(conversation)
+        conversation_ids = [row.conversation_id for row in group]
+    for grouped_id in conversation_ids:
+        _publish_change(grouped_id, "identity")
+    return result
+
+
 async def claim_conversation(conversation_id: str, operator_id: str) -> dict:
     with _get_session() as session:
         session.execute(text("BEGIN IMMEDIATE"))
@@ -1945,7 +1969,7 @@ async def mark_conversation_read(conversation_id: str, *, automatic: bool = Fals
 
 def _conversation_list_preferences(
     session: Session, tenant_id: str, channel: str, user_id: str, owner_wc_id: str | None
-) -> dict[str, bool]:
+) -> dict[str, Any]:
     existing = session.scalar(select(ConversationModel).where(
         ConversationModel.tenant_id == tenant_id,
         ConversationModel.channel == channel,
@@ -1955,6 +1979,7 @@ def _conversation_list_preferences(
     return {
         "is_pinned": bool(existing and existing.is_pinned),
         "is_muted": bool(existing and existing.is_muted),
+        "customer_remark": existing.customer_remark if existing else None,
     }
 
 
@@ -2194,7 +2219,8 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
         "conversation_id": row.conversation_id,
         "channel": row.channel,
         "user_id": row.user_id,
-        "user_display_name": row.user_display_name,
+        "user_display_name": row.customer_remark or row.user_display_name,
+        "customer_remark": row.customer_remark,
         "user_avatar_url": row.user_avatar_url,
         "session_id": row.session_id,
         "tenant_id": row.tenant_id,
@@ -2529,10 +2555,13 @@ def _latest_eyun_reply_target(
 
 def _ensure_conversation_columns(factory: sessionmaker) -> None:
     with factory() as session:
-        bind = session.get_bind()
+        # Keep SQLite schema inspection and ALTER statements on one connection.
+        bind = session.connection()
         columns = {column["name"] for column in inspect(bind).get_columns("conversations")}
         if "user_display_name" not in columns:
             session.execute(text("ALTER TABLE conversations ADD COLUMN user_display_name VARCHAR(256)"))
+        if "customer_remark" not in columns:
+            session.execute(text("ALTER TABLE conversations ADD COLUMN customer_remark VARCHAR(256)"))
         if "user_avatar_url" not in columns:
             session.execute(text("ALTER TABLE conversations ADD COLUMN user_avatar_url TEXT"))
         if "hidden_at" not in columns:
@@ -2833,6 +2862,7 @@ def _new_repaired_conversation(
         channel="wechat",
         user_id=source.user_id,
         user_display_name=source.user_display_name,
+        customer_remark=source.customer_remark if source.owner_wc_id == owner_wc_id else None,
         user_avatar_url=source.user_avatar_url,
         session_id=owner_wc_id,
         tenant_id=owner_wc_id,

@@ -1,5 +1,5 @@
 <template>
-  <div class="sales-layout">
+  <div class="sales-layout" :class="{ 'is-workbench': route.path === '/workbench' }">
     <button
       v-if="mobileNavOpen"
       class="nav-backdrop"
@@ -185,6 +185,8 @@ const logout = async () => {
 
 <style scoped>
 .sales-layout { display: grid; grid-template-columns: 208px minmax(0, 1fr); min-height: 100dvh; }
+.sales-layout.is-workbench { --app-header-height: 56px; }
+.sales-layout.is-workbench .page-title > span { display: none; }
 .sidebar { position: sticky; top: 0; height: 100dvh; padding: 24px 12px; overflow-y: auto; color: var(--app-nav-text); background: var(--app-nav-background); border-right: 1px solid var(--app-nav-background); }
 .nav-backdrop, .nav-close, .nav-trigger, .mobile-tenant-switcher, .mobile-operator { display: none; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 24px; color: #fff; text-decoration: none; }

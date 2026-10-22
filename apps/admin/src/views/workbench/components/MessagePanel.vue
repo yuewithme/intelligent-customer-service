@@ -15,7 +15,49 @@
           {{ avatarText(detail.conversation) }}
         </ElAvatar>
         <div>
-          <h2>{{ detail ? displayName(detail.conversation) : '选择会话' }}</h2>
+          <h2>
+            <ElPopover
+              v-if="detail && !readOnly"
+              v-model:visible="remarkEditorOpen"
+              trigger="click"
+              placement="bottom-start"
+              :width="'min(320px, calc(100vw - 24px))'"
+              @show="prepareRemark"
+            >
+              <template #reference>
+                <button
+                  class="remark-trigger"
+                  type="button"
+                  :disabled="remarkSaving"
+                  :title="`${displayName(detail.conversation)} · 点击修改工作台备注`"
+                  aria-label="修改工作台备注"
+                >
+                  <span>{{ displayName(detail.conversation) }}</span>
+                  <ElIcon><EditPen /></ElIcon>
+                </button>
+              </template>
+              <form class="remark-editor" @submit.prevent="saveRemark">
+                <strong>工作台备注</strong>
+                <ElInput
+                  ref="remarkInput"
+                  v-model="remarkDraft"
+                  clearable
+                  :maxlength="256"
+                  show-word-limit
+                  :disabled="remarkSaving"
+                  placeholder="留空恢复原名称"
+                  aria-label="客户备注"
+                  @keydown.esc.prevent.stop="remarkEditorOpen = false"
+                />
+                <span class="remark-help">仅在当前账号的工作台生效，留空恢复原名称。</span>
+                <div class="remark-actions">
+                  <ElButton size="small" :disabled="remarkSaving" @click="remarkEditorOpen = false">取消</ElButton>
+                  <ElButton size="small" type="primary" native-type="submit" :loading="remarkSaving">保存</ElButton>
+                </div>
+              </form>
+            </ElPopover>
+            <template v-else>{{ detail ? displayName(detail.conversation) : '选择会话' }}</template>
+          </h2>
           <p v-if="detail"
             >{{ detail.conversation.channel }} / {{ sessionText(detail.conversation) }}</p
           >
@@ -277,9 +319,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
+import { EditPen, Refresh } from '@element-plus/icons-vue'
 import {
   getConversationDetail,
+  updateConversationRemark,
   retryConversationMessageDelivery,
   resolveConversationMessageMedia,
   transcribeConversationMessage,
@@ -336,10 +379,42 @@ const emit = defineEmits<{
   loaded: [detail: ConversationDetail | undefined]
   'mobile-back': []
   quote: [message: ConversationMessage]
+  identityChanged: [conversation: ConversationItem]
 }>()
 
 const loading = ref(false)
 const detail = ref<ConversationDetail>()
+const remarkEditorOpen = ref(false)
+const remarkDraft = ref('')
+const remarkSaving = ref(false)
+const remarkInput = ref<{ focus: () => void }>()
+
+const prepareRemark = async () => {
+  remarkDraft.value = detail.value?.conversation.user_display_name || ''
+  await nextTick()
+  remarkInput.value?.focus()
+}
+
+const saveRemark = async () => {
+  const conversationId = detail.value?.conversation.conversation_id
+  if (!conversationId || readOnly || remarkSaving.value) return
+  remarkSaving.value = true
+  try {
+    const updated = await updateConversationRemark(conversationId, remarkDraft.value.trim())
+    if (props.conversationId !== conversationId || detail.value?.conversation.conversation_id !== conversationId) return
+    detail.value.conversation = {
+      ...detail.value.conversation,
+      user_display_name: updated.user_display_name,
+      customer_remark: updated.customer_remark
+    }
+    remarkEditorOpen.value = false
+    emit('identityChanged', detail.value.conversation)
+    ElMessage.success(updated.customer_remark ? '备注已保存' : '已恢复原名称')
+  } finally {
+    remarkSaving.value = false
+  }
+}
+
 const timelineRef = ref<HTMLElement>()
 const resolvingMediaIds = ref(new Set<number>())
 const transcribingIds = ref(new Set<number>())
@@ -954,6 +1029,7 @@ watch(
   () => [props.conversationId, props.conversationIds.join('|'), props.focusMessageId],
   () => {
     closeMenu()
+    remarkEditorOpen.value = false
     onlyFavorites.value = false
     textDialogVisible.value = false
     ++textRequestVersion
@@ -985,7 +1061,7 @@ defineExpose({ load })
 .message-context-menu button:hover, .message-context-menu button:focus-visible { background: var(--app-accent-soft); }
 .message-context-menu button:disabled { opacity: .5; cursor: not-allowed; }
 .message-context-menu .danger-menu-item { color: var(--el-color-danger); }
-.header-actions { display: flex; align-items: center; gap: 8px; }
+.header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
 .header-actions :deep(.el-button + .el-button) { margin-left: 0; }
 .favorite-mark { color: #b7791f; font-weight: 500; }
 .human .favorite-mark { color: #ffe39d; }
@@ -1005,8 +1081,9 @@ defineExpose({ load })
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 78px;
-  padding: 16px 20px;
+  flex-shrink: 0;
+  min-height: 60px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--app-border);
 }
 .header > .el-button { flex-shrink: 0; }
@@ -1018,6 +1095,17 @@ defineExpose({ load })
   min-width: 0;
   gap: 10px;
 }
+.customer-title h2 { line-height: 1.3; }
+.customer-title p { margin-top: 2px; line-height: 1.3; }
+
+.remark-trigger { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.remark-trigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remark-trigger .el-icon { flex: 0 0 auto; color: var(--app-text-secondary); font-size: 14px; }
+.remark-trigger:hover { color: var(--app-accent); }
+.remark-editor { display: grid; gap: 10px; font-size: 14px; }
+.remark-help { color: var(--app-text-secondary); font-size: 12px; }
+.remark-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.remark-actions :deep(.el-button + .el-button) { margin-left: 0; }
 
 h2,
 p {
@@ -1041,7 +1129,7 @@ p {
 .timeline {
   flex: 1;
   min-height: 0;
-  padding: 24px;
+  padding: 16px;
   overflow: auto;
   background: #f7f9f8;
 }

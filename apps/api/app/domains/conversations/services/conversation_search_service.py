@@ -181,6 +181,8 @@ def search_conversations(session, filters, keyword):
 
     for row in rows:
         values = identities[row.conversation_id]
+        if row.customer_remark:
+            consider(row.conversation_id, row.customer_remark, 90, "remark", "备注")
         # The stable wxid remains searchable even when a public WeChat alias is available.
         consider(row.conversation_id, row.user_id, 100, "user_id", "微信标识")
         for field, (weight, label, _) in IDENTITY_FIELDS.items():

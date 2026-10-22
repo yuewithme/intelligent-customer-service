@@ -10,6 +10,7 @@ from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.conversations.schemas.conversation import (
     ClaimRequest,
     ConversationListActionRequest,
+    ConversationRemarkRequest,
     ReplyCareManualRequest,
     ReplyEmojiRequest,
     ReplyRequest,
@@ -47,6 +48,7 @@ from app.domains.conversations.services.conversation_service import (
     reply_conversation_image,
     resolve_message_media,
     resolve_conversation,
+    set_conversation_remark,
     unhide_conversation,
 )
 from app.core.auth import require_admin_access, get_account, operator_identity
@@ -328,6 +330,12 @@ async def chat_review(conversation_id: str) -> APIResponse:
 @router.post("/{conversation_id:path}/claim", response_model=APIResponse)
 async def claim(conversation_id: str, request: ClaimRequest, http_request: Request) -> APIResponse:
     data = await claim_conversation(conversation_id, operator_identity(http_request, request.operator_id))
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.put("/{conversation_id:path}/remark", response_model=APIResponse)
+async def update_remark(conversation_id: str, request: ConversationRemarkRequest) -> APIResponse:
+    data = await set_conversation_remark(conversation_id, request.remark)
     return APIResponse(code=0, message="success", data=data)
 
 

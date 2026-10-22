@@ -7,6 +7,10 @@ class ConversationListActionRequest(BaseModel):
     action: Literal["hide", "pin", "unpin", "unread", "mute", "unmute"]
 
 
+class ConversationRemarkRequest(BaseModel):
+    remark: str = Field(max_length=256)
+
+
 class ClaimRequest(BaseModel):
     operator_id: str
 

@@ -590,6 +590,7 @@ class ConversationModel(Base):
     channel: Mapped[str] = mapped_column(String(64), index=True)
     user_id: Mapped[str] = mapped_column(String(256), index=True)
     user_display_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    customer_remark: Mapped[str | None] = mapped_column(String(256), nullable=True)
     user_avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True, default="tenant_default")
