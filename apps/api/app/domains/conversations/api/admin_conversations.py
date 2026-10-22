@@ -15,6 +15,8 @@ from app.domains.conversations.schemas.conversation import (
     ReplyRequest,
     ReplyProductRequest,
     ForwardMessageRequest,
+    MessagePreferenceRequest,
+    MessageTextRequest,
     ReplyDraftRequest,
     StatusActionRequest,
 )
@@ -22,6 +24,7 @@ from app.domains.conversations.services.conversation_event_service import conver
 from app.domains.conversations.services.chat_review_service import get_chat_review
 from app.domains.conversations.services.message_action_service import (
     forward_conversation_message, revoke_conversation_message, reply_conversation_product,
+    update_message_preference, message_text_action,
 )
 from app.domains.conversations.services.reply_draft_service import update_reply_draft
 from app.domains.conversations.services.conversation_service import (
@@ -194,17 +197,30 @@ async def message_media(message_id: int, request: Request) -> StreamingResponse:
     source = get_message_media_proxy_source(message_id)
     if not source:
         raise HTTPException(status_code=404, detail="message media not found")
-    client = httpx.AsyncClient(timeout=60, follow_redirects=True)
+    from app.integrations.web.services.link_card_thumbnail_service import _assert_public_url
+
+    client = httpx.AsyncClient(timeout=60, follow_redirects=False)
     headers = {}
     if request.headers.get("range"):
         headers["Range"] = request.headers["range"]
     try:
-        response = await client.send(
-            client.build_request("GET", source, headers=headers),
-            stream=True,
-        )
+        for _ in range(6):
+            # Check every redirect before connecting, not after fetching a private target.
+            await _assert_public_url(source)
+            response = await client.send(client.build_request("GET", source, headers=headers), stream=True)
+            if not response.is_redirect:
+                break
+            target = response.headers.get("location")
+            await response.aclose()
+            if not target:
+                raise ValueError("missing redirect target")
+            source = str(response.url.join(target))
+        else:
+            raise ValueError("too many redirects")
         response.raise_for_status()
     except Exception:
+        if "response" in locals():
+            await response.aclose()
         await client.aclose()
         raise HTTPException(status_code=502, detail="message media unavailable")
 
@@ -267,6 +283,18 @@ async def revoke_message(message_id: int, request: ClaimRequest, http_request: R
     return APIResponse(code=0, message="success", data=await revoke_conversation_message(
         message_id, operator_identity(http_request, request.operator_id),
     ))
+
+
+@router.post("/messages/{message_id}/preference", response_model=APIResponse)
+async def message_preference(message_id: int, request: MessagePreferenceRequest, http_request: Request) -> APIResponse:
+    return APIResponse(code=0, message="success", data=update_message_preference(
+        message_id, operator_identity(http_request, request.operator_id), request.action,
+    ))
+
+
+@router.post("/messages/{message_id}/text", response_model=APIResponse)
+async def message_text(message_id: int, request: MessageTextRequest) -> APIResponse:
+    return APIResponse(code=0, message="success", data=await message_text_action(message_id, request.action))
 
 
 @router.post("/{conversation_id:path}/forward", response_model=APIResponse)
@@ -451,6 +479,6 @@ async def resolve_route(
 
 
 @router.get("/{conversation_id:path}", response_model=APIResponse)
-async def conversation_detail(conversation_id: str) -> APIResponse:
-    data = await get_conversation_detail(conversation_id)
+async def conversation_detail(conversation_id: str, request: Request) -> APIResponse:
+    data = await get_conversation_detail(conversation_id, operator_id=operator_identity(request, "admin"))
     return APIResponse(code=0, message="success", data=data)

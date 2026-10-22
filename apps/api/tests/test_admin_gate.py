@@ -61,6 +61,26 @@ def context(monkeypatch, tmp_path):
     get_settings.cache_clear()
 
 
+def test_message_menu_actions_enforce_account_scope_and_operator_identity(context):
+    client, state = context
+    allowed = "wechat:customer_wx_allowed:wx_allowed"
+    denied = "wechat:customer_wx_denied:wx_denied"
+    with _get_session() as db:
+        rows = db.query(ConversationMessageModel).all()
+        ids = {row.conversation_id: row.id for row in rows}
+    base = "/api/v1/admin/conversations/messages"
+    assert client.post(f"{base}/{ids[denied]}/preference", json={"operator_id": "admin", "action": "favorite"}).status_code == 403
+    assert client.post(f"{base}/{ids[denied]}/text", json={"action": "translate"}).status_code == 403
+    assert client.get(f"/api/v1/admin/conversations/message-media/{ids[denied]}").status_code == 403
+    assert client.post(f"{base}/{ids[allowed]}/preference", json={"operator_id": "spoofed-admin", "action": "favorite"}).status_code == 200
+    message = client.get(f"/api/v1/admin/conversations/{allowed}").json()["data"]["messages"][0]
+    assert message["is_favorite"] and "workbench_preferences" not in message["metadata"]
+    with _get_session() as db:
+        import json
+        preferences = json.loads(db.get(ConversationMessageModel, ids[allowed]).metadata_json)["workbench_preferences"]
+        assert set(preferences) == {state["account"]["username"]}
+
+
 def test_old_credentials_and_account_management_removed(context):
     client, _ = context
     assert client.post("/api/gate", json={"username": "admin", "password": "old-password"}).status_code in (404, 405)

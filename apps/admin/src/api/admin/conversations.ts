@@ -53,7 +53,9 @@ export interface ConversationMessage {
   route?: string | null
   primary_intent?: string | null
   metadata: Record<string, unknown>
-  actions?: { quote: boolean; forward: boolean; revoke: boolean }
+  actions?: { quote: boolean; forward: boolean; revoke: boolean; forward_same_account?: boolean }
+  is_favorite?: boolean
+  is_hidden?: boolean
   created_at: string
 }
 
@@ -194,6 +196,21 @@ export const replyConversation = (conversationId: string, operator_id: string, c
 export const revokeConversationMessage = (messageId: number, operator_id: string) =>
   request.post<ConversationMessage>({
     url: `/api/v1/admin/conversations/messages/${messageId}/revoke`, data: { operator_id }
+  })
+
+export const updateMessagePreference = (messageId: number, action: 'favorite' | 'unfavorite' | 'hide', operator_id: string) =>
+  request.post<ConversationMessage>({
+    url: `/api/v1/admin/conversations/messages/${messageId}/preference`, data: { action, operator_id }
+  })
+
+export const getMessageText = (messageId: number, action: 'extract' | 'translate') =>
+  request.post<{ text: string }>({
+    url: `/api/v1/admin/conversations/messages/${messageId}/text`, data: { action }
+  })
+
+export const getMessageMedia = (messageId: number, localSource?: string) =>
+  request.get<Blob>({
+    url: localSource || `/api/v1/admin/conversations/message-media/${messageId}`, responseType: 'blob'
   })
 
 export const forwardConversationMessage = (conversationId: string, operator_id: string, source_message_id: number) =>

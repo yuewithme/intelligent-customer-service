@@ -343,7 +343,7 @@ async def recover_stale_unsupported_handoffs(
     return len(conversation_ids)
 
 
-async def get_conversation_detail(conversation_id: str) -> dict:
+async def get_conversation_detail(conversation_id: str, *, operator_id: str | None = None) -> dict:
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)
         messages = session.scalars(
@@ -360,7 +360,7 @@ async def get_conversation_detail(conversation_id: str) -> dict:
 
     return {
         "conversation": _conversation_to_dict(conversation),
-        "messages": _visible_message_dicts(messages),
+        "messages": _visible_message_dicts(messages, operator_id=operator_id),
         "agent_relationship": get_agent_relationship_state(conversation.user_id),
     }
 
@@ -2205,10 +2205,12 @@ def _conversation_to_dict(row: ConversationModel) -> dict:
     }
 
 
-def _message_to_dict(row: ConversationMessageModel) -> dict:
+def _message_to_dict(row: ConversationMessageModel, *, operator_id: str | None = None) -> dict:
     from app.domains.conversations.services.message_action_service import message_actions
 
     metadata = _load_metadata(row.metadata_json)
+    preferences = metadata.pop("workbench_preferences", {})
+    preference = preferences.get(operator_id, {}) if operator_id else {}
     metadata.pop("sales_stage", None)
     if metadata.get("provider") == "eyun" and not metadata.get("mini_program"):
         from app.integrations.eyun.services.eyun_callback_service import extract_eyun_mini_program_card
@@ -2275,6 +2277,8 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
         "route": row.route,
         "primary_intent": row.primary_intent,
         "metadata": metadata,
+        "is_favorite": bool(preference.get("favorite")),
+        "is_hidden": bool(preference.get("hidden")),
         "actions": message_actions(row, metadata),
         "created_at": _utc_isoformat(row.created_at),
     }
@@ -2282,11 +2286,14 @@ def _message_to_dict(row: ConversationMessageModel) -> dict:
 
 def _visible_message_dicts(
     rows: list[ConversationMessageModel],
+    *, operator_id: str | None = None,
 ) -> list[dict[str, Any]]:
     visible: list[dict[str, Any]] = []
     recent_files: dict[str, tuple[datetime, int]] = {}
     for row in rows:
-        message = _message_to_dict(row)
+        message = _message_to_dict(row, operator_id=operator_id)
+        if message["is_hidden"]:
+            continue
         metadata = message["metadata"]
         raw_content = str(metadata.get("raw_content") or "").lstrip()
         if (
@@ -2330,10 +2337,12 @@ def get_message_media_proxy_source(message_id: int) -> str | None:
         message = session.get(ConversationMessageModel, message_id)
         if message is None:
             return None
-        metadata = _load_metadata(message.metadata_json)
+        metadata = _message_to_dict(message)["metadata"]
+    if metadata.get("revoked_at"):
+        return None
     if (
-        metadata.get("direction") != "outbound"
-        or metadata.get("source_type") != "service_material_touch"
+        metadata.get("provider") != "eyun"
+        and not (metadata.get("direction") == "outbound" and metadata.get("source_type") == "service_material_touch")
     ):
         return None
     media = metadata.get("media")

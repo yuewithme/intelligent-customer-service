@@ -34,6 +34,14 @@ class ForwardMessageRequest(BaseModel):
     source_message_id: int = Field(gt=0)
 
 
+class MessagePreferenceRequest(ClaimRequest):
+    action: Literal["favorite", "unfavorite", "hide"]
+
+
+class MessageTextRequest(BaseModel):
+    action: Literal["extract", "translate"]
+
+
 class ReplyEmojiRequest(BaseModel):
     operator_id: str
     source_message_id: int = Field(gt=0)

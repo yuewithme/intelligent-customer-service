@@ -2087,6 +2087,103 @@ def test_voice_transcription_preserves_pending_automatic_job_and_rejects_video(m
     assert client.post("/api/v1/admin/conversations/messages/99999/transcribe").status_code == 404
 
 
+def test_workbench_preferences_are_private_and_preserve_original_messages(monkeypatch, tmp_path):
+    import asyncio
+    from app.domains.conversations.services.conversation_service import get_conversation_detail
+    from app.domains.conversations.services.message_action_service import update_message_preference
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(record_customer_message(channel="wechat", user_id="preferences", session_id="owner", content="保留的客户原话"))
+    client = TestClient(app)
+    path = "/api/v1/admin/conversations/wechat:preferences:owner"
+    message_id = client.get(path).json()["data"]["messages"][0]["id"]
+    action_path = f"/api/v1/admin/conversations/messages/{message_id}/preference"
+    assert client.post(action_path, json={"operator_id": "admin", "action": "favorite"}).status_code == 200
+    favorite = client.get(path).json()["data"]["messages"][0]
+    assert favorite["is_favorite"] and "workbench_preferences" not in favorite["metadata"]
+    other = asyncio.run(get_conversation_detail("wechat:preferences:owner", operator_id="other"))["messages"][0]
+    assert not other["is_favorite"]
+    update_message_preference(message_id, "other", "favorite")
+    assert client.post(action_path, json={"operator_id": "admin", "action": "unfavorite"}).status_code == 200
+    assert not client.get(path).json()["data"]["messages"][0]["is_favorite"]
+    assert client.post(action_path, json={"operator_id": "admin", "action": "hide"}).status_code == 200
+    assert client.get(path).json()["data"]["messages"] == []
+    retained = asyncio.run(get_conversation_detail("wechat:preferences:owner"))["messages"]
+    assert retained[0]["content"] == "保留的客户原话"
+    assert asyncio.run(get_conversation_detail("wechat:preferences:owner", operator_id="other"))["messages"][0]["is_favorite"]
+    assert client.post(action_path, json={"operator_id": "admin", "action": "destroy"}).status_code == 422
+
+
+def test_workbench_text_actions_validate_message_type_and_source(monkeypatch, tmp_path):
+    import asyncio
+    from app.integrations.ai.services import vision_service, llm_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    calls = []
+
+    async def extract(source):
+        calls.append(source)
+        return "图片中的文字"
+
+    async def translate(messages, **kwargs):
+        assert messages[-1] == {"role": "user", "content": "Hello"}
+        return {"answer": "你好"}
+
+    monkeypatch.setattr(vision_service, "extract_image_text", extract)
+    monkeypatch.setattr(llm_service, "generate_messages", translate)
+    for content, metadata in [
+        ("Hello", {}),
+        ("[图片]", {"media": {"type": "image", "url": "https://cdn.example.com/test.jpg"}}),
+        ("[图片]", {"media": {"type": "image", "url": "/static/%2e%2e/private.jpg"}}),
+    ]:
+        asyncio.run(record_customer_message(channel="wechat", user_id="text_actions", session_id="owner", content=content, metadata=metadata))
+    client = TestClient(app)
+    messages = client.get("/api/v1/admin/conversations/wechat:text_actions:owner").json()["data"]["messages"]
+    base = "/api/v1/admin/conversations/messages"
+    assert client.post(f"{base}/{messages[0]['id']}/text", json={"action": "extract"}).status_code == 422
+    assert client.post(f"{base}/{messages[0]['id']}/text", json={"action": "translate"}).json()["data"]["text"] == "你好"
+    assert client.post(f"{base}/{messages[1]['id']}/text", json={"action": "extract"}).json()["data"]["text"] == "图片中的文字"
+    assert client.post(f"{base}/{messages[1]['id']}/text", json={"action": "translate"}).status_code == 422
+    assert client.post(f"{base}/{messages[2]['id']}/text", json={"action": "extract"}).status_code == 409
+    assert calls == ["https://cdn.example.com/test.jpg"]
+    assert client.post(f"{base}/99999/text", json={"action": "extract"}).status_code == 404
+
+
+def test_workbench_media_proxy_supports_images_and_rejects_private_redirects(monkeypatch, tmp_path):
+    import asyncio
+    import httpx
+    from app.integrations.web.services import link_card_thumbnail_service
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(record_customer_message(channel="wechat", user_id="image_download", session_id="owner", content="[图片]",
+        metadata={"provider": "eyun", "media": {"type": "image", "url": "https://cdn.example.com/image.png"}}))
+    client = TestClient(app)
+    message_id = client.get("/api/v1/admin/conversations/wechat:image_download:owner").json()["data"]["messages"][0]["id"]
+    requests = []
+    redirect = [False]
+
+    async def public_url(url):
+        if "127.0.0.1" in url:
+            raise RuntimeError("private address")
+
+    def handler(request):
+        requests.append(str(request.url))
+        if redirect[0]:
+            return httpx.Response(302, headers={"location": "http://127.0.0.1/private"})
+        return httpx.Response(200, content=b"image-bytes", headers={"content-type": "image/png"})
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(**kwargs, transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(link_card_thumbnail_service, "_assert_public_url", public_url)
+    path = f"/api/v1/admin/conversations/message-media/{message_id}"
+    response = client.get(path)
+    assert response.status_code == 200 and response.content == b"image-bytes"
+    assert response.headers["content-type"] == "image/png"
+    redirect[0] = True
+    assert client.get(path).status_code == 502
+    assert requests == ["https://cdn.example.com/image.png"] * 2
+
+
 def test_workbench_quote_preserves_source_and_rejects_other_customer(monkeypatch, tmp_path):
     import asyncio
     from app.integrations.eyun.services import message_risk_control_service as queue
@@ -2119,6 +2216,8 @@ def test_workbench_quote_preserves_source_and_rejects_other_customer(monkeypatch
 
 
 @pytest.mark.parametrize("media_type, raw, expected_type", [
+    ("image", '<msg><img cdnmidimgurl="encrypted" /></msg>', "received_image"),
+    ("video", '<msg><videomsg cdnvideourl="encrypted" /></msg>', "received_video"),
     ("file", '<msg><appmsg><type>6</type><title>手册.pdf</title></appmsg></msg>', "received_file"),
     ("link", '<msg><appmsg><type>5</type><title>手册</title><url>https://example.com</url></appmsg></msg>', "received_link"),
     ("mini_program", '<msg><appmsg><type>33</type><thumburl>https://example.com/cover.png</thumburl></appmsg></msg>', "received_mini_program"),

@@ -7,6 +7,7 @@
         :label="`${item.user_display_name || item.user_id} · ${item.owner_display_name || item.owner_wc_id || '微信'}`" />
     </ElSelect>
     <p class="forward-hint">图片、视频和文件等原始微信消息需要转发到同一微信账号的会话。</p>
+    <p v-if="restrictedOwner !== undefined && !targets.length && !loading" class="forward-hint">没有可用的同账号会话，请检查所选消息是否属于同一微信账号。</p>
     <template #footer>
       <ElButton :disabled="sending" @click="visible = false">取消</ElButton>
       <ElButton type="primary" :disabled="!targetId || !messages.length" :loading="sending" @click="forward">确认转发</ElButton>
@@ -15,13 +16,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { forwardConversationMessage, getConversations, updateReplyDraft, type ConversationItem, type ConversationMessage } from '@/api/admin/conversations'
 import { useUserStore } from '@/store/modules/user'
 
 const visible = defineModel<boolean>({ required: true })
-const props = defineProps<{ messages: ConversationMessage[] }>()
+const props = defineProps<{ messages: ConversationMessage[]; sourceOwners: Record<string, string> }>()
 const emit = defineEmits<{ sent: [] }>()
 const userStore = useUserStore()
 const targetId = ref('')
@@ -30,6 +31,11 @@ const loading = ref(false)
 const sending = ref(false)
 const completed = new Set<number>()
 let searchVersion = 0
+const restrictedOwner = computed(() => {
+  const owners = props.messages.filter(message => message.actions?.forward_same_account).map(message => props.sourceOwners[message.conversation_id] || '')
+  if (!owners.length) return undefined
+  return owners[0] && owners.every(owner => owner === owners[0]) ? owners[0] : ''
+})
 
 watch(visible, value => {
   if (value) { targetId.value = ''; completed.clear(); void searchTargets('') }
@@ -41,7 +47,7 @@ const searchTargets = async (keyword: string) => {
   loading.value = true
   try {
     const result = await getConversations({ page: 1, page_size: 100, channel: 'wechat', keyword: keyword.trim() || undefined })
-    if (version === searchVersion) targets.value = result.items.filter(item => item.status !== 'resolved')
+    if (version === searchVersion) targets.value = result.items.filter(item => item.status !== 'resolved' && (restrictedOwner.value === undefined || Boolean(restrictedOwner.value && item.owner_wc_id === restrictedOwner.value)))
   } catch {
     if (version === searchVersion) targets.value = []
   } finally {
