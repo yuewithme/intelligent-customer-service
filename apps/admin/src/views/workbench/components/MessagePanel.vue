@@ -71,7 +71,16 @@
       </div>
     </div>
 
-    <div ref="timelineRef" v-loading="loading" class="timeline" :class="{ 'is-empty': !detail?.messages.length }" @scroll="closeMenu">
+    <div
+      ref="timelineRef"
+      v-loading="loading"
+      class="timeline"
+      :class="{ 'is-empty': !detail?.messages.length }"
+      @scroll="handleTimelineScroll"
+      @load.capture="followLatest"
+      @error.capture="followLatest"
+      @loadedmetadata.capture="followLatest"
+    >
       <div v-if="selectionMode" class="selection-toolbar">
         <span>已选 {{ selectedMessageIds.size }} 条</span>
         <div>
@@ -369,6 +378,7 @@ interface CommerceCardMetadata {
 }
 
 const props = defineProps<{
+  conversationKey: string
   conversationId: string
   conversationIds: string[]
   focusMessageId?: number
@@ -444,71 +454,135 @@ const userStore = useUserStore()
 const focusedMessageId = ref<number>()
 let focusTimer: number | undefined
 let reloadPending = false
-let requesting = false
+let requestingScope: string | undefined
+let loadSequence = 0
+let followBottom = true
+let initialPositionPending = true
+let pendingFocusMessageId = props.focusMessageId
+let timelineResizeObserver: ResizeObserver | undefined
+const requestScope = computed(() => JSON.stringify([
+  props.conversationKey,
+  props.conversationId,
+  [...props.conversationIds].sort()
+]))
+
+const handleTimelineScroll = () => {
+  closeMenu()
+  const timeline = timelineRef.value
+  if (timeline && !initialPositionPending) {
+    followBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80
+  }
+}
+
+const followLatest = async () => {
+  if (!followBottom) return
+  const scope = requestScope.value
+  // Captured media events run before the media component updates its own layout.
+  await Promise.resolve()
+  await nextTick()
+  if (followBottom && scope === requestScope.value && timelineRef.value) {
+    timelineRef.value.scrollTop = timelineRef.value.scrollHeight
+  }
+}
+
+const positionMessages = async (stickToBottom = followBottom) => {
+  const scope = requestScope.value
+  await nextTick()
+  const timeline = timelineRef.value
+  if (scope !== requestScope.value || !detail.value || !timeline) return
+  const messageId = pendingFocusMessageId
+  pendingFocusMessageId = undefined
+  if (messageId) {
+    const target = timeline.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
+    if (target) {
+      followBottom = false
+      initialPositionPending = false
+      target.scrollIntoView({ block: 'center' })
+      focusedMessageId.value = messageId
+      if (focusTimer) window.clearTimeout(focusTimer)
+      focusTimer = window.setTimeout(() => { focusedMessageId.value = undefined }, 3000)
+      return
+    }
+  }
+  if (initialPositionPending || stickToBottom) {
+    followBottom = true
+    timeline.scrollTop = timeline.scrollHeight
+  }
+  initialPositionPending = false
+}
+
+const revealMessage = (messageId?: number) => {
+  pendingFocusMessageId = messageId
+  onlyFavorites.value = false
+  followBottom = !messageId
+  void positionMessages()
+}
 
 const load = async (options: { silent?: boolean } = {}) => {
-  if (requesting) {
+  const scope = requestScope.value
+  if (requestingScope === scope) {
     reloadPending = true
     return
   }
+  const sequence = ++loadSequence
+  reloadPending = false
+  requestingScope = scope
   if (!props.conversationIds.length) {
+    requestingScope = undefined
+    loading.value = false
     detail.value = undefined
     emit('loaded', undefined)
     return
   }
-  requesting = true
-  const timeline = timelineRef.value
-  const wasNearBottom = timeline
-    ? timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80
-    : true
-  if (!options.silent) {
-    loading.value = true
-  }
+  const conversationId = props.conversationId
+  const conversationIds = [...props.conversationIds].sort()
+  loading.value = !options.silent
   try {
     const details = await Promise.all(
-      props.conversationIds.map((conversationId) => getConversationDetail(conversationId))
+      conversationIds.map((id) => getConversationDetail(id))
     )
+    if (sequence !== loadSequence || scope !== requestScope.value) return
     const currentDetail =
-      details.find((item) => item.conversation.conversation_id === props.conversationId) ||
+      details.find((item) => item.conversation.conversation_id === conversationId) ||
       details[0]
-    conversationOwners.value = Object.fromEntries(details.map(item => [item.conversation.conversation_id, item.conversation.owner_wc_id || '']))
-
-    detail.value = {
+    const owners = Object.fromEntries(details.map(item => [item.conversation.conversation_id, item.conversation.owner_wc_id || '']))
+    if (JSON.stringify(conversationOwners.value) !== JSON.stringify(owners)) {
+      conversationOwners.value = owners
+    }
+    const previousMessages = new Map(detail.value?.messages.map(message => [message.id, message]))
+    const nextMessages = details
+      .flatMap((item) => item.messages)
+      .sort(
+        (left, right) =>
+          new Date(left.created_at).getTime() - new Date(right.created_at).getTime() ||
+          left.id - right.id
+      )
+      .map(message => {
+        const previous = previousMessages.get(message.id)
+        return previous && JSON.stringify(previous) === JSON.stringify(message) ? previous : message
+      })
+    const messagesUnchanged = detail.value?.messages.length === nextMessages.length &&
+      nextMessages.every((message, index) => message === detail.value?.messages[index])
+    const nextDetail: ConversationDetail = {
       conversation: currentDetail.conversation,
-      messages: details
-        .flatMap((item) => item.messages)
-        .sort(
-          (left, right) =>
-            new Date(left.created_at).getTime() - new Date(right.created_at).getTime() ||
-            left.id - right.id
-        ),
+      messages: messagesUnchanged ? detail.value!.messages : nextMessages,
       agent_relationship: currentDetail.agent_relationship,
     }
-    emit('loaded', detail.value)
-    selectedMessageIds.value = new Set(detail.value.messages.filter(message => canSelectMessage(message) && selectedMessageIds.value.has(message.id)).map(message => message.id))
-    if (!selectedMessageIds.value.size) selectionMode.value = false
-    await nextTick()
-    if (props.focusMessageId && timelineRef.value) {
-      const target = timelineRef.value.querySelector<HTMLElement>(
-        `[data-message-id="${props.focusMessageId}"]`
-      )
-      if (target) {
-        target.scrollIntoView({ block: 'center', behavior: 'smooth' })
-        focusedMessageId.value = props.focusMessageId
-        if (focusTimer) window.clearTimeout(focusTimer)
-        focusTimer = window.setTimeout(() => { focusedMessageId.value = undefined }, 3000)
-      }
-    } else if (wasNearBottom && timelineRef.value) {
-      timelineRef.value.scrollTop = timelineRef.value.scrollHeight
+    if (JSON.stringify(detail.value) !== JSON.stringify(nextDetail)) {
+      detail.value = nextDetail
+      emit('loaded', detail.value)
+      selectedMessageIds.value = new Set(detail.value.messages.filter(message => canSelectMessage(message) && selectedMessageIds.value.has(message.id)).map(message => message.id))
+      if (!selectedMessageIds.value.size) selectionMode.value = false
     }
+    await positionMessages()
   } finally {
-    requesting = false
-    if (!options.silent) {
+    if (sequence === loadSequence) {
+      requestingScope = undefined
       loading.value = false
-    }
-    if (reloadPending) {
-      reloadPending = false
-      void load({ silent: true })
+      if (reloadPending) {
+        reloadPending = false
+        void load({ silent: true })
+      }
     }
   }
 }
@@ -1026,25 +1100,39 @@ const avatarText = (conversation: ConversationItem) =>
 const formatTime = formatChinaTime
 
 watch(
-  () => [props.conversationId, props.conversationIds.join('|'), props.focusMessageId],
-  () => {
-    closeMenu()
-    remarkEditorOpen.value = false
-    onlyFavorites.value = false
-    textDialogVisible.value = false
-    ++textRequestVersion
-    forwardDialogVisible.value = false
-    clearSelection()
-    void load()
+  [() => props.conversationKey, requestScope],
+  ([customerKey], [previousCustomerKey]) => {
+    const switchingCustomer = customerKey !== previousCustomerKey
+    if (switchingCustomer) {
+      closeMenu()
+      remarkEditorOpen.value = false
+      onlyFavorites.value = false
+      textDialogVisible.value = false
+      ++textRequestVersion
+      forwardDialogVisible.value = false
+      clearSelection()
+      detail.value = undefined
+      focusedMessageId.value = undefined
+      pendingFocusMessageId = props.focusMessageId
+      followBottom = true
+      initialPositionPending = true
+      if (focusTimer) window.clearTimeout(focusTimer)
+    }
+    void load({ silent: !switchingCustomer })
   }
 )
+watch(() => props.focusMessageId, messageId => revealMessage(messageId))
 onMounted(() => {
   void load()
+  timelineResizeObserver = new ResizeObserver(() => { void followLatest() })
+  if (timelineRef.value) timelineResizeObserver.observe(timelineRef.value)
   document.addEventListener('pointerdown', closeMenu)
   document.addEventListener('keydown', handleMenuKey)
   window.addEventListener('resize', closeMenu)
 })
 onBeforeUnmount(() => {
+  ++loadSequence
+  timelineResizeObserver?.disconnect()
   document.removeEventListener('pointerdown', closeMenu)
   document.removeEventListener('keydown', handleMenuKey)
   window.removeEventListener('resize', closeMenu)
@@ -1052,7 +1140,7 @@ onBeforeUnmount(() => {
   if (focusTimer) window.clearTimeout(focusTimer)
 })
 
-defineExpose({ load })
+defineExpose({ load, revealMessage })
 </script>
 
 <style scoped>

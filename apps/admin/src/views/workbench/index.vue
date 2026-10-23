@@ -17,6 +17,7 @@
       <MessagePanel
         ref="messagePanelRef"
         class="messages"
+        :conversation-key="selectedGroupKey || selectedId"
         :conversation-id="selectedId"
         :conversation-ids="selectedIds"
         :focus-message-id="focusMessageId"
@@ -101,6 +102,8 @@ import { useMessageTenantStore } from '@/store/modules/messageTenant'
 defineOptions({ name: 'Workbench' })
 
 const FALLBACK_SYNC_INTERVAL_MS = 5_000
+const RECONCILE_INTERVAL_MS = 60_000
+const EVENT_SYNC_DELAY_MS = 200
 const PROFILE_SYNC_INTERVAL_MS = 60_000
 
 const selectedId = ref('')
@@ -122,6 +125,14 @@ const conversationListRef = ref<InstanceType<typeof ConversationList>>()
 const messagePanelRef = ref<InstanceType<typeof MessagePanel>>()
 let eventSource: EventSource | undefined
 let fallbackTimer: number | undefined
+let eventSyncTimer: number | undefined
+const eventConversationIds = new Set<string>()
+let syncRequest: Promise<void> | undefined
+let syncPending = false
+let fullSyncPending = false
+const pendingConversationIds = new Set<string>()
+let lastReconciledAt = 0
+let disposed = false
 let markingReadKey = ''
 let profileRequestKey = 0
 let profileLoadedAt = 0
@@ -133,9 +144,13 @@ const selectConversation = (item: ConversationGroupItem) => {
     void Promise.all(item.conversation_ids.map((id) => markConversationRead(id)))
       .then(() => conversationListRef.value?.load({ silent: true }))
   }
-  if (selectedId.value === item.conversation_id && selectedGroupKey.value === item.group_key) {
+  if (selectedGroupKey.value === item.group_key) {
+    selectedId.value = item.conversation_id
+    selectedIds.value = item.conversation_ids
+    selectedUnreadCount.value = item.unread_count
     focusMessageId.value = matchedMessageId
     mobileView.value = 'messages'
+    messagePanelRef.value?.revealMessage(matchedMessageId)
     return
   }
   ++profileRequestKey
@@ -185,6 +200,7 @@ const clearSelection = () => {
   selectedIds.value = []
   selectedGroupKey.value = ''
   selectedUnreadCount.value = 0
+  focusMessageId.value = undefined
   conversation.value = undefined
   messages.value = []
   profile.value = undefined
@@ -224,22 +240,57 @@ const markSelectedRead = async () => {
   }
 }
 
-const syncWorkbench = async (conversationId?: string) => {
-  await Promise.all([
-    conversationListRef.value?.load({ silent: true }),
-    isTestGate() ? Promise.resolve() : tenantStore.loadTenants({ silent: true })
-  ])
-  if (selectedGroupKey.value) {
-    const selectedGroup = conversationListRef.value?.getItemByKey(selectedGroupKey.value)
-    if (selectedGroup) {
-      selectedId.value = selectedGroup.conversation_id
-      selectedIds.value = selectedGroup.conversation_ids
-      selectedUnreadCount.value = selectedGroup.unread_count
+const syncWorkbench = (conversationIds?: string[]): Promise<void> => {
+  if (disposed) return Promise.resolve()
+  syncPending = true
+  if (conversationIds) {
+    conversationIds.forEach(id => pendingConversationIds.add(id))
+  } else {
+    fullSyncPending = true
+  }
+  if (syncRequest) return syncRequest
+  syncRequest = (async () => {
+    while (syncPending && !disposed) {
+      const syncAll = fullSyncPending
+      const changedIds = new Set(pendingConversationIds)
+      syncPending = false
+      fullSyncPending = false
+      pendingConversationIds.clear()
+      const previousSelection = JSON.stringify([selectedId.value, [...selectedIds.value].sort()])
+      await Promise.all([
+        conversationListRef.value?.load({ silent: true }),
+        isTestGate() ? Promise.resolve() : tenantStore.loadTenants({ silent: true })
+      ])
+      if (disposed) return
+      if (selectedGroupKey.value) {
+        const selectedGroup = conversationListRef.value?.getItemByKey(selectedGroupKey.value)
+        if (selectedGroup) {
+          selectedId.value = selectedGroup.conversation_id
+          selectedIds.value = selectedGroup.conversation_ids
+          selectedUnreadCount.value = selectedGroup.unread_count
+        }
+      }
+      const selectionUnchanged = previousSelection ===
+        JSON.stringify([selectedId.value, [...selectedIds.value].sort()])
+      // A changed selection is loaded by MessagePanel's watcher.
+      if (selectionUnchanged && (syncAll || selectedIds.value.some(id => changedIds.has(id)))) {
+        await messagePanelRef.value?.load({ silent: true })
+      }
+      if (syncAll) lastReconciledAt = Date.now()
     }
-  }
-  if (!conversationId || selectedIds.value.includes(conversationId)) {
-    await messagePanelRef.value?.load({ silent: true })
-  }
+  })().finally(() => { syncRequest = undefined })
+  return syncRequest
+}
+
+const queueEventSync = (conversationId?: string, messagesChanged = true) => {
+  if (conversationId && messagesChanged) eventConversationIds.add(conversationId)
+  if (eventSyncTimer !== undefined) return
+  eventSyncTimer = window.setTimeout(() => {
+    eventSyncTimer = undefined
+    const changedIds = [...eventConversationIds]
+    eventConversationIds.clear()
+    void syncWorkbench(changedIds)
+  }, EVENT_SYNC_DELAY_MS)
 }
 
 const loadProfile = async (userId?: string | null) => {
@@ -282,11 +333,12 @@ const connectEvents = () => {
   eventSource = new EventSource(eventPath, {
     withCredentials: true
   })
+  eventSource.onopen = () => { void syncWorkbench() }
   eventSource.onmessage = (message) => {
     try {
       const event = JSON.parse(message.data)
       if (event.type === 'conversation.changed') {
-        void syncWorkbench(event.conversation_id)
+        queueEventSync(event.conversation_id, event.reason !== 'read')
       }
     } catch {
       // EventSource reconnects automatically; the fallback sync covers malformed events.
@@ -339,7 +391,8 @@ onMounted(() => {
   void restoreRouteConversation()
   connectEvents()
   fallbackTimer = window.setInterval(() => {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible' &&
+      (eventSource?.readyState !== EventSource.OPEN || Date.now() - lastReconciledAt >= RECONCILE_INTERVAL_MS)) {
       void syncWorkbench()
     }
   }, FALLBACK_SYNC_INTERVAL_MS)
@@ -347,7 +400,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
   eventSource?.close()
+  if (eventSyncTimer !== undefined) window.clearTimeout(eventSyncTimer)
   if (fallbackTimer) {
     window.clearInterval(fallbackTimer)
   }
