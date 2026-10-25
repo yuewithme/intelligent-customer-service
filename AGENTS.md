@@ -25,8 +25,8 @@
 
 - All code development, editing, debugging, and testing must be performed on the local development machine. Do not develop or modify source code on the cloud server.
 - The cloud server is for deployment and runtime operations only. For project code, only pull the latest committed code from the GitLab `origin/main` branch; do not create, edit, patch, or commit source files on the server.
-- The production host is `43.143.83.26` (VPC `10.200.5.17`, hostname `VM-5-17-ubuntu`). `150.158.52.233` is only the restricted SSH jump host and must never be treated as the deployment target.
-- Production releases use the GitLab pipeline documented in `docs/deployment.md`: shared Runner `hz-build-01` connects through the restricted jump host, and the production host fast-forwards from GitLab `origin/main` before rebuilding the services.
+- The production host is the Lighthouse instance `agent-apps-01` at `124.220.107.214` (private `10.0.12.8`, hostname `VM-12-8-ubuntu`), migrated on 2026-10-25. The old CVM `43.143.83.26` (`10.200.5.17`) is retired and only forwards ports; never deploy to it. `150.158.52.233` (old account) only forwards HTTP to the new host and is no longer part of the release path.
+- Production releases use the GitLab pipeline documented in `docs/deployment.md`: shared Runner `hz-build-01` connects directly to `10.0.12.8` over the private network, and the production host fast-forwards from GitLab `origin/main` before rebuilding the services.
 - The SSH private key must remain local and must never be copied into the repository or committed to Git.
 
 ## External API Integrations
