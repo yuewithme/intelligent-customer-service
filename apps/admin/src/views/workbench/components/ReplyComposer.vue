@@ -160,14 +160,18 @@ const send = async (action: () => Promise<unknown>, clearText = false) => {
     await action()
     if (clearText) content.value = ''
     if (!disposed) {
-      ElMessage.success('已发送')
+      ElMessage.success('已加入发送队列')
       emit('changed')
     }
   } catch {
     // Preserve the draft when reception sync or sending fails.
   } finally {
     sending.value = false
-    if (!disposed) void syncReception().catch(() => {})
+    if (!disposed) {
+      void syncReception().catch(() => {})
+      await nextTick()
+      if (!disposed) replyInput.value?.focus()
+    }
   }
 }
 

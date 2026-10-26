@@ -805,7 +805,9 @@ async def enqueue_wechat_outbound(
         )
         conversation_message_id = int(conversation_message["id"])
     try:
-        if material_id is None and message_type in {"image", "video"}:
+        # The worker prepares workbench media after the durable enqueue is acknowledged.
+        defer_media_preparation = (source_batch_key or "").startswith("workbench:")
+        if material_id is None and message_type in {"image", "video"} and not defer_media_preparation:
             from app.integrations.eyun.services.eyun_material_service import materialize_eyun_outbound_media
 
             material = await materialize_eyun_outbound_media(

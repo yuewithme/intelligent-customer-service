@@ -207,7 +207,8 @@ def test_prepared_video_and_cover_decode_with_cdn_block_alignment(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch):
+@pytest.mark.parametrize("source_key,deferred", [("legacy-sop:image", False), ("workbench:42", True)])
+async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch, source_key, deferred):
     from app.infrastructure.database.models import EyunOutboundMessageModel
     from app.integrations.eyun.services import eyun_callback_service
     from app.integrations.eyun.services import eyun_material_service as materials
@@ -216,7 +217,9 @@ async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch):
     now = datetime(2026, 7, 17, 7, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(risk, "utcnow", lambda: now)
 
+    fetched = []
     async def fake_fetch(_url):
+        fetched.append(_url)
         return b"legacy-image"
 
     async def prepare(**_kwargs):
@@ -239,16 +242,46 @@ async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch):
         w_id="wid",
         wc_id="customer",
         content="https://cdn.example/legacy.jpg",
-        source_batch_key="legacy-sop:image",
+        source_batch_key=source_key,
         message_type="image",
         due_at=now,
     )
 
     with risk._get_session() as session:
         row = session.get(EyunOutboundMessageModel, outbound["id"])
-        assert row.material_id is not None
+        assert row.status == "queued"
+        assert (row.material_id is None) is deferred
+    assert len(fetched) == (0 if deferred else 1)
+    assert not forwarded
     assert await risk.process_due_eyun_outbound_messages() == 1
+    assert len(fetched) == 1
     assert forwarded[0]["message_type"] == "received_image"
+
+
+@pytest.mark.asyncio
+async def test_workbench_media_preparation_failure_is_reported_after_enqueue(monkeypatch):
+    from app.infrastructure.database.models import ConversationMessageModel, EyunOutboundMessageModel
+    from app.integrations.eyun.services import eyun_material_service as materials
+    from app.integrations.eyun.services import message_risk_control_service as risk
+
+    now = datetime(2026, 10, 26, 7, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(risk, "utcnow", lambda: now)
+    monkeypatch.setattr(get_settings(), "eyun_send_max_attempts", 1)
+    calls = []
+    async def prepare(**kwargs):
+        calls.append(kwargs)
+        raise ValueError("图片素材暂时不可用")
+    monkeypatch.setattr(materials, "materialize_eyun_outbound_media", prepare)
+    outbound = await risk.enqueue_wechat_outbound(w_id="wid", wc_id="customer",
+        content="https://cdn.example/workbench.jpg", source_batch_key="workbench:43",
+        message_type="image", due_at=now)
+    assert outbound["status"] == "queued" and not calls
+    assert await risk.process_due_eyun_outbound_messages() == 0
+    assert len(calls) == 1
+    with risk._get_session() as session:
+        row = session.get(EyunOutboundMessageModel, outbound["id"])
+        assert row.status == "failed" and row.last_error == "图片素材暂时不可用"
+        assert session.get(ConversationMessageModel, row.conversation_message_id).delivery_status == "failed"
 
 
 @pytest.mark.asyncio
