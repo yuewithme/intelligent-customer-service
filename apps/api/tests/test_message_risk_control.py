@@ -45,6 +45,56 @@ async def test_first_order_master_switch_prevents_opening(monkeypatch):
     await service._send_opening_for_new_friend({"from_user": "customer", "target_wc_id": "customer"})
 
 
+@pytest.mark.parametrize("sender, source_key, service_step, input_delay, expected", [
+    ("ai", "current-batch", None, 55, False),
+    ("ai", "current-batch", None, 0, True),
+    ("ai", "current-batch", None, -1, True),
+    ("ai", "other-account-batch", None, 55, True),
+    ("human", "current-batch", None, 55, True),
+    ("system", "current-batch", None, 55, True),
+    ("ai", "current-batch", "tutorial", 55, True),
+])
+def test_new_customer_input_invalidates_only_its_pending_ai_dialogue(sender, source_key, service_step, input_delay, expected):
+    from app.integrations.eyun.services import message_risk_control_service as service
+    now = datetime.now(timezone.utc)
+    with service._get_session() as session:
+        message = ConversationMessageModel(conversation_id="wechat:customer:bot", sender_type=sender,
+            content="您先忙，有空拍图发我", delivery_status="queued", created_at=now + timedelta(seconds=90),
+            metadata_json=json.dumps({"reply_context_at": now.isoformat(), "source_batch_key": "current-batch",
+                **({"service_step": service_step} if service_step else {})}))
+        session.add(message)
+        session.flush()
+        session.add(EyunInboundMessageModel(provider_message_id="new-photo", batch_key=source_key,
+            content="[图片]", created_at=now + timedelta(seconds=input_delay)))
+        session.flush()
+        outbound = EyunOutboundMessageModel(conversation_message_id=message.id)
+        assert service._validate_outbound_before_send(session, outbound) is expected
+
+
+@pytest.mark.asyncio
+async def test_send_worker_cancels_old_queued_reply_when_photo_has_arrived(monkeypatch):
+    from app.integrations.eyun.services import message_risk_control_service as service
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(service, "utcnow", lambda: now + timedelta(minutes=2))
+    with service._get_session() as session:
+        message = ConversationMessageModel(conversation_id="wechat:customer:bot", sender_type="ai",
+            content="您先忙，有空拍图发我", delivery_status="queued", created_at=now,
+            metadata_json=json.dumps({"reply_context_at": now.isoformat(), "source_batch_key": "current-batch"}))
+        session.add(message)
+        session.commit()
+        message_id = message.id
+    outbound = await service.enqueue_wechat_outbound(w_id="wid", wc_id="customer",
+        content="您先忙，有空拍图发我", source_batch_key="current-batch", conversation_message_id=message_id, due_at=now)
+    with service._get_session() as session:
+        session.add(EyunInboundMessageModel(provider_message_id="new-photo", batch_key="current-batch",
+            content="[图片]", created_at=now + timedelta(seconds=55)))
+        session.commit()
+    assert await service.process_due_eyun_outbound_messages() == 0
+    with service._get_session() as session:
+        assert session.get(EyunOutboundMessageModel, outbound["id"]).status == "cancelled"
+        assert session.get(ConversationMessageModel, message_id).delivery_status == "cancelled"
+
+
 def test_risk_control_defaults():
     settings = get_settings()
 

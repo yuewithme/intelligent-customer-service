@@ -16,6 +16,15 @@ CUSTOMER_FACING_IDENTITY_PROMPT = """身份和客户可见语境：
 """
 
 
+CONTEXTUAL_CONTINUITY_PROMPT = """本轮对话承接：
+- 先把连续发来的文字、图片等材料作为一个整体，再结合最近人工和 AI 发言判断客户正在回应什么。图片本身没有写诉求时，回看前一条客户文字，不只参考更早的 AI 回复。人工介绍了品种后客户说“我有一盆”，是在补充自己已有该品种，不表示忙碌、拒绝或结束聊天，可顺着这个品种聊实际养护或开花情况。
+- 历史里的“您先忙”“随时联系”“随时拍图”只表示当时的收尾，不是后续每轮都要延续的状态。客户重新补充信息、发来照片或提出问题，就承接新的内容；历史 relationship_state 和 issue_progress 也不能覆盖本轮明确意思。停止推销的意愿仍需尊重，但不等于停止回答客户主动提出的问题。
+- 已发送照片就是已收到材料；画面能否支持具体判断是另一回事。客户先说“拍给你看看”后已经发图，不再回复“有空再拍给我”，也不只回一条客套收尾。结合前面的诉求和图片观察回答；花未开等条件不足时，自然说明目前能看出的内容和需要等到的条件，不猜具体品种。
+- 客户说“准备拍照”等过渡表达时不抢着结束话题；已经进入本轮的后续图片优先于更早的等待描述。文字和图片连续到达时合并承接，不逐条重复客套。
+- 只有本轮语义确实表示道谢、暂忙或结束时才自然收住；不把省略主语的短回复一律当成告别。不为避免收尾而强行追加问题、销售介绍或主管邀请。
+"""
+
+
 SERVICE_HANDOFF_INVITATION_PROMPT = """服务收尾与主管接手邀请（所有接待范围适用）：
 - 在每个决策 JSON 顶层额外输出 service_handoff：{"issue_relation":"same","issue_summary":"当前具体问题","invitation_reason":"none","invitation_response":"none","evidence":"客户本轮原话证据"}。
 - issue_relation 仅可 same/new。围绕同一问题继续追问、提供照片或补充浇水情况仍为 same；例如叶子发黄转为订单未收到才是 new。对照 customer_workspace.service_handoff.issue_summary 和完整对话判断，不因文字改写、日期改变或语气变化建立新问题。new 必须给出新问题摘要及本轮原话 evidence。
@@ -250,6 +259,7 @@ def build_system_prompt(sop_scope: str = "first_order", sop_scopes: list[str] | 
     )
     return (
         f"{core_prompt}\n\n{CUSTOMER_FACING_IDENTITY_PROMPT}"
+        f"\n\n{CONTEXTUAL_CONTINUITY_PROMPT}"
         f"\n\n{SERVICE_HANDOFF_INVITATION_PROMPT}"
         f"\n\n{CARE_REPLY_STYLE_PROMPT}"
         f"\n\n{CONVERSATION_PROGRESS_PROMPT}"
@@ -264,9 +274,12 @@ def build_turn_payload(
     event_context: dict[str, Any],
     tool_results: list[dict[str, Any]],
 ) -> str:
+    source_ids = event_context.get("conversation_message_ids")
+    current_message_ids = {value for value in source_ids if type(value) is int} if isinstance(source_ids, list) else set()
     full_conversation = _full_conversation_context(
         customer_workspace,
         customer_message=customer_message,
+        current_message_ids=current_message_ids,
     )
     previous_assistant_indexes = _previous_assistant_turn_indexes(full_conversation["turns"])
     workspace_without_conversation = dict(customer_workspace)
@@ -280,6 +293,7 @@ def build_turn_payload(
         "customer_message": customer_message,
         "turn_focus": {
             "current_customer_message": customer_message,
+            "current_customer_message_ids": sorted(current_message_ids),
             "previous_assistant_turn_indexes": previous_assistant_indexes,
             "instruction": (
                 "只处理 current_customer_message，不要把更早的客户消息误当成本轮。"
@@ -290,6 +304,8 @@ def build_turn_payload(
                 "先判断它是否真的在回答上一问；肯定回答应继承它所认可的对象，并推进下一步，不能重做上一轮。"
                 "若当前消息提出无关的新问题、新关注点或明确转换话题，以当前消息为主先承接回答，"
                 "不要为了完成上一轮提问或销售动作强行拉回原流程。"
+                "当前消息编号属于本轮连续输入，已从历史中分离；结合本轮媒体接收数量和近期图片观察理解。"
+                "历史客套收尾不是本轮意图，不因上一轮说过‘您先忙’就忽略新的补充、图片或问题。"
             ),
         },
         "full_conversation": full_conversation,
@@ -318,13 +334,18 @@ def build_turn_payload(
 
 def _previous_assistant_turn_indexes(recent: list[dict]) -> list[int]:
     indexes = []
+    sender_type = None
     for index in range(len(recent) - 1, max(-1, len(recent) - 11), -1):
         item = recent[index]
         role = str(item.get("role") or "").lower()
         if role in {"assistant", "agent", "sales_agent", "ai", "human"}:
+            current_sender = item.get("sender_type")
+            if indexes and sender_type and current_sender and sender_type != current_sender:
+                break
             content = str(item.get("content") or "").strip()
             if content:
                 indexes.append(index)
+                sender_type = current_sender or sender_type
                 if len(indexes) >= 5:
                     break
             continue
@@ -337,7 +358,9 @@ def _full_conversation_context(
     customer_workspace: dict[str, Any],
     *,
     customer_message: str,
+    current_message_ids: set[int] | None = None,
 ) -> dict[str, Any]:
+    current_message_ids = current_message_ids or set()
     recent = customer_workspace.get("recent_turns")
     recent = recent if isinstance(recent, list) else []
     turns = [
@@ -351,9 +374,12 @@ def _full_conversation_context(
         }
         for item in recent
         if isinstance(item, dict) and str(item.get("content") or "").strip()
+        and not (_conversation_role(item.get("role")) == "customer"
+            and item.get("message_id") in current_message_ids)
     ]
     if (
         turns
+        and not current_message_ids
         and turns[-1]["role"] == "customer"
         and turns[-1]["content"] == str(customer_message or "").strip()
     ):

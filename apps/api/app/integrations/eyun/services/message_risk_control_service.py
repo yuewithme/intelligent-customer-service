@@ -2925,6 +2925,13 @@ def _validate_outbound_before_send(
                 context_at = datetime.fromisoformat(metadata["reply_context_at"]) if metadata.get("reply_context_at") else message.created_at
                 if _human_replied_after(message.conversation_id, context_at):
                     return False
+                if metadata.get("reply_context_at") and metadata.get("source_batch_key") and not metadata.get("service_step"):
+                    newer_inputs = session.scalars(select(EyunInboundMessageModel.content).where(
+                        EyunInboundMessageModel.batch_key == metadata["source_batch_key"],
+                        EyunInboundMessageModel.created_at > context_at,
+                    ))
+                    if any(content and not is_platform_noise_text(content) for content in newer_inputs):
+                        return False
             scope = metadata.get("sop_scope") or ("first_order" if message.route in {"opening", "agent_first_contact"} else None)
             if scope in {"first_order", "service", "seeding"} and not is_sop_enabled(scope):
                 return False

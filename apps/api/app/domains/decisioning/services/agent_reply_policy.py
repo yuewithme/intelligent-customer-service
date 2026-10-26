@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 from typing import Any
 
 from app.domains.decisioning.schemas.agent import AgentTurnDecision
@@ -450,9 +451,11 @@ def sales_flow_rewrite_instruction(violations: list[str]) -> str:
         )
     if "repeats_recent_assistant_content" in violations:
         focused_instructions.append(
-            "当前候选回复复述了上一轮已经真实发送的内容。不要再次解释同一病因或重复已经讲过的服务概述；"
-            "先承接客户刚提供的新信息，再推进尚未讲清的价值。若客户刚确认一直自己摸索，"
-            "应说明萧岚苑与部分卖完后缺少持续承接的商家有何不同，并按真实权益讲清单品养护教程、会员百节视频教学和师傅一对一实时指导如何帮助他。"
+            "当前候选回复与近期已经说过的内容高度重复，换个开头继续‘您先忙、随时联系’仍然没有承接本轮。"
+            "先重新看客户最新文字、已收到的图片，以及紧邻的人工和 AI 发言，判断客户新增了什么；"
+            "有新信息就回应新增信息，有具体问题就回答当前问题，不再让客户提供已发来的相同照片。"
+            "不自动延续历史收尾、重复病因或服务介绍，也不为纠正重复而强行转入推销或索图。"
+            "若客户本轮确实道谢、暂忙或明确结束，可以简短自然收住，无需为了避免重复而延长聊天。"
         )
     if "premature_product_card_without_customer_interest" in violations:
         focused_instructions.append(
@@ -510,6 +513,9 @@ def _repeats_recent_assistant_content(
         current == prior
         or (len(current) >= 36 and current in prior)
         or (len(prior) >= 36 and prior in current)
+        or (max(len(current), len(prior)) <= 400
+            and min(len(current), len(prior)) / max(len(current), len(prior)) >= 0.8
+            and SequenceMatcher(None, current, prior, autojunk=False).ratio() >= 0.88)
         for current in current_chunks
         for prior in prior_chunks
     )
@@ -613,15 +619,20 @@ def _previous_assistant_turn_text(context: AgentExecutionContext) -> str:
     recent = recent if isinstance(recent, list) else []
     chunks: list[str] = []
     found_assistant = False
+    sender_type = None
     for item in reversed(recent[-10:]):
         if not isinstance(item, dict):
             continue
         role = str(item.get("role") or "").lower()
         if role in {"assistant", "agent", "sales_agent", "ai", "human"}:
+            current_sender = item.get("sender_type")
+            if found_assistant and sender_type and current_sender and sender_type != current_sender:
+                break
             content = str(item.get("content") or "").strip()
             if content:
                 chunks.append(content)
                 found_assistant = True
+                sender_type = current_sender or sender_type
             continue
         if found_assistant:
             break

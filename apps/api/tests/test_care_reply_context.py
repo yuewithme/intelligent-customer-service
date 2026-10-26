@@ -133,6 +133,86 @@ def test_missing_history_differs_from_history_with_only_unsent_drafts():
     assert history.get_conversation_context("api:context-customer:owner-1", 20_000)["turns"][0]["content"] == "API 已返回的回复"
 
 
+def test_current_photo_batch_is_separate_from_history_and_keeps_earlier_request():
+    add_message("有啥拿不准的随时拍图发我", "ai", status="sent")
+    add_message("我不知道这盆叫什么名，我拍照给你看看", offset=1)
+    add_message("[图片]", offset=2, metadata={"media": {"type": "image", "recognition": {
+        "status": "succeeded", "text": "花苞尚未完全开放，具体品种不确定"}}})
+    turns = history.get_conversation_context(CID, 20_000)["turns"]
+    current_id = turns[-1]["message_id"]
+    message = incoming("[客户图片理解] 花苞尚未完全开放，具体品种不确定")
+    message.metadata.update(conversation_message_ids=[current_id], image_count=1, recognized_image_count=1)
+    result = json.loads(build_turn_payload(customer_message=message.message,
+        customer_workspace={"recent_turns": turns, "recent_customer_media": media_context_service.get_recent_customer_media(CID)},
+        event_context=agent_runtime._event_context(message), tool_results=[]))
+    assert [turn["content"] for turn in result["full_conversation"]["turns"]] == [
+        "有啥拿不准的随时拍图发我", "我不知道这盆叫什么名，我拍照给你看看"]
+    assert result["turn_focus"]["current_customer_message_ids"] == [current_id]
+    assert result["event_context"]["image_count"] == 1
+    assert result["event_context"]["recognized_image_count"] == 1
+    assert "花苞尚未完全开放" in result["customer_workspace"]["recent_customer_media"][0]["content"]
+
+
+@pytest.mark.parametrize("old_ai", ["您先忙，后面随时喊我", "您觉得这种陪伴服务是不是更踏实？"])
+def test_short_reply_focuses_latest_human_messages_instead_of_old_ai_closing(old_ai):
+    add_message(old_ai, "ai", status="sent")
+    add_message("和您分享莲瓣兰大雪素，您喜欢这类素花吗？", "human", status="sent", offset=1)
+    add_message("这是它开花的视频", "human", status="sent", offset=2)
+    add_message("我有一盆", offset=3)
+    turns = history.get_conversation_context(CID, 20_000)["turns"]
+    result = json.loads(build_turn_payload(customer_message="我有一盆", customer_workspace={"recent_turns": turns},
+        event_context={"conversation_message_ids": [turns[-1]["message_id"]]}, tool_results=[]))
+    indexes = result["turn_focus"]["previous_assistant_turn_indexes"]
+    assert indexes == [1, 2]
+    assert all(result["full_conversation"]["turns"][index]["sender_type"] == "human" for index in indexes)
+    context = AgentExecutionContext(message=incoming("是的"), user_state=UserState(user_id="context-customer"),
+        workspace={"recent_turns": turns})
+    assert policy._affirmed_service_trial_close(context) is False
+
+
+def test_current_batch_ids_preserve_identical_older_messages_and_remove_all_current_parts():
+    result = json.loads(build_turn_payload(customer_message="好的\n这盆叫什么",
+        customer_workspace={"recent_turns": [
+            {"role": "customer", "content": "好的", "message_id": 1},
+            {"role": "human", "content": "您现在想问哪一盆？", "message_id": 2},
+            {"role": "customer", "content": "好的", "message_id": 3},
+            {"role": "customer", "content": "这盆叫什么", "message_id": 4},
+        ]}, event_context={"conversation_message_ids": [3, 4]}, tool_results=[]))
+    assert [turn["message_id"] for turn in result["full_conversation"]["turns"]] == [1, 2]
+    assert result["turn_focus"]["previous_assistant_turn_indexes"] == [1]
+
+
+def test_reworded_closing_is_reviewed_without_forcing_sales_or_blocking_real_goodbye():
+    context = AgentExecutionContext(message=incoming("我有一盆"), user_state=UserState(user_id="context-customer"),
+        workspace={"recent_turns": [{"role": "assistant", "content": "不客气～那您先忙，后面兰花到了或者大棚搭好了，随时喊我。"}]})
+    repeated = decision("好滴～那您先忙，后面兰花到了或者大棚搭好了，随时喊我。")
+    assert "repeats_recent_assistant_content" in policy.sales_trajectory_violations(repeated, context)
+    assert policy.guard_violations(repeated, context) == []
+    assert "repeats_recent_assistant_content" not in policy.sales_trajectory_violations(decision("大雪素您已经有啦，现在养得怎么样？"), context)
+    context.message = incoming("先不聊了，我忙去了")
+    assert policy.sales_trajectory_violations(decision("好的，您先忙。"), context) == []
+
+
+@pytest.mark.asyncio
+async def test_repeated_goodbye_is_reconsidered_using_current_context(monkeypatch):
+    calls = []
+    async def generate(conversation, **kwargs):
+        calls.append(conversation[:])
+        content = "好滴～那您先忙，后面兰花到了或者大棚搭好了，随时喊我。" if len(calls) == 1 else "大雪素您已经有啦，现在养得怎么样？"
+        return {"data": decision(content).model_dump()}
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    reply = await agent_runtime.run_sales_agent(message=incoming("我有一盆"),
+        user_state=UserState(user_id="context-customer"), workspace={"recent_turns": [
+            {"role": "assistant", "sender_type": "ai", "content": "不客气～那您先忙，后面兰花到了或者大棚搭好了，随时喊我。"},
+            {"role": "assistant", "sender_type": "human", "content": "您喜欢莲瓣兰大雪素吗？"},
+        ]})
+    assert len(calls) == 2
+    assert reply.answer == "大雪素您已经有啦，现在养得怎么样？"
+    assert not reply.need_human
+    assert "紧邻的人工和 AI 发言" in calls[1][-1]["content"]
+    assert reply.metadata["agent_runtime"]["attempt_trace"][0]["outcome"] == "trajectory_rewrite_requested"
+
+
 def test_length_review_covers_long_customer_messages_and_allows_requested_details():
     content = "这一段说明用于验证必要步骤能够完整保留，后续处理需要结合实际情况。" * 7
     context = AgentExecutionContext(message=incoming("这盆兰花放在阳台养了好几年，最近发黄，我已经发过照片了，接下来该怎么办"),
