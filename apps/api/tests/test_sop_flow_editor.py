@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -216,6 +217,37 @@ def test_service_collection_uses_live_assignable_tag_slots(monkeypatch):
     assert result["tag_slots"][0]["known_tags"] == ["封闭阳台"]
     assert result["tag_slots"][1]["allowed_tags"] == ["白花"]
     assert len(result["tag_slots"]) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("customer", "answer"), [
+    ("养了三年，今年终于开花了", "总算等到了！这三年没白惦记。"),
+    ("谢谢，今天先这样", "好，您先忙。"),
+])
+async def test_general_reply_keeps_saved_sales_cursor(monkeypatch, customer, answer):
+    from test_agent_harness_v2 import _message, _decision
+    from app.domains.decisioning.services import agent_runtime
+    from app.domains.customers.schemas.state import UserState
+
+    flow = flows.save_flow("first_order", default("first_order"))
+    message = _message(customer)
+    message.metadata = {"sop_scope": "first_order", "sop_scopes": ["first_order"]}
+    flows.save_cursor(message, "first_order", flow, "need_discovery")
+
+    async def generate(messages, **kwargs):
+        payload = json.loads(messages[-1]["content"].split("：\n", 1)[1])
+        assert "general.reply" in payload["allowed_sop_nodes"]
+        return _decision(sop_node="general.reply", purpose="自然承接", final={
+            "messages": [{"type": "text", "content": answer}], "need_human": False,
+        })
+
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id="customer-1"), workspace={})
+
+    assert reply.answer == answer
+    assert reply.need_human is False
+    assert [attempt["outcome"] for attempt in reply.metadata["agent_runtime"]["attempt_trace"]] == ["accepted"]
+    assert flows.load_cursor(message, "first_order", flow) == "need_discovery"
 
 
 @pytest.mark.asyncio

@@ -318,7 +318,7 @@ def quality_flags(
 def quality_rewrite_instruction(flags: list[str]) -> str:
     return (
         "当前回复有可精简的地方，请结合客户实际需要复核。"
-        "请保留本轮商业判断和已经取得的工具事实，优化 final_response，不要重新调用已经完成的工具。"
+        "请围绕客户当前需要，保留已经取得的工具事实，优化 final_response，不要重新调用已经完成的工具。"
         "只回应客户这一轮新增的信息；不要重启完整知识问答，也不要一次讲完判断、修剪、消毒、植料、浇水和后续养护等全部阶段。"
         "普通咨询以60～120字、一到两条自然微信消息为参考，先给客户现在最需要的判断或关键动作；"
         "只有确实会改变下一步处理时才补一个容易回答的问题。删除重复解释、隐形清单、客服腔和说明书式收尾。"
@@ -460,7 +460,7 @@ def sales_flow_rewrite_instruction(violations: list[str]) -> str:
     if "premature_product_card_without_customer_interest" in violations:
         focused_instructions.append(
             "客户目前只暴露了养护痛点或服务缺口，还没有表达想进一步了解、愿意试试、询问内容价格、要链接或下单等清晰正向意向。"
-            "不要调用 product.send_card，也不要在 final_response 中放商品卡片。先完成服务价值塑造并自然邀请客户进一步了解；"
+            "不要调用 product.send_card，也不要在 final_response 中放商品卡片。先回应当前问题，不为修复违规追加推销；"
             "本轮商品查询只用于辅助判断，不向客户发送；等客户形成 interest 或 direct 信号后重新核实并发卡试成交。"
         )
     if "missing_recommended_product_cards" in violations:
@@ -477,12 +477,9 @@ def sales_flow_rewrite_instruction(violations: list[str]) -> str:
             f"本次偏离原因：{', '.join(violations)}"
         )
     return (
-        "当前方案仍在细化或等待同一个非核心技术问题，偏离了推进成交的目标。"
+        "当前方案仍在重复追问或等待客户无法提供的非关键细节。"
         "放弃这个细节，不再追问、索图、让客户检查，也不要把等待该细节写进 next_action。"
-        "保留对客户当前问题的专业回答；然后用已有事实推进更高价值动作："
-        "若已足以说明匹配理由，就查询真实商品或服务并主动推荐；若仍不足，"
-        "只了解盆数与主要品种、明确目标或痛点、经验与失败史、持续指导缺口、"
-        "选择偏好中最接近推荐就绪的一项。请重新做完整商业判断，而不只是改写问句。"
+        "用已有依据回答当前问题即可，不必另问盆数、转推服务或商品；没有必要的下一步时 next_action 为空。"
         f"本次停滞原因：{', '.join(violations)}"
     )
 

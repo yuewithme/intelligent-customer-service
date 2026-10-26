@@ -1792,7 +1792,12 @@ def test_natural_compound_question_is_not_counted_by_question_words():
 
 
 @pytest.mark.asyncio
-async def test_runtime_limits_quality_rewrite_before_sending_flagged_reply(monkeypatch):
+@pytest.mark.parametrize(("content", "expected_calls", "flags"), [
+    ("您说的“老叶发黄”我明白。\n1. 是底部老叶吗？\n2. 最近有没有施肥？", 1,
+     {"too_many_customer_questions", "non_conversational_list_style", "unnecessary_customer_quotes"}),
+    ("这段养护说明需要精简。" * 20, 2, {"reply_may_be_overexplained"}),
+])
+async def test_runtime_only_rewrites_substantive_quality_flags(monkeypatch, content, expected_calls, flags):
     calls = 0
 
     async def fake_generate(*args, **kwargs):
@@ -1804,7 +1809,7 @@ async def test_runtime_limits_quality_rewrite_before_sending_flagged_reply(monke
                 "messages": [
                     {
                         "type": "text",
-                        "content": "您说的“老叶发黄”我明白。\n1. 是底部老叶吗？\n2. 最近有没有施肥？",
+                        "content": content,
                     }
                 ],
                 "need_human": False,
@@ -1818,17 +1823,13 @@ async def test_runtime_limits_quality_rewrite_before_sending_flagged_reply(monke
         workspace={},
     )
 
-    assert calls == 2
+    assert calls == expected_calls
     assert reply.route == "agent"
-    assert "老叶发黄" in reply.answer
+    assert reply.answer
     attempts = reply.metadata["agent_runtime"]["attempt_trace"]
-    assert attempts[0]["outcome"] == "quality_rewrite_requested"
-    assert attempts[1]["outcome"] == "accepted"
-    assert set(reply.metadata["agent_runtime"]["quality_flags"]) == {
-        "too_many_customer_questions",
-        "non_conversational_list_style",
-        "unnecessary_customer_quotes",
-    }
+    assert attempts[-1]["decision"]["final_response"]["messages"][0]["content"] == content
+    assert [attempt["outcome"] for attempt in attempts] == ["quality_rewrite_requested"] * (expected_calls - 1) + ["accepted"]
+    assert set(reply.metadata["agent_runtime"]["quality_flags"]) == flags
 
 
 @pytest.mark.asyncio
@@ -1947,7 +1948,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "先用一句客户收益说明回答后能得到什么" in prompt
     assert "普通咨询整轮默认一到两条 text 消息" in prompt
     assert "客户索要资料是兴趣信号，不是自动发送指令" in prompt
-    assert "发送后必须有主动的下一步" in prompt
+    assert "发送后按当前需要决定是否继续，允许自然收尾" in prompt
     assert "资料一旦已经发出，就从后续对话主线退到背景" in prompt
     assert "不要用“资料里面有、您先对照看看”代替回答" in prompt
     assert "先直接解决客户的新问题，再判断是否推品" in prompt
@@ -1957,7 +1958,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "这只是一次专业答疑，不要擅自升级成诊断会诊" in prompt
     assert "同一个技术细节最多追问一轮" in prompt
     assert "未知但不阻塞" in prompt
-    assert "不把“等待客户继续反馈该细节”写进 next_action" in prompt
+    assert "没有下一步时 next_action 可为空" in prompt
     assert "推品经验和价值完整性目标，不是固定话术、固定顺序或逐项打卡" in prompt
     assert "自主决定表达顺序、消息轮次和是否需要同行对比" in prompt
     assert "顺序不能跳过" not in prompt
@@ -1971,7 +1972,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "保持 AI 回复，不调用 human.handoff" in prompt
     assert "客户口径只说“已经联系同事处理了”" in prompt
     assert "不要求固定字段、精确盆数或完整画像" in prompt
-    assert "推品方向采用明确的默认权重但不做运行时固定路由" in prompt
+    assert "有推荐机会时，推品方向采用默认权重" in prompt
     assert "陪伴养兰服务＞兰花＞养护产品" in prompt
     assert "都是养兰服务需求信号，不能据此推导客户想再买一盆兰花" in prompt
     assert "明确索要肥料、植料、杀菌杀虫用品" in prompt
@@ -1991,7 +1992,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         if item.name == "experience.relationship_before_product"
     )
     assert "只收集会影响匹配的客户事实" in experience.instructions
-    assert "应自然转入真实商品查询和主动推荐" in experience.instructions
+    assert "可以结合客户当前需要查询和推荐" in experience.instructions
 
     discovery = next(
         item
@@ -2001,7 +2002,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     assert "足以支撑销售匹配的客户事实" in discovery.instructions
     assert "主动推品" in discovery.instructions
     assert "问题不是每轮默认动作" in discovery.instructions
-    assert "普通概念或养护知识答疑不是诊断会诊" in discovery.instructions
+    assert "普通概念或养护知识答疑回答清楚即可" in discovery.instructions
     assert "不再索图" in discovery.instructions
 
     material = next(
@@ -2011,7 +2012,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     )
     assert "不是客户一索要就自动发送" in material.instructions
     assert "本轮不发资料" in material.instructions
-    assert "转入有依据的推品" in material.instructions
+    assert "不强制追加挖需或推品" in material.instructions
     assert "资料发出后就退到背景" in material.instructions
     assert "先像没有资料捷径一样直接解决" in material.instructions
     assert "不能用‘资料里有’代替回答" in material.instructions
@@ -2032,8 +2033,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
     )
     assert "必须放回紧邻上下文" in objection.instructions
     assert "不能仅凭短语决定" in objection.instructions
-    assert "只有确实是软收口时才降低压力" in objection.instructions
-    assert "换一个更容易回答的角度" in objection.instructions
+    assert "确实是软收口时简短回应，不因信息未齐继续追问" in objection.instructions
 
     leveling = next(
         item
@@ -2114,7 +2114,7 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         if item.name == "experience.sales_message_composition"
     )
     assert "本轮唯一主要目的" in composition.instructions
-    assert "选择最少够用的两到四个元素" in composition.instructions
+    assert "按需选用，不要求凑齐元素" in composition.instructions
     assert "案例过程+数据证明+可复制第一步" in composition.instructions
     assert "不把元素名称、内部策略或完整公式说给客户" in composition.instructions
     assert "权威上下文已经核实的事实" in composition.instructions
@@ -2133,9 +2133,9 @@ def test_harness_collects_match_facts_before_product_and_material_release():
         for item in agent_tools.CAPABILITIES
         if item.name == "experience.pain_to_service"
     )
-    assert "不是完成深度会诊" in pain_to_service.instructions
+    assert "先解决客户当前养护问题" in pain_to_service.instructions
     assert "技术细节最多追问一轮" in pain_to_service.instructions
-    assert "立即从病因讨论切换到价值塑造" in pain_to_service.instructions
+    assert "当前问题处理清楚且客户有相关服务需求时" in pain_to_service.instructions
 
     value_proof = next(
         item
@@ -2214,7 +2214,7 @@ def test_private_sales_experience_package_is_discoverable_and_service_first():
     assert expected <= capabilities.keys()
 
     composition = capabilities["experience.sales_message_composition"].instructions
-    assert "选择最少够用的两到四个元素" in composition
+    assert "按需选用，不要求凑齐元素" in composition
     assert "权威上下文已经核实的事实" in composition
 
     routing = capabilities["experience.service_first_routing"].instructions
@@ -2223,8 +2223,8 @@ def test_private_sales_experience_package_is_discoverable_and_service_first():
 
     progression = capabilities["experience.pain_to_service"].instructions
     assert "技术细节最多追问一轮" in progression
-    assert "立即从病因讨论切换到价值塑造" in progression
-    assert "不能因为问题简单就被动结束" in progression
+    assert "当前问题处理清楚且客户有相关服务需求时" in progression
+    assert "简单问题回答清楚即可" in progression
 
     assert agent_tools._capability_score(
         "用案例和数据怎么塑品", capabilities["experience.sales_message_composition"]
@@ -2464,7 +2464,7 @@ def test_trajectory_guard_allows_core_diagnostic_question_for_active_damage():
 
 
 @pytest.mark.asyncio
-async def test_runtime_rewrites_stalled_detail_toward_recommendation_readiness(
+async def test_runtime_rewrites_stalled_detail_without_forcing_sales(
     monkeypatch,
 ):
     calls = []
@@ -2483,17 +2483,18 @@ async def test_runtime_rewrites_stalled_detail_toward_recommendation_readiness(
                 }
             ),
             _decision(
-                judgment="植料细节不阻塞推荐，转而补齐客户层级与品种信息",
-                purpose="用专业回答建立信任并推进推荐准备",
+                judgment="客户只在问植料含义，无须了解销售画像",
+                purpose="解释当前概念",
+                sop_node="general.reply",
                 final={
                     "messages": [
                         {
                             "type": "text",
-                            "content": "植料主要看透气和沥水，商家原配的先不用反复折腾。您现在大概养了多少盆，主要是什么品种呀？",
+                            "content": "植料就是盆里用来栽兰花的材料，比如树皮、小石子这些。",
                         }
                     ],
                     "need_human": False,
-                    "next_action": "补齐盆数和品种后判断推荐方向",
+                    "next_action": None,
                 },
             ),
         ]
@@ -2512,14 +2513,16 @@ async def test_runtime_rewrites_stalled_detail_toward_recommendation_readiness(
     )
 
     assert len(calls) == 2
-    assert "多少盆" in reply.answer
+    assert "用来栽兰花的材料" in reply.answer
+    assert "多少盆" not in reply.answer
     assert "细土还是" not in reply.answer
+    assert reply.metadata["agent_runtime"]["sop_node"] == "general.reply"
     attempts = reply.metadata["agent_runtime"]["attempt_trace"]
     assert [attempt["outcome"] for attempt in attempts] == [
         "trajectory_rewrite_requested",
         "accepted",
     ]
-    assert "偏离了推进成交的目标" in calls[1][-1]["content"]
+    assert "不必另问盆数、转推服务或商品" in calls[1][-1]["content"]
 
 
 @pytest.mark.asyncio

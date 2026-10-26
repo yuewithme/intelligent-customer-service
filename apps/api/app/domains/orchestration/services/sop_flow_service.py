@@ -187,11 +187,11 @@ def execution_prompt(scope: str, flow: SopFlowDefinition, previous: str | None) 
     available = dialogue_choices(flow, previous)
     return "\n工作台生效流程（替代旧提示词中的节点清单、步骤顺序与推进目标；只能使用列出的本轮节点）：\n" + json.dumps({
         "scope": scope, "revision": flow.revision, "entry": flow.start_step_id,
-        "current_step": previous, "allowed_sop_nodes": [f"{scope}.{key}" for key in sorted(available)],
+        "current_step": previous, "allowed_sop_nodes": ["general.reply", *[f"{scope}.{key}" for key in sorted(available)]],
         "nodes": [{"node_id": f"{scope}.{node.step_id}", "name": node.name,
                    "goal": node.goal, "directions": node.directions} for node in flow.steps if node.type == "agent_stage"],
         "transitions": [edge.model_dump() for edge in flow.transitions],
-        "rules": "连线 label 是对话转移条件，结合客户当前回复和上下文判断；条件未满足留在当前节点。新问题可重入入口分支。定时动作由后台负责，不在对话中执行或补发。没有匹配的对话节点则 general.reply 仅回答当前问题。",
+        "rules": "客户当前需要优先于节点目标。普通答疑、分享、道谢或收尾可用 general.reply，不要求推进或补齐旧目标。需要业务动作时按连线 label 判断，条件未满足留在当前节点，新问题可重入入口分支。定时动作由后台负责，不在对话中执行或补发。",
     }, ensure_ascii=False)
 
 

@@ -396,13 +396,17 @@ async def run_sales_agent(
                 }
             )
             continue
-        if quality_flags and quality_rewrites < MAX_QUALITY_REWRITES:
+        rewrite_flags = [flag for flag in quality_flags if flag in {
+            "too_many_text_messages", "reply_may_be_overexplained",
+            "service_introduction_overlaps_handoff_invitation",
+        }]
+        if rewrite_flags and quality_rewrites < MAX_QUALITY_REWRITES:
             diagnostic["outcome"] = "quality_rewrite_requested"
             quality_rewrites += 1
             conversation.append(
                 {
                     "role": "system",
-                    "content": reply_policy.quality_rewrite_instruction(quality_flags),
+                    "content": reply_policy.quality_rewrite_instruction(rewrite_flags),
                 }
             )
             continue
