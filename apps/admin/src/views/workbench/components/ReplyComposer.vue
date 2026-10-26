@@ -240,6 +240,7 @@ const sendEmoji = (messageId: number) => void send(() => replyConversationEmoji(
 const openCurrentActivities = () => void router.push({ name: 'CurrentActivities', query: { conversation_id: conversationId } })
 
 onMounted(() => {
+  replyInput.value?.focus()
   void syncReception().catch(() => {})
   if (!isTestGate()) void getConversationEmojis(conversationId).then(result => {
     if (!disposed) receivedEmojis.value = result.items
