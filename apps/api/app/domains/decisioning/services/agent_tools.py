@@ -59,7 +59,7 @@ CAPABILITIES = (
     ),
     CapabilitySpec(
         "service.record", "tool", ("年限", "现有品种", "痛点", "偏好", "服务档案"),
-        '输入 {"facts":[{"field":"growing_years|environment|existing_varieties|pain_points|province|preference|care_status","value":"事实","evidence":"客户本轮原话"}]}。保存服务档案，不需要填满；任意品类、花型、香味或收藏喜好都记为 preference，之后不再例行挖需。已知信息不重问。',
+        '输入 {"facts":[{"field":"growing_years|environment|existing_varieties|pain_points|province|preference|care_status","value":"事实","evidence":"客户本轮原话"}]}。保存服务档案，不需要填满；任意品类、花型、香味或收藏喜好都记为 preference，记录后立即转人工，不等购买意向或转接确认，之后不再例行挖需。已知信息不重问。',
         ("service",),
     ),
     CapabilitySpec(
@@ -154,7 +154,7 @@ CAPABILITIES = (
         "human.handoff",
         "tool",
         ("人工", "退款", "赔偿", "投诉", "改价", "修改订单", "申请优惠", "品质", "权限"),
-        "输入 {\"reason\":\"接管原因\",\"summary\":\"已核实事实和未完成事项\"}。创建人工接管；结果为 pending 时只能说已为客户提交或请同事继续核实，不能声称已经处理完成。",
+        "输入 {\"reason\":\"接管原因\",\"summary\":\"已核实事实和未完成事项\"}。创建人工接管；客户本轮明确表达任意一项产品喜好时 reason=product_preference_received，summary 引用喜好原话，直接转接而不询问确认。结果为 pending 时只能说已为客户提交或请同事继续核实，不能声称已经处理完成。",
     ),
     CapabilitySpec(
         "experience.need_discovery",
@@ -300,7 +300,7 @@ CAPABILITIES = (
         "experience.post_service_repurchase_seed",
         "experience",
         ("已购", "问题解决", "服务收口", "种心智", "引导咨询", "会员福利", "挖产品需求", "鉴赏偏好", "花色", "瓣型"),
-        "当前问题未解决时先继续服务；问题解决且准备自然收尾时，仅在会员日未交付、未安排时调用 member_day.send，已介绍内容不另写权益说明或换说法复述。没有任何已知喜好时才柔性询问一项鉴赏偏好；客户任意喜好用 service.record 保存，现行标签用 customer.tag，随后永久停止例行挖需，不再补问花色瓣型香味。不把偏好当作购买意向。明确选购需求使用 human.handoff，由人工推荐；不触发 product.search、商品推荐或商品卡片。",
+        "当前问题未解决时先继续服务；问题解决且准备自然收尾时，仅在会员日未交付、未安排时调用 member_day.send，已介绍内容不另写权益说明或换说法复述。没有任何已知喜好时才柔性询问一项鉴赏偏好；客户任意喜好用 service.record 保存，现行标签用 customer.tag，随后立即转人工并永久停止例行挖需，不再补问花色瓣型香味，不等购买意向或客户确认。不把偏好当作购买意向；喜好转接与明确选购转接都使用 human.handoff，由人工继续沟通，不触发 product.search、商品推荐或商品卡片。",
         ("service",),
     ),
     CapabilitySpec(

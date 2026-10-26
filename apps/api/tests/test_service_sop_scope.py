@@ -84,6 +84,8 @@ def test_service_prompt_separates_preference_collection_from_purchase_intent():
     assert "member_day.send" in prompt
     assert "周四会员日" in prompt
     assert "不自行查询推荐或发送商品卡片" in prompt
+    assert "立即转人工，不需要购买意向或客户确认" in prompt
+    assert "不因此转人工" not in prompt
 
 
 @pytest.mark.asyncio
@@ -150,6 +152,96 @@ async def test_any_preference_persists_and_stops_future_collection(monkeypatch, 
     assert not build_service_context({"customer_tags": ["建兰"]})["collect_preferences"]
     assert not build_service_context({"customer_tags": ["荷瓣"]})["collect_preferences"]
     assert profile["customer_tags"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope,tool,value,text", [
+    ("service", "service.record", "春兰耐看", "我比较喜欢春兰，耐看"),
+    ("service", "service.record", "耐看的老种", "我更喜欢耐看的老种"),
+    ("service", "service.record", "没有特别偏好", "没什么特别偏好，都行"),
+    ("service", "customer.tag", "清香", "我喜欢清香的"),
+    ("first_order", "customer.tag", "春兰", "我喜欢春兰"),
+    ("general", "customer.tag", "荷瓣", "我喜欢荷瓣"),
+    ("seeding", "customer.tag", "春兰", "我喜欢春兰"),
+    ("general", "human.handoff", "有年代感的老种", "我更喜欢有年代感的老种"),
+])
+async def test_one_current_product_preference_immediately_enters_handoff(monkeypatch, tmp_path, scope, tool, value, text):
+    from test_service_material_touch_service import _configure
+    from test_agent_harness_v2 import _message, _decision
+    from app.domains.customers.schemas.state import UserState
+    from app.domains.decisioning.services import agent_runtime
+    from app.domains.conversations.services import conversation_service, service_handoff_service
+    from app.domains.customers.services.user_profile_service import get_profile_bundle
+
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setattr(agent_runtime, "get_saved_flow", lambda scope: None)
+    monkeypatch.setattr(agent_runtime, "is_sop_node_handoff_enabled", lambda scope, node: False)
+    if tool == "service.record":
+        arguments = {"facts": [{"field": "preference", "value": value, "evidence": text}]}
+    elif tool == "customer.tag":
+        arguments = {"tag": value, "evidence": text}
+    else:
+        arguments = {"reason": "product_preference_received", "summary": text}
+    calls = []
+    async def generate(*args, **kwargs):
+        calls.append(1)
+        assert len(calls) == 1, "喜好已经收到，不应继续生成追问或收尾"
+        decision = _decision(sop_node="general.reply", tools=[
+            {"call_id": "preference", "name": tool, "arguments": arguments},
+            {"call_id": "unneeded", "name": "knowledge.search", "arguments": {"query": "继续介绍品种"}},
+        ])
+        decision["data"]["service_handoff"] = {"invitation_reason": "closing"}
+        return decision
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    message = _message(text, sop_scope=scope)
+    message.metadata.update(sop_scopes=[scope], suppress_handoff_notification=True)
+    reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id=message.user_id), workspace={"profile": {}})
+    assert len(calls) == 1 and reply.need_human and reply.route == "human"
+    assert reply.metadata["handoff"]["reason"] == "product_preference_received"
+    assert reply.metadata["handoff"]["summary"] == text
+    assert reply.metadata["agent_runtime"]["purchase_signal"] == "none"
+    trace = reply.metadata["agent_runtime"]["tool_trace"]
+    assert all(item["call_id"] != "unneeded" for item in trace)
+    assert service_handoff_service.CLOSING_INVITATION not in reply.answer
+    await conversation_service.record_ai_turn(message=message, result={**reply.model_dump(), "handoff": reply.metadata["handoff"]})
+    detail = await conversation_service.get_conversation_detail(conversation_service.make_conversation_id(message.channel, message.user_id, message.session_id))
+    assert detail["conversation"]["status"] == conversation_service.HANDOFF_PENDING
+    if tool == "service.record":
+        profile = (await get_profile_bundle(message.user_id))["profile"]
+        assert profile["service_facts"]["preference"]["value"] == value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool,arguments,text", [
+    ("service.record", {"facts": [{"field": "existing_varieties", "value": "春兰", "evidence": "有一盆春兰"}]}, "我有一盆春兰"),
+    ("service.record", {"facts": [{"field": "environment", "value": "阳台", "evidence": "放在阳台养"}]}, "我放在阳台养"),
+    ("service.record", {"facts": [{"field": "preference", "value": "春兰", "evidence": "我喜欢春兰"}]}, "春兰该怎么浇水"),
+    ("customer.tag", {"tag": "1-9盆", "evidence": "三盆"}, "我有三盆"),
+    ("customer.tag", {"tag": "春兰", "evidence": "我喜欢春兰"}, "春兰该怎么浇水"),
+])
+async def test_ordinary_facts_or_invalid_preference_evidence_do_not_handoff(monkeypatch, tmp_path, tool, arguments, text):
+    from test_service_material_touch_service import _configure
+    from test_agent_harness_v2 import _message, _decision
+    from app.domains.customers.schemas.state import UserState
+    from app.domains.decisioning.services import agent_runtime
+
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setattr(agent_runtime, "get_saved_flow", lambda scope: None)
+    monkeypatch.setattr(agent_runtime, "is_sop_node_handoff_enabled", lambda scope, node: False)
+    decisions = iter([
+        _decision(tools=[{"call_id": "fact", "name": tool, "arguments": arguments}]),
+        _decision(final={"messages": [{"type": "text", "content": "浇水要结合植料干湿，避免一直积水。"}]}),
+    ])
+    async def generate(*args, **kwargs):
+        return next(decisions)
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    message = _message(text)
+    message.metadata["evaluation_id"] = "ordinary-facts"
+    reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id=message.user_id), workspace={"profile": {
+        "customer_tags": ["春兰"], "service_facts": {"preference": {"value": "喜欢清香", "evidence": "历史喜好"}},
+    }})
+    assert not reply.need_human and "handoff" not in reply.metadata
+    assert len(reply.metadata["agent_runtime"]["tool_trace"]) == 1
 
 
 @pytest.mark.asyncio

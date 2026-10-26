@@ -33,6 +33,7 @@ from app.domains.orchestration.services.sop_flow_service import (
     get_saved_flow, dialogue_choices, execution_prompt, load_cursor, save_cursor,
     execution_version,
 )
+from app.domains.sales.services.sop_policy_service import preference_tag_groups
 from app.domains.handoff.schemas.handoff_notification import SOP_NODE_IDS
 
 
@@ -195,11 +196,17 @@ async def run_sales_agent(
         confirmed = service_handoff.confirmed_handoff_reason(message, offer_state, decision.service_handoff)
         if confirmed:
             return await _confirmed_service_handoff(context, confirmed, usage, attempt_trace)
+        preference_handoff_requested = any(
+            call.name == "human.handoff" and call.arguments.get("reason") == "product_preference_received"
+            for call in decision.tool_calls
+        ) or bool(decision.final_response and decision.final_response.need_human
+            and decision.final_response.handoff_reason == "product_preference_received")
         ask_before_handoff = (
             (decision.service_handoff.invitation_reason != "none"
              or decision.service_handoff.invitation_response != "none")
             and not reply_policy.required_handoff_reason(str(message.message or ""))
             and decision.purchase_signal == "none"
+            and not preference_handoff_requested
         )
         if ask_before_handoff:
             requested_handoff = any(call.name == "human.handoff" for call in decision.tool_calls)
@@ -333,6 +340,22 @@ async def run_sales_agent(
                     context=context,
                 )
                 round_results.append(result.model_dump(mode="json"))
+                preference_recorded = result.status == "recorded" and (
+                    (call.name == "service.record" and any(
+                        isinstance(item, dict) and item.get("field") == "preference"
+                        for item in call.arguments.get("facts", [])
+                    ))
+                    or (call.name == "customer.tag" and any(preference_tag_groups([str(result.data.get("tag") or "")])))
+                )
+                if preference_recorded:
+                    handoff = await execute_agent_tool(
+                        call_id="system_product_preference_handoff", name="human.handoff",
+                        arguments={"reason": "product_preference_received", "summary": str(message.message or "")[:1000]},
+                        context=context,
+                    )
+                    round_results.append(handoff.model_dump(mode="json"))
+                if (context.handoff or {}).get("reason") == "product_preference_received":
+                    break
             tool_results.extend(round_results)
             diagnostic["outcome"] = "tool_calls_executed"
             diagnostic["tool_results"] = [
@@ -343,6 +366,15 @@ async def run_sales_agent(
                 }
                 for result in round_results
             ]
+            if (context.handoff or {}).get("reason") == "product_preference_received":
+                diagnostic["outcome"] = "product_preference_handoff"
+                decision.tool_calls = []
+                decision.final_response = AgentFinalResponse(
+                    messages=[AgentVisibleMessage(type="text", content="了解您的喜好了，我请同事接着和您聊。")],
+                    need_human=True, handoff_reason="product_preference_received",
+                )
+                return await _finalize_reply(decision=decision, context=context, usage=usage,
+                    tool_results=tool_results, quality_flags=[], attempt_trace=attempt_trace)
             conversation.append(
                 {
                     "role": "user",
