@@ -159,6 +159,8 @@
                 v-if="linkCard(message)?.thumb_url"
                 :src="linkCard(message)?.thumb_url"
                 alt=""
+                loading="lazy"
+                decoding="async"
               />
               <span>
                 <strong>{{ linkCard(message)?.title || '查看详情' }}</strong>
@@ -189,10 +191,14 @@
               v-else-if="isImageMessage(message) && mediaSource(message)"
               :ref="element => setImageRef(message.id, element)"
               class="message-image"
-              :src="mediaSource(message)"
+              :src="imageDisplaySource(message)"
               :preview-src-list="selectionMode ? [] : [mediaSource(message)]"
               fit="cover"
+              lazy
+              :scroll-container="timelineRef"
+              decoding="async"
               preview-teleported
+              @error="handleImageError(message)"
             >
               <template #error>
                 <div class="image-load-error">图片加载失败</div>
@@ -205,7 +211,7 @@
               :src="mediaSource(message)"
               controls
               playsinline
-              preload="metadata"
+              preload="none"
               @error="markVideoFailed(message)"
             ></video>
             <audio
@@ -213,6 +219,7 @@
               class="message-audio"
               :src="mediaSource(message)"
               controls
+              preload="none"
               @error="markMediaFailed(message)"
             ></audio>
             <a
@@ -433,6 +440,7 @@ const timelineRef = ref<HTMLElement>()
 const resolvingMediaIds = ref(new Set<number>())
 const transcribingIds = ref(new Set<number>())
 const failedMediaIds = ref(new Set<number>())
+const failedThumbnailIds = ref(new Set<number>())
 const retryingDeliveryIds = ref(new Set<number>())
 const selectedMessageIds = ref(new Set<number>())
 const selectionMode = ref(false)
@@ -761,9 +769,25 @@ const mediaSource = (message: ConversationMessage) => {
     return media.url
   }
   if (media.type === 'image' && media.thumb_base64) {
-    return `data:image/jpeg;base64,${media.thumb_base64}`
+    return media.thumb_base64.startsWith('data:image/')
+      ? media.thumb_base64
+      : `data:image/jpeg;base64,${media.thumb_base64}`
   }
   return ''
+}
+
+const imageDisplaySource = (message: ConversationMessage) => {
+  const media = messageMedia(message)
+  if (media?.type === 'image' && media.thumb_base64 && !failedThumbnailIds.value.has(message.id)) {
+    return media.thumb_base64.startsWith('data:image/')
+      ? media.thumb_base64
+      : `data:image/jpeg;base64,${media.thumb_base64}`
+  }
+  return mediaSource(message)
+}
+
+const handleImageError = (message: ConversationMessage) => {
+  if (imageDisplaySource(message) !== mediaSource(message)) failedThumbnailIds.value.add(message.id)
 }
 
 const isPrivateNetworkUrl = (url: string) =>
@@ -1379,6 +1403,7 @@ p {
 .message-image {
   display: block;
   width: min(240px, 52vw);
+  min-height: 120px;
   max-height: 320px;
   overflow: hidden;
   border-radius: 6px;
