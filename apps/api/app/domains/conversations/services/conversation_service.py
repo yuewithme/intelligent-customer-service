@@ -354,17 +354,29 @@ async def recover_stale_unsupported_handoffs(
     return len(conversation_ids)
 
 
-async def get_conversation_detail(conversation_id: str, *, operator_id: str | None = None) -> dict:
+async def get_conversation_detail(
+    conversation_id: str, *, operator_id: str | None = None,
+    message_limit: int | None = None,
+) -> dict:
     with _get_session() as session:
         conversation = _get_conversation_or_error(session, conversation_id)
-        messages = session.scalars(
-            select(ConversationMessageModel)
-            .where(ConversationMessageModel.conversation_id == conversation_id)
-            .order_by(
+        query = select(ConversationMessageModel).where(
+            ConversationMessageModel.conversation_id == conversation_id
+        )
+        if message_limit is None:
+            query = query.order_by(
                 ConversationMessageModel.created_at.asc(),
                 ConversationMessageModel.id.asc(),
             )
-        ).all()
+        else:
+            query = query.order_by(
+                ConversationMessageModel.created_at.desc(),
+                ConversationMessageModel.id.desc(),
+            ).limit(message_limit + 1)
+        messages = list(session.scalars(query).all())
+        has_more_messages = message_limit is not None and len(messages) > message_limit
+        if message_limit is not None:
+            messages = list(reversed(messages[:message_limit]))
     from app.domains.sales.services.service_material_touch_service import (
         get_agent_relationship_state,
     )
@@ -372,6 +384,7 @@ async def get_conversation_detail(conversation_id: str, *, operator_id: str | No
     return {
         "conversation": _conversation_to_dict(conversation),
         "messages": _visible_message_dicts(messages, operator_id=operator_id),
+        "has_more_messages": has_more_messages,
         "agent_relationship": get_agent_relationship_state(conversation.user_id),
     }
 

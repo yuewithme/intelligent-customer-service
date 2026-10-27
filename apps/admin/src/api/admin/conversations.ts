@@ -98,6 +98,7 @@ export interface AgentRelationshipState {
 export interface ConversationDetail {
   conversation: ConversationItem
   messages: ConversationMessage[]
+  has_more_messages?: boolean
   agent_relationship: AgentRelationshipState
 }
 
@@ -168,9 +169,10 @@ export const getConversationTenants = () =>
     url: '/api/v1/admin/conversations/tenants'
   })
 
-export const getConversationDetail = (conversationId: string) =>
+export const getConversationDetail = (conversationId: string, messageLimit?: number) =>
   request.get<ConversationDetail>({
-    url: `${conversationBase()}/${conversationPath(conversationId)}`
+    url: `${conversationBase()}/${conversationPath(conversationId)}`,
+    params: { message_limit: messageLimit }
   })
 
 export const updateConversationRemark = (conversationId: string, remark: string) =>

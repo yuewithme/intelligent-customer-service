@@ -487,6 +487,12 @@ async def resolve_route(
 
 
 @router.get("/{conversation_id:path}", response_model=APIResponse)
-async def conversation_detail(conversation_id: str, request: Request) -> APIResponse:
-    data = await get_conversation_detail(conversation_id, operator_id=operator_identity(request, "admin"))
+async def conversation_detail(
+    conversation_id: str, request: Request,
+    message_limit: int | None = Query(default=None, ge=1, le=200),
+) -> APIResponse:
+    data = await get_conversation_detail(
+        conversation_id, operator_id=operator_identity(request, "admin"),
+        message_limit=message_limit,
+    )
     return APIResponse(code=0, message="success", data=data)

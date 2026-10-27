@@ -44,7 +44,7 @@ profile_router = APIRouter(
 
 
 async def _ensure_demo_conversation(conversation_id: str) -> None:
-    detail = await get_conversation_detail(conversation_id)
+    detail = await get_conversation_detail(conversation_id, message_limit=1)
     conversation = detail["conversation"]
     if (
         conversation.get("channel") not in DEMO_CHANNELS
@@ -136,10 +136,14 @@ async def conversation_events(request: Request) -> StreamingResponse:
 
 
 @router.get("/{conversation_id:path}", response_model=APIResponse)
-async def conversation_detail(conversation_id: str) -> APIResponse:
+async def conversation_detail(
+    conversation_id: str,
+    message_limit: int | None = Query(default=None, ge=1, le=200),
+) -> APIResponse:
     await _ensure_demo_conversation(conversation_id)
     return APIResponse(
-        code=0, message="success", data=await get_conversation_detail(conversation_id)
+        code=0, message="success",
+        data=await get_conversation_detail(conversation_id, message_limit=message_limit),
     )
 
 

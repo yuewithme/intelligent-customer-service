@@ -64,7 +64,7 @@
         </div>
       </div>
       <div class="header-actions">
-        <ElButton v-if="detail && !readOnly" :type="onlyFavorites ? 'primary' : 'default'" size="small" @click="onlyFavorites = !onlyFavorites">
+        <ElButton v-if="detail && !readOnly" :type="onlyFavorites ? 'primary' : 'default'" size="small" @click="toggleFavorites">
           {{ onlyFavorites ? '查看全部' : '查看收藏' }}
         </ElButton>
         <ElButton :disabled="!conversationIds.length" :icon="Refresh" circle aria-label="刷新聊天记录" @click="load()" />
@@ -110,7 +110,10 @@
         </div>
       </div>
       <ElEmpty v-if="!conversationIds.length" description="请选择左侧会话" />
-      <ElEmpty v-else-if="!displayedMessages.length && !loading" :description="onlyFavorites ? '当前会话暂无收藏消息' : '暂无消息'" />
+      <div v-if="detail?.has_more_messages && !onlyFavorites" class="history-actions">
+        <ElButton size="small" :loading="historyLoading" @click="loadHistory">查看更早消息</ElButton>
+      </div>
+      <ElEmpty v-if="conversationIds.length && !displayedMessages.length && !loading && !historyLoading" :description="onlyFavorites ? '当前会话暂无收藏消息' : '暂无消息'" />
       <div
         v-for="message in displayedMessages"
         :key="message.id"
@@ -393,6 +396,7 @@ const emit = defineEmits<{
 }>()
 
 const loading = ref(false)
+const historyLoading = ref(false)
 const detail = ref<ConversationDetail>()
 const remarkEditorOpen = ref(false)
 const remarkDraft = ref('')
@@ -456,6 +460,7 @@ let focusTimer: number | undefined
 let reloadPending = false
 let requestingScope: string | undefined
 let loadSequence = 0
+let fullHistoryRequested = false
 let followBottom = true
 let initialPositionPending = true
 let pendingFocusMessageId = props.focusMessageId
@@ -491,10 +496,10 @@ const positionMessages = async (stickToBottom = followBottom) => {
   const timeline = timelineRef.value
   if (scope !== requestScope.value || !detail.value || !timeline) return
   const messageId = pendingFocusMessageId
-  pendingFocusMessageId = undefined
   if (messageId) {
     const target = timeline.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
     if (target) {
+      pendingFocusMessageId = undefined
       followBottom = false
       initialPositionPending = false
       target.scrollIntoView({ block: 'center' })
@@ -503,6 +508,7 @@ const positionMessages = async (stickToBottom = followBottom) => {
       focusTimer = window.setTimeout(() => { focusedMessageId.value = undefined }, 3000)
       return
     }
+    if (!detail.value.has_more_messages) pendingFocusMessageId = undefined
   }
   if (initialPositionPending || stickToBottom) {
     followBottom = true
@@ -515,11 +521,27 @@ const revealMessage = (messageId?: number) => {
   pendingFocusMessageId = messageId
   onlyFavorites.value = false
   followBottom = !messageId
+  if (messageId && !detail.value?.messages.some(message => message.id === messageId)) {
+    fullHistoryRequested = true
+    void load({ silent: true })
+    return
+  }
   void positionMessages()
+}
+
+const loadHistory = () => {
+  fullHistoryRequested = true
+  return load({ silent: true })
+}
+
+const toggleFavorites = () => {
+  onlyFavorites.value = !onlyFavorites.value
+  if (onlyFavorites.value && detail.value?.has_more_messages) void loadHistory()
 }
 
 const load = async (options: { silent?: boolean } = {}) => {
   const scope = requestScope.value
+  if (pendingFocusMessageId) fullHistoryRequested = true
   if (requestingScope === scope) {
     reloadPending = true
     return
@@ -536,12 +558,19 @@ const load = async (options: { silent?: boolean } = {}) => {
   }
   const conversationId = props.conversationId
   const conversationIds = [...props.conversationIds].sort()
+  const messageLimit = fullHistoryRequested ? undefined : 50
   loading.value = !options.silent
+  historyLoading.value = fullHistoryRequested && Boolean(detail.value?.has_more_messages)
   try {
     const details = await Promise.all(
-      conversationIds.map((id) => getConversationDetail(id))
+      conversationIds.map((id) => getConversationDetail(id, messageLimit))
     )
     if (sequence !== loadSequence || scope !== requestScope.value) return
+    const timeline = timelineRef.value
+    const preserveHistoryPosition = messageLimit === undefined && detail.value?.has_more_messages &&
+      !pendingFocusMessageId && !onlyFavorites.value && !followBottom
+    const previousScrollHeight = timeline?.scrollHeight || 0
+    const previousScrollTop = timeline?.scrollTop || 0
     const currentDetail =
       details.find((item) => item.conversation.conversation_id === conversationId) ||
       details[0]
@@ -566,19 +595,26 @@ const load = async (options: { silent?: boolean } = {}) => {
     const nextDetail: ConversationDetail = {
       conversation: currentDetail.conversation,
       messages: messagesUnchanged ? detail.value!.messages : nextMessages,
+      has_more_messages: details.some(item => item.has_more_messages),
       agent_relationship: currentDetail.agent_relationship,
     }
-    if (JSON.stringify(detail.value) !== JSON.stringify(nextDetail)) {
+    if (!messagesUnchanged || detail.value?.has_more_messages !== nextDetail.has_more_messages ||
+      JSON.stringify(detail.value?.conversation) !== JSON.stringify(nextDetail.conversation) ||
+      JSON.stringify(detail.value?.agent_relationship) !== JSON.stringify(nextDetail.agent_relationship)) {
       detail.value = nextDetail
       emit('loaded', detail.value)
       selectedMessageIds.value = new Set(detail.value.messages.filter(message => canSelectMessage(message) && selectedMessageIds.value.has(message.id)).map(message => message.id))
       if (!selectedMessageIds.value.size) selectionMode.value = false
     }
     await positionMessages()
+    if (preserveHistoryPosition && timeline && scope === requestScope.value) {
+      timeline.scrollTop = previousScrollTop + timeline.scrollHeight - previousScrollHeight
+    }
   } finally {
     if (sequence === loadSequence) {
       requestingScope = undefined
       loading.value = false
+      historyLoading.value = false
       if (reloadPending) {
         reloadPending = false
         void load({ silent: true })
@@ -1112,6 +1148,8 @@ watch(
       forwardDialogVisible.value = false
       clearSelection()
       detail.value = undefined
+      fullHistoryRequested = false
+      historyLoading.value = false
       focusedMessageId.value = undefined
       pendingFocusMessageId = props.focusMessageId
       followBottom = true
@@ -1151,6 +1189,7 @@ defineExpose({ load, revealMessage })
 .message-context-menu .danger-menu-item { color: var(--el-color-danger); }
 .header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
 .header-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.history-actions { display: flex; justify-content: center; margin-bottom: 12px; }
 .favorite-mark { color: #b7791f; font-weight: 500; }
 .human .favorite-mark { color: #ffe39d; }
 .message-text-result { min-height: 100px; max-height: 55vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }

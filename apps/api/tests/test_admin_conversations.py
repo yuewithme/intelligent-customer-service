@@ -141,6 +141,72 @@ def test_detail_hides_legacy_sysmsg_and_collapses_historical_files(
     )
 
 
+@pytest.mark.parametrize("entrypoint", ["admin", "demo-admin"])
+def test_conversation_detail_can_load_recent_messages_then_full_history(monkeypatch, tmp_path, entrypoint):
+    import asyncio
+    from app.domains.conversations.services.conversation_service import _get_session
+    from app.infrastructure.database.models import ConversationMessageModel
+
+    _reset_settings(monkeypatch, tmp_path)
+    asyncio.run(record_customer_message(
+        channel="wechat", user_id="demo:recent_customer", session_id="owner", content="最早消息",
+    ))
+    conversation_id = "wechat:demo:recent_customer:owner"
+    now = datetime.now(timezone.utc) + timedelta(minutes=1)
+    with _get_session() as session:
+        # Insert in reverse time order so the page must sort by time, then ID.
+        session.add_all([
+            ConversationMessageModel(
+                conversation_id=conversation_id, sender_type="customer",
+                content=f"消息 {index}", created_at=now + timedelta(seconds=index // 2),
+            )
+            for index in reversed(range(60))
+        ])
+        session.add(ConversationMessageModel(
+            conversation_id="other_customer", sender_type="customer",
+            content="不能混入其他会话", created_at=now + timedelta(days=1),
+        ))
+        session.commit()
+    client = TestClient(app)
+    path = f"/api/v1/{entrypoint}/conversations/{conversation_id}"
+    full = client.get(path).json()["data"]
+    recent = client.get(path, params={"message_limit": 50}).json()["data"]
+    assert len(full["messages"]) == 61
+    assert not full["has_more_messages"]
+    assert recent["has_more_messages"]
+    assert recent["messages"] == full["messages"][-50:]
+    assert len(client.get(path).json()["data"]["messages"]) == 61
+    assert not client.get(path, params={"message_limit": 61}).json()["data"]["has_more_messages"]
+    assert client.get(path, params={"message_limit": 0}).status_code == 422
+    assert client.get(path, params={"message_limit": 201}).status_code == 422
+
+
+def test_recent_conversation_messages_keep_operator_preferences(monkeypatch, tmp_path):
+    import asyncio
+    from app.domains.conversations.services.conversation_service import get_conversation_detail
+    from app.domains.conversations.services.message_action_service import update_message_preference
+
+    _reset_settings(monkeypatch, tmp_path)
+    for index in range(4):
+        asyncio.run(record_customer_message(
+            channel="wechat", user_id="recent_preferences", session_id="owner",
+            content=f"消息 {index}", message_id=str(index),
+        ))
+    conversation_id = "wechat:recent_preferences:owner"
+    full = asyncio.run(get_conversation_detail(conversation_id))
+    update_message_preference(full["messages"][0]["id"], "admin", "favorite")
+    update_message_preference(full["messages"][-1]["id"], "admin", "hide")
+    client = TestClient(app)
+    path = f"/api/v1/admin/conversations/{conversation_id}"
+    recent = client.get(path, params={"message_limit": 2}).json()["data"]
+    assert recent["has_more_messages"]
+    assert [message["content"] for message in recent["messages"]] == ["消息 2"]
+    history = client.get(path).json()["data"]
+    assert len(history["messages"]) == 3
+    assert history["messages"][0]["is_favorite"]
+    assert all("workbench_preferences" not in message["metadata"] for message in history["messages"])
+
+
 def test_failed_delivery_can_be_requeued_from_admin(monkeypatch, tmp_path):
     from app.infrastructure.database.models import (
         ConversationMessageModel,
