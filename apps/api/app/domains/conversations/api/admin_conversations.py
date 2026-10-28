@@ -124,6 +124,8 @@ async def conversations(
     channel: str | None = None,
     test_only: bool = False,
     tenant_id: str | None = None,
+    for_forwarding: bool = False,
+    owner_wc_id: str | None = None,
 ) -> APIResponse:
     data = await list_conversations(
         page=page,
@@ -135,6 +137,8 @@ async def conversations(
         excluded_user_id_prefix=None if test_only else DEMO_USER_PREFIX,
         test_data=test_only,
         tenant_id=tenant_id,
+        for_forwarding=for_forwarding,
+        owner_wc_id=owner_wc_id,
         allowed_owner_wc_ids=(get_account(request)["wechat_ids"] if get_account(request) and get_account(request)["role"] == "employee" and not get_account(request)["all_wechat"] else None),
         wechat_only=bool(get_account(request) and get_account(request)["role"] == "employee"),
     )

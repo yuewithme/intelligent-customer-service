@@ -89,6 +89,62 @@ async def test_identity_and_complete_history_have_weighted_relevance():
 
 
 @pytest.mark.asyncio
+async def test_forward_targets_filter_before_paging_and_use_recent_order():
+    pinned = conversation("older_pinned", pinned=True)
+    recent = conversation("recent")
+    conversation("resolved", status="resolved")
+    conversation("other_account", tenant="shop_b")
+    conversation("hidden", hidden=True)
+    now = datetime.now(timezone.utc)
+    with _get_session() as session:
+        session.query(ConversationModel).filter(ConversationModel.conversation_id == pinned).update({"updated_at": now - timedelta(days=1)})
+        session.query(ConversationModel).filter(ConversationModel.conversation_id == recent).update({"updated_at": now - timedelta(hours=1)})
+        session.commit()
+
+    scope = {"for_forwarding": True, "owner_wc_id": "shop_a", "page_size": 1}
+    first = await list_conversations(**scope)
+    second = await list_conversations(**scope, page=2)
+    assert first["total"] == second["total"] == 2
+    assert first["items"][0]["conversation_id"] == recent
+    assert second["items"][0]["conversation_id"] == pinned
+    assert (await list_conversations(**scope, allowed_owner_wc_ids=["shop_b"]))["total"] == 0
+    assert (await list_conversations(owner_wc_id="shop_a"))["items"][0]["conversation_id"] == pinned
+
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    response = TestClient(app).get("/api/v1/admin/conversations", params={
+        "for_forwarding": "true", "owner_wc_id": "shop_a", "page_size": 1,
+    })
+    assert response.status_code == 200
+    assert response.json()["data"]["total"] == 2
+    assert response.json()["data"]["items"][0]["conversation_id"] == recent
+
+
+@pytest.mark.asyncio
+async def test_forward_targets_reuse_identity_and_full_history_search():
+    identity = conversation("wxid_identity")
+    profile("wxid_identity", alias_name="orchid", nickname="山间兰友", remark_name="张老师")
+    history = conversation("history", pinned=True)
+    old_id = message(history, "orchid 的烂根处理方法", days_ago=365)
+    for _ in range(55):
+        message(history, "无关的新消息")
+    message(conversation("resolved", status="resolved"), "orchid 烂根")
+    message(conversation("other_account", tenant="shop_b"), "orchid 烂根")
+
+    scope = {"for_forwarding": True, "owner_wc_id": "shop_a"}
+    found = await list_conversations(keyword="orchid", **scope)
+    assert [row["conversation_id"] for row in found["items"]] == [identity, history]
+    assert found["items"][-1]["search_matches"][0]["message_id"] == old_id
+    for query, label in (("张老师", "备注"), ("山间兰友", "昵称"), ("wxid_identity", "微信标识")):
+        found = await list_conversations(keyword=query, **scope)
+        assert found["items"][0]["conversation_id"] == identity
+        assert found["items"][0]["search_matches"][0]["label"] == label
+    combined = await list_conversations(keyword="orchid 烂根", **scope)
+    assert [row["conversation_id"] for row in combined["items"]] == [history, identity]
+
+
+@pytest.mark.asyncio
 async def test_combined_keywords_and_duplicate_messages_do_not_swamp_identity():
     combined = conversation("combined")
     profile("combined", remark_name="张老师")

@@ -162,6 +162,8 @@ export const getConversations = (params: {
   channel?: string
   test_only?: boolean
   tenant_id?: string
+  for_forwarding?: boolean
+  owner_wc_id?: string
 }) => request.get<ConversationListResponse>({ url: conversationBase(), params })
 
 export const getConversationTenants = () =>
