@@ -53,14 +53,9 @@
               <ElBadge v-else-if="item.unread_count" :value="item.unread_count" />
             </span>
           </div>
-          <div class="preview">{{ item.last_message || '暂无消息' }}</div>
           <div v-if="item.search_matches?.length" class="search-match">
             <span class="search-source">{{ item.search_matches.map(match => match.label).join('、') }}</span>
             <span>{{ item.search_matches.find(match => match.field === 'message')?.text || item.search_matches[0].text }}</span>
-          </div>
-          <div class="meta">
-            <ElTag :type="statusType(item.status)" size="small">{{ statusText(item.status) }}</ElTag>
-            <span>{{ formatTime(item.updated_at) }}</span>
           </div>
         </div>
       </button>
@@ -112,15 +107,13 @@ import {
   getConversations,
   applyConversationListAction,
   type ConversationListAction,
-  type ConversationItem,
-  type ConversationStatus
+  type ConversationItem
 } from '@/api/admin/conversations'
 import { isTestGate, isAdmin } from '@/utils/gate'
 import {
   groupConversationsByCustomer,
   type ConversationGroupItem
 } from '../conversationGrouping'
-import { formatChinaTime } from '@/utils/time'
 import { useMessageTenantStore } from '@/store/modules/messageTenant'
 
 defineProps<{ activeKey: string }>()
@@ -262,29 +255,9 @@ const runAction = async (action: ConversationListAction) => {
   }
 }
 
-const statusText = (value: ConversationStatus) =>
-  ({
-    ai_active: 'AI 自动回复',
-    ai_waiting: 'AI 等待中',
-    handoff_pending: '等待接管',
-    human_active: '人工接管',
-    resolved: '已结束'
-  })[value] || value
-
-const statusType = (value: ConversationStatus) =>
-  ({
-    ai_active: 'info',
-    ai_waiting: 'info',
-    handoff_pending: 'warning',
-    human_active: 'success',
-    resolved: 'danger'
-  })[value] as 'info' | 'warning' | 'success' | 'danger'
-
 const displayName = (item: ConversationItem) => item.user_display_name || item.user_id
 
 const avatarText = (item: ConversationItem) => displayName(item).slice(0, 1).toUpperCase()
-
-const formatTime = formatChinaTime
 
 const getItemByKey = (groupKey: string) => items.value.find((item) => item.group_key === groupKey)
 const getItemByConversationId = (conversationId: string) =>
@@ -349,9 +322,10 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
 .item {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 14px 10px;
+  padding: 8px 10px;
   margin-bottom: 4px;
   text-align: left;
   cursor: pointer;
@@ -403,8 +377,7 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
   min-width: 0;
 }
 
-.item-head,
-.meta {
+.item-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -421,36 +394,20 @@ defineExpose({ load, getItemByKey, getItemByConversationId })
   white-space: nowrap;
 }
 
-.preview {
-  margin: 6px 0 10px;
-  overflow: hidden;
-  color: var(--app-text-secondary);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .search-match {
   display: grid;
   gap: 3px;
-  margin: -4px 0 10px;
+  margin: 4px 0 0;
   color: var(--app-text-secondary);
   font-size: 12px;
 }
 .search-match span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-source { color: var(--el-color-primary); }
 
-.meta {
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  font-size: 13px;
-  color: var(--app-text-secondary);
-}
-
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {
   .conversation-list { padding: 10px; }
   .toolbar { grid-template-columns: minmax(0, 1fr) 36px; }
   .toolbar :deep(.el-button + .el-button) { margin-left: 0; }
-  .item { min-height: 76px; padding: 11px 10px; }
+  .item { min-height: 56px; padding: 8px 10px; }
 }
 </style>
