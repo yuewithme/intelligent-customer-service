@@ -338,9 +338,6 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             message_id=provider_message_id,
         )
 
-    if global_handoff or group_silent:
-        return eyun_success()
-
     if (
         not str(data.get("fromGroup") or "").strip()
         and not _has_contact_display(metadata)
@@ -353,6 +350,9 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             channel="wechat",
             session_id=_eyun_conversation_session_id(payload, data),
         )
+
+    if global_handoff or group_silent:
+        return eyun_success()
 
     if is_private_image:
         queued_payload = {**payload, "data": dict(data)}
@@ -546,13 +546,14 @@ async def _eyun_workbench_metadata(
         )
     if owner_wc_id and owner_wc_id != user_id:
         customer_snapshot, owner_snapshot = await asyncio.gather(
-            get_eyun_contact_snapshot(w_id=w_id, wc_id=user_id),
-            get_eyun_contact_snapshot(w_id=w_id, wc_id=owner_wc_id),
+            get_eyun_contact_snapshot(w_id=w_id, wc_id=user_id, cache_only=True),
+            get_eyun_contact_snapshot(w_id=w_id, wc_id=owner_wc_id, cache_only=True),
         )
     else:
         customer_snapshot = await get_eyun_contact_snapshot(
             w_id=w_id,
             wc_id=user_id,
+            cache_only=True,
         )
         owner_snapshot = customer_snapshot
     metadata.update(customer_snapshot)

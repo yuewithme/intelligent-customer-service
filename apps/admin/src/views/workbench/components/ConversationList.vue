@@ -22,15 +22,18 @@
       :prefix-icon="Search"
       clearable
       placeholder="搜索昵称、备注、微信号、聊天记录"
-      @clear="load()"
       @keyup.enter="load()"
     />
 
     <div v-loading="loading" class="items">
       <ElEmpty
         v-if="!items.length && !loading"
-        :description="testView ? '暂无测试对话' : '暂无会话'"
-      />
+        :description="emptyDescription"
+      >
+        <ElButton v-if="keyword.trim() && status" size="small" @click="clearStatusFilter">
+          搜索全部状态
+        </ElButton>
+      </ElEmpty>
       <button
         v-for="item in items"
         :key="item.group_key"
@@ -100,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, Hide, MuteNotification, Refresh, Search, Top } from '@element-plus/icons-vue'
 import {
@@ -139,8 +142,23 @@ const actionPending = ref(false)
 let contextMenuTrigger: HTMLElement | undefined
 let loadSequence = 0
 let appliedQuery = ''
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
+const emptyDescription = computed(() => {
+  if (!keyword.value.trim()) return testView.value ? '暂无测试对话' : '暂无会话'
+  const scope = testView.value || testGate
+    ? '测试对话'
+    : `当前微信（${tenantStore.selectedTenant?.display_name || tenantStore.selectedTenantId || '未选择'}）`
+  return `${scope}${status.value ? '及所选状态' : ''}下未找到匹配会话`
+})
+
+const clearSearchTimer = () => {
+  if (searchTimer !== undefined) clearTimeout(searchTimer)
+  searchTimer = undefined
+}
 
 const load = async (options: { silent?: boolean; page?: number } = {}) => {
+  clearSearchTimer()
   const sequence = ++loadSequence
   const params = {
     status: status.value || undefined,
@@ -178,6 +196,23 @@ const load = async (options: { silent?: boolean; page?: number } = {}) => {
     if (sequence === loadSequence) loading.value = false
   }
 }
+
+const clearStatusFilter = () => {
+  status.value = ''
+  void load()
+}
+
+watch(keyword, (value, previousValue) => {
+  if (value.trim() === previousValue.trim()) return
+  ++loadSequence
+  clearSearchTimer()
+  if (!value.trim()) {
+    void load()
+    return
+  }
+  loading.value = true
+  searchTimer = setTimeout(() => { void load() }, 250)
+}, { flush: 'sync' })
 
 const toggleTestView = async () => {
   closeContextMenu()
@@ -271,7 +306,8 @@ watch(
     items.value = []
     emit('viewChange')
     await load()
-  }
+  },
+  { flush: 'sync' }
 )
 
 onMounted(async () => {
@@ -285,6 +321,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   ++loadSequence
+  clearSearchTimer()
   document.removeEventListener('pointerdown', handleOutsidePointer)
   document.removeEventListener('keydown', handleEscape)
   window.removeEventListener('resize', closeContextMenu)

@@ -131,7 +131,9 @@ async def get_eyun_contact_snapshots(
     return results
 
 
-async def get_eyun_contact_snapshot(*, w_id: str, wc_id: str) -> dict[str, Any]:
+async def get_eyun_contact_snapshot(
+    *, w_id: str, wc_id: str, cache_only: bool = False
+) -> dict[str, Any]:
     if not w_id or not wc_id:
         return {}
 
@@ -140,6 +142,8 @@ async def get_eyun_contact_snapshot(*, w_id: str, wc_id: str) -> dict[str, Any]:
     now = time.monotonic()
     if cached and now - cached[0] < _CACHE_TTL_SECONDS:
         return dict(cached[1])
+    if cache_only:
+        return {}
 
     settings = get_settings()
     base_url = settings.eyun_base_url.rstrip("/")
@@ -250,16 +254,21 @@ async def refresh_eyun_contact(
     session_id: str | None = "default",
     delay_seconds: float | None = None,
 ) -> None:
-    if not await initialize_eyun_contacts(w_id=w_id):
-        return
-    delay = (
-        get_settings().eyun_contact_refresh_delay_seconds
-        if delay_seconds is None
-        else delay_seconds
-    )
-    await asyncio.sleep(delay)
     _contact_cache.pop((w_id, wc_id), None)
     snapshot = await get_eyun_contact_snapshot(w_id=w_id, wc_id=wc_id)
+    if not any(snapshot.get(key) for key in ("remark_name", "nickname", "display_name")):
+        if await initialize_eyun_contacts(w_id=w_id):
+            delay = (
+                get_settings().eyun_contact_refresh_delay_seconds
+                if delay_seconds is None
+                else delay_seconds
+            )
+            await asyncio.sleep(delay)
+            _contact_cache.pop((w_id, wc_id), None)
+            snapshot = {
+                **snapshot,
+                **await get_eyun_contact_snapshot(w_id=w_id, wc_id=wc_id),
+            }
     if not snapshot:
         logger.warning("Eyun contact refresh still empty for wcId=%s", wc_id)
         return
@@ -267,7 +276,10 @@ async def refresh_eyun_contact(
         user_id,
         tenant_id=tenant_id,
         channel=channel,
-        basic_info=snapshot,
+        basic_info={
+            **({"owner_wc_id": tenant_id} if tenant_id != "tenant_default" else {}),
+            **snapshot,
+        },
     )
     await update_customer_identity(
         channel=channel,
@@ -307,6 +319,8 @@ def schedule_eyun_contact_refresh(
     def remove_completed(completed: asyncio.Task[None]) -> None:
         if _contact_refresh_tasks.get(key) is completed:
             _contact_refresh_tasks.pop(key, None)
+        if not completed.cancelled() and completed.exception() is not None:
+            logger.error("Eyun contact refresh failed for wcId=%s", wc_id, exc_info=completed.exception())
 
     task.add_done_callback(remove_completed)
     return task

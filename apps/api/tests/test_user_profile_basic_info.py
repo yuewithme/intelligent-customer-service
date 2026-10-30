@@ -96,3 +96,26 @@ async def test_basic_info_refresh_preserves_existing_values_when_provider_return
         "alias_name": "orchid_friend",
         "remark_name": "南宁兰友",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", ["shop_a", "shop_b"])
+async def test_identity_refresh_only_reuses_fields_from_same_owner(monkeypatch, tmp_path, owner):
+    _profile_db(monkeypatch, tmp_path)
+    from app.domains.customers.services import user_profile_service
+
+    identity = {
+        "nickname": "小李", "remark_name": "账号甲备注", "alias_name": "orchid_friend",
+        "avatar_url": "https://example.invalid/avatar.jpg", "label_ids": ["12"],
+    }
+    await user_profile_service.ensure_user_profile(
+        "wxid_customer", channel="wechat",
+        basic_info={"owner_wc_id": "shop_a", **identity, "shipping_city": "南宁"},
+    )
+    updated = await user_profile_service.ensure_user_profile(
+        "wxid_customer", channel="wechat", basic_info={"owner_wc_id": owner},
+    )
+    assert updated["basic_info"] == {
+        "owner_wc_id": owner, "shipping_city": "南宁",
+        **(identity if owner == "shop_a" else {}),
+    }

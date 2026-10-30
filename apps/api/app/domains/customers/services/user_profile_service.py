@@ -264,6 +264,11 @@ async def ensure_user_profile(
         )
         if basic_info:
             current = _json_loads(profile.basic_info_json, {})
+            incoming_owner = str(basic_info.get("owner_wc_id") or "").strip()
+            if incoming_owner and incoming_owner != current.get("owner_wc_id"):
+                # Account-specific remarks must not follow an identity into another account.
+                for key in ("nickname", "remark_name", "alias_name", "avatar_url", "label_ids"):
+                    current.pop(key, None)
             profile.basic_info_json = _json_dumps(
                 {
                     **current,
