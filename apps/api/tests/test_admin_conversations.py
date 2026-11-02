@@ -2120,6 +2120,7 @@ def test_manual_voice_transcription_reuses_audio_and_never_replies(monkeypatch, 
     assert asyncio.run(jobs.process_due_eyun_media_jobs()) == 1
     repaired = client.get(detail_path).json()["data"]["messages"][0]
     assert repaired["metadata"]["media"]["recognition"] == result["metadata"]["media"]["recognition"]
+    assert calls["download"] == (0 if cached_audio else 2 if initial_failure == "download" else 1)
     assert calls["reply"] == 0
     with conversations._get_session() as db:
         conversation = conversations._get_conversation_or_error(db, "wechat:voice_customer:owner")

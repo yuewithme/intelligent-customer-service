@@ -2069,7 +2069,7 @@ async def resolve_message_media(message_id: int, *, transcribe_only: bool = Fals
             metadata = {}
         if (
             metadata.get("provider") != "eyun"
-            or str(metadata.get("message_type") or "") not in {"60003", "60004", "80003", "80004"}
+            or str(metadata.get("message_type") or "") not in {"60002", "60003", "60004", "80002", "80003", "80004"}
             or metadata.get("revoked_at")
         ):
             raise AppError(

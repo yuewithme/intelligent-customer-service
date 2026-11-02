@@ -935,12 +935,14 @@ def test_wechat_callback_records_private_messages_under_same_wcid(monkeypatch, t
     assert [message["sender_type"] for message in messages] == ["customer", "customer"]
     assert messages[1]["metadata"]["message_type"] == "60002"
     assert messages[1]["metadata"]["image_thumb_base64"]
-    assert messages[1]["metadata"]["media"] == {
-        "type": "image",
-        "url": "https://cdn.example.com/original.jpg",
-        "thumb_base64": "/9j/4AAQSkZJRgABAQAASABIAAD/",
-        "fallback": False,
-    }
+    media = messages[1]["metadata"]["media"]
+    assert media["type"] == "image"
+    assert media["original_url"] == "https://cdn.example.com/original.jpg"
+    assert media["thumb_base64"] == "/9j/4AAQSkZJRgABAQAASABIAAD/"
+    assert media["fallback"] is True
+    assert media["resolve_status"] == "pending"
+    assert media["job_key"]
+    assert "url" not in media
 
 
 @pytest.mark.parametrize("message_type", ["80001", "60001"])
@@ -1159,6 +1161,59 @@ def test_eyun_non_image_messages_expose_media_metadata(monkeypatch, tmp_path):
             assert media["resolve_status"] == "pending"
         else:
             assert media["url"] == expected_url
+
+
+@pytest.mark.parametrize("group_id", [None, "12345@chatroom"])
+@pytest.mark.parametrize("self_sent", [False, True])
+def test_image_callback_is_downloaded_to_own_storage_without_replaying_ai(monkeypatch, tmp_path, group_id, self_sent):
+    from app.integrations.eyun.services import eyun_callback_service as provider
+    from app.integrations.eyun.services import eyun_inbound_media_service as jobs
+
+    _reset_settings(monkeypatch, tmp_path)
+    downloads = []
+
+    async def contact(**kwargs):
+        return {}
+
+    async def image_url(**kwargs):
+        return "https://cdn.example.com/image.png"
+
+    async def download(**kwargs):
+        downloads.append(kwargs)
+        (tmp_path / "saved.png").write_bytes(b"stored-image")
+        return "/static/media/saved.png"
+
+    async def enqueue(payload):
+        return {}
+
+    async def no_agent(*args):
+        raise AssertionError("storing an image must not create another AI turn")
+
+    monkeypatch.setattr(provider, "get_eyun_contact_snapshot", contact)
+    monkeypatch.setattr(provider, "fetch_eyun_image_url", image_url)
+    monkeypatch.setattr(provider, "download_eyun_image", download)
+    monkeypatch.setattr(provider, "media_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr(provider, "enqueue_eyun_inbound", enqueue)
+    monkeypatch.setattr(jobs, "_enqueue_media_agent_input", no_agent)
+    client = TestClient(app)
+    payload = {"messageType": "80002" if group_id else "60002", "wcId": "wxid_bot", "data": {
+        "wId": "wid", "fromUser": "wxid_bot" if self_sent else "wxid_customer",
+        "toUser": "wxid_customer" if self_sent else "wxid_bot", "self": self_sent,
+        "msgId": 789, "newMsgId": 790, "content": "<msg><img /></msg>",
+        **({"fromGroup": group_id} if group_id else {}),
+    }}
+    assert client.post("/wechat/callback", json=payload).status_code == 200
+    assert client.post("/wechat/callback", json=payload).status_code == 200
+    assert asyncio.run(jobs.process_due_eyun_media_jobs()) == 1
+    assert client.post("/wechat/callback", json=payload).status_code == 200
+    assert asyncio.run(jobs.process_due_eyun_media_jobs()) == 0
+    detail = client.get(f"/api/v1/admin/conversations/wechat:{group_id or 'wxid_customer'}:wxid_bot").json()["data"]
+    assert len(downloads) == 1
+    assert downloads[0]["source_url"] == "https://cdn.example.com/image.png"
+    media = detail["messages"][0]["metadata"]["media"]
+    assert media["url"] == "/static/media/saved.png"
+    assert media["resolve_status"] == "succeeded"
+    assert "original_url" not in media
 
 
 @pytest.mark.parametrize("group_id", [None, "12345@chatroom"])

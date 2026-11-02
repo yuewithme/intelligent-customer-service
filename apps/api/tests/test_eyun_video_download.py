@@ -1,3 +1,4 @@
+import io
 import json
 import subprocess
 import sys
@@ -7,10 +8,12 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from PIL import Image
 
 from app.integrations.eyun.services import eyun_callback_service
 from app.integrations.eyun.services.eyun_callback_service import (
     _decode_silk_to_wav,
+    persist_eyun_image,
     persist_eyun_video,
     persist_eyun_voice,
 )
@@ -209,4 +212,85 @@ async def test_media_download_preserves_signed_url_without_api_token(
     assert (tmp_path / Path(url).name).is_file()
     assert len(requests) == 1
     assert str(requests[0].url) == source_url
+    assert "Authorization" not in requests[0].headers
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query_failure", [False, True])
+async def test_video_download_uses_numeric_message_id_and_waits_for_completion(monkeypatch, query_failure):
+    settings = eyun_callback_service.get_settings()
+    monkeypatch.setattr(settings, "eyun_base_url", "https://api.example.com")
+    monkeypatch.setattr(settings, "eyun_authorization", "test-token")
+    polls = []
+    submissions = []
+    waits = []
+
+    def handler(request):
+        if request.url.path == "/asynGetMsgVideo":
+            submissions.append(json.loads(request.content))
+            return httpx.Response(200, json={"code": "1000", "data": {"id": "task-1"}})
+        polls.append(json.loads(request.content))
+        if query_failure:
+            return httpx.Response(200, json={"code": "8000", "message": "offline"})
+        return httpx.Response(200, json={"code": "1000", "data": {
+            "type": 1 if len(polls) == 12 else 0, "url": "https://cdn.example.com/video",
+        }})
+
+    async def wait(seconds):
+        waits.append(seconds)
+
+    async def persist(**kwargs):
+        assert kwargs["source_url"] == "https://cdn.example.com/video"
+        return "/static/media/playable.mp4"
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client_type(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(eyun_callback_service.asyncio, "sleep", wait)
+    monkeypatch.setattr(eyun_callback_service, "persist_eyun_video", persist)
+    if query_failure:
+        with pytest.raises(RuntimeError, match="query failed"):
+            await eyun_callback_service.download_eyun_video(w_id="wid", msg_id="789", content="<msg />")
+        assert len(polls) == 1
+    else:
+        assert await eyun_callback_service.download_eyun_video(w_id="wid", msg_id="789", content="<msg />") == "/static/media/playable.mp4"
+        assert len(polls) == 12
+        assert waits == [2] * 11
+    assert submissions == [{"wId": "wid", "msgId": 789, "content": "<msg />"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result", ["valid", "invalid", "oversize", "private_redirect"])
+async def test_persist_image_saves_valid_file_and_cleans_up_failures(monkeypatch, tmp_path, result):
+    from app.integrations.web.services import link_card_thumbnail_service as thumbnails
+
+    source = io.BytesIO()
+    Image.new("RGB", (2, 2)).save(source, format="PNG")
+    content = source.getvalue() if result != "invalid" else b"permission denied"
+    requests = []
+
+    async def assert_public(url):
+        if "127.0.0.1" in url:
+            raise RuntimeError("private address")
+
+    def handler(request):
+        requests.append(request)
+        if result == "private_redirect":
+            return httpx.Response(302, headers={"location": "http://127.0.0.1/private"})
+        return httpx.Response(200, content=content)
+
+    monkeypatch.setattr(thumbnails, "_assert_public_url", assert_public)
+    monkeypatch.setattr(eyun_callback_service, "media_storage_dir", lambda: tmp_path)
+    if result == "oversize":
+        monkeypatch.setattr(eyun_callback_service.get_settings(), "sop_image_max_bytes", 1)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        arguments = dict(client=client, source_url="https://cdn.example.com/image?Signature=test", authorization="test-token", msg_id="789")
+        if result == "valid":
+            url = await persist_eyun_image(**arguments)
+            assert url.startswith("/static/media/") and url.endswith(".png")
+            assert (tmp_path / Path(url).name).read_bytes() == content
+        else:
+            with pytest.raises((RuntimeError, OSError)):
+                await persist_eyun_image(**arguments)
+            assert list(tmp_path.iterdir()) == []
+    assert len(requests) == 1
     assert "Authorization" not in requests[0].headers

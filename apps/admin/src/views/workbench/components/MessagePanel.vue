@@ -699,8 +699,9 @@ const transcribeVoice = async (message: ConversationMessage) => {
 
 const canResolveMedia = (message: ConversationMessage) =>
   message.metadata.provider === 'eyun' &&
-  ['60003', '60004'].includes(String(message.metadata.message_type || '')) &&
-  ['video', 'audio'].includes(mediaType(message))
+  !message.metadata.revoked_at &&
+  ['60002', '60003', '60004', '80002', '80003', '80004'].includes(String(message.metadata.message_type || '')) &&
+  ['image', 'video', 'audio'].includes(mediaType(message))
 
 const canRetryMedia = (message: ConversationMessage) => {
   const media = messageMedia(message)
@@ -726,7 +727,7 @@ const mediaLoadingOverdue = (message: ConversationMessage) => {
 }
 
 const mediaStatusText = (message: ConversationMessage) => {
-  const label = mediaType(message) === 'audio' ? '语音' : '视频'
+  const label = ({ image: '图片', audio: '语音', video: '视频' } as Record<string, string>)[mediaType(message)] || '媒体'
   const status = messageMedia(message)?.resolve_status
   if (status === 'failed' || failedMediaIds.value.has(message.id)) {
     return `${label}加载失败`

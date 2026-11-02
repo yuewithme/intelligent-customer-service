@@ -197,7 +197,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             return eyun_success()
         metadata = await _eyun_workbench_metadata(payload, data, user_id=user_id)
         _capture_material_group_message(payload, metadata)
-        await ensure_outbound_conversation_message(
+        recorded_conversation = await ensure_outbound_conversation_message(
             channel="wechat",
             user_id=user_id,
             session_id=_eyun_conversation_session_id(payload, data),
@@ -213,6 +213,13 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             route="self_outbound",
             metadata={**metadata, "origin": "wechat_client"},
         )
+        if recorded_conversation and classification.category in {"image", "video", "audio"} and _eyun_message_id(data):
+            await enqueue_eyun_inbound_media(
+                conversation_id=make_conversation_id(
+                    "wechat", user_id, _eyun_conversation_session_id(payload, data)
+                ),
+                message_id=_eyun_message_id(data),
+            )
         return eyun_success()
 
     if (
@@ -292,7 +299,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
             user_id=user_id,
             session_id=session_id,
         )
-    await record_customer_message(
+    recorded_conversation = await record_customer_message(
         channel="wechat",
         user_id=user_id,
         session_id=session_id,
@@ -332,7 +339,7 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
         metadata=metadata,
     )
 
-    if classification.category in {"video", "audio"} and provider_message_id:
+    if recorded_conversation and classification.category in {"image", "video", "audio"} and provider_message_id:
         await enqueue_eyun_inbound_media(
             conversation_id=make_conversation_id("wechat", user_id, session_id),
             message_id=provider_message_id,
@@ -357,8 +364,9 @@ async def handle_eyun_callback(payload: dict[str, Any]) -> dict[str, Any]:
     if is_private_image:
         queued_payload = {**payload, "data": dict(data)}
         media = metadata.get("media") if isinstance(metadata.get("media"), dict) else {}
-        if media.get("url"):
-            queued_payload["data"]["_image_url"] = str(media["url"])
+        image_url = media.get("url") or media.get("original_url")
+        if image_url:
+            queued_payload["data"]["_image_url"] = str(image_url)
         await enqueue_eyun_inbound(queued_payload)
         return eyun_success()
 
@@ -590,7 +598,7 @@ async def _eyun_media_metadata(
             image_type=0,
         )
         if url:
-            media["url"] = url
+            media["original_url"] = url
 
     media["fallback"] = not bool(media.get("url"))
     return media
@@ -615,7 +623,7 @@ def extract_eyun_media_metadata(
     if direct_url:
         media["url"] = direct_url
 
-    if kind == "video" and media.get("url"):
+    if kind in {"image", "video", "audio"} and media.get("url"):
         media["original_url"] = media.pop("url")
         media["resolve_status"] = "pending"
 
@@ -808,7 +816,7 @@ async def fetch_eyun_image_url(
                 },
                 json={
                     "wId": w_id,
-                    "msgId": msg_id,
+                    "msgId": int(msg_id) if msg_id.isdigit() else msg_id,
                     "content": content,
                     "type": image_type,
                 },
@@ -846,7 +854,7 @@ async def download_eyun_video(*, w_id: str, msg_id: str, content: str) -> str:
         response = await client.post(
             f"{base_url}/asynGetMsgVideo",
             headers=headers,
-            json={"wId": w_id, "msgId": msg_id, "content": content},
+            json={"wId": w_id, "msgId": int(msg_id) if msg_id.isdigit() else msg_id, "content": content},
         )
         response.raise_for_status()
         result = response.json()
@@ -855,7 +863,7 @@ async def download_eyun_video(*, w_id: str, msg_id: str, content: str) -> str:
         if str(result.get("code")) != "1000" or not task_id:
             raise RuntimeError(f"Eyun video download submission failed: {result}")
 
-        for attempt in range(10):
+        for attempt in range(30):
             if attempt:
                 await asyncio.sleep(2)
             poll = await client.post(
@@ -865,6 +873,8 @@ async def download_eyun_video(*, w_id: str, msg_id: str, content: str) -> str:
             )
             poll.raise_for_status()
             poll_result = poll.json()
+            if str(poll_result.get("code")) != "1000":
+                raise RuntimeError(f"Eyun video download query failed: {poll_result}")
             poll_data = (
                 poll_result.get("data")
                 if isinstance(poll_result.get("data"), dict)
@@ -887,6 +897,36 @@ async def download_eyun_video(*, w_id: str, msg_id: str, content: str) -> str:
                 )
 
     raise RuntimeError("Eyun video download did not complete")
+
+
+async def download_eyun_image(
+    *, w_id: str, msg_id: str, content: str, source_url: str = ""
+) -> str:
+    settings = get_settings()
+    async with httpx.AsyncClient(timeout=30) as client:
+        if source_url:
+            try:
+                return await persist_eyun_image(
+                    client=client, source_url=source_url,
+                    authorization=settings.eyun_authorization.strip(), msg_id=msg_id,
+                )
+            except (httpx.HTTPError, RuntimeError, ValueError, OSError):
+                pass
+        for image_type in (1, 0):
+            url = await fetch_eyun_image_url(
+                w_id=w_id, msg_id=msg_id, content=content, image_type=image_type
+            )
+            if not url:
+                continue
+            try:
+                return await persist_eyun_image(
+                    client=client, source_url=url,
+                    authorization=settings.eyun_authorization.strip(), msg_id=msg_id,
+                )
+            except (httpx.HTTPError, RuntimeError, ValueError, OSError):
+                if image_type == 0:
+                    raise
+    raise RuntimeError("Eyun image download failed")
 
 
 async def download_eyun_voice(
@@ -958,6 +998,54 @@ def _media_download_headers(source_url: str, authorization: str) -> dict[str, st
     if api.netloc and (source.scheme, source.netloc) == (api.scheme, api.netloc):
         return {"Authorization": authorization}
     return {}
+
+
+async def persist_eyun_image(
+    *, client: httpx.AsyncClient, source_url: str, authorization: str, msg_id: str
+) -> str:
+    from PIL import Image
+    from app.integrations.web.services.link_card_thumbnail_service import _assert_public_url
+
+    storage_dir = media_storage_dir()
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    file_key = hashlib.sha256(f"image:{msg_id}:{source_url}".encode()).hexdigest()[:24]
+    temporary = storage_dir / f".{file_key}.image.tmp"
+    maximum = get_settings().sop_image_max_bytes
+    try:
+        for _ in range(6):
+            await _assert_public_url(source_url)
+            async with client.stream(
+                "GET", source_url,
+                headers=_media_download_headers(source_url, authorization),
+                follow_redirects=False,
+            ) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise RuntimeError("Eyun image redirect has no target")
+                    source_url = str(response.url.join(location))
+                    continue
+                response.raise_for_status()
+                size = 0
+                with temporary.open("wb") as output:
+                    async for chunk in response.aiter_bytes():
+                        size += len(chunk)
+                        if size > maximum:
+                            raise RuntimeError("Eyun image exceeds the configured size limit")
+                        output.write(chunk)
+                break
+        else:
+            raise RuntimeError("Eyun image download has too many redirects")
+        with Image.open(temporary) as image:
+            suffix = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}.get(image.format)
+            if not suffix:
+                raise RuntimeError("Eyun image format is not supported")
+            image.verify()
+        target = storage_dir / f"{file_key}{suffix}"
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return f"/static/media/{target.name}"
 
 
 async def persist_eyun_video(

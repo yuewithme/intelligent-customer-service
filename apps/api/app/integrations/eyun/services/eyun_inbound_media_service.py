@@ -23,7 +23,7 @@ from app.infrastructure.database.models import (
 
 logger = logging.getLogger("wechat_rag_bot.eyun_inbound_media")
 
-SUPPORTED_MEDIA_TYPES = {"video", "audio"}
+SUPPORTED_MEDIA_TYPES = {"image", "video", "audio"}
 MAX_ATTEMPTS = 3
 STALE_PROCESSING_MINUTES = 5
 MEDIA_DOWNLOAD_TIMEOUT_SECONDS = 120
@@ -96,6 +96,19 @@ async def enqueue_eyun_inbound_media(
                 if job is None:
                     raise
             _publish_media_change(message.conversation_id)
+        elif job.status == "succeeded":
+            cached_url = str(_load_json(job.payload_json).get("cached_url") or "")
+            if cached_url and _local_media_path(cached_url).is_file():
+                _update_message_media(
+                    message,
+                    media_type=media_type,
+                    resolve_status="succeeded",
+                    resolve_error=None,
+                    url=cached_url,
+                    job_key=dedup_key,
+                )
+                session.commit()
+                _publish_media_change(message.conversation_id)
         return _job_to_dict(job)
 
 
@@ -114,15 +127,17 @@ async def retry_eyun_message_media(message_id: int, *, transcribe_only: bool = F
         recognition = media.get("recognition") or {}
         if transcribe_only and recognition.get("status") == "succeeded" and str(recognition.get("text") or "").strip():
             return
-        payload["preserve_recognition"] = recognition.get("status") == "succeeded"
+        payload["preserve_recognition"] = (
+            payload.get("preserve_recognition") or recognition.get("status") == "succeeded"
+        )
         cached_url = ""
+        url = str(media.get("url") or "")
+        if url.startswith("/static/media/") and _local_media_path(url).is_file():
+            cached_url = url
+            payload["cached_url"] = url
         if transcribe_only:
             payload["transcribe_only"] = True
             payload["preserve_recognition"] = False
-            url = str(media.get("url") or "")
-            if url.startswith("/static/media/") and _local_media_path(url).is_file():
-                cached_url = url
-                payload["cached_url"] = url
 
         dedup_key = f"{message.id}:{media_type}"
         job = session.scalar(
@@ -256,13 +271,24 @@ async def _process_media_job(job_id: int) -> None:
 
     try:
         from app.integrations.eyun.services.eyun_callback_service import (
+            download_eyun_image,
             download_eyun_video,
             download_eyun_voice,
         )
 
         cached_url = str(payload.get("cached_url") or "")
-        if payload.get("transcribe_only") and cached_url and _local_media_path(cached_url).is_file():
+        if cached_url and _local_media_path(cached_url).is_file():
             url = cached_url
+        elif media_type == "image":
+            url = await asyncio.wait_for(
+                download_eyun_image(
+                    w_id=str(payload.get("w_id") or ""),
+                    msg_id=str(payload.get("provider_msg_id") or ""),
+                    content=str(payload.get("raw_content") or ""),
+                    source_url=str(payload.get("source_url") or ""),
+                ),
+                timeout=MEDIA_DOWNLOAD_TIMEOUT_SECONDS,
+            )
         elif media_type == "video":
             download = download_eyun_video(
                 w_id=str(payload.get("w_id") or ""),
@@ -368,6 +394,9 @@ def _publish_playable_media(job_id: int, url: str) -> None:
             job_key=job.dedup_key,
             recognition={"status": "processing"},
         )
+        payload = _load_json(job.payload_json)
+        payload["cached_url"] = url
+        job.payload_json = json.dumps(payload, ensure_ascii=False)
         conversation_id = message.conversation_id
         session.commit()
     _publish_media_change(conversation_id)
@@ -382,6 +411,9 @@ def _complete_media_job(
         if job is None:
             return
         job.status = "succeeded"
+        payload = _load_json(job.payload_json)
+        payload["cached_url"] = url
+        job.payload_json = json.dumps(payload, ensure_ascii=False)
         job.locked_at = None
         job.last_error = None
         job.updated_at = now
@@ -452,7 +484,7 @@ def _job_payload_from_message(
     message_type = str(metadata.get("message_type") or "")
     media_type = str(media.get("type") or "")
     if not media_type:
-        media_type = {"60003": "video", "60004": "audio", "80003": "video", "80004": "audio"}.get(message_type, "")
+        media_type = {"60002": "image", "60003": "video", "60004": "audio", "80002": "image", "80003": "video", "80004": "audio"}.get(message_type, "")
     raw_content = str(metadata.get("raw_content") or "")
     voice_xml = _voice_xml_metadata(raw_content) if media_type == "audio" else {}
     return media_type, {
@@ -462,6 +494,8 @@ def _job_payload_from_message(
         ),
         "from_user": str(metadata.get("from_user") or ""),
         "raw_content": raw_content,
+        "source_url": str(media.get("original_url") or ""),
+        "preserve_recognition": media_type == "image" or message.sender_type != "customer",
         "buf_id": str(media.get("buf_id") or voice_xml.get("buf_id") or ""),
         "length": str(media.get("length") or voice_xml.get("length") or ""),
     }
