@@ -585,6 +585,43 @@ async def test_enqueue_eyun_inbound_reopens_processed_conversation(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("resume", [True, False])
+async def test_preference_handoff_queue_reviews_new_care_before_skipping(monkeypatch, resume):
+    from app.integrations.eyun.services import message_risk_control_service as service
+    from app.domains.conversations.services import conversation_service as conversations
+    from app.integrations.ai.services import llm_service
+
+    now = datetime(2026, 11, 2, 4, tzinfo=timezone.utc)
+    cid = "wechat:user:bot"
+    await conversations.record_customer_message(channel="wechat", user_id="user", session_id="bot",
+        content="我喜欢春兰", handoff_reason="product_preference_received",
+        metadata={"suppress_handoff_notification": True})
+    calls = []
+    async def assess(messages, **kwargs):
+        assert json.loads(messages[-1]["content"])["customer_message"] == "春兰需要低温吗"
+        calls.append("review")
+        return {"data": {"resume_for_care": resume, "evidence": "春兰需要低温吗"}}
+    async def chat(request):
+        assert request.metadata["care_only_after_preference_handoff"] is True
+        assert not service._conversation_blocks_ai({"from_user": "user", "wc_id": "bot"})
+        calls.append("chat")
+        return {"answer": ""}
+    async def contact(**kwargs):
+        return {}
+    monkeypatch.setattr(llm_service, "generate_messages_json", assess)
+    monkeypatch.setattr(service, "handle_chat", chat)
+    monkeypatch.setattr(service, "get_eyun_contact_snapshot", contact)
+    monkeypatch.setattr(service, "utcnow", lambda: now - timedelta(seconds=120))
+    await service.enqueue_eyun_inbound({"account": "acct", "messageType": "60001", "wcId": "bot",
+        "data": {"wId": "wid", "fromUser": "user", "content": "春兰需要低温吗", "newMsgId": 9001}})
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    assert await service.process_due_eyun_inbound_batches(limit=10) == 1
+    assert calls == (["review", "chat"] if resume else ["review"])
+    detail = await conversations.get_conversation_detail(cid)
+    assert detail["conversation"]["status"] == ("ai_active" if resume else "handoff_pending")
+
+
+@pytest.mark.asyncio
 async def test_process_due_batch_calls_ai_once_for_merged_content(monkeypatch):
     from app.integrations.eyun.services.message_risk_control_service import (
         enqueue_eyun_inbound,

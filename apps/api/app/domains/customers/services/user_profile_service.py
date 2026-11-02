@@ -465,7 +465,7 @@ async def apply_deterministic_profile_update(message, intent, reply) -> None:
 
 
 async def clear_human_handoff(user_id: str) -> None:
-    """Clear the profile lock only after an operator explicitly returns the chat to AI."""
+    """Clear the profile lock when the conversation returns to AI."""
     with _get_session() as session:
         profile = session.scalar(
             select(UserProfileModel).where(UserProfileModel.user_id == user_id)

@@ -63,7 +63,8 @@ async def run_sales_agent(
     sop_scope = reply_policy.sop_scope_for_message(message)
     sop_scopes = message.metadata.get("sop_scopes", [sop_scope])
     allowed_scopes = set(sop_scopes) | {"general"}
-    flows = {scope: flow for scope in sop_scopes if (flow := get_saved_flow(scope)) is not None}
+    care_only = bool(message.metadata.get("care_only_after_preference_handoff"))
+    flows = {} if care_only else {scope: flow for scope in sop_scopes if (flow := get_saved_flow(scope)) is not None}
     message.metadata["sop_flow_versions"] = {scope: execution_version(flow) for scope, flow in flows.items()}
     cursors = {scope: load_cursor(message, scope, flow) for scope, flow in flows.items()}
     if "service" in sop_scopes:
@@ -98,6 +99,13 @@ async def run_sales_agent(
             ),
         },
     ]
+    if care_only:
+        conversation.append({"role": "system", "content": (
+            "此前产品喜好已在上一轮内部转人工；本轮客户提出新的养护诉求，现已交回 AI。"
+            "只处理本轮养护问题，结合最近人工建议和客户新信息，不重记历史喜好、不继续销售或例行挖需，"
+            "不发送转接通知、会员介绍或收尾主管邀请，不因旧喜好或销售节点再次转人工。"
+            "当前确有新的安全风险或授权事项时仍可转人工。"
+        )})
     tool_results: list[dict[str, Any]] = []
     seen_call_ids: set[str] = set()
     total_tool_calls = 0
@@ -193,6 +201,8 @@ async def run_sales_agent(
             )
 
         latest_decision = decision
+        if care_only:
+            decision.purchase_signal = "none"
         confirmed = service_handoff.confirmed_handoff_reason(message, offer_state, decision.service_handoff)
         if confirmed:
             return await _confirmed_service_handoff(context, confirmed, usage, attempt_trace)
@@ -228,7 +238,7 @@ async def run_sales_agent(
                 "content": json.dumps(decision.model_dump(mode="json"), ensure_ascii=False),
             }
         )
-        if "service" in sop_scopes and decision.purchase_signal in {"interest", "direct"}:
+        if not care_only and "service" in sop_scopes and decision.purchase_signal in {"interest", "direct"}:
             decision.sop_node = "service.repurchase_discovery"
             diagnostic["outcome"] = "service_purchase_handoff"
             return await _sop_node_handoff_reply(decision=decision, context=context, sop_scope="service",
@@ -241,6 +251,7 @@ async def run_sales_agent(
             decision.sop_node = "seeding.product_interest"
         if (
             not explicit_handoff
+            and not care_only
             and is_sop_node_handoff_enabled(decision_scope, decision.sop_node)
         ):
             diagnostic["outcome"] = "sop_node_handoff"
@@ -370,7 +381,7 @@ async def run_sales_agent(
                 diagnostic["outcome"] = "product_preference_handoff"
                 decision.tool_calls = []
                 decision.final_response = AgentFinalResponse(
-                    messages=[AgentVisibleMessage(type="text", content="了解您的喜好了，我请同事接着和您聊。")],
+                    messages=[],
                     need_human=True, handoff_reason="product_preference_received",
                 )
                 return await _finalize_reply(decision=decision, context=context, usage=usage,
@@ -522,16 +533,23 @@ async def _finalize_reply(
     need_human = context.handoff is not None or final.need_human
     if reply_policy.is_first_order_opening(context):
         outbound = _insert_opening_image(outbound)
+    if (context.handoff or {}).get("reason") == "product_preference_received":
+        outbound = []
     offer_state = dict(context.workspace.get("service_handoff") or {})
     if need_human:
         offer_state["awaiting"] = False
-    else:
+    elif not context.message.metadata.get("care_only_after_preference_handoff"):
         offer_state, invitation = service_handoff.advance_service_handoff(context.message, offer_state, decision.service_handoff)
         if invitation:
             outbound.append(OutboundMessage(type="text", content=invitation, split=False))
-    if not outbound and not need_human and suppressed_invitation:
+    else:
+        offer_state["awaiting"] = False
+    outbound, duplicate_suppressed = reply_policy.deduplicate_reply(outbound, context)
+    if duplicate_suppressed:
+        quality_flags = list(dict.fromkeys([*quality_flags, "duplicate_reply_suppressed"]))
+    if not outbound and not need_human and suppressed_invitation and not duplicate_suppressed:
         outbound.append(OutboundMessage(type="text", content="好的，我继续帮您解答。"))
-    if not outbound and not need_human:
+    if not outbound and not need_human and not duplicate_suppressed:
         await execute_agent_tool(
             call_id="system_empty_reply_handoff",
             name="human.handoff",
@@ -554,7 +572,7 @@ async def _finalize_reply(
         sources=_dedupe_sources(context.sources),
         usage=usage,
         need_human=need_human,
-        next_action="human_handoff" if need_human else final.next_action,
+        next_action="human_handoff" if need_human else final.next_action if outbound else None,
         metadata={
             "agent_runtime": {
                 "version": HARNESS_VERSION,

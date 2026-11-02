@@ -200,12 +200,14 @@ async def test_one_current_product_preference_immediately_enters_handoff(monkeyp
     assert reply.metadata["handoff"]["reason"] == "product_preference_received"
     assert reply.metadata["handoff"]["summary"] == text
     assert reply.metadata["agent_runtime"]["purchase_signal"] == "none"
+    assert reply.answer == "" and reply.answer_segments == [] and reply.outbound_messages == []
     trace = reply.metadata["agent_runtime"]["tool_trace"]
     assert all(item["call_id"] != "unneeded" for item in trace)
     assert service_handoff_service.CLOSING_INVITATION not in reply.answer
     await conversation_service.record_ai_turn(message=message, result={**reply.model_dump(), "handoff": reply.metadata["handoff"]})
     detail = await conversation_service.get_conversation_detail(conversation_service.make_conversation_id(message.channel, message.user_id, message.session_id))
     assert detail["conversation"]["status"] == conversation_service.HANDOFF_PENDING
+    assert all(item["sender_type"] == "customer" for item in detail["messages"])
     if tool == "service.record":
         profile = (await get_profile_bundle(message.user_id))["profile"]
         assert profile["service_facts"]["preference"]["value"] == value

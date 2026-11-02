@@ -89,6 +89,7 @@ def test_sop_scope_uses_service_tag_and_enabled_flows(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("resume_preference", [False, True])
 @pytest.mark.parametrize("media_context", [
     [{"message_id": 10, "type": "image", "content": "[图片识别内容] 春兰九仙牡丹订单，已发货"}],
     [{"message_id": 10, "type": "video", "content": "[视频识别内容] 阳台有多盆兰花，客户说叶片发黄"}],
@@ -96,6 +97,7 @@ def test_sop_scope_uses_service_tag_and_enabled_flows(monkeypatch):
 async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
     monkeypatch,
     media_context,
+    resume_preference,
 ):
     state = UserState(
         user_id="customer-1",
@@ -122,6 +124,7 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
         ],
     )
     captured = {}
+    blocked = resume_preference
     def recent_media(conversation_id):
         assert conversation_id == "wechat:customer-1:session-1"
         return media_context
@@ -155,6 +158,7 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
         del user_state
         captured["workspace"] = workspace
         captured["sop_scope"] = message.metadata.get("sop_scope")
+        captured["care_only"] = message.metadata.get("care_only_after_preference_handoff", False)
         return FinalReply(answer="已记住", reply_type="agent", route="agent")
 
     async def fake_update_user_state(*args, **kwargs):
@@ -168,7 +172,13 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
         "recover_automatic_handoff",
         fake_recover_automatic_handoff,
     )
-    monkeypatch.setattr(chat_orchestrator, "conversation_blocks_ai", lambda **_: False)
+    async def recover_preference(**kwargs):
+        nonlocal blocked
+        assert blocked and kwargs["customer_message"] == "宋梅可以淋雨吗"
+        blocked = False
+        return True
+    monkeypatch.setattr(chat_orchestrator, "recover_preference_handoff_for_care", recover_preference)
+    monkeypatch.setattr(chat_orchestrator, "conversation_blocks_ai", lambda **_: blocked)
     monkeypatch.setattr(chat_orchestrator, "get_user_state", fake_get_user_state)
     monkeypatch.setattr(
         chat_orchestrator,
@@ -194,7 +204,7 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
             channel="wechat",
             user_id="customer-1",
             session_id="session-1",
-            message="我喜欢白色兰花",
+            message="宋梅可以淋雨吗" if resume_preference else "我喜欢白色兰花",
             kb_id="kb_default",
             metadata={
                 "tenant_id": "tenant-1",
@@ -225,3 +235,4 @@ async def test_handle_chat_injects_gated_memory_context_into_agent_workspace(
     assert captured["log"]["stage_latencies"]["memory_v2_ms"] == 7
     assert captured["sop_scope"] == "first_order"
     assert result["answer"] == "已记住"
+    assert captured["care_only"] == resume_preference

@@ -29,6 +29,7 @@ from app.domains.sales.services.care_manual_service import (
     test_match_care_manuals,
 )
 from app.domains.sales.services.tag_catalog import get_profile_tag_categories
+from app.domains.sales.services.sop_policy_service import preference_tag_groups
 from app.integrations.youzan.services.youzan_ai_tool_service import YouzanAIToolService
 
 
@@ -154,7 +155,7 @@ CAPABILITIES = (
         "human.handoff",
         "tool",
         ("人工", "退款", "赔偿", "投诉", "改价", "修改订单", "申请优惠", "品质", "权限"),
-        "输入 {\"reason\":\"接管原因\",\"summary\":\"已核实事实和未完成事项\"}。创建人工接管；客户本轮明确表达任意一项产品喜好时 reason=product_preference_received，summary 引用喜好原话，直接转接而不询问确认。结果为 pending 时只能说已为客户提交或请同事继续核实，不能声称已经处理完成。",
+        "输入 {\"reason\":\"接管原因\",\"summary\":\"已核实事实和未完成事项\"}。创建人工接管；客户本轮明确表达任意一项产品喜好时 reason=product_preference_received，summary 引用本轮喜好原话，仅在后台转接，不发转同事通知，不询问确认。历史喜好及当前养护提问不再次触发喜好转接。其他接管结果为 pending 时不能声称已经处理完成。",
     ),
     CapabilitySpec(
         "experience.need_discovery",
@@ -346,6 +347,15 @@ async def execute_agent_tool(
         "human.handoff": _human_handoff,
     }
     service_scope = context.message.metadata.get("sop_scope", "service") == "service" or "service" in context.message.metadata.get("sop_scopes", [])
+    if context.message.metadata.get("care_only_after_preference_handoff"):
+        preference_write = (
+            name == "service.record" and any(isinstance(item, dict) and item.get("field") == "preference"
+                for item in arguments.get("facts", []))
+        ) or (name == "customer.tag" and any(preference_tag_groups([str(arguments.get("tag") or "")])))
+        if preference_write or name in {"service.introduce", "member_day.send", "product.search", "product.get", "product.send_card"} or (
+            name == "human.handoff" and arguments.get("reason") == "product_preference_received"
+        ):
+            return _result(call_id, name, "forbidden", reason="answer_current_care_question_without_reopening_previous_preference")
     if service_scope and name in {"product.search", "product.get", "product.send_card"}:
         return _result(call_id, name, "forbidden", reason="service_product_requests_require_human_handoff")
     if not service_scope and name in {"service.record", "service.introduce", "member_day.send"}:

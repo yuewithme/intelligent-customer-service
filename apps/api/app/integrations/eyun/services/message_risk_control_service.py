@@ -40,6 +40,7 @@ from app.domains.conversations.services.conversation_service import (
     force_handoff,
     get_service_delivery_state,
     make_conversation_id,
+    recover_preference_handoff_for_care,
     update_outbound_message_delivery,
 )
 from app.domains.decisioning.services.customer_reply_formatter import plain_customer_text, split_customer_messages
@@ -1604,8 +1605,13 @@ async def _process_inbound_batch(batch_id: int) -> None:
         if _conversation_blocks_ai(batch_data):
             if _pause_inbound_for_draft(batch_id, batch_data):
                 return
-            _mark_batch(batch_data, "skipped")
-            return
+            if not await recover_preference_handoff_for_care(
+                channel="wechat", user_id=user_id, session_id=_conversation_session_id(batch_data),
+                customer_message=batch_data["content"],
+            ):
+                _mark_batch(batch_data, "skipped")
+                return
+            source_metadata["care_only_after_preference_handoff"] = True
 
         contact_snapshot = await get_eyun_contact_snapshot(
             w_id=batch_data["w_id"],

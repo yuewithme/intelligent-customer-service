@@ -258,3 +258,222 @@ def test_service_invitation_and_long_member_intro_receive_soft_review_only():
     turn.final_response.messages.append(AgentVisibleMessage(type="prepared", ref="member"))
     assert "service_introduction_overlaps_handoff_invitation" in policy.quality_flags(turn, context)
     assert policy.guard_violations(turn, context) == []
+
+
+def handoff_conversation(*, status="handoff_pending", reason="product_preference_received", cid=CID):
+    from app.infrastructure.database.models import ConversationModel
+    with history._get_session() as session:
+        session.add(ConversationModel(conversation_id=cid, channel="wechat", user_id="context-customer",
+            session_id="owner-1", status=status, handoff_reason=reason, handoff_ticket_id="preference-ticket",
+            owner_id="operator-1" if status == "human_active" else None, created_at=NOW, updated_at=NOW))
+        session.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["handoff_pending", "human_active"])
+@pytest.mark.parametrize("text", ["春兰不是需要低温一段时间吗？", "正长着花苞的宋梅怕雨水淋吗"])
+async def test_new_care_question_resumes_only_preference_handoff(monkeypatch, status, text):
+    from app.domains.conversations.services import conversation_service as conversations
+    from app.integrations.ai.services import llm_service
+    from app.infrastructure.database.models import ConversationModel
+
+    handoff_conversation(status=status)
+    add_message("我比较喜欢春兰，耐看")
+    add_message("有低温一段时间更好，具体看品种。", "human", status="sent", offset=1)
+    handoff_conversation(cid="wechat:context-customer:owner-2")
+
+    async def assess(messages, **kwargs):
+        payload = json.loads(messages[-1]["content"])
+        assert payload["customer_message"] == text
+        assert [item["content"] for item in payload["recent_turns"]] == [
+            "我比较喜欢春兰，耐看", "有低温一段时间更好，具体看品种。",
+        ]
+        return {"data": {"resume_for_care": True, "evidence": text}}
+
+    monkeypatch.setattr(llm_service, "generate_messages_json", assess)
+    assert await conversations.recover_preference_handoff_for_care(
+        channel="wechat", user_id="context-customer", session_id="owner-1", customer_message=text)
+    with history._get_session() as session:
+        row = session.query(ConversationModel).filter_by(conversation_id=CID).one()
+        assert row.status == "ai_active"
+        assert row.owner_id is None and row.handoff_reason is None and row.handoff_ticket_id is None
+        other = session.query(ConversationModel).filter_by(conversation_id="wechat:context-customer:owner-2").one()
+        assert other.status == "handoff_pending"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("assessment", [
+    {"resume_for_care": False, "evidence": "这个春兰多少钱"},
+    {"resume_for_care": True, "evidence": "历史里问过怎么浇水"},
+    {"resume_for_care": "false", "evidence": "这个春兰多少钱"},
+    {},
+])
+async def test_sales_followup_or_ungrounded_care_assessment_keeps_handoff(monkeypatch, assessment):
+    from app.domains.conversations.services import conversation_service as conversations
+    from app.integrations.ai.services import llm_service
+    handoff_conversation()
+    async def assess(*args, **kwargs):
+        return {"data": assessment}
+    monkeypatch.setattr(llm_service, "generate_messages_json", assess)
+    assert not await conversations.recover_preference_handoff_for_care(
+        channel="wechat", user_id="context-customer", session_id="owner-1", customer_message="这个春兰多少钱")
+    assert conversations.conversation_blocks_ai(channel="wechat", user_id="context-customer", session_id="owner-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason,text,system_event", [
+    ("manual_force_handoff", "宋梅可以淋雨吗", False),
+    ("customer_requested_human", "宋梅可以淋雨吗", False),
+    ("global_handoff", "宋梅可以淋雨吗", False),
+    ("product_preference_received", "转人工，宋梅可以淋雨吗", False),
+    ("product_preference_received", "宋梅可以淋雨吗", True),
+])
+async def test_explicit_human_controls_and_system_events_are_not_auto_released(monkeypatch, reason, text, system_event):
+    from app.domains.conversations.services import conversation_service as conversations
+    from app.integrations.ai.services import llm_service
+    handoff_conversation(reason=reason)
+    async def unexpected(*args, **kwargs):
+        pytest.fail("明确人工控制或系统消息不应进入恢复判断")
+    monkeypatch.setattr(llm_service, "generate_messages_json", unexpected)
+    assert not await conversations.recover_preference_handoff_for_care(
+        channel="wechat", user_id="context-customer", session_id="owner-1", customer_message=text, system_event=system_event)
+
+
+@pytest.mark.asyncio
+async def test_care_assessment_cannot_overwrite_new_manual_control(monkeypatch):
+    from app.domains.conversations.services import conversation_service as conversations
+    from app.integrations.ai.services import llm_service
+    from app.infrastructure.database.models import ConversationModel
+    handoff_conversation()
+    async def assess(*args, **kwargs):
+        with history._get_session() as session:
+            row = session.query(ConversationModel).filter_by(conversation_id=CID).one()
+            row.status = "human_active"
+            row.handoff_reason = "manual_force_handoff"
+            row.owner_id = "new-operator"
+            session.commit()
+        return {"data": {"resume_for_care": True, "evidence": "宋梅可以淋雨吗"}}
+    monkeypatch.setattr(llm_service, "generate_messages_json", assess)
+    assert not await conversations.recover_preference_handoff_for_care(
+        channel="wechat", user_id="context-customer", session_id="owner-1", customer_message="宋梅可以淋雨吗")
+    assert conversations.conversation_blocks_ai(channel="wechat", user_id="context-customer", session_id="owner-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool,arguments", [
+    ("human.handoff", {"reason": "product_preference_received", "summary": "之前喜欢春兰"}),
+    ("service.record", {"facts": [{"field": "preference", "value": "春兰", "evidence": "春兰"}]}),
+    ("customer.tag", {"tag": "春兰", "evidence": "春兰"}),
+])
+async def test_resumed_care_turn_ignores_old_preference_sales_nodes_and_closing_invitation(monkeypatch, tool, arguments):
+    calls = []
+    async def generate(conversation, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            assert "本轮客户提出新的养护诉求" in conversation[-1]["content"]
+            return {"data": AgentTurnDecision(commercial_judgment="历史喜好", relationship_purpose="继续服务", sop_node="general.reply",
+                tool_calls=[{"call_id": "old-preference", "name": tool, "arguments": arguments}]).model_dump()}
+        return {"data": decision("带花苞时尽量避开长时间淋雨，盆内不要积水。", purchase_signal="interest",
+            service_handoff={"invitation_reason": "closing"}).model_dump()}
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    monkeypatch.setattr(agent_runtime, "is_sop_node_handoff_enabled", lambda *_: True)
+    def unexpected_flow(*args):
+        pytest.fail("新养护问题不应被旧销售流程游标限制")
+    monkeypatch.setattr(agent_runtime, "get_saved_flow", unexpected_flow)
+    message = incoming("正长着花苞的宋梅怕雨水淋吗")
+    message.metadata["care_only_after_preference_handoff"] = True
+    reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id=message.user_id),
+        workspace={"profile": {"customer_tags": ["春兰"]}})
+    assert len(calls) == 2
+    assert reply.answer == "带花苞时尽量避开长时间淋雨，盆内不要积水。"
+    assert not reply.need_human and "handoff" not in reply.metadata
+    assert reply.metadata["agent_runtime"]["tool_trace"][0]["status"] == "forbidden"
+    assert reply.metadata["agent_runtime"]["purchase_signal"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_preference_handoff_keeps_staff_draft_and_model_failure_locked(monkeypatch):
+    from app.domains.conversations.services import conversation_service as conversations
+    from app.integrations.ai.services import llm_service
+    from app.infrastructure.database.models import ConversationReplyDraftModel
+    handoff_conversation(status="human_active")
+    with history._get_session() as session:
+        session.add(ConversationReplyDraftModel(conversation_id=CID, editor_id="editor-1", operator_id="operator-1",
+            expires_at=NOW + timedelta(days=90)))
+        session.commit()
+    calls = []
+    async def unavailable(*args, **kwargs):
+        calls.append(1)
+        raise RuntimeError("model unavailable")
+    monkeypatch.setattr(llm_service, "generate_messages_json", unavailable)
+    kwargs = dict(channel="wechat", user_id="context-customer", session_id="owner-1", customer_message="宋梅可以淋雨吗")
+    assert not await conversations.recover_preference_handoff_for_care(**kwargs)
+    assert not calls
+    with history._get_session() as session:
+        session.delete(session.get(ConversationReplyDraftModel, CID))
+        session.commit()
+    assert not await conversations.recover_preference_handoff_for_care(**kwargs)
+    assert calls == [1]
+    assert conversations.conversation_blocks_ai(channel="wechat", user_id="context-customer", session_id="owner-1")
+
+
+@pytest.mark.asyncio
+async def test_resumed_care_final_response_cannot_rehandoff_for_old_preference(monkeypatch):
+    calls = []
+    async def generate(conversation, **kwargs):
+        calls.append(1)
+        turn = decision("带花苞时避免长时间淋雨，保持盆内不积水。").model_dump()
+        if len(calls) == 1:
+            turn["final_response"] = {"messages": [], "need_human": True, "handoff_reason": "product_preference_received"}
+        return {"data": turn}
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    message = incoming("正长花苞的宋梅能淋雨吗")
+    message.metadata["care_only_after_preference_handoff"] = True
+    reply = await agent_runtime.run_sales_agent(message=message, user_state=UserState(user_id=message.user_id), workspace={})
+    assert calls == [1, 1] and not reply.need_human
+    assert reply.answer == "带花苞时避免长时间淋雨，保持盆内不积水。"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", [
+    "了解您的喜好了，我请同事接着和您聊。",
+    "不客气，那您先忙，后面兰花到了或者大棚搭好了，随时喊我。",
+])
+async def test_exact_repeated_reply_is_suppressed_even_after_rewrite_budget(monkeypatch, content):
+    async def generate(*args, **kwargs):
+        return {"data": decision(content).model_dump()}
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    reply = await agent_runtime.run_sales_agent(message=incoming("宋梅可以淋雨吗"),
+        user_state=UserState(user_id="context-customer"), workspace={"recent_turns": [
+            {"role": "assistant", "sender_type": "ai", "content": content},
+        ]})
+    assert reply.answer == "" and reply.outbound_messages == [] and not reply.need_human
+    assert "duplicate_reply_suppressed" in reply.metadata["agent_runtime"]["quality_flags"]
+
+
+def test_dedup_preserves_new_answer_explicit_repeat_and_fixed_materials():
+    content = "带花苞时尽量避开长时间淋雨，盆内不要积水。"
+    context = AgentExecutionContext(message=incoming("宋梅怎么处理"), user_state=UserState(user_id="context-customer"),
+        workspace={"recent_turns": [{"role": "assistant", "content": content}]})
+    material = OutboundMessage(type="text", content=content, service_step="care_manual_intro")
+    outbound, suppressed = policy.deduplicate_reply([
+        OutboundMessage(type="text", content=content), OutboundMessage(type="text", content="放到通风避雨处就可以。"),
+        OutboundMessage(type="text", content="放到通风避雨处就可以。"), material,
+    ], context)
+    assert suppressed and [item.content for item in outbound] == ["放到通风避雨处就可以。", content]
+    context.message = incoming("没看清，再说一遍")
+    assert policy.deduplicate_reply([OutboundMessage(type="text", content=content)], context)[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("messages", [[], [{"type": "text", "content": "了解您的喜好了，我请同事接着和您聊。"}]])
+async def test_final_response_preference_handoff_is_also_silent(monkeypatch, messages):
+    async def generate(*args, **kwargs):
+        turn = decision("占位").model_dump()
+        turn["final_response"] = {"messages": messages, "need_human": True, "handoff_reason": "product_preference_received"}
+        return {"data": turn}
+    monkeypatch.setattr(agent_runtime, "generate_messages_json", generate)
+    reply = await agent_runtime.run_sales_agent(message=incoming("我比较喜欢春兰，耐看"),
+        user_state=UserState(user_id="context-customer"), workspace={})
+    assert reply.need_human and reply.metadata["handoff"]["reason"] == "product_preference_received"
+    assert reply.answer == "" and reply.answer_segments == [] and reply.outbound_messages == []

@@ -18,6 +18,7 @@ from app.domains.conversations.services.conversation_service import (
     record_customer_message,
     make_conversation_id,
     recover_automatic_handoff,
+    recover_preference_handoff_for_care,
 )
 from app.domains.conversations.services.state_service import (
     get_user_state,
@@ -98,6 +99,15 @@ async def handle_chat(request: ChatRequest) -> dict:
                 user_id=message.user_id,
                 session_id=message.session_id,
             )
+        if not is_evaluation and conversation_blocks_ai(
+            channel=message.channel,
+            user_id=message.user_id,
+            session_id=message.session_id,
+        ) and await recover_preference_handoff_for_care(
+            channel=message.channel, user_id=message.user_id, session_id=message.session_id,
+            customer_message=message.message, system_event=bool(message.metadata.get("system_event")),
+        ):
+            message.metadata["care_only_after_preference_handoff"] = True
         if not is_evaluation and conversation_blocks_ai(
             channel=message.channel,
             user_id=message.user_id,

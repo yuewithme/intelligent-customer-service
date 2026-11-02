@@ -57,10 +57,16 @@ class AgentVisibleMessage(BaseModel):
 
 
 class AgentFinalResponse(BaseModel):
-    messages: list[AgentVisibleMessage] = Field(min_length=1, max_length=5)
+    messages: list[AgentVisibleMessage] = Field(default_factory=list, max_length=5)
     need_human: bool = False
     handoff_reason: str | None = None
     next_action: str | None = None
+
+    @model_validator(mode="after")
+    def require_reply_or_handoff(self):
+        if not self.messages and not self.need_human:
+            raise ValueError("final response requires messages or human handoff")
+        return self
 
 
 class ServiceHandoffAssessment(BaseModel):

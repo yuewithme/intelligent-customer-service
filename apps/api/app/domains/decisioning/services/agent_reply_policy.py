@@ -168,6 +168,9 @@ def guard_violations(
         str(item.content or "") for item in final.messages if item.type == "text"
     )
     violations: list[str] = []
+    if (context.message.metadata.get("care_only_after_preference_handoff")
+            and final.need_human and final.handoff_reason == "product_preference_received"):
+        violations.append("previous_preference_cannot_replace_current_care_reply")
     opening_event = is_first_order_opening(context)
     opening_profile_question = False
     if opening_event and final is not None:
@@ -518,6 +521,31 @@ def _repeats_recent_assistant_content(
     )
 
 
+def deduplicate_reply(outbound, context: AgentExecutionContext) -> tuple[list, bool]:
+    recent = context.workspace.get("recent_turns") or []
+    prior = {
+        normalized
+        for turn in recent[-8:] if isinstance(turn, dict)
+        and str(turn.get("role") or "").lower() in {"assistant", "agent", "sales_agent", "ai", "human"}
+        for chunk in [str(turn.get("content") or ""), *re.split(r"\n\s*\n+", str(turn.get("content") or ""))]
+        if len(normalized := _normalize_repeat_text(chunk)) >= 16
+    }
+    if any(marker in str(context.message.message or "") for marker in ("再说一遍", "再发一遍", "重新发", "重复一下", "没看清")):
+        prior.clear()
+    result = []
+    seen = set()
+    suppressed = False
+    for item in outbound:
+        if item.type == "text" and not getattr(item, "service_step", None):
+            normalized = _normalize_repeat_text(item.content)
+            if normalized in seen or normalized in prior:
+                suppressed = True
+                continue
+            seen.add(normalized)
+        result.append(item)
+    return result, suppressed
+
+
 def _missing_recommended_product_cards(
     visible_text: str,
     final,
@@ -644,7 +672,7 @@ def _normalize_short_reply(text: str) -> str:
 def _repeatable_text_chunks(text: str) -> list[str]:
     chunks = re.split(r"\n\s*\n+", str(text or ""))
     normalized = [_normalize_repeat_text(chunk) for chunk in chunks]
-    return [chunk for chunk in normalized if len(chunk) >= 24]
+    return [chunk for chunk in normalized if len(chunk) >= 16]
 
 
 def _normalize_repeat_text(text: str) -> str:
@@ -656,6 +684,11 @@ def _normalize_repeat_text(text: str) -> str:
 
 
 def hard_rewrite_instruction(violations: list[str]) -> str:
+    if "previous_preference_cannot_replace_current_care_reply" in violations:
+        return (
+            "历史产品喜好已在上一轮处理，本轮是客户新提出的养护问题。"
+            "不要再次转接或发送转同事话术；用已取得的事实直接解答当前养护问题，不附加销售或主管邀请。"
+        )
     if any(
         violation in violations
         for violation in (
