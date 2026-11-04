@@ -2708,6 +2708,10 @@ def _ensure_conversation_columns(factory: sessionmaker) -> None:
                     "ADD COLUMN delivery_status VARCHAR(32)"
                 )
             )
+        session.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_conversation_messages_conversation_sender_time "
+            "ON conversation_messages (conversation_id, sender_type, created_at, id)"
+        ))
         _backfill_conversation_tenants(session)
         session.commit()
 

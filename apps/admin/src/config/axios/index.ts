@@ -25,6 +25,7 @@ client.interceptors.response.use(
     return Promise.reject(new Error(body.message || '请求失败'))
   },
   (error) => {
+    if (axios.isCancel(error)) return Promise.reject(error)
     if (error.response?.status === 401) {
       clearGateRole()
       if (libraryApp) { window.location.replace(libraryLogin()); return Promise.reject(error) }

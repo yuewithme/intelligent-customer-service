@@ -164,7 +164,7 @@ export const getConversations = (params: {
   tenant_id?: string
   for_forwarding?: boolean
   owner_wc_id?: string
-}) => request.get<ConversationListResponse>({ url: conversationBase(), params })
+}, signal?: AbortSignal) => request.get<ConversationListResponse>({ url: conversationBase(), params, signal })
 
 export const getConversationTenants = () =>
   request.get<ConversationTenantList>({

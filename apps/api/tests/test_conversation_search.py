@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.core.config import get_settings
-from app.domains.conversations.services.conversation_service import _get_session, list_conversations
+from app.domains.conversations.services.conversation_service import _ensure_conversation_columns, _get_session, list_conversations
 from app.domains.customers.services.user_profile_service import _get_session as profile_session
 from app.infrastructure.database.models import (
     ConversationMessageModel,
@@ -184,6 +184,57 @@ async def test_identity_snapshots_and_contact_fields_remain_searchable():
     for query, cid in (("山间兰友", snapshot), ("orchidfriend", snapshot), ("南宁李姐", contact), ("nn_orchid", contact)):
         found = await list_conversations(keyword=query)
         assert [row["conversation_id"] for row in found["items"]] == [cid]
+
+
+@pytest.mark.asyncio
+async def test_identity_snapshot_uses_latest_valid_value_per_field():
+    cid = conversation("snapshot_latest", display="会话显示名")
+    message(cid, metadata={"nickname": "旧昵称", "remark_name": "保留旧备注", "alias_name": "old_alias"}, days_ago=30)
+    first = message(cid, metadata={"nickname": "同时间较早昵称", "alias_name": "latest_alias"})
+    second = message(cid, metadata={"nickname": "\u2003", "nick_name": "\u00a0有效昵称|兰友\u3000"})
+    with _get_session() as session:
+        session.query(ConversationMessageModel).filter(ConversationMessageModel.id.in_([first, second])).update({
+            "created_at": datetime.now(timezone.utc) - timedelta(days=1),
+        })
+        session.add(ConversationMessageModel(
+            conversation_id=cid, sender_type="customer", content="", metadata_json='{"nickname": "无效 JSON',
+            created_at=datetime.now(timezone.utc),
+        ))
+        session.commit()
+    message(cid, metadata={"nickname": "已撤回昵称"}, delivery_status="revoked")
+    message(cid, metadata={"nickname": 123, "display_name": "历史显示名"})
+    for keyword in ("有效昵称|兰友", "latest_alias", "保留旧备注", "会话显示名"):
+        found = await list_conversations(keyword=keyword)
+        assert [row["conversation_id"] for row in found["items"]] == [cid]
+    for keyword in ("旧昵称", "同时间较早昵称", "old_alias", "已撤回昵称", "历史显示名"):
+        assert (await list_conversations(keyword=keyword))["total"] == 0
+
+    profile("snapshot_latest", nickname="档案昵称", alias_name="profile_alias", remark_name="档案备注")
+    assert (await list_conversations(keyword="档案昵称 profile_alias 档案备注"))["total"] == 1
+    assert (await list_conversations(keyword="有效昵称|兰友 latest_alias 保留旧备注"))["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_identity_snapshot_revocation_values_match_message_visibility():
+    for index, revoked_at in enumerate((None, False, 0, "", [], {}, "[]", "{}", True, "2026-11-04")):
+        cid = conversation(f"revoked_identity_{index}")
+        nickname = f"测试身份{index}号"
+        message(cid, metadata={"nickname": nickname, "revoked_at": revoked_at})
+        result = await list_conversations(keyword=nickname)
+        assert result["total"] == (0 if revoked_at else 1)
+
+
+def test_search_index_is_added_to_existing_message_tables():
+    from sqlalchemy import inspect, text
+    from sqlalchemy.orm import sessionmaker
+
+    with _get_session() as session:
+        engine = session.get_bind()
+        session.execute(text("DROP INDEX ix_conversation_messages_conversation_sender_time"))
+        session.commit()
+    _ensure_conversation_columns(sessionmaker(bind=engine))
+    indexes = {index["name"]: index["column_names"] for index in inspect(engine).get_indexes("conversation_messages")}
+    assert indexes["ix_conversation_messages_conversation_sender_time"] == ["conversation_id", "sender_type", "created_at", "id"]
 
 
 @pytest.mark.asyncio

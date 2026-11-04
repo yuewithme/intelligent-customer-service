@@ -1,7 +1,7 @@
 import re
 from datetime import timezone
 
-from sqlalchemy import inspect, or_, select
+from sqlalchemy import and_, case, func, inspect, or_, select
 
 from app.core.config import get_settings
 from app.infrastructure.database.models import (
@@ -19,6 +19,10 @@ IDENTITY_FIELDS = {
     "display_name": (60, "显示名", ("display_name", "sender_name")),
 }
 MESSAGE_WEIGHT = 30
+IDENTITY_WHITESPACE = (
+    "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005"
+    "\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+)
 
 
 def _identity_values(data):
@@ -121,6 +125,56 @@ def _snippet(value, terms):
     return ("…" if start else "") + value[start : start + 120] + ("…" if start + 120 < len(value) else "")
 
 
+def _snapshot_identities(session, scope, identities):
+    missing = {field: [cid for cid, values in identities.items() if not values.get(field)] for field in IDENTITY_FIELDS}
+    missing = {field: ids for field, ids in missing.items() if ids}
+    if not missing:
+        return
+    message = ConversationMessageModel
+    metadata = case((func.json_valid(message.metadata_json), message.metadata_json), else_="{}")
+    revoked = func.json_extract(metadata, "$.revoked_at")
+    revoked_type = func.json_type(metadata, "$.revoked_at")
+    not_revoked = or_(
+        revoked.is_(None), revoked == 0,
+        and_(revoked_type == "text", revoked == ""),
+        and_(revoked_type.in_(("array", "object")), revoked.in_(("[]", "{}"))),
+    )
+    columns = []
+    for field, ids in missing.items():
+        values = [
+            func.nullif(case((
+                func.json_type(metadata, f"$.{key}") == "text",
+                func.trim(func.json_extract(metadata, f"$.{key}"), IDENTITY_WHITESPACE),
+            )), "")
+            for key in IDENTITY_FIELDS[field][2]
+        ]
+        value = func.coalesce(*values, "")
+        # Each field can come from a different message; stop at its latest valid value.
+        latest = (
+            select(value)
+            .where(
+                message.conversation_id == scope.c.conversation_id,
+                message.sender_type == "customer",
+                or_(message.delivery_status.is_(None), message.delivery_status != "revoked"),
+                not_revoked, value != "",
+            )
+            .order_by(message.created_at.desc(), message.id.desc())
+            .limit(1)
+            .correlate(scope)
+            .scalar_subquery()
+        )
+        columns.append(case((scope.c.conversation_id.in_(ids), latest)).label(field))
+    snapshots = session.execute(
+        select(scope.c.conversation_id, *columns)
+        .where(scope.c.conversation_id.in_({cid for ids in missing.values() for cid in ids}))
+    )
+    for snapshot in snapshots:
+        for field in missing:
+            value = getattr(snapshot, field)
+            if value:
+                identities[snapshot.conversation_id][field] = value
+
+
 def search_conversations(session, filters, keyword):
     from app.domains.conversations.services.conversation_service import _load_metadata
     from app.domains.conversations.services.media_context_service import message_context_text
@@ -132,25 +186,7 @@ def search_conversations(session, filters, keyword):
     identities = _stored_identities(rows, session)
     scope = select(ConversationModel.conversation_id).where(*filters).subquery()
 
-    # Historical snapshots retain nickname/remark separately when the display name hides one.
-    identity_keys = {key for _, _, keys in IDENTITY_FIELDS.values() for key in keys}
-    snapshots = session.scalars(
-        select(ConversationMessageModel)
-        .join(scope, scope.c.conversation_id == ConversationMessageModel.conversation_id)
-        .where(
-            ConversationMessageModel.sender_type == "customer",
-            or_(*(ConversationMessageModel.metadata_json.contains(f'"{key}"') for key in identity_keys)),
-        )
-        .order_by(ConversationMessageModel.created_at.desc(), ConversationMessageModel.id.desc())
-    ).yield_per(200)
-    for message in snapshots:
-        metadata = _load_metadata(message.metadata_json)
-        if message.delivery_status == "revoked" or metadata.get("revoked_at"):
-            continue
-        values = identities[message.conversation_id]
-        for field, value in _identity_values(metadata).items():
-            if value and not values.get(field):
-                values[field] = value
+    _snapshot_identities(session, scope, identities)
 
     scores = {row.conversation_id: {} for row in rows}
     matches = {row.conversation_id: {} for row in rows}
@@ -188,15 +224,23 @@ def search_conversations(session, filters, keyword):
         for field, (weight, label, _) in IDENTITY_FIELDS.items():
             consider(row.conversation_id, values.get(field), weight, field, label)
 
-    messages = session.scalars(
-        select(ConversationMessageModel)
+    has_media = or_(*(ConversationMessageModel.metadata_json.contains(f'"{key}"')
+        for key in ("media", "link_card", "mini_program")))
+    # Plain text does not need provider payloads, receipts or AI traces to be searched or returned.
+    search_metadata = case((has_media, ConversationMessageModel.metadata_json), else_="{}")
+    visible_metadata = case((or_(has_media, ConversationMessageModel.metadata_json.contains('"revoked_at"')),
+        ConversationMessageModel.metadata_json), else_="{}").label("metadata_json")
+    messages = session.execute(
+        select(ConversationMessageModel.id, ConversationMessageModel.conversation_id,
+            ConversationMessageModel.created_at, ConversationMessageModel.content,
+            ConversationMessageModel.delivery_status, visible_metadata)
         .join(scope, scope.c.conversation_id == ConversationMessageModel.conversation_id)
         .where(
             ConversationMessageModel.sender_type.in_(("customer", "ai", "human")),
             or_(*(
                 column.icontains(term, autoescape=True)
                 for term in terms
-                for column in (ConversationMessageModel.content, ConversationMessageModel.metadata_json)
+                for column in (ConversationMessageModel.content, search_metadata)
             )),
         )
         .order_by(ConversationMessageModel.created_at.desc(), ConversationMessageModel.id.desc())

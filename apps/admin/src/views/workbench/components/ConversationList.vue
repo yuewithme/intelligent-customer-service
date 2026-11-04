@@ -143,6 +143,7 @@ let contextMenuTrigger: HTMLElement | undefined
 let loadSequence = 0
 let appliedQuery = ''
 let searchTimer: ReturnType<typeof setTimeout> | undefined
+let pendingLoad: { key: string; sequence: number; controller: AbortController; promise: Promise<void> } | undefined
 
 const emptyDescription = computed(() => {
   if (!keyword.value.trim()) return testView.value ? '暂无测试对话' : '暂无会话'
@@ -157,9 +158,8 @@ const clearSearchTimer = () => {
   searchTimer = undefined
 }
 
-const load = async (options: { silent?: boolean; page?: number } = {}) => {
+const load = (options: { silent?: boolean; page?: number } = {}): Promise<void> => {
   clearSearchTimer()
-  const sequence = ++loadSequence
   const params = {
     status: status.value || undefined,
     keyword: keyword.value.trim() || undefined,
@@ -169,32 +169,47 @@ const load = async (options: { silent?: boolean; page?: number } = {}) => {
   }
   const query = JSON.stringify(params)
   const requestedPage = query !== appliedQuery ? 1 : options.page ?? (options.silent ? page.value : 1)
+  const requestKey = JSON.stringify([query, requestedPage])
+  if (pendingLoad?.key === requestKey && pendingLoad.sequence === loadSequence) {
+    if (!options.silent) loading.value = true
+    return pendingLoad.promise
+  }
+  pendingLoad?.controller.abort()
+  const controller = new AbortController()
+  const sequence = ++loadSequence
   if (query !== appliedQuery) {
     items.value = []
     total.value = 0
   }
   loading.value = !options.silent || loading.value
-  try {
-    const data = await getConversations({
-      ...params,
-      page: requestedPage,
-      page_size: 50
-    })
-    if (sequence !== loadSequence) return
-    const lastPage = Math.max(1, Math.ceil(data.total / 50))
-    if (requestedPage > lastPage) {
-      await load({ ...options, page: lastPage })
-      return
+  const promise = (async () => {
+    try {
+      const data = await getConversations({
+        ...params,
+        page: requestedPage,
+        page_size: 50
+      }, controller.signal)
+      if (sequence !== loadSequence) return
+      const lastPage = Math.max(1, Math.ceil(data.total / 50))
+      if (requestedPage > lastPage) {
+        await load({ ...options, page: lastPage })
+        return
+      }
+      appliedQuery = query
+      page.value = data.page
+      total.value = data.total
+      items.value = groupConversationsByCustomer(data.items, {
+        collapseTestData: testGate
+      })
+    } catch (error) {
+      if (!controller.signal.aborted) throw error
+    } finally {
+      if (sequence === loadSequence) loading.value = false
+      if (pendingLoad?.sequence === sequence) pendingLoad = undefined
     }
-    appliedQuery = query
-    page.value = data.page
-    total.value = data.total
-    items.value = groupConversationsByCustomer(data.items, {
-      collapseTestData: testGate
-    })
-  } finally {
-    if (sequence === loadSequence) loading.value = false
-  }
+  })()
+  pendingLoad = { key: requestKey, sequence, controller, promise }
+  return promise
 }
 
 const clearStatusFilter = () => {
@@ -205,6 +220,7 @@ const clearStatusFilter = () => {
 watch(keyword, (value, previousValue) => {
   if (value.trim() === previousValue.trim()) return
   ++loadSequence
+  pendingLoad?.controller.abort()
   clearSearchTimer()
   if (!value.trim()) {
     void load()
@@ -321,6 +337,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   ++loadSequence
+  pendingLoad?.controller.abort()
   clearSearchTimer()
   document.removeEventListener('pointerdown', handleOutsidePointer)
   document.removeEventListener('keydown', handleEscape)
