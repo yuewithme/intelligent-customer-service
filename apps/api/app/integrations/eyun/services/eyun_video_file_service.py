@@ -6,11 +6,27 @@ import math
 import os
 import subprocess
 import tempfile
+from collections import OrderedDict
 from pathlib import Path
+from threading import Lock
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from app.core.config import PROJECT_ROOT, get_settings
+
+
+_prepared_metadata: OrderedDict[tuple[bytes, bytes], dict[str, Any]] = OrderedDict()
+_prepared_metadata_lock = Lock()
+
+
+def _cached_metadata(video_hash: bytes, thumbnail_hash: bytes | None = None) -> dict[str, Any] | None:
+    with _prepared_metadata_lock:
+        key = next((key for key in reversed(_prepared_metadata)
+            if key[0] == video_hash and (thumbnail_hash is None or key[1] == thumbnail_hash)), None)
+        if key is None:
+            return None
+        _prepared_metadata.move_to_end(key)
+        return dict(_prepared_metadata[key])
 
 
 class VideoValidationError(ValueError):
@@ -39,7 +55,7 @@ def _probe(path: Path) -> dict[str, Any]:
     ]))
 
 
-def _video_metadata(path: Path) -> dict[str, Any]:
+def _video_metadata(path: Path, *, decode: bool = True) -> dict[str, Any]:
     probe = _probe(path)
     streams = probe.get("streams", [])
     video = next((s for s in streams if s.get("codec_type") == "video"), None)
@@ -48,10 +64,11 @@ def _video_metadata(path: Path) -> dict[str, Any]:
         raise VideoValidationError("视频缺少有效画面或时长")
     if int(video.get("width") or 0) <= 0 or int(video.get("height") or 0) <= 0:
         raise VideoValidationError("视频尺寸无效")
-    _run_media_command([
-        "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-i", str(path),
-        "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-",
-    ])
+    if decode:
+        _run_media_command([
+            "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-i", str(path),
+            "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-",
+        ])
     return {
         "duration": duration,
         "width": int(video["width"]),
@@ -66,6 +83,9 @@ def _video_metadata(path: Path) -> dict[str, Any]:
 
 
 def validate_video_bytes(content: bytes) -> dict[str, Any]:
+    cached = _cached_metadata(hashlib.sha256(content).digest())
+    if cached is not None:
+        return cached
     with tempfile.TemporaryDirectory(prefix="eyun-video-check-") as directory:
         path = Path(directory) / "video.mp4"
         path.write_bytes(content)
@@ -76,7 +96,7 @@ def validate_video_bytes(content: bytes) -> dict[str, Any]:
 
 
 def prepare_browser_video(original: Path, converted: Path) -> dict[str, Any]:
-    metadata = _video_metadata(original)
+    metadata = _video_metadata(original, decode=False)
     encoding = ["-c:v", "copy", "-c:a", "copy"] if metadata["compatible"] else [
         "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
         "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:a", "aac",
@@ -93,6 +113,9 @@ def prepare_browser_video(original: Path, converted: Path) -> dict[str, Any]:
 
 
 def prepare_video_bytes(source: bytes, thumbnail: bytes = b"") -> dict[str, Any]:
+    cached = _cached_metadata(hashlib.sha256(source).digest(), hashlib.sha256(thumbnail).digest())
+    if cached is not None:
+        return {**cached, "source": source, "thumbnail": thumbnail}
     with tempfile.TemporaryDirectory(prefix="eyun-video-prepare-") as directory:
         root = Path(directory)
         original, converted, cover = root / "source.mp4", root / "video.mp4", root / "cover.jpg"
@@ -115,13 +138,42 @@ def prepare_video_bytes(source: bytes, thumbnail: bytes = b"") -> dict[str, Any]
             video_bytes += padding_size.to_bytes(4, "big") + b"free" + bytes(padding_size - 8)
         thumbnail_bytes = cover.read_bytes()
         thumbnail_bytes += bytes(-len(thumbnail_bytes) % 16)
-        return {
+        details = {
             **metadata,
-            "source": video_bytes,
-            "thumbnail": thumbnail_bytes,
             "thumb_width": int(cover_stream["width"]),
             "thumb_height": int(cover_stream["height"]),
         }
+        # Reuse only exact validated bytes; retain metadata, never large media buffers.
+        key = (hashlib.sha256(video_bytes).digest(), hashlib.sha256(thumbnail_bytes).digest())
+        with _prepared_metadata_lock:
+            _prepared_metadata[key] = details
+            _prepared_metadata.move_to_end(key)
+            while len(_prepared_metadata) > 32:
+                _prepared_metadata.popitem(last=False)
+        return {**details, "source": video_bytes, "thumbnail": thumbnail_bytes}
+
+
+def local_media_path(url: str) -> Path | None:
+    parsed = urlsplit(url)
+    settings = get_settings()
+    origins = [urlsplit(base.strip()) for base in (settings.app_public_base_url, settings.video_touch_public_base_url) if base.strip()]
+    if parsed.scheme or parsed.netloc:
+        if not any((parsed.scheme, parsed.netloc.lower()) == (origin.scheme, origin.netloc.lower()) for origin in origins):
+            return None
+    path = unquote(parsed.path)
+    for prefix, directory in (
+        ("/static/media/", PROJECT_ROOT / "data" / "media"),
+        ("/static/workbench-media/", Path(settings.upload_dir) / "workbench-media"),
+    ):
+        if not path.startswith(prefix):
+            continue
+        name = path[len(prefix):]
+        if not name or "/" in name or "\\" in name or name in {".", ".."}:
+            return None
+        target = (directory / name).resolve()
+        if target.is_relative_to(directory.resolve()) and target.is_file():
+            return target
+    return None
 
 
 def validate_thumbnail_bytes(content: bytes) -> tuple[int, int]:

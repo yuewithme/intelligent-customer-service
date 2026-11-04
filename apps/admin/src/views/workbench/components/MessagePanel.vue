@@ -209,9 +209,10 @@
               :key="mediaSource(message)"
               class="message-video"
               :src="mediaSource(message)"
+              :poster="messageMedia(message)?.thumb_url"
               controls
               playsinline
-              preload="none"
+              :preload="preloadedMediaIds.has(message.id) ? 'metadata' : 'none'"
               @error="markVideoFailed(message)"
             ></video>
             <audio
@@ -219,7 +220,7 @@
               class="message-audio"
               :src="mediaSource(message)"
               controls
-              preload="none"
+              :preload="preloadedMediaIds.has(message.id) ? 'metadata' : 'none'"
               @error="markMediaFailed(message)"
             ></audio>
             <a
@@ -368,6 +369,7 @@ interface MediaMetadata {
   resolve_updated_at?: string
   job_key?: string
   thumb_base64?: string
+  thumb_url?: string
   file_name?: string
   filename?: string
   name?: string
@@ -662,6 +664,11 @@ const messageMedia = (message: ConversationMessage): MediaMetadata | undefined =
 }
 
 const mediaType = (message: ConversationMessage) => messageMedia(message)?.type || ''
+const preloadedMediaIds = computed(() => new Set(
+  (detail.value?.messages || [])
+    .filter(message => !message.metadata.revoked_at && ['video', 'audio'].includes(mediaType(message)))
+    .slice(-3).map(message => message.id)
+))
 
 const voiceTranscript = (message: ConversationMessage) => {
   const recognition = messageMedia(message)?.recognition

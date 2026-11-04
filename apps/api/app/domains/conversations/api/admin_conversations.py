@@ -4,7 +4,7 @@ from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.conversations.schemas.conversation import (
@@ -201,12 +201,16 @@ async def mini_program_thumbnail(message_id: int) -> Response:
 
 
 @router.get("/message-media/{message_id}")
-async def message_media(message_id: int, request: Request) -> StreamingResponse:
+async def message_media(message_id: int, request: Request) -> Response:
     source = get_message_media_proxy_source(message_id)
     if not source:
         raise HTTPException(status_code=404, detail="message media not found")
+    from app.integrations.eyun.services.eyun_video_file_service import local_media_path
     from app.integrations.web.services.link_card_thumbnail_service import _assert_public_url
 
+    local_path = local_media_path(source)
+    if local_path is not None:
+        return FileResponse(local_path, headers={"Cache-Control": "private, max-age=300"})
     client = httpx.AsyncClient(timeout=60, follow_redirects=False)
     headers = {}
     if request.headers.get("range"):

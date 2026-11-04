@@ -2251,6 +2251,86 @@ def test_workbench_media_proxy_supports_images_and_rejects_private_redirects(mon
     assert requests == ["https://cdn.example.com/image.png"] * 2
 
 
+def test_workbench_media_proxy_serves_own_video_ranges_locally(monkeypatch, tmp_path):
+    import asyncio
+    import httpx
+    from app.domains.conversations.services import conversation_service as conversations
+    from app.infrastructure.database.models import ConversationMessageModel
+
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("APP_PUBLIC_BASE_URL", "https://media.example")
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    directory = tmp_path / "workbench-media"
+    directory.mkdir()
+    (directory / "video.mp4").write_bytes(b"0123456789")
+    asyncio.run(record_customer_message(channel="wechat", user_id="local_video", session_id="owner", content="[视频]",
+        metadata={"provider": "eyun", "media": {"type": "video", "url": "https://media.example/static/workbench-media/video.mp4"}}))
+    client = TestClient(app)
+    mid = client.get("/api/v1/admin/conversations/wechat:local_video:owner").json()["data"]["messages"][0]["id"]
+
+    def no_http(**kwargs):
+        raise AssertionError("local media proxy must not use HTTP")
+
+    monkeypatch.setattr(httpx, "AsyncClient", no_http)
+    path = f"/api/v1/admin/conversations/message-media/{mid}"
+    response = client.get(path, headers={"Range": "bytes=2-5"})
+    assert response.status_code == 206 and response.content == b"2345"
+    assert response.headers["content-range"] == "bytes 2-5/10"
+    assert response.headers["accept-ranges"] == "bytes" and response.headers["etag"]
+    assert client.get(path, headers={"Range": "bytes=99-"}).status_code == 416
+    with conversations._get_session() as session:
+        row = session.get(ConversationMessageModel, mid)
+        metadata = json.loads(row.metadata_json)
+        metadata["revoked_at"] = "2026-11-04"
+        row.metadata_json = json.dumps(metadata)
+        session.commit()
+    assert client.get(path).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_media_worker_refills_free_slots_and_stops_cleanly(monkeypatch):
+    import asyncio
+    from app.integrations.eyun.services import eyun_inbound_media_service as media
+
+    stop = asyncio.Event()
+    release = asyncio.Event()
+    fast_done = asyncio.Event()
+    started = 0
+    active = 0
+    maximum = 0
+
+    async def process(limit):
+        nonlocal started, active, maximum
+        assert limit == 1
+        started += 1
+        number = started
+        active += 1
+        maximum = max(maximum, active)
+        try:
+            if number <= 3:
+                await release.wait()
+            elif number == 6:
+                fast_done.set()
+                stop.set()
+            await asyncio.sleep(0)
+            return 1
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(media, "process_due_eyun_media_jobs", process)
+    task = asyncio.create_task(media.eyun_inbound_media_worker(stop))
+    try:
+        await asyncio.wait_for(fast_done.wait(), timeout=1)
+        assert not release.is_set() and maximum == 4
+        release.set()
+        await asyncio.wait_for(task, timeout=1)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert active == 0
+
+
 def test_workbench_quote_preserves_source_and_rejects_other_customer(monkeypatch, tmp_path):
     import asyncio
     from app.integrations.eyun.services import message_risk_control_service as queue

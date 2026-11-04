@@ -206,6 +206,67 @@ def test_prepared_video_and_cover_decode_with_cdn_block_alignment(tmp_path):
     assert validate_thumbnail_bytes(prepared["thumbnail"]) == (prepared["thumb_width"], prepared["thumb_height"])
 
 
+def test_prepared_video_reuses_only_exact_validated_bytes(monkeypatch, tmp_path):
+    import subprocess
+    from app.integrations.eyun.services import eyun_video_file_service as videos
+
+    source = tmp_path / "source.mp4"
+    subprocess.run([
+        "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=size=48x32:rate=10",
+        "-t", "0.3", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source),
+    ], check=True, capture_output=True, timeout=30)
+    commands = []
+    original = videos._run_media_command
+
+    def run(arguments):
+        commands.append(arguments)
+        return original(arguments)
+
+    monkeypatch.setattr(videos, "_run_media_command", run)
+    prepared = videos.prepare_video_bytes(source.read_bytes())
+    assert sum("null" in command for command in commands) == 1
+    commands.clear()
+    assert videos.prepare_video_bytes(prepared["source"], prepared["thumbnail"]) == prepared
+    assert videos.validate_video_bytes(prepared["source"])["duration"] == prepared["duration"]
+    assert commands == []
+    with pytest.raises(videos.VideoValidationError):
+        videos.prepare_video_bytes(b"corrupt-video", prepared["thumbnail"])
+    assert commands
+    commands.clear()
+    with pytest.raises(videos.VideoValidationError):
+        videos.prepare_video_bytes(prepared["source"], b"corrupt-thumbnail")
+    assert commands
+    assert len(videos._prepared_metadata) <= 32
+    assert not any(isinstance(value, bytes) for entry in videos._prepared_metadata.values() for value in entry.values())
+
+
+@pytest.mark.asyncio
+async def test_own_media_source_reads_local_file_without_http(monkeypatch, tmp_path):
+    from app.integrations.eyun.services import eyun_material_service as materials
+
+    monkeypatch.setattr(get_settings(), "app_public_base_url", "https://media.example")
+    monkeypatch.setattr(get_settings(), "upload_dir", str(tmp_path))
+    directory = tmp_path / "workbench-media"
+    directory.mkdir()
+    source = directory / "video.mp4"
+    source.write_bytes(b"local-video")
+
+    def no_http(**kwargs):
+        raise AssertionError("local source must not use HTTP")
+
+    monkeypatch.setattr(materials.httpx, "AsyncClient", no_http)
+    assert await materials._fetch_source_bytes("https://media.example/static/workbench-media/video.mp4") == b"local-video"
+    assert await materials._fetch_source_bytes("https://media.example/static/workbench-media/video.mp4?version=1") == b"local-video"
+    for url in (
+        "https://other.example/static/workbench-media/video.mp4",
+        "https://media.example.attacker.test/static/workbench-media/video.mp4",
+        "https://media.example/static/workbench-media/../video.mp4",
+        "https://media.example/static/workbench-media/%2e%2e%2fvideo.mp4",
+        "https://media.example/static/workbench-media/%2e%2e%5cvideo.mp4",
+    ):
+        assert materials.local_media_path(url) is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("source_key,deferred", [("legacy-sop:image", False), ("workbench:42", True)])
 async def test_legacy_image_enqueue_uses_material_forwarding(monkeypatch, source_key, deferred):

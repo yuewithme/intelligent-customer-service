@@ -250,15 +250,27 @@ async def process_due_eyun_media_jobs(limit: int = 2) -> int:
 
 async def eyun_inbound_media_worker(stop_event: asyncio.Event) -> None:
     poll_seconds = get_settings().eyun_worker_poll_seconds
-    while not stop_event.is_set():
-        try:
-            await process_due_eyun_media_jobs()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Eyun inbound media worker tick failed: %s", exc)
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
-        except asyncio.TimeoutError:
-            pass
+
+    async def run_slot() -> None:
+        while not stop_event.is_set():
+            try:
+                if await process_due_eyun_media_jobs(limit=1):
+                    continue
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Eyun inbound media worker tick failed: %s", exc)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=poll_seconds)
+            except asyncio.TimeoutError:
+                pass
+
+    # Refill a completed slot without waiting for another message's recognition.
+    tasks = [asyncio.create_task(run_slot()) for _ in range(4)]
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _process_media_job(job_id: int) -> None:

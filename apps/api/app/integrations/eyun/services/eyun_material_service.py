@@ -25,6 +25,7 @@ from app.infrastructure.database.models import (
 )
 from app.integrations.eyun.services.eyun_video_file_service import (
     VideoValidationError,
+    local_media_path,
     prepare_video_bytes,
     public_media_url,
     publish_video_file,
@@ -142,6 +143,14 @@ async def _fetch_source_bytes(url: str) -> bytes:
     if not url.lower().startswith(("http://", "https://")):
         raise ValueError("media source must be an HTTP(S) URL")
     maximum_bytes = 200 * 1024 * 1024
+    local_path = local_media_path(url)
+    if local_path is not None:
+        if local_path.stat().st_size > maximum_bytes:
+            raise ValueError("media source exceeds 200 MB")
+        content = await asyncio.to_thread(local_path.read_bytes)
+        if len(content) > maximum_bytes:
+            raise ValueError("media source exceeds 200 MB")
+        return content
     chunks: list[bytes] = []
     size = 0
     async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
