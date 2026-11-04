@@ -101,6 +101,41 @@ def update_message_preference(message_id: int, operator_id: str, action: str) ->
     return result
 
 
+def list_favorite_messages(
+    conversation_id: str, operator_id: str, *, page: int = 1, page_size: int = 20,
+) -> dict:
+    from sqlalchemy import JSON, func, select, type_coerce
+    from app.infrastructure.database.models import ConversationMessageModel, ConversationModel
+    from app.domains.conversations.services.conversation_service import (
+        _get_session, _get_conversation_or_error, _message_to_dict,
+    )
+
+    metadata = type_coerce(ConversationMessageModel.metadata_json, JSON)
+    preference = metadata["workbench_preferences"][operator_id]
+    with _get_session() as session:
+        target = _get_conversation_or_error(session, conversation_id)
+        query = select(ConversationMessageModel).join(
+            ConversationModel,
+            ConversationModel.conversation_id == ConversationMessageModel.conversation_id,
+        ).where(
+            ConversationModel.channel == target.channel,
+            (ConversationModel.owner_wc_id == target.owner_wc_id if target.owner_wc_id
+             else ConversationModel.conversation_id == conversation_id),
+            ConversationMessageModel.sender_type != "system",
+            preference["favorite"].as_boolean().is_(True),
+            preference["hidden"].as_boolean().is_not(True),
+            metadata["revoked_at"].as_string().is_(None),
+        )
+        total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+        rows = session.scalars(query.order_by(
+            ConversationMessageModel.created_at.desc(), ConversationMessageModel.id.desc(),
+        ).offset((page - 1) * page_size).limit(page_size)).all()
+        return {
+            "items": [_message_to_dict(row, operator_id=operator_id) for row in rows],
+            "total": total, "page": page, "page_size": page_size,
+        }
+
+
 async def message_text_action(message_id: int, action: str) -> dict:
     import base64
     import mimetypes

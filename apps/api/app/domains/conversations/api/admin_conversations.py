@@ -25,7 +25,7 @@ from app.domains.conversations.services.conversation_event_service import conver
 from app.domains.conversations.services.chat_review_service import get_chat_review
 from app.domains.conversations.services.message_action_service import (
     forward_conversation_message, revoke_conversation_message, reply_conversation_product,
-    update_message_preference, message_text_action,
+    update_message_preference, message_text_action, list_favorite_messages,
 )
 from app.domains.conversations.services.reply_draft_service import update_reply_draft
 from app.domains.conversations.services.conversation_service import (
@@ -46,6 +46,7 @@ from app.domains.conversations.services.conversation_service import (
     reply_conversation_care_manual,
     reply_conversation_emoji,
     reply_conversation_image,
+    reply_conversation_video,
     resolve_message_media,
     resolve_conversation,
     set_conversation_remark,
@@ -64,6 +65,7 @@ from app.domains.sales.services.service_material_touch_service import (
 from app.shared.schemas.common import AppError, ErrorCode
 from app.domains.conversations.services.workbench_media_service import (
     store_workbench_image,
+    store_workbench_video,
 )
 from app.domains.decisioning.services.demo_sales_agent_service import DEMO_USER_PREFIX
 
@@ -310,6 +312,18 @@ async def forward_message(conversation_id: str, request: ForwardMessageRequest, 
     ))
 
 
+@router.get("/{conversation_id:path}/favorites", response_model=APIResponse)
+async def favorite_messages(
+    conversation_id: str, request: Request,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> APIResponse:
+    data = list_favorite_messages(
+        conversation_id, operator_identity(request, "admin"), page=page, page_size=page_size,
+    )
+    return APIResponse(code=0, message="success", data=data)
+
+
 @router.post("/{conversation_id:path}/reply-product", response_model=APIResponse)
 async def reply_product(conversation_id: str, request: ReplyProductRequest, http_request: Request) -> APIResponse:
     return APIResponse(code=0, message="success", data=await reply_conversation_product(
@@ -373,6 +387,21 @@ async def reply_image(
         conversation_id,
         operator_identity(request, operator_id),
         image["url"],
+    )
+    return APIResponse(code=0, message="success", data=data)
+
+
+@router.post("/{conversation_id:path}/reply-video", response_model=APIResponse)
+async def reply_video(
+    request: Request,
+    conversation_id: str,
+    operator_id: str = Form(...),
+    file: UploadFile = File(...),
+) -> APIResponse:
+    video = await store_workbench_video(request, file)
+    data = await reply_conversation_video(
+        conversation_id, operator_identity(request, operator_id),
+        video["url"], video["thumb_url"],
     )
     return APIResponse(code=0, message="success", data=data)
 

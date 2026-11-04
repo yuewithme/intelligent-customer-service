@@ -238,6 +238,12 @@ export const forwardConversationMessage = (conversationId: string, operator_id: 
     data: { operator_id, source_message_id }
   })
 
+export const getConversationFavorites = (conversationId: string, page: number) =>
+  request.get<{ items: ConversationMessage[]; total: number; page: number; page_size: number }>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/favorites`,
+    params: { page, page_size: 20 }
+  })
+
 export interface ReplyProduct {
   item_id: string
   title: string
@@ -281,6 +287,16 @@ export const replyConversationImage = (
   data.append('file', file)
   return request.upload<ConversationItem>({
     url: `${conversationBase()}/${conversationPath(conversationId)}/reply-image`,
+    data
+  })
+}
+
+export const replyConversationVideo = (conversationId: string, operatorId: string, file: File) => {
+  const data = new FormData()
+  data.append('operator_id', operatorId)
+  data.append('file', file)
+  return request.upload<ConversationItem>({
+    url: `${conversationBase()}/${conversationPath(conversationId)}/reply-video`,
     data
   })
 }

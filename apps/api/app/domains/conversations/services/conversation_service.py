@@ -1793,6 +1793,25 @@ async def reply_conversation_image(
     )
 
 
+async def reply_conversation_video(
+    conversation_id: str, operator_id: str, video_url: str, thumb_url: str,
+) -> dict:
+    if not all(url.lower().startswith(("http://", "https://")) for url in (video_url, thumb_url)):
+        raise AppError(
+            ErrorCode.REQUEST_INVALID,
+            message="视频和封面地址必须是可访问的 HTTP(S) 地址", status_code=422,
+        )
+    return await _reply_conversation_media(
+        conversation_id, operator_id,
+        message_type="video",
+        content=json.dumps({"path": video_url, "thumb_path": thumb_url}, ensure_ascii=False),
+        display_content="[视频]",
+        message_metadata={"media": {
+            "type": "video", "url": video_url, "thumb_url": thumb_url, "fallback": False,
+        }},
+    )
+
+
 async def reply_conversation_care_manual(
     conversation_id: str,
     operator_id: str,

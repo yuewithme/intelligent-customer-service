@@ -75,6 +75,11 @@ def test_message_menu_actions_enforce_account_scope_and_operator_identity(contex
     assert client.post(f"{base}/{ids[allowed]}/preference", json={"operator_id": "spoofed-admin", "action": "favorite"}).status_code == 200
     message = client.get(f"/api/v1/admin/conversations/{allowed}").json()["data"]["messages"][0]
     assert message["is_favorite"] and "workbench_preferences" not in message["metadata"]
+    assert client.get(f"/api/v1/admin/conversations/{denied}/favorites").status_code == 403
+    favorites = client.get(f"/api/v1/admin/conversations/{allowed}/favorites", params={"operator_id": "spoofed-admin"}).json()["data"]
+    assert [item["id"] for item in favorites["items"]] == [message["id"]]
+    assert client.post(f"/api/v1/admin/conversations/{denied}/reply-video", data={"operator_id": "spoofed-admin"},
+                       files={"file": ("video.mp4", b"denied", "video/mp4")}).status_code == 403
     with _get_session() as db:
         import json
         preferences = json.loads(db.get(ConversationMessageModel, ids[allowed]).metadata_json)["workbench_preferences"]

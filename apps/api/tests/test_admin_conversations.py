@@ -2403,3 +2403,107 @@ def test_workbench_revoke_retains_receipt_and_rejects_resend(monkeypatch, tmp_pa
     assert client.post(f"/api/v1/admin/conversations/messages/{message['id']}/retry-delivery").status_code == 409
     assert client.post(revoke_path, json={"operator_id": "staff"}).status_code == 200
     assert len(revoked) == 2
+
+
+def test_workbench_favorites_are_paginated_and_scoped_to_operator_and_wechat(monkeypatch, tmp_path):
+    import asyncio
+    from app.domains.conversations.services.message_action_service import update_message_preference
+    from app.domains.conversations.api import admin_conversations
+
+    _reset_settings(monkeypatch, tmp_path)
+    client = TestClient(app)
+    for user, owner, operator, content in (
+        ("saved_source", "owner", "admin", "收藏一"),
+        ("saved_target", "owner", "admin", "收藏二"),
+        ("saved_hidden", "owner", "admin", "隐藏收藏"),
+        ("saved_other", "owner", "other", "其他人的收藏"),
+        ("saved_foreign", "foreign", "admin", "其他微信的收藏"),
+    ):
+        asyncio.run(record_customer_message(
+            channel="wechat", user_id=user, session_id=owner, content=content,
+            metadata={"provider": "eyun", "owner_wc_id": owner},
+        ))
+        message = client.get(f"/api/v1/admin/conversations/wechat:{user}:{owner}").json()["data"]["messages"][0]
+        update_message_preference(message["id"], operator, "favorite")
+        if user == "saved_hidden":
+            update_message_preference(message["id"], operator, "hide")
+    asyncio.run(record_customer_message(
+        channel="wechat", user_id="saved_revoked", session_id="owner", content="撤回的收藏",
+        metadata={"provider": "eyun", "owner_wc_id": "owner", "revoked_at": "2026-11-04T01:00:00Z",
+                  "workbench_preferences": {"admin": {"favorite": True}}},
+    ))
+    path = "/api/v1/admin/conversations/wechat:saved_target:owner/favorites"
+    first = client.get(path, params={"page_size": 1}).json()["data"]
+    second = client.get(path, params={"page_size": 1, "page": 2}).json()["data"]
+    assert first["total"] == second["total"] == 2
+    assert {first["items"][0]["content"], second["items"][0]["content"]} == {"收藏一", "收藏二"}
+    assert all(item["is_favorite"] and "workbench_preferences" not in item["metadata"] for item in first["items"])
+    assert client.get(path, params={"page": 3, "page_size": 1}).json()["data"]["items"] == []
+    assert client.get(path, params={"page": 0}).status_code == 422
+    monkeypatch.setattr(admin_conversations, "operator_identity", lambda request, supplied: "other")
+    other = client.get(path, params={"operator_id": "admin"}).json()["data"]
+    assert [item["content"] for item in other["items"]] == ["其他人的收藏"]
+
+
+def test_workbench_video_upload_transcodes_generates_cover_and_queues(monkeypatch, tmp_path):
+    import asyncio
+    import subprocess
+    from urllib.parse import urlsplit
+    from app.integrations.eyun.services import message_risk_control_service as queue
+    from app.integrations.eyun.services.eyun_video_file_service import validate_video_bytes, validate_thumbnail_bytes
+
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setenv("APP_PUBLIC_BASE_URL", "https://media.example.com")
+    get_settings.cache_clear()
+    source = tmp_path / "source.mov"
+    subprocess.run([
+        "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=size=32x48:rate=10",
+        "-t", "0.3", "-c:v", "mpeg4", str(source),
+    ], check=True, capture_output=True, timeout=30)
+    queued = []
+
+    async def enqueue(**kwargs):
+        queued.append(kwargs)
+
+    monkeypatch.setattr(queue, "enqueue_wechat_outbound", enqueue)
+    asyncio.run(record_customer_message(
+        channel="wechat", user_id="video_customer", session_id="owner", content="你好",
+        metadata={"provider": "eyun", "w_id": "wid", "owner_wc_id": "owner", "from_user": "video_customer"},
+    ))
+    client = TestClient(app)
+    path = "/api/v1/admin/conversations/wechat:video_customer:owner"
+    assert client.post(path + "/claim", json={"operator_id": "staff"}).status_code == 200
+    response = client.post(path + "/reply-video", data={"operator_id": "staff"},
+                           files={"file": ("source.mov", source.read_bytes(), "video/quicktime")})
+    assert response.status_code == 200
+    assert len(queued) == 1 and queued[0]["message_type"] == "video"
+    payload = json.loads(queued[0]["content"])
+    assert payload["path"].startswith("https://media.example.com/static/workbench-media/")
+    assert payload["path"].endswith(".mp4") and payload["thumb_path"].endswith(".jpg")
+    storage = tmp_path / "uploads" / "workbench-media"
+    assert validate_video_bytes((storage / Path(urlsplit(payload["path"]).path).name).read_bytes())["compatible"]
+    assert validate_thumbnail_bytes((storage / Path(urlsplit(payload["thumb_path"]).path).name).read_bytes())[0] > 0
+    message = client.get(path).json()["data"]["messages"][-1]
+    assert message["content"] == "[视频]" and message["delivery_status"] == "queued"
+    assert message["metadata"]["media"]["url"] == payload["path"]
+    assert message["metadata"]["media"]["thumb_url"] == payload["thumb_path"]
+
+
+@pytest.mark.parametrize("filename, content, maximum, status", [
+    ("video.txt", b"not a video", 1024, 422),
+    ("video.mp4", b"", 1024, 422),
+    ("video.mp4", b"oversized", 4, 413),
+    ("video.mp4", b"not a video", 1024, 422),
+])
+def test_workbench_video_upload_rejects_invalid_files(monkeypatch, tmp_path, filename, content, maximum, status):
+    _reset_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setenv("SOP_VIDEO_MAX_BYTES", str(maximum))
+    get_settings.cache_clear()
+    response = TestClient(app).post(
+        "/api/v1/admin/conversations/wechat:video:owner/reply-video",
+        data={"operator_id": "staff"}, files={"file": (filename, content, "video/mp4")},
+    )
+    assert response.status_code == status
+    assert not (tmp_path / "uploads" / "workbench-media").exists()

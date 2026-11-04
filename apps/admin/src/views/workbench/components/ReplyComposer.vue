@@ -29,10 +29,11 @@
           <ElButton type="primary" :loading="sending" :disabled="!hasDraft" @click="sendReply">发送</ElButton>
         </div>
       </div>
-      <div v-if="pendingImages.length" class="image-drafts" aria-label="待发送图片">
-        <div v-for="item in pendingImages" :key="item.url" class="image-draft">
-          <img :src="item.url" alt="待发送图片预览" />
-          <button type="button" :disabled="sending" aria-label="移除图片" @click="removeImage(item.url)">×</button>
+      <div v-if="pendingMedia.length" class="media-drafts" aria-label="待发送图片/视频">
+        <div v-for="item in pendingMedia" :key="item.url" class="media-draft">
+          <video v-if="item.type === 'video'" :src="item.url" controls playsinline preload="metadata"></video>
+          <img v-else :src="item.url" alt="待发送图片预览" />
+          <button type="button" :disabled="sending" aria-label="移除附件" @click="removeMedia(item.url)">×</button>
         </div>
       </div>
       <div class="composer-tools">
@@ -40,11 +41,29 @@
           <template #reference><ElButton size="small" text :disabled="sending">表情</ElButton></template>
           <emoji-picker class="emoji-picker" locale="zh" @emoji-click="selectUnicodeEmoji" />
         </ElPopover>
-        <ElButton v-if="!isTestGate()" size="small" text :disabled="sending" @click="imageInput?.click()">发送图片</ElButton>
+        <ElButton v-if="!isTestGate()" size="small" text :disabled="sending" @click="mediaInput?.click()">发送图片/视频</ElButton>
+        <ElPopover v-if="!isTestGate()" v-model:visible="favoritesVisible" placement="top-start" :width="'min(360px, calc(100vw - 24px))'" trigger="click" @show="loadFavorites(1)">
+          <template #reference><ElButton size="small" text :disabled="sending">收藏</ElButton></template>
+          <div v-loading="favoritesLoading" class="favorites-panel">
+            <strong>收藏</strong>
+            <ElEmpty v-if="!favorites.length && !favoritesLoading" :description="favoritesFailed ? '收藏加载失败' : '暂无收藏，右键消息可收藏'" :image-size="48" />
+            <ElButton v-if="favoritesFailed" size="small" @click="loadFavorites(favoritesPage)">重试</ElButton>
+            <div v-for="message in favorites" :key="message.id" class="favorite-item">
+              <img v-if="favoritePreview(message)" :src="favoritePreview(message)" alt="" loading="lazy" />
+              <span>{{ message.content }}</span>
+              <ElButton size="small" text type="primary" :disabled="sending || !message.actions?.forward" :title="message.actions?.forward ? '' : '该消息暂不支持发送'" @click="sendFavorite(message.id)">发送</ElButton>
+            </div>
+            <div v-if="favoritesTotal > 20" class="favorites-pages">
+              <ElButton size="small" :disabled="favoritesLoading || favoritesPage <= 1" @click="loadFavorites(favoritesPage - 1)">上一页</ElButton>
+              <span>{{ favoritesPage }} / {{ Math.ceil(favoritesTotal / 20) }}</span>
+              <ElButton size="small" :disabled="favoritesLoading || favoritesPage * 20 >= favoritesTotal" @click="loadFavorites(favoritesPage + 1)">下一页</ElButton>
+            </div>
+          </div>
+        </ElPopover>
         <ElButton v-if="!isTestGate()" size="small" text @click="openCurrentActivities">目前活动</ElButton>
         <span class="composer-hint">{{ manuallyHeld ? '已手动接管，点击右侧“转AI”交还 AI' : '输入时人工回复，清空或停笔 1 分钟后 AI 回复' }}</span>
         <ElButton v-if="syncError" size="small" text type="danger" @click="syncReception().catch(() => {})">状态同步失败，重试</ElButton>
-        <input ref="imageInput" class="file-input" type="file" accept=".jpg,.jpeg,.png,.gif,.webp" @change="selectImage" />
+        <input ref="mediaInput" class="file-input" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.mp4,.mov,.m4v,.webm" @change="selectMedia" />
       </div>
       <div v-if="receivedEmojis.length" class="received-emojis">
         <span>客户表情</span>
@@ -63,8 +82,9 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import 'emoji-picker-element'
 import {
-  getConversationEmojis, replyConversation, replyConversationEmoji,
-  replyConversationImage, updateReplyDraft,
+  getConversationEmojis, getConversationFavorites, forwardConversationMessage,
+  replyConversation, replyConversationEmoji,
+  replyConversationImage, replyConversationVideo, updateReplyDraft,
   type ConversationEmoji, type ConversationItem, type ConversationMessage
 } from '@/api/admin/conversations'
 import { useUserStore } from '@/store/modules/user'
@@ -84,15 +104,21 @@ const conversationId = props.conversationId
 const content = ref('')
 const replyInput = ref<{ focus: () => void }>()
 watch(() => props.quotedMessage, async message => { if (message) { await nextTick(); replyInput.value?.focus() } })
-const pendingImages = ref<{ file: File; url: string }[]>([])
-const hasDraft = computed(() => Boolean(content.value.trim()) || pendingImages.value.length > 0)
+const pendingMedia = ref<{ file: File; url: string; type: 'image' | 'video' }[]>([])
+const hasDraft = computed(() => Boolean(content.value.trim()) || pendingMedia.value.length > 0)
 const sending = ref(false)
 const syncing = ref(false)
 const syncError = ref(false)
 const composing = ref(false)
 const confirmedStatus = ref(props.status)
-const imageInput = ref<HTMLInputElement>()
+const mediaInput = ref<HTMLInputElement>()
 const receivedEmojis = ref<ConversationEmoji[]>([])
+const favoritesVisible = ref(false)
+const favoritesLoading = ref(false)
+const favoritesFailed = ref(false)
+const favorites = ref<ConversationMessage[]>([])
+const favoritesPage = ref(1)
+const favoritesTotal = ref(0)
 const isHumanReplying = computed(() => ['human_active', 'handoff_pending'].includes(confirmedStatus.value))
 const manuallyHeld = computed(() => confirmedStatus.value === 'human_active' && props.handoffReason !== 'workbench_typing')
 let lastEditedAt = 0
@@ -141,7 +167,7 @@ const syncReception = () => {
   return operation
 }
 
-watch([content, () => pendingImages.value.length], ([value, count], [previous, previousCount]) => {
+watch([content, () => pendingMedia.value.length], ([value, count], [previous, previousCount]) => {
   lastEditedAt = Date.now()
   clearTimeout(editTimer)
   clearTimeout(expiryTimer)
@@ -183,11 +209,12 @@ const sendReply = () => {
     return
   }
   const sourceMessageId = props.quotedMessage?.id
-  const images = [...pendingImages.value]
+  const media = [...pendingMedia.value]
   void send(async () => {
-    for (const item of images) {
-      await replyConversationImage(conversationId, operatorId, item.file)
-      removeImage(item.url)
+    for (const item of media) {
+      if (item.type === 'video') await replyConversationVideo(conversationId, operatorId, item.file)
+      else await replyConversationImage(conversationId, operatorId, item.file)
+      removeMedia(item.url)
       if (!disposed) emit('changed')
     }
     if (text) await replyConversation(conversationId, operatorId, text, sourceMessageId)
@@ -222,23 +249,57 @@ const handlePaste = (event: ClipboardEvent) => {
       continue
     }
     const image = new File([file], `pasted-image.${extension}`, { type: file.type })
-    pendingImages.value.push({ file: image, url: URL.createObjectURL(image) })
+    pendingMedia.value.push({ file: image, url: URL.createObjectURL(image), type: 'image' })
   }
 }
 
-const removeImage = (url: string) => {
-  pendingImages.value = pendingImages.value.filter(item => item.url !== url)
+const removeMedia = (url: string) => {
+  pendingMedia.value = pendingMedia.value.filter(item => item.url !== url)
   URL.revokeObjectURL(url)
 }
 
 const selectUnicodeEmoji = (event: Event) => {
   if (!sending.value) content.value += (event as CustomEvent<{ unicode?: string }>).detail?.unicode || ''
 }
-const selectImage = (event: Event) => {
+const selectMedia = (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (file) void send(() => replyConversationImage(conversationId, operatorId, file))
   input.value = ''
+  if (!file || sending.value || props.status === 'resolved' || isTestGate()) return
+  const extension = file.name.split('.').pop()?.toLowerCase() || ''
+  const type = ['mp4', 'mov', 'm4v', 'webm'].includes(extension) ? 'video'
+    : ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(extension) ? 'image' : null
+  if (!type) {
+    ElMessage.warning('请选择 JPG、PNG、GIF、WebP 图片或 MP4、MOV、M4V、WebM 视频')
+    return
+  }
+  pendingMedia.value.push({ file, url: URL.createObjectURL(file), type })
+}
+const loadFavorites = async (page: number) => {
+  if (favoritesLoading.value) return
+  favoritesLoading.value = true
+  favoritesFailed.value = false
+  favoritesPage.value = page
+  favorites.value = []
+  try {
+    const result = await getConversationFavorites(conversationId, page)
+    if (!disposed) {
+      favorites.value = result.items
+      favoritesTotal.value = result.total
+    }
+  } catch {
+    if (!disposed) favoritesFailed.value = true
+  } finally {
+    if (!disposed) favoritesLoading.value = false
+  }
+}
+const sendFavorite = (messageId: number) => void send(async () => {
+  await forwardConversationMessage(conversationId, operatorId, messageId)
+  favoritesVisible.value = false
+})
+const favoritePreview = (message: ConversationMessage) => {
+  const media = message.metadata.media as { type?: string; url?: string; thumb_url?: string } | undefined
+  return media?.type === 'video' ? media.thumb_url : ['image', 'emoji'].includes(media?.type || '') ? media?.url : undefined
 }
 const sendEmoji = (messageId: number) => void send(() => replyConversationEmoji(conversationId, operatorId, messageId))
 const openCurrentActivities = () => void router.push({ name: 'CurrentActivities', query: { conversation_id: conversationId } })
@@ -256,7 +317,7 @@ onBeforeUnmount(() => {
   ++syncVersion
   clearTimeout(editTimer)
   clearTimeout(expiryTimer)
-  pendingImages.value.forEach(item => URL.revokeObjectURL(item.url))
+  pendingMedia.value.forEach(item => URL.revokeObjectURL(item.url))
   void syncQueue.catch(() => {}).then(() => updateReplyDraft(conversationId, {
     operator_id: operatorId, editor_id: editorId, active: false
   })).catch(() => {})
@@ -282,10 +343,15 @@ onBeforeUnmount(() => {
 .composer-hint { color: var(--app-text-secondary); font-size: 12px; }
 .composer-tools .composer-hint { margin-left: auto; }
 .file-input { display: none; }
-.image-drafts { display: flex; gap: 8px; margin-top: 8px; overflow-x: auto; }
-.image-draft { position: relative; flex: 0 0 72px; height: 72px; }
-.image-draft img { width: 100%; height: 100%; object-fit: contain; border: 1px solid var(--app-border); border-radius: 6px; }
-.image-draft button { position: absolute; top: 0; right: 0; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: #fff; color: var(--app-text-secondary); cursor: pointer; }
+.media-drafts { display: flex; gap: 8px; margin-top: 8px; overflow-x: auto; }
+.media-draft { position: relative; flex: 0 0 120px; height: 90px; }
+.media-draft img, .media-draft video { width: 100%; height: 100%; object-fit: contain; border: 1px solid var(--app-border); border-radius: 6px; }
+.media-draft button { position: absolute; top: 0; right: 0; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: #fff; color: var(--app-text-secondary); cursor: pointer; }
+.favorites-panel { min-height: 100px; max-height: 360px; overflow-y: auto; }
+.favorite-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--app-border); }
+.favorite-item > img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; }
+.favorite-item > span { flex: 1; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; white-space: pre-wrap; overflow-wrap: anywhere; }
+.favorites-pages { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; font-size: 12px; }
 .emoji-picker { width: 320px; max-width: 100%; height: 320px; }
 .received-emojis { display: flex; align-items: center; gap: 6px; overflow-x: auto; margin-top: 4px; font-size: 12px; color: var(--app-text-secondary); }
 .received-emojis > span { flex: 0 0 auto; }
