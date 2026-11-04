@@ -7,6 +7,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -18,7 +19,9 @@ from app.domains.catalog.services.agent_media_library_service import (
 )
 from app.domains.handoff.services.handoff_notification_service import is_sop_enabled
 from app.domains.sales.services.sop_policy_service import has_product_preferences, preference_tag_groups, eligible_sop_scopes
-from app.domains.orchestration.services.sop_flow_service import get_saved_flow, entry_matches, scheduled_nodes
+from app.domains.orchestration.services.sop_flow_service import get_saved_flow, entry_matches, scheduled_nodes, load_cursor, execution_version
+from app.domains.orchestration.services.canvas_execution_service import scheduled_path_matches
+from app.domains.orchestration.services.canvas_scheduled_content_service import select_canvas_content, content_reference_is_available
 from app.domains.sales.services.tag_catalog import get_tag_categories
 from app.infrastructure.database.models import (
     AgentCustomerStateModel,
@@ -334,7 +337,24 @@ async def _process_service_material_touch(
                 return False
         match_preferences = configured.schedule.match_preferences if configured else touch_kind == _SEEDING_MATERIAL_KIND
         purpose = configured.schedule.purpose if configured else "material"
-        if purpose == "care_followup":
+        flow = get_saved_flow(_TOUCH_SCOPES[touch_kind])
+        profile = session.get(UserProfileModel, row.customer_id)
+        profile_data = {"tags": sorted(_profile_tag_values(profile)) if profile else [],
+                        "facts": json.loads(profile.service_facts_json or "{}") if profile else {}}
+        if configured and configured.schedule.content_source:
+            try:
+                cursor = load_cursor(SimpleNamespace(tenant_id=row.tenant_id, user_id=row.customer_id,
+                                     session_id=conversation_session_id), _TOUCH_SCOPES[touch_kind], flow)
+                if not await scheduled_path_matches(flow, configured.step_id, profile=profile_data, now=now, current_step=cursor):
+                    row.status, row.last_error = "cancelled", "画布上游触发条件或分支条件未满足，已跳过"
+                    session.commit()
+                    return False
+                material = await select_canvas_content(configured.schedule, profile=profile_data, local_date=scheduled_date)
+            except Exception as exc:
+                session.commit()
+                _retry_service_material_touch(wakeup_id, now=now, error=f"画布触达匹配失败：{type(exc).__name__}")
+                return False
+        elif purpose == "care_followup":
             material = {"format": "text", "copy_type": "养护科普", "title": "季节关怀回访"}
         elif purpose == "personalized_knowledge":
             profile = session.get(UserProfileModel, row.customer_id)
@@ -367,7 +387,10 @@ async def _process_service_material_touch(
             return False
         profile = session.get(UserProfileModel, row.customer_id)
         row.checklist_json = json.dumps({"tags": sorted(_profile_tag_values(profile)) if profile else [],
-                                        "schedule": configured.schedule.model_dump() if configured else _original_schedule(touch_kind, slot_id)}, ensure_ascii=False)
+                                        "schedule": configured.schedule.model_dump(mode="json") if configured else _original_schedule(touch_kind, slot_id),
+                                        "flow_version": execution_version(flow) if flow and flow.canvas_definition else None,
+                                        "profile": profile_data if flow and flow.canvas_definition else None,
+                                        "content_reference": material.get("content_reference")}, ensure_ascii=False)
         session.commit()
         batch_key = f"service_material_touch:{row.id}"
         scheduled_at = _iso(row.due_at)
@@ -375,10 +398,15 @@ async def _process_service_material_touch(
         customer_id = contact.wc_id
         tenant_id = contact.tenant_id
 
+    if material.get("outbound_messages"):
+        return await _queue_canvas_messages(wakeup_id, material=material, batch_key=batch_key,
+            w_id=w_id, customer_id=customer_id, tenant_id=tenant_id, session_id=conversation_session_id,
+            touch_kind=touch_kind, scheduled_at=scheduled_at, slot_id=slot_id, now=now)
     if purpose in {"care_followup", "personalized_knowledge"}:
         try:
             material["copy_text"] = await _personalized_service_copy(customer_id=customer_id,
-                session_id=conversation_session_id, purpose=purpose, material=material, local_date=scheduled_date)
+                session_id=conversation_session_id, purpose=purpose, material=material, local_date=scheduled_date,
+                instruction=configured.schedule.instruction if configured else "")
         except Exception as exc:
             _retry_service_material_touch(wakeup_id, now=now, error=f"个性化服务文案生成失败：{type(exc).__name__}")
             return False
@@ -566,6 +594,59 @@ def _retry_service_material_touch(
         session.commit()
 
 
+async def _queue_canvas_messages(wakeup_id: int, *, material: dict, batch_key: str, w_id: str,
+                                 customer_id: str, tenant_id: str, session_id: str, touch_kind: str,
+                                 scheduled_at: str, slot_id: str, now: datetime) -> bool:
+    from app.domains.conversations.services.conversation_service import ensure_outbound_conversation_message
+    from app.integrations.eyun.services.eyun_material_service import materialize_eyun_outbound_media
+    from app.integrations.eyun.services.message_risk_control_service import enqueue_wechat_outbound
+
+    reason = _touch_cancel_reason(customer_id, session_id, _utcnow())
+    if reason:
+        _mark_service_material_touch(wakeup_id, "cancelled", reason)
+        return False
+    dependency_id, due_at = None, now
+    try:
+        for index, item in enumerate(material["outbound_messages"]):
+            message_type, content = str(item["type"]), str(item["content"])
+            material_id = item.get("material_id")
+            role = f"item_{index}"
+            metadata = {"touch_kind": touch_kind, "scheduled_at": scheduled_at, "slot_id": slot_id,
+                        "material_title": material["title"], "message_role": role,
+                        "content_reference": material["content_reference"], "source_batch_key": batch_key}
+            visible = await ensure_outbound_conversation_message(channel="wechat", user_id=customer_id,
+                session_id=session_id, tenant_id=tenant_id, content=content, message_type=message_type,
+                sender_type="system", sender_id=touch_kind, trace_id=f"{batch_key}:{role}",
+                delivery_status="queued", route=touch_kind, reconcile_pending=False,
+                metadata={**metadata, "provider": "eyun", "source_type": touch_kind, "source_id": str(wakeup_id),
+                          "w_id": w_id, "owner_wc_id": session_id, "contact_wc_id": customer_id})
+            if message_type in {"image", "video"} and not material_id:
+                prepared = await materialize_eyun_outbound_media(w_id=w_id, message_type=message_type, content=content)
+                material_id = int(prepared["id"])
+            reason = _touch_cancel_reason(customer_id, session_id, _utcnow())
+            if reason:
+                _mark_service_material_touch(wakeup_id, "cancelled", reason)
+                _cancel_touch_deliveries([wakeup_id], reason)
+                return False
+            queued = await enqueue_wechat_outbound(w_id=w_id, wc_id=customer_id, content=content,
+                source_batch_key=batch_key, delivery_key=f"{batch_key}:{role}", message_type=message_type,
+                material_id=material_id, conversation_message_id=int(visible["id"]),
+                depends_on_outbound_id=dependency_id, due_at=due_at, channel="wechat", user_id=customer_id,
+                session_id=session_id, tenant_id=tenant_id, sender_type="system", sender_id=touch_kind,
+                source_type=touch_kind, source_id=str(wakeup_id), delivery_metadata=metadata)
+            dependency_id = int(queued["id"])
+            due_at += timedelta(seconds=3)
+    except Exception as exc:
+        _mark_service_material_touch(wakeup_id, "failed", f"画布内容入队失败：{type(exc).__name__}")
+        _cancel_touch_deliveries([wakeup_id], "画布内容入队未完成")
+        return False
+    with _database_session() as session:
+        row = session.get(AgentWakeupModel, wakeup_id)
+        row.status, row.outbound_batch_key, row.updated_at = "queued", batch_key, now
+        session.commit()
+    return True
+
+
 def validate_service_material_touch_before_send(source_batch_key: str | None) -> bool:
     task_id = _service_material_touch_id(source_batch_key)
     if task_id is None:
@@ -599,7 +680,18 @@ def validate_service_material_touch_before_send(source_batch_key: str | None) ->
         match_preferences = configured.schedule.match_preferences if configured else row.kind == _SEEDING_MATERIAL_KIND
         prior_schedule = snapshot.get("schedule") if isinstance(snapshot, dict) else None
         prior_schedule = prior_schedule or _original_schedule(row.kind, row.reason.partition(":")[2])
-        if configured and prior_schedule != configured.schedule.model_dump():
+        if configured and prior_schedule != configured.schedule.model_dump(mode="json"):
+            service_tagged = False
+        flow = get_saved_flow(_TOUCH_SCOPES[row.kind])
+        if flow and flow.canvas_definition and (not isinstance(snapshot, dict) or snapshot.get("flow_version") != execution_version(flow)):
+            service_tagged = False
+        if flow and flow.canvas_definition and isinstance(snapshot, dict):
+            current_profile = session.get(UserProfileModel, row.customer_id)
+            current_data = {"tags": sorted(_profile_tag_values(current_profile)) if current_profile else [],
+                            "facts": json.loads(current_profile.service_facts_json or "{}") if current_profile else {}}
+            if snapshot.get("profile") != current_data:
+                service_tagged = False
+        if isinstance(snapshot, dict) and snapshot.get("content_reference") and not content_reference_is_available(snapshot["content_reference"]):
             service_tagged = False
         if service_tagged and match_preferences:
             profile = session.get(UserProfileModel, row.customer_id)
@@ -1189,7 +1281,7 @@ def _configured_touch_node(kind: str, slot_id: str):
 def _original_schedule(kind: str, slot_id: str) -> dict | None:
     node = _configured_touch_node(kind, slot_id)
     if node:
-        return node.schedule.model_dump()
+        return node.schedule.model_dump(mode="json")
     if kind == _SEEDING_MATERIAL_KIND and slot_id == "preference_video":
         return {"time": "15:00", "copy_type": "话题种草", "match_preferences": True}
     slot = next((item for item in _service_material_slots() if item[0] == slot_id), None) if kind == _SERVICE_MATERIAL_KIND else None
@@ -1207,8 +1299,8 @@ def _touch_is_eligible(session: Session, row: AgentWakeupModel) -> bool:
     tags = _profile_tag_values(profile)
     flow = get_saved_flow(_TOUCH_SCOPES.get(row.kind, ""))
     if flow:
-        return (entry_matches(flow, tags) and _configured_touch_node(row.kind, row.reason.partition(":")[2]) is not None
-                and (not flow.entry_rule.fallback_only or _TOUCH_SCOPES[row.kind] in eligible_sop_scopes(list(tags))))
+        return (entry_matches(flow, tags, event="scheduled") and _configured_touch_node(row.kind, row.reason.partition(":")[2]) is not None
+                and (not flow.entry_rule.fallback_only or _TOUCH_SCOPES[row.kind] in eligible_sop_scopes(list(tags), event="scheduled")))
     return has_product_preferences(tags) if row.kind == _SEEDING_MATERIAL_KIND else bool(tags & {"服务中", "抖音已购", "微信已购"})
 
 
@@ -1228,15 +1320,25 @@ def _slots_for_date(kind: str, local_date: date):
     for slot in _touch_slots(kind):
         node = _configured_touch_node(kind, slot[0])
         schedule = node.schedule if node else None
+        if schedule and schedule.anchor_date:
+            elapsed = (local_date - schedule.anchor_date).days
+            interval = {"daily": 1, "every_three_days": 3, "weekly": 7}[schedule.cycle]
+            if elapsed < 0 or elapsed % interval:
+                continue
         if schedule and schedule.weekday is not None and schedule.weekday != local_date.weekday():
             continue
         if schedule and schedule.purpose == "personalized_knowledge":
             personalized_times.add(slot[1])
         active.append(slot)
-    return tuple(slot for slot in active if not (slot[0] == "topic" and slot[1] in personalized_times))
+    def replaced_topic(slot):
+        node = _configured_touch_node(kind, slot[0])
+        return slot[1] in personalized_times and (slot[0] == "topic" or (
+            node and node.schedule.content_source and node.schedule.cycle == "daily"
+            and node.schedule.content_source.category == "话题种草"))
+    return tuple(slot for slot in active if not replaced_topic(slot))
 
 
-async def _personalized_service_copy(*, customer_id: str, session_id: str, purpose: str, material: dict, local_date: date) -> str:
+async def _personalized_service_copy(*, customer_id: str, session_id: str, purpose: str, material: dict, local_date: date, instruction: str = "") -> str:
     from app.domains.customers.services.user_profile_service import get_profile_bundle
     from app.integrations.ai.services.llm_service import generate_messages
     bundle = await get_profile_bundle(customer_id, conversation_char_budget=4000, conversation_session_id=session_id)
@@ -1251,6 +1353,7 @@ async def _personalized_service_copy(*, customer_id: str, session_id: str, purpo
         {"role": "user", "content": json.dumps({"date": str(local_date), "tags": profile.get("customer_tags"),
             "facts": profile.get("service_facts"), "pain_points": profile.get("pain_points"),
             "preference": profile.get("preference_summary"), "recent_conversation": bundle.get("recent_memories"),
+            "workflow_instruction": instruction,
             "approved_material": {key: material.get(key) for key in ("title", "copy_text")}}, ensure_ascii=False)},
     ], purpose="business", temperature=0.35)
     content = str(result.get("answer") or "").strip()
@@ -1277,7 +1380,7 @@ def _active_service_tag_values() -> set[str]:
 
 
 def _service_customer_ids(session: Session, tag_values: set[str], *, kind: str = _SERVICE_MATERIAL_KIND) -> set[str]:
-    if not tag_values and kind == _SERVICE_MATERIAL_KIND:
+    if not tag_values and kind == _SERVICE_MATERIAL_KIND and not get_saved_flow(_TOUCH_SCOPES[kind]):
         return set()
     refused_ids = set(
         session.scalars(
@@ -1292,8 +1395,8 @@ def _service_customer_ids(session: Session, tag_values: set[str], *, kind: str =
         profile.user_id
         for profile in session.scalars(select(UserProfileModel))
         if profile.user_id not in refused_ids
-        and (not flow or not flow.entry_rule.fallback_only or _TOUCH_SCOPES[kind] in eligible_sop_scopes(list(_profile_tag_values(profile))))
-        and (entry_matches(flow, _profile_tag_values(profile)) if flow else
+        and (not flow or not flow.entry_rule.fallback_only or _TOUCH_SCOPES[kind] in eligible_sop_scopes(list(_profile_tag_values(profile)), event="scheduled"))
+        and (entry_matches(flow, _profile_tag_values(profile), event="scheduled") if flow else
              has_product_preferences(_profile_tag_values(profile)) if kind == _SEEDING_MATERIAL_KIND else bool(_profile_tag_values(profile) & {"服务中", "抖音已购", "微信已购"}))
     }
 

@@ -288,6 +288,15 @@ async def send_activity(
         }
 
 
+def get_ai_activity_messages(activity_id: int) -> dict | None:
+    with _get_session() as session:
+        row = session.get(ActivityModel, activity_id)
+        if row is None or not row.ai_enabled or not is_activity_available(row):
+            return None
+        return {"title": row.title, "ai_rules": json.loads(row.ai_rules_json or "{}"),
+                "items": sorted(_decode_items(row.items_json), key=lambda item: int(item["position"]))}
+
+
 def list_activity_send_logs(activity_id: int) -> dict:
     with _get_session() as session:
         _get_activity_or_error(session, activity_id)

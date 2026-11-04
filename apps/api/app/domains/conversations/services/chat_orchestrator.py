@@ -197,7 +197,8 @@ async def handle_chat(request: ChatRequest) -> dict:
                 make_conversation_id(message.channel, message.user_id, message.session_id)
             )
         profile_tags = (workspace.get("profile") or {}).get("customer_tags") or []
-        scopes = eligible_sop_scopes(profile_tags)
+        event = message.metadata.get("system_event")
+        scopes = eligible_sop_scopes(profile_tags, event=event if event in {"first_contact", "tag_changed"} else "message")
         message.metadata["sop_scopes"] = scopes
         message.metadata["sop_scope"] = scopes[0] if scopes else "general"
         user_state.metadata["profile"] = workspace.get("profile", {})

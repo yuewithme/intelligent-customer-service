@@ -16,7 +16,7 @@ def has_product_preferences(tags: list[str] | set[str]) -> bool:
     return all(preference_tag_groups(tags))
 
 
-def eligible_sop_scopes(tags: list[str], settings: dict[str, bool] | None = None) -> list[str]:
+def eligible_sop_scopes(tags: list[str], settings: dict[str, bool] | None = None, *, event: str = "message") -> list[str]:
     settings = get_sop_settings() if settings is None else settings
     values = {str(tag).strip().rpartition(":")[2] for tag in tags}
     defaults = {"service": bool(values.intersection({"服务中", "抖音已购", "微信已购"})), "seeding": has_product_preferences(values),
@@ -26,7 +26,7 @@ def eligible_sop_scopes(tags: list[str], settings: dict[str, bool] | None = None
         if not settings.get(scope):
             continue
         flow = get_saved_flow(scope)
-        if entry_matches(flow, values) if flow else defaults[scope]:
+        if entry_matches(flow, values, event=event) if flow else defaults[scope]:
             (fallback if (flow.entry_rule.fallback_only if flow else scope == "first_order") else scopes).append(scope)
     if not scopes:
         scopes = fallback

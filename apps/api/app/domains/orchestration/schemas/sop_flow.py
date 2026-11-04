@@ -1,6 +1,8 @@
 from typing import Literal
+from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.domains.orchestration.schemas.definitions import CanvasPosition, Identifier
+from app.domains.orchestration.schemas.canvas_workflow import CanvasContentSource, CanvasDefinition
 
 SopScope = Literal["first_order", "service", "seeding"]
 
@@ -12,6 +14,8 @@ class FlowEntryRule(BaseModel):
     tag_categories: list[str] = Field(default_factory=list, max_length=15)
     excluded_tags: list[str] = Field(default_factory=list, max_length=30)
     fallback_only: bool = False
+    events: list[Literal["message", "first_contact", "tag_changed", "scheduled"]] = Field(
+        default_factory=lambda: ["message", "first_contact", "tag_changed", "scheduled"])
 
 
 class FlowSchedule(BaseModel):
@@ -21,6 +25,10 @@ class FlowSchedule(BaseModel):
     match_preferences: bool = False
     weekday: int | None = Field(default=None, ge=0, le=6)
     purpose: Literal["material", "care_followup", "personalized_knowledge"] = "material"
+    cycle: Literal["daily", "every_three_days", "weekly"] = "daily"
+    anchor_date: date | None = None
+    content_source: CanvasContentSource | None = None
+    instruction: str = Field(default="", max_length=6000)
 
 
 class FlowNode(BaseModel):
@@ -28,8 +36,8 @@ class FlowNode(BaseModel):
     step_id: Identifier
     name: str = Field(min_length=1, max_length=80)
     type: Literal["agent_stage", "decision", "wait", "action"]
-    description: str = Field(default="", max_length=2000)
-    goal: str = Field(default="", max_length=2000)
+    description: str = Field(default="", max_length=4000)
+    goal: str = Field(default="", max_length=6000)
     directions: list[str] = Field(default_factory=list, max_length=20)
     handoff_enabled: bool = False
     require_product_interest: bool = False
@@ -54,7 +62,7 @@ class FlowEdge(BaseModel):
     from_step: Identifier
     to_step: Identifier | None = None
     outcome: Literal["complete"] | None = None
-    label: str = Field(min_length=1, max_length=128)
+    label: str = Field(min_length=1, max_length=6000)
     priority: int = Field(default=100, ge=0, le=10000)
 
     @model_validator(mode="after")
@@ -73,6 +81,9 @@ class SopFlowDefinition(BaseModel):
     steps: list[FlowNode] = Field(min_length=1, max_length=60)
     transitions: list[FlowEdge] = Field(default_factory=list, max_length=150)
     layout: dict[str, CanvasPosition]
+    canvas_definition: CanvasDefinition | None = None
+    workflow_id: str | None = None
+    published_at: datetime | None = None
 
     @model_validator(mode="after")
     def graph(self):
@@ -85,7 +96,7 @@ class SopFlowDefinition(BaseModel):
             raise ValueError("节点坐标必须在画布范围内")
         edge_ids = {edge.transition_id for edge in self.transitions}
         pairs = {(edge.from_step, edge.to_step) for edge in self.transitions}
-        if len(edge_ids) != len(self.transitions) or len(pairs) != len(self.transitions):
+        if len(edge_ids) != len(self.transitions) or (self.canvas_definition is None and len(pairs) != len(self.transitions)):
             raise ValueError("不能重复添加同一条连线")
         children = {key: [] for key in ids}
         for edge in self.transitions:
@@ -96,6 +107,8 @@ class SopFlowDefinition(BaseModel):
         seen, visiting = set(), set()
         def visit(key):
             if key in visiting:
+                if self.canvas_definition is not None:
+                    return
                 raise ValueError("不支持循环连线；每日重复由触达时间自动调度")
             if key in seen:
                 return
@@ -117,6 +130,6 @@ class SopFlowDefinition(BaseModel):
                 auto_visit(child)
         auto_visit(self.start_step_id)
         for node in self.steps:
-            if node.type == "action" and (node.step_id not in automatic or children[node.step_id]):
+            if self.canvas_definition is None and node.type == "action" and (node.step_id not in automatic or children[node.step_id]):
                 raise ValueError("定时触达须在独立的自动分支末端，不能串接在对话后或继续连接其他节点")
         return self

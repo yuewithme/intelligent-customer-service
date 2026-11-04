@@ -356,7 +356,7 @@ async def execute_agent_tool(
             name == "human.handoff" and arguments.get("reason") == "product_preference_received"
         ):
             return _result(call_id, name, "forbidden", reason="answer_current_care_question_without_reopening_previous_preference")
-    if service_scope and name in {"product.search", "product.get", "product.send_card"}:
+    if service_scope and "service" not in context.message.metadata.get("canvas_workflow_scopes", []) and name in {"product.search", "product.get", "product.send_card"}:
         return _result(call_id, name, "forbidden", reason="service_product_requests_require_human_handoff")
     if not service_scope and name in {"service.record", "service.introduce", "member_day.send"}:
         return _result(call_id, name, "forbidden", reason="service_scope_required")

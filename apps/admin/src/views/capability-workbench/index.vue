@@ -50,6 +50,7 @@
         <span :class="{ unsaved: dirty }">{{ statusText }}</span>
       </div>
       <div class="toolbar-actions">
+        <ElSwitch v-if="isAdmin() && workflow?.execution.scope" :model-value="workflow.execution.enabled" :disabled="busy" inline-prompt active-text="启用" inactive-text="停用" @change="toggleEnabled" />
         <ElButton v-if="isAdmin()" :disabled="loading || !workflow" @click="toggleChat">对话改流程</ElButton>
         <ElButton v-if="review" :disabled="busy" @click="panel = panel === 'review' ? null : 'review'">流程检查<span v-if="review.issues.length"> · {{ review.issues.length }}</span></ElButton>
         <ElButton :disabled="busy || !workflow" @click="reloadWorkflow">重新加载</ElButton>
@@ -172,9 +173,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { ElButton, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect, ElTimePicker } from 'element-plus'
+import { ElButton, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect, ElSwitch, ElTimePicker } from 'element-plus'
 import { isAdmin } from '@/utils/gate'
-import { createCanvasWorkflow, editCanvasWorkflow, fixCanvasWorkflowIssue, getCanvasWorkflow, listCanvasWorkflows, listCanvasContentSources, publishCanvasWorkflow, saveCanvasWorkflow, syncExistingSops,
+import { createCanvasWorkflow, editCanvasWorkflow, fixCanvasWorkflowIssue, getCanvasWorkflow, listCanvasWorkflows, listCanvasContentSources, publishCanvasWorkflow, saveCanvasWorkflow, setCanvasWorkflowEnabled, syncExistingSops,
   type CanvasChatMessage, type CanvasDefinition, type CanvasContentItem, type CanvasContentLibrary, type CanvasContentLibraryOption, type CanvasEdge, type CanvasIssue, type CanvasNode, type CanvasNodeType, type CanvasSummary, type CanvasWorkflow } from '@/api/admin/canvasWorkflow'
 
 const workflows = ref<CanvasSummary[]>([])
@@ -281,7 +282,10 @@ const statusText = computed(() => {
   if (chatting.value) return '正在根据对话调整流程…'
   if (publishing.value) return '正在检查流程，本次改动会与上次检查对比…'
   if (dirty.value) return '有未保存的修改'
-  if (workflow.value?.published_revision === workflow.value?.revision) return '流程已通过检查并发布'
+  if (workflow.value && workflow.value.published_revision === workflow.value.revision) {
+    if (workflow.value.execution.status !== 'active') return workflow.value.execution.message
+    return workflow.value.execution.enabled ? '已发布并生效' : '已发布 · 流程开关已关闭'
+  }
   return workflow.value?.published_revision ? '草稿已保存 · 已有发布版本' : '草稿已保存'
 })
 const nodeHeight = (node: CanvasNode) => node.type === 'condition' ? Math.max(184, 88 + node.branches.length * 108) : node.type === 'general' ? 252 : node.type === 'scheduled_send' ? 190 : node.type === 'end' ? 98 : 144
@@ -461,10 +465,22 @@ async function publish() {
   try {
     const result = await publishCanvasWorkflow(workflow.value.workflow_id, workflow.value.revision)
     applyWorkflow(result.workflow); fixFeedback.value = {}; panel.value = 'review'
-    if (result.published) ElMessage.success('流程已通过检查并发布')
+    if (result.published) {
+      if (result.workflow.execution.status !== 'active') ElMessage.warning(result.workflow.execution.message)
+      else ElMessage.success(result.workflow.execution.enabled ? '流程已发布并生效' : '流程已发布，开启流程开关后生效')
+    }
     else ElMessage.warning(`发布未通过，请修改 ${result.review.issues.length} 项问题`)
   } catch { /* A failed review must leave the current draft and published result available. */ }
   finally { publishing.value = false }
+}
+async function toggleEnabled(enabled: string | number | boolean) {
+  if (busy.value || !workflow.value?.execution.scope || !isAdmin()) return
+  saving.value = true
+  try {
+    await setCanvasWorkflowEnabled(workflow.value.execution.scope, Boolean(enabled))
+    workflow.value.execution.enabled = Boolean(enabled)
+    ElMessage.success(enabled ? '流程已启用' : '流程已停用')
+  } finally { saving.value = false }
 }
 function addNode(type: CanvasNodeType) {
   if (!definition.value || locked.value || definition.value.nodes.length >= 60) return

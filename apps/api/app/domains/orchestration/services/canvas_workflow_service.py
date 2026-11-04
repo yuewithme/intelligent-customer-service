@@ -13,6 +13,7 @@ from app.domains.orchestration.schemas.canvas_workflow import (
     CanvasDefinition, CanvasReview, CanvasReviewDecision, publication_issues,
 )
 from app.domains.orchestration.services.canvas_content_service import resolve_content_sources
+from app.domains.orchestration.services.canvas_execution_service import WORKFLOW_SCOPES, compile_canvas, execution_status, resolve_entry_rule
 from app.infrastructure.database.models import Base, CanvasWorkflowModel
 from app.integrations.ai.services.llm_service import generate_json
 from app.shared.schemas.common import AppError, ErrorCode
@@ -57,6 +58,12 @@ def _review_state(row):
 
 def _detail(row):
     state = _review_state(row)
+    published = json.loads(row.published_json) if row.published_json else None
+    execution = execution_status(row.workflow_id, published)
+    if row.workflow_id in WORKFLOW_SCOPES:
+        from app.domains.handoff.services.handoff_notification_service import is_sop_enabled
+        execution["scope"] = WORKFLOW_SCOPES[row.workflow_id]
+        execution["enabled"] = is_sop_enabled(execution["scope"])
     return {
         "workflow_id": row.workflow_id,
         "revision": row.revision,
@@ -67,7 +74,8 @@ def _detail(row):
         "last_review_revision": state.get("revision"),
         "review_mode": state.get("mode"),
         "review_base_revision": state.get("base_revision"),
-        "published": json.loads(row.published_json) if row.published_json else None,
+        "published": published,
+        "execution": execution,
     }
 
 
@@ -256,7 +264,7 @@ async def publish_canvas(workflow_id, revision):
     with _session() as session:
         row = _row(session, workflow_id)
         _check_revision(row, revision)
-        if row.published_revision == revision:
+        if row.published_revision == revision and (workflow_id not in WORKFLOW_SCOPES or execution_status(workflow_id, json.loads(row.published_json))["status"] == "active"):
             return {"published": True, "review": json.loads(row.published_json)["review"], "workflow": _detail(row)}
         flow = CanvasDefinition.model_validate_json(row.draft_json)
         baseline = _review_state(row).get("baseline")
@@ -308,15 +316,22 @@ async def publish_canvas(workflow_id, revision):
         baseline = {"revision": revision, "data": data, "review": review.model_dump(),
                     "prompt_version": REVIEW_PROMPT_VERSION}
 
-    passed = not review.issues
     now = datetime.now(timezone.utc)
+    snapshot = {"definition": flow.model_dump(), "review": review.model_dump(), "model": PUBLISH_MODEL,
+                "revision": revision, "published_at": now.isoformat()}
+    if not review.issues and workflow_id in WORKFLOW_SCOPES:
+        start = next(node for node in flow.nodes if node.type == "start")
+        try:
+            snapshot["entry_rule"] = (await resolve_entry_rule(start.trigger_condition)).model_dump()
+            compile_canvas(workflow_id, snapshot)
+        except (ValueError, KeyError, TypeError) as exc:
+            review = CanvasReview(issues=[{"node_id": start.id, "field": "trigger_condition", "message": str(exc)[:1000],
+                                          "suggestion": "请写清可执行的客户标签和触发事件，再重新发布。"}])
+    passed = not review.issues
     values = {"review_json": json.dumps({"revision": revision, "review": review.model_dump(),
                                         "mode": mode, "base_revision": base_revision, "baseline": baseline}, ensure_ascii=False)}
     if passed:
-        values.update(published_revision=revision, published_at=now, published_json=json.dumps({
-            "definition": flow.model_dump(), "review": review.model_dump(), "model": PUBLISH_MODEL,
-            "revision": revision, "published_at": now.isoformat(),
-        }, ensure_ascii=False))
+        values.update(published_revision=revision, published_at=now, published_json=json.dumps(snapshot, ensure_ascii=False))
     # Recheck after the model call so an older review cannot publish an edited draft.
     with _session() as session:
         changed = session.execute(update(CanvasWorkflowModel).where(

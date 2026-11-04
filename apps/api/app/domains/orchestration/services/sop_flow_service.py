@@ -10,7 +10,8 @@ from app.core.config import get_settings
 from app.domains.orchestration.schemas.sop_flow import SopFlowDefinition
 from app.domains.orchestration.services.sop_flow_defaults import build_default_sop_packages
 from app.domains.sales.services.tag_catalog import get_tag_categories
-from app.infrastructure.database.models import Base, SopFlowModel, SopFlowCursorModel
+from app.infrastructure.database.models import Base, SopFlowModel, SopFlowCursorModel, CanvasWorkflowModel
+from app.domains.orchestration.services.canvas_execution_service import compile_canvas
 from app.shared.schemas.common import AppError, ErrorCode
 
 _factories = {}
@@ -20,13 +21,20 @@ def _session():
     url = get_settings().database_url
     if url not in _factories:
         engine = create_engine(url)
-        Base.metadata.create_all(engine, tables=[SopFlowModel.__table__, SopFlowCursorModel.__table__])
+        Base.metadata.create_all(engine, tables=[SopFlowModel.__table__, SopFlowCursorModel.__table__, CanvasWorkflowModel.__table__])
         _factories[url] = sessionmaker(bind=engine, expire_on_commit=False)
     return _factories[url]()
 
 
 def get_saved_flow(scope: str) -> SopFlowDefinition | None:
     with _session() as session:
+        canvas = session.get(CanvasWorkflowModel, f"sop_{scope}")
+        if canvas and canvas.published_json:
+            try:
+                return compile_canvas(canvas.workflow_id, json.loads(canvas.published_json))
+            except (ValueError, KeyError, TypeError):
+                # An old snapshot without executable entry rules must not take over live traffic.
+                pass
         row = session.get(SopFlowModel, scope)
         if row is None:
             return None
@@ -122,9 +130,11 @@ def build_workbench_packages(policies: dict[str, bool], switches: dict[str, bool
     return packages
 
 
-def entry_matches(flow: SopFlowDefinition, tags: list[str] | set[str]) -> bool:
+def entry_matches(flow: SopFlowDefinition, tags: list[str] | set[str], *, event: str | None = None) -> bool:
     values = {str(tag).strip().rpartition(":")[2] for tag in tags}
     rule = flow.entry_rule
+    if event is not None and event not in rule.events:
+        return False
     if (rule.any_tags and not set(rule.any_tags) & values) or not set(rule.required_tags).issubset(values) or set(rule.excluded_tags) & values:
         return False
     categories = get_tag_categories()
@@ -166,7 +176,10 @@ def _cursor_key(message, scope: str) -> str:
 
 
 def execution_version(flow: SopFlowDefinition) -> int:
-    payload = flow.model_dump(exclude={"revision", "layout"})
+    payload = flow.model_dump(mode="json", exclude={"revision", "layout"})
+    if payload.get("canvas_definition"):
+        for node in payload["canvas_definition"]["nodes"]:
+            node.pop("position", None)
     return int(hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:7], 16)
 
 
@@ -185,6 +198,13 @@ def save_cursor(message, scope: str, flow: SopFlowDefinition, step_id: str) -> N
 
 def execution_prompt(scope: str, flow: SopFlowDefinition, previous: str | None) -> str:
     available = dialogue_choices(flow, previous)
+    if flow.canvas_definition is not None:
+        return "\n能力工作台已发布执行流程：本范围的旧节点清单、默认步骤、话术、销售推进与转人工安排由此流程替代；事实核验、权限和客户明确拒绝等安全规则仍必须遵守。\n" + json.dumps({
+            "scope": scope, "workflow_id": flow.workflow_id, "revision": flow.revision,
+            "current_step": previous, "allowed_sop_nodes": ["general.reply", *[f"{scope}.{key}" for key in sorted(available)]],
+            "definition": flow.canvas_definition.model_dump(exclude={"nodes": {"__all__": {"position"}}}),
+            "rules": "严格按画布连线和自然语言条件执行。条件分支按 branches 顺序选择首个匹配项，其他情况仅作兜底；source_branch 对应分支 id，不按显示名称判断。一般节点仅在触发条件满足时执行 action，未满足 exit_condition 时停留，不凭节点位置跳步。等待客户或时间不等于已完成。转人工节点一旦到达即交接。定时发送只由后台执行，不因收到客户消息补发。新的问题优先处理，可用 general.reply；不得用它绕过流程动作。所有采集到的明确事实要按现有能力记录和打标，不重复追问。",
+        }, ensure_ascii=False)
     return "\n工作台生效流程（替代旧提示词中的节点清单、步骤顺序与推进目标；只能使用列出的本轮节点）：\n" + json.dumps({
         "scope": scope, "revision": flow.revision, "entry": flow.start_step_id,
         "current_step": previous, "allowed_sop_nodes": ["general.reply", *[f"{scope}.{key}" for key in sorted(available)]],

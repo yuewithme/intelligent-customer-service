@@ -53,6 +53,7 @@ export interface CanvasWorkflow {
   definition: CanvasDefinition
   published_revision: number | null
   published_at: string | null
+  execution: { status: 'draft' | 'active' | 'inactive'; message: string; scope?: string; revision?: number; enabled?: boolean }
   last_review: CanvasReview | null
   last_review_revision: number | null
   review_mode: 'full' | 'incremental' | 'reused' | 'validation' | null
@@ -65,6 +66,7 @@ const base = '/api/v1/admin/orchestration/workbench/canvas/workflows'
 export const listCanvasContentSources = () => request.get<CanvasContentLibraryOption[]>({ url: '/api/v1/admin/orchestration/workbench/canvas/content-sources' })
 export const listCanvasWorkflows = () => request.get<CanvasSummary[]>({ url: base })
 export const syncExistingSops = () => request.post<{ created: string[]; updated: string[] }>({ url: '/api/v1/admin/orchestration/workbench/canvas/sync-sops' })
+export const setCanvasWorkflowEnabled = (scope: string, enabled: boolean) => request.put({ url: '/api/v1/admin/orchestration/workbench/sop-enabled', data: { sop_scope: scope, enabled } })
 export const createCanvasWorkflow = () => request.post<CanvasWorkflow>({ url: base, data: { name: '未命名流程' } })
 export const getCanvasWorkflow = (id: string) => request.get<CanvasWorkflow>({ url: `${base}/${id}` })
 export const saveCanvasWorkflow = (id: string, revision: number, definition: CanvasDefinition) =>

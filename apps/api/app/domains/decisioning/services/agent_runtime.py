@@ -65,6 +65,7 @@ async def run_sales_agent(
     allowed_scopes = set(sop_scopes) | {"general"}
     care_only = bool(message.metadata.get("care_only_after_preference_handoff"))
     flows = {} if care_only else {scope: flow for scope in sop_scopes if (flow := get_saved_flow(scope)) is not None}
+    message.metadata["canvas_workflow_scopes"] = [scope for scope, flow in flows.items() if flow.canvas_definition is not None]
     message.metadata["sop_flow_versions"] = {scope: execution_version(flow) for scope, flow in flows.items()}
     cursors = {scope: load_cursor(message, scope, flow) for scope, flow in flows.items()}
     if "service" in sop_scopes:
@@ -238,7 +239,7 @@ async def run_sales_agent(
                 "content": json.dumps(decision.model_dump(mode="json"), ensure_ascii=False),
             }
         )
-        if not care_only and "service" in sop_scopes and decision.purchase_signal in {"interest", "direct"}:
+        if not care_only and "service" in sop_scopes and "service" not in message.metadata["canvas_workflow_scopes"] and decision.purchase_signal in {"interest", "direct"}:
             decision.sop_node = "service.repurchase_discovery"
             diagnostic["outcome"] = "service_purchase_handoff"
             return await _sop_node_handoff_reply(decision=decision, context=context, sop_scope="service",

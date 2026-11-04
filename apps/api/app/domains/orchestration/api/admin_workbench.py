@@ -72,7 +72,7 @@ async def canvas_save(workflow_id: str, request: SaveCanvas) -> APIResponse:
 @router.post("/workbench/canvas/workflows/{workflow_id}/publish", response_model=APIResponse)
 async def canvas_publish(workflow_id: str, request: PublishCanvas) -> APIResponse:
     result = await canvases.publish_canvas(workflow_id, request.revision)
-    return APIResponse(code=0, message="流程已通过检查并发布" if result["published"] else "请修改流程后重新发布", data=result)
+    return APIResponse(code=0, message=result["workflow"]["execution"]["message"] if result["published"] else "请修改流程后重新发布", data=result)
 
 
 @router.post("/workbench/canvas/workflows/{workflow_id}/chat", response_model=APIResponse)
