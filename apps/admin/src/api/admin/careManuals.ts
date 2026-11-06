@@ -15,6 +15,7 @@ export interface CareManualItem {
   note_alias?: string | null
   title: string
   orchid_name?: string | null
+  knowledge_id?: number | null
   aliases: string[]
   note_url: string
   cover_url?: string | null
@@ -120,6 +121,11 @@ export const getCareManuals = (params: {
 
 export const updateCareManual = (id: number, data: CareManualPayload) =>
   request.put<CareManualItem>({ url: `/api/v1/admin/care-manuals/${id}`, data })
+
+export const linkCareManualKnowledge = (id: number, knowledgeId: number) =>
+  request.put<CareManualItem>({
+    url: `/api/v1/admin/care-manuals/${id}/knowledge`, data: { knowledge_id: knowledgeId }
+  })
 
 export const syncCareManuals = (source_type: 'manual' | 'course' = 'manual') =>
   request.post<CareManualSyncResult>({ url: '/api/v1/admin/care-manuals/sync/run', params: { source_type } })

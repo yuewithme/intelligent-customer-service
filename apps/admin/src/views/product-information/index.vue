@@ -19,7 +19,7 @@
     <div class="sync-state">
       <span>商品总数 <strong>{{ productTotal }}</strong></span>
       <span>已关联知识 <strong>{{ knowledgeLinkedCount }}</strong></span>
-      <span>待补充知识 <strong>{{ Math.max(0, productTotal - knowledgeLinkedCount) }}</strong></span>
+      <span>未关联知识 <strong>{{ Math.max(0, productTotal - knowledgeLinkedCount) }}</strong></span>
       <span>最近同步 <strong>{{ lastSyncText }}</strong></span>
       <ElTag v-if="lastSync" :type="syncTagType">{{ syncStatusText }}</ElTag>
       <span v-if="lastSync?.detail_error_count" class="warning">
@@ -37,7 +37,7 @@
       />
       <ElSelect v-model="knowledgeFilter" clearable placeholder="全部知识状态" @change="applyFilters">
         <ElOption label="已关联知识" value="true" />
-        <ElOption label="待补充知识" value="false" />
+        <ElOption label="未关联知识" value="false" />
       </ElSelect>
       <ElSelect v-model="sortBy" @change="applyFilters">
         <ElOption label="商品名称" value="title" />
@@ -97,7 +97,7 @@
       <ElTableColumn label="产品知识" width="130">
         <template #default="scope">
           <ElTag v-if="scope.row.has_knowledge" type="success">已关联</ElTag>
-          <ElTag v-else type="warning">待补充</ElTag>
+          <ElTag v-else type="warning">未关联</ElTag>
         </template>
       </ElTableColumn>
       <ElTableColumn label="内部备注" min-width="190">
@@ -116,8 +116,8 @@
       </ElTableColumn>
       <ElTableColumn label="操作" width="180" fixed="right">
         <template #default="scope">
-          <ElButton v-if="isAdmin() && !scope.row.has_knowledge" link type="warning" @click="openKnowledge(scope.row)">
-            补充知识
+          <ElButton v-if="isAdmin()" link type="primary" @click="openKnowledge(scope.row)">
+            {{ scope.row.has_knowledge ? '管理关联' : '关联信息' }}
           </ElButton>
           <ElLink v-if="scope.row.h5_url" :href="scope.row.h5_url" target="_blank" type="primary">查看商品</ElLink>
         </template>
@@ -136,24 +136,28 @@
     </div>
       </ElTabPane>
       <ElTabPane label="产品知识库" name="knowledge">
-        <KnowledgeTab ref="knowledgeTab" @saved="loadProducts" />
+        <KnowledgeTab :key="knowledgeVersion" @saved="loadProducts" />
       </ElTabPane>
     </ElTabs>
+    <KnowledgeLinkDialog v-model="linkVisible" :target-name="linkingProduct?.title || ''" :saving="linkSaving" @confirm="saveKnowledgeLink" />
   </ContentWrap>
 </template>
 
 <script setup lang="ts">
 import { isAdmin } from '@/utils/gate'
 import { formatLocalTime as formatTime } from '@/utils/time'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import KnowledgeTab from './KnowledgeTab.vue'
+import KnowledgeLinkDialog from './KnowledgeLinkDialog.vue'
 import {
   getProducts,
   getProductDeliverySettings,
   updateProductDeliverySettings,
   syncProducts,
   updateProductNote,
+  linkProductKnowledge,
+  type ProductKnowledgeItem,
   type ProductItem,
   type ProductSyncRun
 } from '@/api/admin/products'
@@ -175,7 +179,10 @@ const aiSendEnabled = ref(false)
 const deliveryLoading = ref(true)
 const savingDelivery = ref(false)
 const lastSync = ref<ProductSyncRun | null>(null)
-const knowledgeTab = ref<InstanceType<typeof KnowledgeTab> | null>(null)
+const knowledgeVersion = ref(0)
+const linkingProduct = ref<ProductItem | null>(null)
+const linkVisible = ref(false)
+const linkSaving = ref(false)
 
 const syncStatusText = computed(() => lastSync.value
   ? ({ running: '同步中', success: '同步成功', failed: '同步失败' }[lastSync.value.status])
@@ -249,13 +256,21 @@ const saveNote = async (product: ProductItem) => {
   ElMessage.success('备注已保存')
 }
 
-const openKnowledge = async (product: ProductItem) => {
-  activeTab.value = 'knowledge'
-  await nextTick()
-  await knowledgeTab.value?.openCreateForProduct({
-    item_id: product.item_id,
-    title: product.title
-  })
+const openKnowledge = (product: ProductItem) => {
+  linkingProduct.value = product
+  linkVisible.value = true
+}
+
+const saveKnowledgeLink = async (knowledge: ProductKnowledgeItem) => {
+  if (!linkingProduct.value || linkSaving.value) return
+  linkSaving.value = true
+  try {
+    await linkProductKnowledge(linkingProduct.value.item_id, knowledge.id)
+    ElMessage.success('关联已保存')
+    linkVisible.value = false
+    knowledgeVersion.value++
+    await loadProducts()
+  } finally { linkSaving.value = false }
 }
 
 const money = (cent?: number | null) => cent == null ? '-' : `¥${(cent / 100).toFixed(2)}`

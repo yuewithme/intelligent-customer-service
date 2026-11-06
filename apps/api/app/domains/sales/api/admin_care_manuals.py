@@ -6,6 +6,7 @@ from app.domains.sales.schemas.care_manual import (
     CareCourseImportRequest,
     CareManualMatchRequest,
     CareManualUpdateRequest,
+    CareManualKnowledgeLinkRequest,
 )
 from app.domains.conversations.schemas.chat import APIResponse
 from app.domains.sales.services.care_manual_service import (
@@ -17,6 +18,7 @@ from app.domains.sales.services.care_manual_service import (
     sync_care_manuals,
     test_match_care_manuals,
     update_care_manual,
+    link_care_manual_knowledge,
 )
 from app.core.auth import require_api_key
 
@@ -123,4 +125,13 @@ async def edit_care_manual(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return APIResponse(code=0, message="success", data=result)
+
+
+@router.put("/{card_id}/knowledge", response_model=APIResponse)
+async def care_manual_knowledge_link(card_id: int, request: CareManualKnowledgeLinkRequest) -> APIResponse:
+    try:
+        result = link_care_manual_knowledge(card_id, request.knowledge_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return APIResponse(code=0, message="success", data=result)

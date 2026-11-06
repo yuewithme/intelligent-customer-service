@@ -7,13 +7,14 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, inspect, or_, select, update
 
 from app.core.config import get_settings
 from app.infrastructure.database.models import (
     YouzanProductKnowledgeModel,
     YouzanProductModel,
     YouzanProductSkuModel,
+    CareManualCardModel,
 )
 from app.infrastructure.database.product_store import get_product_session
 
@@ -125,12 +126,13 @@ def list_product_knowledge(
     page_size: int = 50,
     keyword: str | None = None,
     linked: bool | None = None,
+    name_only: bool = False,
 ) -> dict[str, Any]:
     with get_product_session() as session:
         filters = []
         if keyword and keyword.strip():
             value = f"%{keyword.strip()}%"
-            filters.append(
+            filters.append(YouzanProductKnowledgeModel.product_name.ilike(value) if name_only else
                 or_(
                     YouzanProductKnowledgeModel.product_name.ilike(value),
                     YouzanProductKnowledgeModel.aliases.ilike(value),
@@ -139,10 +141,11 @@ def list_product_knowledge(
                     YouzanProductKnowledgeModel.sales_copy.ilike(value),
                 )
             )
-        if linked is True:
-            filters.append(YouzanProductKnowledgeModel.item_id.is_not(None))
-        elif linked is False:
-            filters.append(YouzanProductKnowledgeModel.item_id.is_(None))
+        has_products = select(YouzanProductModel.id).where(
+            _knowledge_join_condition()
+        ).correlate(YouzanProductKnowledgeModel).exists()
+        if linked is not None:
+            filters.append(has_products if linked else ~has_products)
         query = select(YouzanProductKnowledgeModel)
         count_query = select(func.count()).select_from(YouzanProductKnowledgeModel)
         if filters:
@@ -158,9 +161,23 @@ def list_product_knowledge(
                 .limit(page_size)
             )
         )
-        products = _products_by_id(session, [row.item_id for row in rows if row.item_id])
+        products_by_knowledge: dict[int, list[YouzanProductModel]] = {}
+        for knowledge_id, product in session.execute(
+            select(YouzanProductKnowledgeModel.id, YouzanProductModel)
+            .join(YouzanProductModel, _knowledge_join_condition())
+            .where(YouzanProductKnowledgeModel.id.in_([row.id for row in rows]))
+            .order_by(YouzanProductModel.id)
+        ):
+            products_by_knowledge.setdefault(knowledge_id, []).append(product)
         return {
-            "items": [_serialize(row, products.get(row.item_id or "")) for row in rows],
+            "items": [
+                {**_serialize(row, next((product for product in products_by_knowledge.get(row.id, []) if product.item_id == row.item_id), None)),
+                 "linked_products": [
+                     {"item_id": product.item_id, "title": product.title, "status": product.status, "image_url": product.image_url}
+                     for product in products_by_knowledge.get(row.id, [])
+                 ]}
+                for row in rows
+            ],
             "total": int(session.scalar(count_query) or 0),
             "knowledge_count": int(session.scalar(select(func.count()).select_from(YouzanProductKnowledgeModel)) or 0),
             "page": page,
@@ -169,7 +186,7 @@ def list_product_knowledge(
                 session.scalar(
                     select(func.count())
                     .select_from(YouzanProductKnowledgeModel)
-                    .where(YouzanProductKnowledgeModel.item_id.is_not(None))
+                    .where(has_products)
                 )
                 or 0
             ),
@@ -182,8 +199,8 @@ def list_product_options() -> list[dict[str, Any]]:
         linked = {
             item_id
             for item_id in session.scalars(
-                select(YouzanProductKnowledgeModel.item_id).where(
-                    YouzanProductKnowledgeModel.item_id.is_not(None)
+                select(YouzanProductModel.item_id).join(
+                    YouzanProductKnowledgeModel, _knowledge_join_condition()
                 )
             )
             if item_id
@@ -203,6 +220,30 @@ def list_product_options() -> list[dict[str, Any]]:
                 )
             )
         ]
+
+
+def _knowledge_join_condition():
+    # Keep historical primary links while allowing several products to share knowledge.
+    return or_(
+        YouzanProductModel.knowledge_id == YouzanProductKnowledgeModel.id,
+        YouzanProductModel.knowledge_id.is_(None)
+        & (YouzanProductKnowledgeModel.item_id == YouzanProductModel.item_id),
+    )
+
+
+@remote("products.link_product_knowledge")
+def link_product_knowledge(item_id: str, knowledge_id: int) -> dict[str, Any]:
+    with get_product_session() as session:
+        product = session.scalar(select(YouzanProductModel).where(YouzanProductModel.item_id == item_id))
+        if product is None:
+            raise LookupError("商品不存在")
+        knowledge = session.get(YouzanProductKnowledgeModel, knowledge_id)
+        if knowledge is None:
+            raise LookupError("产品知识不存在")
+        product.knowledge_id = knowledge_id
+        product.updated_at = _now()
+        session.commit()
+        return {"item_id": item_id, "knowledge_id": knowledge_id, "knowledge_name": knowledge.product_name}
 
 
 @remote("products.create_product_knowledge")
@@ -267,6 +308,16 @@ def delete_product_knowledge(record_id: int) -> None:
         row = session.get(YouzanProductKnowledgeModel, record_id)
         if row is None:
             raise LookupError("产品知识不存在")
+        session.execute(update(YouzanProductModel).where(
+            YouzanProductModel.knowledge_id == record_id
+        ).values(knowledge_id=None))
+        inspector = inspect(session.get_bind())
+        if inspector.has_table("care_manual_cards") and "knowledge_id" in {
+            column["name"] for column in inspector.get_columns("care_manual_cards")
+        }:
+            session.execute(update(CareManualCardModel).where(
+                CareManualCardModel.knowledge_id == record_id
+            ).values(knowledge_id=None))
         session.delete(row)
         session.commit()
 
@@ -358,7 +409,7 @@ def search_catalog_products(
             select(YouzanProductModel, YouzanProductKnowledgeModel)
             .outerjoin(
                 YouzanProductKnowledgeModel,
-                YouzanProductKnowledgeModel.item_id == YouzanProductModel.item_id,
+                _knowledge_join_condition(),
             )
             .where(YouzanProductModel.status == "on_sale")
         ).all()
@@ -839,7 +890,7 @@ def get_catalog_product(item_id: str) -> dict[str, Any] | None:
             select(YouzanProductModel, YouzanProductKnowledgeModel)
             .outerjoin(
                 YouzanProductKnowledgeModel,
-                YouzanProductKnowledgeModel.item_id == YouzanProductModel.item_id,
+                _knowledge_join_condition(),
             )
             .where(
                 YouzanProductModel.item_id == item_id,
@@ -876,7 +927,7 @@ def list_catalog_products(*, limit: int = 20) -> list[dict[str, Any]]:
             select(YouzanProductModel, YouzanProductKnowledgeModel)
             .outerjoin(
                 YouzanProductKnowledgeModel,
-                YouzanProductKnowledgeModel.item_id == YouzanProductModel.item_id,
+                _knowledge_join_condition(),
             )
             .where(YouzanProductModel.status == "on_sale")
             .order_by(YouzanProductModel.sort_order, YouzanProductModel.id)
@@ -896,6 +947,7 @@ def _auto_link(session) -> int:
         )
         if item_id
     }
+    used.update(product.item_id for product in products if product.knowledge_id is not None)
     count = 0
     for knowledge in session.scalars(
         select(YouzanProductKnowledgeModel).where(
@@ -940,10 +992,11 @@ def _validate_link(session, item_id: str | None, *, current_id: int | None = Non
     item_id = str(item_id or "").strip()
     if not item_id:
         return
-    if not session.scalar(
-        select(YouzanProductModel.id).where(YouzanProductModel.item_id == item_id)
-    ):
+    product = session.scalar(select(YouzanProductModel).where(YouzanProductModel.item_id == item_id))
+    if product is None:
         raise ValueError("关联的有赞商品不存在")
+    if product.knowledge_id is not None and product.knowledge_id != current_id:
+        raise ValueError("该有赞商品已关联其他产品知识")
     query = select(YouzanProductKnowledgeModel.id).where(
         YouzanProductKnowledgeModel.item_id == item_id
     )

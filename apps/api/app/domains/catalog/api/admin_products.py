@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.domains.catalog.schemas.admin_product import (
     ProductKnowledgeImportRequest,
     ProductKnowledgePayload,
+    ProductKnowledgeLinkRequest,
     ProductNoteRequest,
     ProductSortRequest,
     ProductDeliverySettingsRequest,
@@ -24,6 +25,7 @@ from app.domains.catalog.services.product_knowledge_service import (
     list_product_knowledge,
     list_product_options,
     update_product_knowledge,
+    link_product_knowledge,
 )
 
 
@@ -89,6 +91,7 @@ async def product_knowledge(
     page_size: int = Query(default=50, ge=1, le=200),
     keyword: str | None = None,
     linked: bool | None = None,
+    name_only: bool = False,
 ) -> APIResponse:
     return APIResponse(
         code=0,
@@ -98,6 +101,7 @@ async def product_knowledge(
             page_size=page_size,
             keyword=keyword,
             linked=linked,
+            name_only=name_only,
         ),
     )
 
@@ -149,6 +153,15 @@ async def import_knowledge(request: ProductKnowledgeImportRequest) -> APIRespons
 async def product_note(item_id: str, request: ProductNoteRequest) -> APIResponse:
     try:
         result = update_product_note(item_id, request.internal_note)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return APIResponse(code=0, message="success", data=result)
+
+
+@router.put("/{item_id}/knowledge", response_model=APIResponse)
+async def product_knowledge_link(item_id: str, request: ProductKnowledgeLinkRequest) -> APIResponse:
+    try:
+        result = link_product_knowledge(item_id, request.knowledge_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return APIResponse(code=0, message="success", data=result)

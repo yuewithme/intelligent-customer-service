@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.infrastructure.database.product_store import get_product_session
+from app.domains.catalog.services.product_knowledge_service import _knowledge_join_condition
 from app.infrastructure.database.models import (
     ProductDeliverySettingModel,
     YouzanProductKnowledgeModel,
@@ -55,8 +56,8 @@ def list_products(
         query = select(YouzanProductModel)
         count_query = select(func.count()).select_from(YouzanProductModel)
         filters = []
-        knowledge_item_ids = select(YouzanProductKnowledgeModel.item_id).where(
-            YouzanProductKnowledgeModel.item_id.is_not(None)
+        knowledge_item_ids = select(YouzanProductModel.item_id).join(
+            YouzanProductKnowledgeModel, _knowledge_join_condition()
         )
         catalog_filters = _catalog_filters() if catalog_only else []
         filters.extend(catalog_filters)
@@ -112,13 +113,12 @@ def list_products(
         for sku in sku_rows:
             skus_by_item.setdefault(sku.item_id, []).append(_serialize_sku(sku))
         knowledge_by_item = {
-            row.item_id: row
-            for row in session.scalars(
-                select(YouzanProductKnowledgeModel).where(
-                    YouzanProductKnowledgeModel.item_id.in_(item_ids)
-                )
+            item_id: knowledge
+            for item_id, knowledge in session.execute(
+                select(YouzanProductModel.item_id, YouzanProductKnowledgeModel)
+                .join(YouzanProductKnowledgeModel, _knowledge_join_condition())
+                .where(YouzanProductModel.item_id.in_(item_ids))
             )
-            if row.item_id
         } if item_ids else {}
         last_run = session.scalar(
             select(YouzanProductSyncRunModel).order_by(

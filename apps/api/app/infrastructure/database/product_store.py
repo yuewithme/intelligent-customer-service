@@ -40,6 +40,9 @@ def _session_factory(database_url: str):
                 text("ALTER TABLE youzan_products ADD COLUMN alias VARCHAR(128)")
             )
     _ensure_product_knowledge_aliases(engine)
+    if "knowledge_id" not in {column["name"] for column in inspect(engine).get_columns("youzan_products")}:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE youzan_products ADD COLUMN knowledge_id INTEGER"))
     columns = {column["name"] for column in inspect(engine).get_columns("youzan_product_knowledge")}
     with engine.begin() as connection:
         for name, sql_type in (

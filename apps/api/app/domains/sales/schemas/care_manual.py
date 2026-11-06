@@ -34,6 +34,10 @@ class CareManualUpdateRequest(BaseModel):
         return result
 
 
+class CareManualKnowledgeLinkRequest(BaseModel):
+    knowledge_id: int = Field(gt=0)
+
+
 class CareManualMatchRequest(BaseModel):
     query: str = Field(default="", max_length=512)
     product_name: str = Field(default="", max_length=512)

@@ -60,6 +60,7 @@ export interface ProductKnowledgePayload {
 
 export interface ProductKnowledgeItem extends ProductKnowledgePayload {
   id: number
+  linked_products?: Array<Pick<ProductOption, 'item_id' | 'title' | 'status' | 'image_url'>>
   linked_product?: Pick<ProductOption, 'item_id' | 'title' | 'status' | 'image_url'> | null
   created_at: string
   updated_at: string
@@ -125,6 +126,7 @@ export const getProductKnowledge = (params: {
   page_size: number
   keyword?: string
   linked?: boolean
+  name_only?: boolean
 }) => request.get<ProductKnowledgeListResponse>({
   url: '/api/v1/admin/products/knowledge',
   params
@@ -151,4 +153,10 @@ export const updateProductNote = (itemId: string, internalNote: string) =>
   request.put<ProductItem>({
     url: `/api/v1/admin/products/${encodeURIComponent(itemId)}/note`,
     data: { internal_note: internalNote }
+  })
+
+export const linkProductKnowledge = (itemId: string, knowledgeId: number) =>
+  request.put<{ item_id: string; knowledge_id: number; knowledge_name: string }>({
+    url: `/api/v1/admin/products/${encodeURIComponent(itemId)}/knowledge`,
+    data: { knowledge_id: knowledgeId }
   })

@@ -22,6 +22,7 @@ from app.infrastructure.database.models import (
     CareManualProductLinkModel,
     CareManualSyncRunModel,
     YouzanProductModel,
+    YouzanProductKnowledgeModel,
 )
 from app.integrations.youzan.client import YouzanClient
 from app.integrations.youzan.services.youzan_token_service import (
@@ -39,6 +40,7 @@ _TABLES = [
     CareManualProductLinkModel.__table__,
     CareManualSyncRunModel.__table__,
     YouzanProductModel.__table__,
+    YouzanProductKnowledgeModel.__table__,
 ]
 
 
@@ -48,7 +50,8 @@ def _session_factory(database_url: str):
     Base.metadata.create_all(engine, tables=_TABLES)
     with engine.begin() as connection:
         for table, additions in {
-            "care_manual_cards": {"source_type": "VARCHAR(16) NOT NULL DEFAULT 'manual'", "price_cent": "INTEGER", "content_count": "INTEGER"},
+            "care_manual_cards": {"source_type": "VARCHAR(16) NOT NULL DEFAULT 'manual'", "price_cent": "INTEGER", "content_count": "INTEGER", "knowledge_id": "INTEGER"},
+            "youzan_products": {"knowledge_id": "INTEGER"},
             "care_manual_sync_runs": {"source_type": "VARCHAR(16) NOT NULL DEFAULT 'manual'"},
         }.items():
             columns = {column["name"] for column in inspect(connection).get_columns(table)}
@@ -222,6 +225,22 @@ def update_care_manual(card_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         return _serialize_card(row, _links_by_card(session, [card_id]).get(card_id, []))
 
 
+@remote("manuals.link_care_manual_knowledge")
+def link_care_manual_knowledge(card_id: int, knowledge_id: int) -> dict[str, Any]:
+    with _session() as session:
+        row = session.get(CareManualCardModel, card_id)
+        if row is None or row.source_type != "manual" or not any(marker in row.title for marker in CARE_MANUAL_TITLE_MARKERS):
+            raise LookupError("养护手册不存在")
+        knowledge = session.get(YouzanProductKnowledgeModel, knowledge_id)
+        if knowledge is None:
+            raise LookupError("产品知识不存在")
+        row.knowledge_id = knowledge_id
+        row.orchid_name = knowledge.product_name
+        row.updated_at = _now()
+        session.commit()
+        return _serialize_card(row, _links_by_card(session, [card_id]).get(card_id, []))
+
+
 def _product_variety_names(title: str) -> tuple[str, set[str]]:
     title = unicodedata.normalize("NFKC", title).replace("连瓣兰", "莲瓣兰")
     bracket = re.search(r"【([^】]+)】|\[([^\]]+)\]", title)
@@ -389,21 +408,41 @@ def test_match_care_manuals(
         )
         links = _links_by_card(session, [row.id for row in rows])
 
+        knowledge_by_id = {knowledge.id: knowledge for knowledge in session.scalars(
+            select(YouzanProductKnowledgeModel).where(
+                YouzanProductKnowledgeModel.id.in_([row.knowledge_id for row in rows if row.knowledge_id])
+            )
+        )}
+        product_knowledge_id = None
+        if youzan_item_id:
+            product = session.scalar(select(YouzanProductModel).where(YouzanProductModel.item_id == youzan_item_id))
+            product_knowledge_id = product.knowledge_id if product else None
+            if product_knowledge_id is None:
+                product_knowledge_id = session.scalar(select(YouzanProductKnowledgeModel.id).where(
+                    YouzanProductKnowledgeModel.item_id == youzan_item_id
+                ))
+
     candidates: list[tuple[int, CareManualCardModel, str]] = []
     for row in rows:
         if not _is_available(row):
             continue
         row_links = links.get(row.id, [])
+        knowledge = knowledge_by_id.get(row.knowledge_id)
+        if knowledge and knowledge.id == product_knowledge_id:
+            candidates.append((0, row, "exact_product"))
+            continue
         if youzan_item_id and any(
             link.youzan_item_id == youzan_item_id for link in row_links
         ):
             candidates.append((0, row, "exact_product"))
             continue
-        orchid = _normalize(row.orchid_name or (row.title if row.source_type == "course" else ""))
+        orchid = _normalize(knowledge.product_name if knowledge else row.orchid_name or (row.title if row.source_type == "course" else ""))
         if orchid and orchid in normalized_values:
             candidates.append((1, row, "exact_orchid"))
             continue
         aliases = {_normalize(value) for value in _load_list(row.aliases_json)}
+        if knowledge:
+            aliases.update(_normalize(value) for value in re.split(r"[\s,，、;；/|]+", knowledge.aliases or ""))
         if normalized_values & aliases:
             candidates.append((2, row, "exact_alias"))
             continue
@@ -758,6 +797,7 @@ def _serialize_card(
         "note_alias": row.note_alias,
         "title": row.title,
         "orchid_name": row.orchid_name,
+        "knowledge_id": row.knowledge_id,
         "aliases": _load_list(row.aliases_json),
         "note_url": row.note_url,
         "cover_url": row.cover_url,

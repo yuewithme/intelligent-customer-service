@@ -52,6 +52,7 @@ class YouzanProductModel(Base):
     page_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, index=True, default=0)
     internal_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    knowledge_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     youzan_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -188,6 +189,7 @@ class CareManualCardModel(Base):
     note_alias: Mapped[str | None] = mapped_column(String(256), nullable=True)
     title: Mapped[str] = mapped_column(String(512), index=True)
     orchid_name: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    knowledge_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     aliases_json: Mapped[str] = mapped_column(Text, default="[]")
     note_url: Mapped[str] = mapped_column(Text)
     cover_url: Mapped[str | None] = mapped_column(Text, nullable=True)

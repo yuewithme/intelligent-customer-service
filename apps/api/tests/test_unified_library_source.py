@@ -7,6 +7,26 @@ from app.domains.catalog.services import product_knowledge_service
 from app.shared.schemas.common import AppError
 
 
+@pytest.mark.parametrize("kind", ["product", "manual"])
+def test_manual_knowledge_links_write_to_unified_source(monkeypatch, kind):
+    from app.domains.sales.services import care_manual_service
+    monkeypatch.setattr(get_settings(), "unified_library_enabled", True)
+    observed = []
+
+    def post(url, **kwargs):
+        observed.append((url.rsplit("/", 1)[-1], kwargs["json"]["arguments"]))
+        return httpx.Response(200, json={"data": {"knowledge_id": 7}}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "post", post)
+    if kind == "product":
+        result = product_knowledge_service.link_product_knowledge("goods", 7)
+        assert observed == [("products.link_product_knowledge", {"item_id": "goods", "knowledge_id": 7})]
+    else:
+        result = care_manual_service.link_care_manual_knowledge(9, 7)
+        assert observed == [("manuals.link_care_manual_knowledge", {"card_id": 9, "knowledge_id": 7})]
+    assert result["knowledge_id"] == 7
+
+
 @pytest.mark.parametrize("status,message", [(404, "活动不存在"), (409, "请先关闭活动再编辑")])
 def test_activity_business_errors_keep_status_and_message(monkeypatch, status, message):
     monkeypatch.setattr(get_settings(), "unified_library_enabled", True)

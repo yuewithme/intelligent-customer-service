@@ -45,9 +45,9 @@
       <ElTableColumn prop="spec_hint" label="适用规格" width="110" show-overflow-tooltip />
       <ElTableColumn label="关联有赞商品" min-width="240">
         <template #default="scope">
-          <div v-if="scope.row.linked_product" class="linked-product">
+          <div v-if="scope.row.linked_products?.length || scope.row.linked_product" class="linked-product">
             <ElTag type="success" size="small">已关联</ElTag>
-            <span>{{ scope.row.linked_product.title }}</span>
+            <span>{{ scope.row.linked_products?.map((product: ProductOption) => product.title).join('、') || scope.row.linked_product?.title }}</span>
           </div>
           <ElTag v-else type="warning" size="small">待关联</ElTag>
         </template>

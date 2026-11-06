@@ -31,6 +31,49 @@ def _configure(monkeypatch, tmp_path):
     reset_product_store_for_tests()
 
 
+def test_link_manual_to_knowledge_keeps_configuration_and_matches_shared_products(monkeypatch, tmp_path):
+    from app.main import app
+    from app.domains.catalog.services.product_knowledge_service import create_product_knowledge, link_product_knowledge
+    from app.integrations.youzan.services.youzan_product_sync_service import _persist_sync
+
+    _configure(monkeypatch, tmp_path)
+    _persist_sync({
+        "original": {"title": "墨兰玉妃", "_status": "on_sale"},
+        "new": {"title": "皇后兰花", "_status": "on_sale"},
+    }, {})
+    knowledge = create_product_knowledge({"product_name": "墨兰玉妃", "item_id": "original", "aliases": "玉妃，皇后"})
+    care_manual_service._persist_notes([
+        {"note_id": "manual", "title": "【未命名品种】养护要点", "note_status": "published", "note_url": "https://example.com/manual"}
+    ])
+    manual = list_care_manuals()["items"][0]
+    update_care_manual(manual["id"], {"enabled": True, "sort_order": 17, "card_description": "人工描述", "youzan_item_ids": ["original"]})
+    import sqlite3
+    with sqlite3.connect(tmp_path / "care-manuals.db") as connection:
+        connection.execute("ALTER TABLE care_manual_cards DROP COLUMN knowledge_id")
+    reset_care_manual_store_for_tests()
+    client = TestClient(app)
+    path = f"/api/v1/admin/care-manuals/{manual['id']}/knowledge"
+    assert client.put(path, json={"knowledge_id": 9999}).status_code == 404
+    response = client.put(path, json={"knowledge_id": knowledge["id"]})
+    assert response.status_code == 200
+    linked = response.json()["data"]
+    assert linked["knowledge_id"] == knowledge["id"] and linked["orchid_name"] == "墨兰玉妃"
+    assert linked["enabled"] and linked["sort_order"] == 17 and linked["card_description"] == "人工描述"
+    assert linked["product_links"][0]["youzan_item_id"] == "original"
+    link_product_knowledge("new", knowledge["id"])
+    reset_care_manual_store_for_tests()
+    assert client.get(f"/api/v1/admin/care-manuals/{manual['id']}").json()["data"]["knowledge_id"] == knowledge["id"]
+    for item_id in ("new", "original"):
+        match = match_care_manuals(youzan_item_id=item_id)
+        assert match["auto_send_eligible"] and match["matches"][0]["card_id"] == manual["id"]
+    assert match_care_manuals(query="皇后")["auto_send_eligible"]
+    care_manual_service._persist_notes([
+        {"note_id": "manual", "title": "【未命名品种】养护要点新版", "note_status": "published", "note_url": "https://example.com/manual-new"}
+    ])
+    assert list_care_manuals()["items"][0]["knowledge_id"] == knowledge["id"]
+    assert list_care_manuals()["items"][0]["orchid_name"] == "墨兰玉妃"
+
+
 def test_points_import_fuzzy_links_priority_and_fallback(monkeypatch, tmp_path):
     from app.domains.sales.services.care_manual_service import _persist_notes, auto_link_care_manual_products
     from app.integrations.youzan.services.youzan_product_sync_service import _persist_sync

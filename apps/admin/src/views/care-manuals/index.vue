@@ -90,16 +90,17 @@
           <ElTag :type="scope.row.auto_send_allowed ? 'success' : 'info'" size="small">{{ scope.row.auto_send_allowed ? 'Agent 可自动发送' : 'Agent 禁止自动发送' }}</ElTag>
         </template>
       </ElTableColumn>
-      <ElTableColumn v-if="sourceType === 'manual'" label="关联商品" min-width="220">
+      <ElTableColumn v-if="sourceType === 'manual'" label="关联信息" min-width="220">
         <template #default="scope">
+          <ElTag v-if="scope.row.knowledge_id" type="success" effect="plain">{{ scope.row.orchid_name }}</ElTag>
           <div v-if="scope.row.product_links.length" class="product-links">
             <ElTag v-for="link in scope.row.product_links" :key="link.youzan_item_id" size="small" type="success" effect="plain">
               {{ link.product_name }}
             </ElTag>
           </div>
-          <span v-else class="muted">未关联</span>
-          <ElButton v-if="isAdmin()" link type="primary" @click="openEdit(scope.row)">
-            {{ scope.row.product_links.length ? '管理关联' : '关联商品' }}
+          <span v-else-if="!scope.row.knowledge_id" class="muted">未关联</span>
+          <ElButton v-if="isAdmin()" link type="primary" @click="openKnowledgeLink(scope.row)">
+            {{ scope.row.knowledge_id ? '管理关联' : '关联信息' }}
           </ElButton>
         </template>
       </ElTableColumn>
@@ -133,6 +134,7 @@
       />
     </div>
 
+    <KnowledgeLinkDialog v-model="knowledgeLinkVisible" :target-name="linkingManual?.title || ''" :saving="knowledgeLinkSaving" @confirm="saveKnowledgeLink" />
     <ElDialog v-model="importVisible" title="添加有赞课程" width="680px">
       <p>粘贴专栏分享链接，每行一条。添加后每天自动更新；新专栏需在此添加链接。</p>
       <ElInput v-model="importUrls" type="textarea" :rows="6" placeholder="https://…youzan.com/wscvis/knowledge/index?kdt_id=…&page=columnshow&alias=…" />
@@ -243,7 +245,8 @@ import { isAdmin } from '@/utils/gate'
 import { formatLocalTime as formatTime } from '@/utils/time'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getProductOptions, type ProductOption } from '@/api/admin/products'
+import { getProductOptions, type ProductOption, type ProductKnowledgeItem } from '@/api/admin/products'
+import KnowledgeLinkDialog from '../product-information/KnowledgeLinkDialog.vue'
 import {
   addCareManualProductLinks,
   getCareManualProductSuggestions,
@@ -252,6 +255,7 @@ import {
   syncCareManuals,
   testCareManualMatch,
   updateCareManual,
+  linkCareManualKnowledge,
   type CareManualItem,
   type CareManualMatchResult,
   type CareManualPayload,
@@ -286,6 +290,9 @@ const matching = ref(false)
 const editVisible = ref(false)
 const matchVisible = ref(false)
 const editing = ref<CareManualItem | null>(null)
+const linkingManual = ref<CareManualItem | null>(null)
+const knowledgeLinkVisible = ref(false)
+const knowledgeLinkSaving = ref(false)
 const matchResult = ref<CareManualMatchResult | null>(null)
 const form = reactive<CareManualPayload>({ orchid_name: '', aliases: [], youzan_item_ids: [], card_description: '', sort_order: 0, enabled: true, match_keywords: [] })
 const matchForm = reactive({ query: '', product_name: '', youzan_item_id: '', limit: 5 })
@@ -383,6 +390,22 @@ const openEdit = (item: CareManualItem) => {
   })
   editVisible.value = true
   if (item.source_type === 'manual') void loadProductOptions()
+}
+
+const openKnowledgeLink = (item: CareManualItem) => {
+  linkingManual.value = item
+  knowledgeLinkVisible.value = true
+}
+
+const saveKnowledgeLink = async (knowledge: ProductKnowledgeItem) => {
+  if (!linkingManual.value || knowledgeLinkSaving.value) return
+  knowledgeLinkSaving.value = true
+  try {
+    await linkCareManualKnowledge(linkingManual.value.id, knowledge.id)
+    ElMessage.success('关联已保存')
+    knowledgeLinkVisible.value = false
+    await loadManuals()
+  } finally { knowledgeLinkSaving.value = false }
 }
 
 const saveEdit = async () => {

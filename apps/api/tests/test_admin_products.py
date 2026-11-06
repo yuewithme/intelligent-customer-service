@@ -27,6 +27,48 @@ def _configure(monkeypatch, tmp_path):
     reset_product_store_for_tests()
 
 
+def test_manual_knowledge_link_shares_existing_knowledge_and_survives_sync(monkeypatch, tmp_path):
+    from app.integrations.youzan.services.youzan_product_sync_service import _persist_sync
+    from app.domains.catalog.services.product_knowledge_service import get_catalog_product
+
+    _configure(monkeypatch, tmp_path)
+    products = {
+        "original": {"title": "墨兰玉妃", "_status": "on_sale", "quantity": 2},
+        "new": {"title": "皇后兰花", "_status": "on_sale", "quantity": 3},
+    }
+    _persist_sync(products, {})
+    with sqlite3.connect(tmp_path / "products.db") as connection:
+        connection.execute("ALTER TABLE youzan_products DROP COLUMN knowledge_id")
+    reset_product_store_for_tests()
+    client = TestClient(app)
+    knowledge = client.post("/api/v1/admin/products/knowledge", json={
+        "product_name": "墨兰玉妃", "item_id": "original", "highlighted_features": "素心名品"
+    }).json()["data"]
+    unrelated = client.post("/api/v1/admin/products/knowledge", json={
+        "product_name": "春兰宋梅", "sales_copy": "玉妃相关描述"
+    }).json()["data"]
+    result = client.put("/api/v1/admin/products/new/knowledge", json={"knowledge_id": knowledge["id"]})
+    assert result.status_code == 200
+    assert result.json()["data"]["knowledge_name"] == "墨兰玉妃"
+    _persist_sync(products, {})
+    reset_product_store_for_tests()
+    data = client.get("/api/v1/admin/products", params={"knowledge_linked": True}).json()["data"]
+    assert data["knowledge_linked_count"] == 2
+    assert {item["item_id"] for item in data["items"]} == {"original", "new"}
+    assert all(item["knowledge_id"] == knowledge["id"] for item in data["items"])
+    assert get_catalog_product("new")["knowledge"]["highlighted_features"] == "素心名品"
+    listed = client.get("/api/v1/admin/products/knowledge", params={"keyword": "玉妃", "name_only": True}).json()["data"]
+    assert [item["id"] for item in listed["items"]] == [knowledge["id"]]
+    assert {item["item_id"] for item in listed["items"][0]["linked_products"]} == {"original", "new"}
+    assert listed["linked_count"] == 1
+    assert client.put("/api/v1/admin/products/new/knowledge", json={"knowledge_id": 9999}).status_code == 404
+    assert client.put("/api/v1/admin/products/missing/knowledge", json={"knowledge_id": knowledge["id"]}).status_code == 404
+    assert client.put("/api/v1/admin/products/new/knowledge", json={"knowledge_id": -1}).status_code == 422
+    assert client.delete(f"/api/v1/admin/products/knowledge/{knowledge['id']}").status_code == 200
+    assert client.get("/api/v1/admin/products", params={"knowledge_linked": True}).json()["data"]["total"] == 0
+    assert unrelated["id"] != knowledge["id"]
+
+
 def test_delivery_default_and_duplicate_products(monkeypatch, tmp_path):
     from app.integrations.youzan.services.youzan_product_sync_service import _persist_sync
     _configure(monkeypatch, tmp_path)
