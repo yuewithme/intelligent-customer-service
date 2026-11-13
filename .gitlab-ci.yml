@@ -13,6 +13,8 @@ stages:
   - preflight
   - deploy
   - verify
+  - inventory
+  - upload
 
 default:
   tags:
@@ -185,3 +187,61 @@ verify:production:
           sudo -n docker exec -i \"\$container_id\" python - '$WECHAT_VERIFY_W_ID' '$WECHAT_VERIFY_MATERIAL_IDS'
         " < deploy/verify-wechat-materials.py
       fi
+
+cos:inventory:production:
+  stage: inventory
+  needs:
+    - verify:production
+  resource_group: sales-agent-production
+  timeout: 10m
+  environment:
+    name: production
+    action: access
+  script:
+    - |
+      set -eu
+      SSH="ssh $SSHOPT"
+      $SSH "$PROD_HOST" "cd '$PROD_DIR' && flock -w 1200 /tmp/intelligent-customer-service-deploy.lock bash deploy/cos-files.sh inventory '$CI_COMMIT_SHA'" > cos-inventory.json
+      python3 -c 'import json; r=json.load(open("cos-inventory.json")); print("COS_INVENTORY_SUMMARY="+json.dumps({"inventory_sha256":r["inventory_sha256"],"summary":r["inventory"]["summary"],"skipped_symlinks":r["inventory"]["skipped_symlinks"]},separators=(",",":")))'
+  artifacts:
+    access: developer
+    expire_in: 7 days
+    paths:
+      - cos-inventory.json
+
+cos:upload:production:
+  stage: upload
+  needs:
+    - job: cos:inventory:production
+      artifacts: false
+  resource_group: sales-agent-production
+  interruptible: false
+  when: manual
+  allow_failure: true
+  timeout: 45m
+  environment:
+    name: production
+    action: access
+  script:
+    - |
+      set -eu
+      set +x
+      if [ "${CI_DEBUG_TRACE:-false}" = 'true' ] || [ "${CI_DEBUG_SERVICES:-false}" = 'true' ]; then
+        echo 'ERROR: debug logging must be disabled for COS operations'
+        exit 1
+      fi
+      : "${COS_INVENTORY_SHA256:?Select a reviewed inventory digest}"
+      : "${COS_APPROVED_FILE_IDS:?Supply a JSON array of reviewed file IDs}"
+      if [ "${COS_CONFIRM_PUBLIC:-}" != 'yes' ]; then
+        echo 'ERROR: set COS_CONFIRM_PUBLIC=yes only for files approved for public CDN access'
+        exit 1
+      fi
+      SSH="ssh $SSHOPT"
+      python3 -c 'import json,os,sys; json.dump({"inventory_sha256":os.environ["COS_INVENTORY_SHA256"],"file_ids":json.loads(os.environ["COS_APPROVED_FILE_IDS"]),"confirm_public":True},sys.stdout)' |
+        $SSH "$PROD_HOST" "cd '$PROD_DIR' && flock -w 1200 /tmp/intelligent-customer-service-deploy.lock bash deploy/cos-files.sh upload '$CI_COMMIT_SHA'" > cos-upload.json
+      python3 -c 'import json; r=json.load(open("cos-upload.json")); print("COS_UPLOAD_VERIFIED="+json.dumps({"files":len(r["verified"]),"bytes":sum(x["bytes"] for x in r["verified"])},separators=(",",":")))'
+  artifacts:
+    access: developer
+    expire_in: 7 days
+    paths:
+      - cos-upload.json
