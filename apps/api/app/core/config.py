@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -405,6 +405,11 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./rag.db"
     upload_dir: str = "data/uploads"
+    cos_secret_id: SecretStr = SecretStr("")
+    cos_secret_key: SecretStr = SecretStr("")
+    cos_bucket: str = "wohu-lanhua-cdn-1311448032"
+    cos_region: str = "ap-shanghai"
+    cos_cdn_base_url: str = "https://lanhua-cdn.hzwohu.com"
     sop_image_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1)
     sop_video_max_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
 

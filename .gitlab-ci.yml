@@ -95,7 +95,16 @@ deploy:production:
   script:
     - |
       set -eu
+      set +x
+      if [ "${CI_DEBUG_TRACE:-false}" = 'true' ] || [ "${CI_DEBUG_SERVICES:-false}" = 'true' ]; then
+        echo 'ERROR: debug logging must be disabled for credential deployment'
+        exit 1
+      fi
+      : "${COS_SECRET_ID:?COS_SECRET_ID is unavailable}"
+      : "${COS_SECRET_KEY:?COS_SECRET_KEY is unavailable}"
       SSH="ssh $SSHOPT"
+      python3 -c 'import json,os,sys; json.dump({key: os.environ[key] for key in ("COS_SECRET_ID", "COS_SECRET_KEY")}, sys.stdout)' |
+        $SSH "$PROD_HOST" "flock -w 1200 /tmp/intelligent-customer-service-deploy.lock sudo -n python3 -c \"\$(git -C '$PROD_DIR' show '$CI_COMMIT_SHA:deploy/update-cos-config.py')\""
       if [ -n "${DASHSCOPE_API_KEY_FILE:-}" ]; then
         set +x
         cat "$DASHSCOPE_API_KEY_FILE" | $SSH "$PROD_HOST" "cd '$PROD_DIR' && flock -w 1200 /tmp/intelligent-customer-service-deploy.lock sudo -n python3 -c \"\$(git show '$CI_COMMIT_SHA:deploy/update-model-key.py')\""
@@ -115,6 +124,9 @@ verify:production:
   needs:
     - deploy:production
   timeout: 5m
+  environment:
+    name: production
+    action: verify
   script:
     - |
       set -eu
@@ -124,6 +136,15 @@ verify:production:
         echo "ERROR: deployed revision $deployed_revision does not match $CI_COMMIT_SHA"
         exit 1
       fi
+      set +x
+      if [ "${CI_DEBUG_TRACE:-false}" = 'true' ] || [ "${CI_DEBUG_SERVICES:-false}" = 'true' ]; then
+        echo 'ERROR: debug logging must be disabled for credential verification'
+        exit 1
+      fi
+      : "${COS_SECRET_ID:?COS_SECRET_ID is unavailable}"
+      : "${COS_SECRET_KEY:?COS_SECRET_KEY is unavailable}"
+      python3 -c 'import json,os,sys; json.dump({key: os.environ[key] for key in ("COS_SECRET_ID", "COS_SECRET_KEY")}, sys.stdout)' |
+        $SSH "$PROD_HOST" "sudo -n python3 '$PROD_DIR/deploy/update-cos-config.py' --verify"
       if [ -n "${FEISHU_HANDOFF_WEBHOOK_URL:-}" ]; then
         set +x
         printf '%s' "$FEISHU_HANDOFF_WEBHOOK_URL" | $SSH "$PROD_HOST" "sudo -n python3 '$PROD_DIR/deploy/update-feishu-webhook.py' --verify"
