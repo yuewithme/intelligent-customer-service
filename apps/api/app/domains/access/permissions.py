@@ -64,6 +64,8 @@ async def authorize_account(request: Request, account: dict, mode: str):
     from app.domains.access.libraries import library_page
     path = request.url.path.rstrip("/")
     safe = request.method.upper() in SAFE_METHODS
+    if account.get("read_only") and not safe:
+        deny("测试账号仅可查看，不能回复或修改资料")
     library = getattr(request.state, "library_app", None)
     if library:
         page = library_page(path, library)

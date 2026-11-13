@@ -61,6 +61,20 @@ def context(monkeypatch, tmp_path):
     get_settings.cache_clear()
 
 
+def test_read_only_platform_account_can_view_but_never_reply_or_edit(context):
+    client, state = context
+    state["account"].update(role="admin", read_only=True, all_wechat=True)
+    assert client.get("/api/v1/admin/conversations").status_code == 200
+    for method, path, body in (
+        ("POST", "/api/v1/admin/conversations/wechat:customer_wx_allowed:wx_allowed/reply", {"content": "blocked"}),
+        ("PATCH", "/api/v1/users/customer_wx_allowed/profile", {"customer_note": "blocked"}),
+        ("POST", "/api/v1/admin/products", {}),
+        ("DELETE", "/api/v1/admin/products/42", None),
+    ):
+        assert client.request(method, path, json=body).status_code == 403
+    assert client.delete("/api/gate").status_code == 200
+
+
 def test_message_menu_actions_enforce_account_scope_and_operator_identity(context):
     client, state = context
     allowed = "wechat:customer_wx_allowed:wx_allowed"

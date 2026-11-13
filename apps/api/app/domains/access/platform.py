@@ -75,6 +75,8 @@ async def platform_identity(request: Request, call_next):
             # Logout must remain available for an expired or revoked session.
             if not (request.url.path == "/api/gate" and request.method == "DELETE"):
                 request.state.account = await resolve_account(request)
+                if request.state.account and request.state.account.get("read_only") and request.method not in {"GET", "HEAD", "OPTIONS"}:
+                    raise AppError(ErrorCode.PERMISSION_DENIED, "测试账号仅可查看，不能回复或修改资料", status_code=403)
         except AppError as error:
             return JSONResponse({"code": int(error.code), "message": error.message}, status_code=error.status_code)
     return await call_next(request)
