@@ -1352,7 +1352,8 @@ def test_legacy_backlog_pause_is_cleared_on_startup():
 
 
 @pytest.mark.asyncio
-async def test_opening_provider_risk_signal_pauses_immediately(monkeypatch):
+@pytest.mark.parametrize("risk_signal", [True, False])
+async def test_opening_pause_notification_distinguishes_risk_from_send_failures(monkeypatch, risk_signal):
     from app.integrations.eyun.services import message_risk_control_service as service
 
     now = datetime(2026, 7, 31, 1, 0, tzinfo=timezone.utc)
@@ -1393,16 +1394,29 @@ async def test_opening_provider_risk_signal_pauses_immediately(monkeypatch):
         session.commit()
         outbound_id = outbound.id
 
-    await service._handle_opening_send_failure(
-        outbound_id,
-        RuntimeError("发送频率过快，请稍后重试"),
-    )
+    failure_count = 1 if risk_signal else get_settings().eyun_opening_failure_pause_threshold
+    error = RuntimeError("发送频率过快，请稍后重试" if risk_signal else "provider unavailable")
+    for _ in range(failure_count):
+        await service._handle_opening_send_failure(outbound_id, error)
 
-    assert alerts and "开场白风控暂停" in alerts[0]
+    assert len(alerts) == 1
+    assert "【小兰异常通知】" in alerts[0]
+    assert ("开场白风控暂停" in alerts[0]) is risk_signal
+    assert "实例 ID：wid" in alerts[0]
+    await service._handle_opening_send_failure(outbound_id, error)
+    assert len(alerts) == 1
     with service._get_session() as session:
         control = session.get(EyunOpeningControlModel, "wid")
-        assert control.pause_reason == "provider_risk_signal"
-        assert control.consecutive_failures == 1
+        assert control.pause_reason == ("provider_risk_signal" if risk_signal else "opening_send_failures")
+        paused_until = control.paused_until.replace(tzinfo=timezone.utc)
+
+    await service._handle_opening_send_success(outbound_id, paused_until)
+    assert len(alerts) == 2
+    assert "【小兰恢复通知】" in alerts[1]
+    assert "已确认一条开场白发送成功" in alerts[1]
+    assert "实例 ID：wid" in alerts[1]
+    await service._handle_opening_send_success(outbound_id, paused_until)
+    assert len(alerts) == 2
 
 
 @pytest.mark.asyncio

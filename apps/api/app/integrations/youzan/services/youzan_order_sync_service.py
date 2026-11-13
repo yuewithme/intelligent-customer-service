@@ -105,7 +105,7 @@ async def youzan_order_sync_worker(stop_event: asyncio.Event) -> None:
         try:
             if _sync_is_due(settings.youzan_order_sync_interval_minutes):
                 await sync_youzan_orders(trigger="scheduled")
-                await notify_youzan_recovery("订单同步恢复")
+                await notify_youzan_recovery("订单同步")
         except Exception as exc:  # noqa: BLE001
             logger.warning("Scheduled Youzan order sync failed: %s", type(exc).__name__)
             await notify_youzan_failure("订单同步", exc)

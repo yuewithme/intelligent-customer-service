@@ -5,6 +5,25 @@ from app.core.config import get_settings
 from app.integrations.feishu.services import webhook_alert_service as service
 
 
+@pytest.mark.parametrize("recovered", [False, True])
+def test_system_alert_uses_one_concise_format(recovered):
+    content = service.render_system_alert(
+        "微信账号状态变更",
+        impact="该账号消息收发受影响。",
+        status="已确认。",
+        action="检查登录状态。",
+        details=("微信账号：wxid_bot",),
+        recovered=recovered,
+    )
+
+    assert content.startswith("【小兰恢复通知】" if recovered else "【小兰异常通知】")
+    assert "影响：该账号消息收发受影响。" in content
+    assert "当前状态：已确认。" in content
+    assert "微信账号：wxid_bot" in content
+    assert "处理建议：检查登录状态。" in content
+    assert "时间：" in content
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("webhook", ["https://example.com/new-bot", ""])
 async def test_all_alerts_use_unified_webhook_even_when_legacy_value_exists(monkeypatch, webhook):

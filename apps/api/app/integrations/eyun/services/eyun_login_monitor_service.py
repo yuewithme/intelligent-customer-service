@@ -3,9 +3,7 @@ import json
 import logging
 import re
 from time import monotonic
-from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -13,6 +11,10 @@ from app.core.config import get_settings
 from app.integrations.eyun.services.eyun_account_settings_service import (
     get_eyun_account_settings_revision,
     refresh_eyun_account_wid,
+)
+from app.integrations.feishu.services.webhook_alert_service import (
+    render_system_alert,
+    send_feishu_webhook_alert,
 )
 
 
@@ -361,27 +363,7 @@ async def _post_eyun(
 
 
 async def _send_feishu_alert(content: str) -> bool:
-    webhook_url = get_settings().feishu_handoff_webhook_url.strip()
-    if not webhook_url:
-        logger.warning("Skip Eyun login alert because Feishu webhook is not configured")
-        return False
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                webhook_url,
-                json={"msg_type": "text", "content": {"text": content}},
-            )
-        response.raise_for_status()
-        result = response.json()
-        status_code = result.get("StatusCode", result.get("code"))
-        if status_code not in (0, "0"):
-            raise RuntimeError(
-                str(result.get("StatusMessage") or result.get("msg") or status_code)
-            )
-        return True
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Feishu Eyun login alert failed: %s", exc)
-        return False
+    return await send_feishu_webhook_alert(content)
 
 
 def _render_offline_message(
@@ -390,14 +372,20 @@ def _render_offline_message(
     w_id: str,
     reason: str | None,
 ) -> str:
-    return (
-        "【紧急提醒】Eyun 微信账号已离线\n\n"
-        f"微信账号：{wc_id}\n"
-        f"实例 ID：{w_id or '未知'}\n"
-        f"掉线原因：{reason or 'Eyun 暂未返回明确原因'}\n"
-        f"处理建议：{_offline_action(reason)}\n"
-        f"发现时间：{_local_time_text()}\n\n"
-        "智能客服可能无法收发微信消息，请尽快检查 Eyun 登录状态。"
+    return render_system_alert(
+        "微信账号已离线",
+        impact="该微信账号的消息收发可能受影响。",
+        status=(
+            "已连续两次检测到离线，系统会尝试自动重连。"
+            if get_settings().eyun_auto_reconnect_enabled
+            else "已连续两次检测到离线，自动重连未开启。"
+        ),
+        details=(
+            f"微信账号：{wc_id}",
+            f"实例 ID：{w_id or '未知'}",
+            f"掉线原因：{reason or 'Eyun 暂未返回明确原因'}",
+        ),
+        action=_offline_action(reason),
     )
 
 
@@ -408,16 +396,14 @@ def _offline_action(reason: str | None) -> str:
 
 
 def _render_recovery_message(*, wc_id: str, w_id: str) -> str:
-    return (
-        "【恢复通知】Eyun 微信账号已恢复在线\n\n"
-        f"微信账号：{wc_id}\n"
-        f"当前实例 ID：{w_id or '未知'}\n"
-        f"恢复时间：{_local_time_text()}"
+    return render_system_alert(
+        "微信账号已恢复在线",
+        impact="该微信账号的离线状态已解除。",
+        status="已重新查询并确认在线；消息发送结果仍以实际投递为准。",
+        details=(f"微信账号：{wc_id}", f"当前实例 ID：{w_id or '未知'}"),
+        action="无需重新登录。",
+        recovered=True,
     )
-
-
-def _local_time_text() -> str:
-    return datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def reset_eyun_login_monitor_state() -> None:

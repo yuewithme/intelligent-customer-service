@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from time import monotonic
 from typing import Any
 
 import httpx
 
 from app.core.config import get_settings
 from app.integrations.feishu.services.webhook_alert_service import (
+    render_system_alert,
     send_feishu_webhook_alert,
 )
 from app.integrations.youzan.client import YouzanClient, YouzanError
@@ -39,7 +42,7 @@ class YouzanTokenManager:
             except Exception as exc:
                 await notify_youzan_failure("Token自动换取", exc)
                 raise
-            await notify_youzan_recovery("Token自动换取成功")
+            await notify_youzan_recovery("Token自动换取")
             return self._token
 
     def invalidate(self, access_token: str) -> None:
@@ -98,6 +101,18 @@ class YouzanTokenManager:
 _manager: YouzanTokenManager | None = None
 _alert_lock = asyncio.Lock()
 _outage_alerted = False
+_FAILURE_CONFIRMATIONS_REQUIRED = 3
+_FAILURE_MIN_DURATION_SECONDS = 60
+
+
+@dataclass
+class _FailureState:
+    first_seen: float
+    count: int = 0
+
+
+_failures_by_component: dict[str, _FailureState] = {}
+_COMPONENT_LABELS = {"Token自动换取": "有赞授权获取", "订单同步": "订单同步"}
 
 
 def get_youzan_token_manager() -> YouzanTokenManager:
@@ -134,18 +149,30 @@ def youzan_credentials_available() -> bool:
 async def notify_youzan_failure(component: str, exc: Exception) -> None:
     global _outage_alerted
     async with _alert_lock:
+        now = monotonic()
+        state = _failures_by_component.setdefault(component, _FailureState(first_seen=now))
+        state.count += 1
         if _outage_alerted:
             return
-        code = str(getattr(exc, "code", "") or "")
-        detail = str(exc).strip()[:200] or type(exc).__name__
-        content = (
-            "【紧急提醒】有赞订单能力不可用\n\n"
-            f"故障环节：{component}\n"
-            f"错误类型：{type(exc).__name__}\n"
-            f"错误信息：{detail}\n"
-            f"错误码：{code or '无'}\n"
-            f"发现时间：{_local_time_text()}\n\n"
-            "订单查询可能无法返回实时结果，请检查有赞授权和同步状态。"
+        if (
+            state.count < _FAILURE_CONFIRMATIONS_REQUIRED
+            or now - state.first_seen < _FAILURE_MIN_DURATION_SECONDS
+        ):
+            return
+        failures = "；".join(
+            f"{_COMPONENT_LABELS.get(name, name)}连续失败{failure.count}次"
+            for name, failure in _failures_by_component.items()
+        )
+        content = render_system_alert(
+            "有赞相关操作持续失败",
+            impact=(
+                "订单同步未完成，最新订单可能尚未更新。"
+                if "订单同步" in _failures_by_component
+                else "有赞授权获取失败，依赖新授权的订单操作可能受影响。"
+            ),
+            status=failures,
+            details=(f"异常类型：{type(exc).__name__}",),
+            action="后续请求或同步任务会继续尝试；若持续未恢复，请检查有赞授权和订单同步记录。",
         )
         if await send_feishu_webhook_alert(content):
             _outage_alerted = True
@@ -154,12 +181,16 @@ async def notify_youzan_failure(component: str, exc: Exception) -> None:
 async def notify_youzan_recovery(component: str) -> None:
     global _outage_alerted
     async with _alert_lock:
-        if not _outage_alerted:
+        # Token success cannot prove that a failed order sync has recovered.
+        _failures_by_component.pop(component, None)
+        if not _outage_alerted or _failures_by_component:
             return
-        content = (
-            "【恢复通知】有赞订单能力已恢复\n\n"
-            f"恢复环节：{component}\n"
-            f"恢复时间：{_local_time_text()}"
+        content = render_system_alert(
+            "有赞相关异常已恢复",
+            impact="本轮失败的有赞环节已恢复。",
+            status="所有已记录的失败环节均已再次执行成功。",
+            action="无需处理。",
+            recovered=True,
         )
         if await send_feishu_webhook_alert(content):
             _outage_alerted = False
@@ -169,6 +200,7 @@ def reset_youzan_token_state_for_tests() -> None:
     global _outage_alerted
     reset_youzan_token_manager()
     _outage_alerted = False
+    _failures_by_component.clear()
 
 
 def _token_data(body: Any) -> dict[str, Any]:
@@ -208,7 +240,3 @@ def _token_expiry(data: dict[str, Any]) -> datetime:
     if value > now.timestamp() + 300:
         return datetime.fromtimestamp(value, tz=timezone.utc)
     return now + timedelta(seconds=max(value, 300))
-
-
-def _local_time_text() -> str:
-    return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")

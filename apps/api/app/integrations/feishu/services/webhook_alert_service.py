@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -6,6 +7,29 @@ from app.core.config import get_settings
 
 
 logger = logging.getLogger("wechat_rag_bot.feishu_alert")
+
+
+def render_system_alert(
+    title: str,
+    *,
+    impact: str,
+    status: str,
+    action: str,
+    details: tuple[str, ...] = (),
+    recovered: bool = False,
+) -> str:
+    label = "小兰恢复通知" if recovered else "小兰异常通知"
+    timestamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    return "\n".join(
+        (
+            f"【{label}】{title}",
+            f"影响：{impact}",
+            f"当前状态：{status}",
+            *details,
+            f"处理建议：{action}",
+            f"时间：{timestamp}",
+        )
+    )
 
 
 async def send_feishu_webhook_alert(content: str) -> bool:

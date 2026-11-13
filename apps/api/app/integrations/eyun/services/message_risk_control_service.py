@@ -50,6 +50,7 @@ from app.integrations.eyun.services.eyun_contact_service import (
 )
 from app.domains.conversations.services.input_filter_service import is_platform_noise_text
 from app.integrations.feishu.services.webhook_alert_service import (
+    render_system_alert,
     send_feishu_webhook_alert,
 )
 from app.domains.customers.services.user_profile_service import (
@@ -672,12 +673,16 @@ async def _handle_opening_send_failure(
             control.pause_reason = (
                 "provider_risk_signal" if risk_signal else "opening_send_failures"
             )
-            alert = (
-                "【开场白风控暂停】开场白发送出现异常\n\n"
-                f"异常类型：{type(exc).__name__}\n"
-                f"连续失败：{control.consecutive_failures} 次\n"
-                f"自动暂停：{settings.eyun_opening_pause_minutes} 分钟\n"
-                "暂停期间新开场白会继续排队，不会丢失。"
+            alert = render_system_alert(
+                "开场白风控暂停" if risk_signal else "开场白发送暂停",
+                impact="该微信的新好友开场白延后发送，暂停期间继续排队。",
+                status=f"已自动暂停 {settings.eyun_opening_pause_minutes} 分钟，之后按队列继续尝试。",
+                details=(
+                    f"实例 ID：{row.w_id}",
+                    f"暂停原因：{'检测到发送限制信号' if risk_signal else '连续发送失败'}",
+                    f"连续失败：{control.consecutive_failures} 次",
+                ),
+                action="暂不需要手动重发；若反复暂停，请检查微信登录状态和发送限制。",
             )
         control.updated_at = now
         session.commit()
@@ -701,6 +706,7 @@ async def _handle_opening_send_success(
         control = session.get(EyunOpeningControlModel, row.w_id)
         if control is None:
             return
+        w_id = row.w_id
         control.last_sent_at = now
         paused_until = (
             _ensure_aware(control.paused_until)
@@ -719,7 +725,14 @@ async def _handle_opening_send_success(
         session.commit()
     if recovery_alert:
         await send_feishu_webhook_alert(
-            "【恢复通知】新好友开场白队列已恢复发送"
+            render_system_alert(
+                "新好友开场白已恢复发送",
+                impact="该微信的开场白暂停已解除。",
+                status="已确认一条开场白发送成功，其余消息继续按队列处理。",
+                details=(f"实例 ID：{w_id}",),
+                action="无需手动重发。",
+                recovered=True,
+            )
         )
 
 

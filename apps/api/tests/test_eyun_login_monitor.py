@@ -63,12 +63,15 @@ async def test_monitor_alerts_once_for_offline_and_once_for_recovery(monkeypatch
     assert alerts == []
     assert await monitor.poll_eyun_login_status() is False
     assert len(alerts) == 1
+    assert "【小兰异常通知】" in alerts[0]
     assert "已离线" in alerts[0]
+    assert "连续两次" in alerts[0]
     assert "session expired" in alerts[0]
 
     online_rows.append({"wcId": "wxid_bot", "wId": "recovered-wid"})
     assert await monitor.poll_eyun_login_status() is True
     assert len(alerts) == 2
+    assert "【小兰恢复通知】" in alerts[1]
     assert "已恢复在线" in alerts[1]
 
 
