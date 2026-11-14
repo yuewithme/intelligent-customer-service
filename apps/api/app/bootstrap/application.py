@@ -23,6 +23,7 @@ from app.domains.catalog.services.agent_media_library_service import (
 from app.shared.schemas.common import AppError, ErrorCode
 from app.core.logger import configure_logging
 from app.domains.access.platform import platform_identity
+from app.integrations.web.services.public_media_storage import PublicMediaFiles
 
 
 def create_app() -> FastAPI:
@@ -45,7 +46,7 @@ def _mount_static_files(application: FastAPI) -> None:
     agent_media_library_dir().mkdir(parents=True, exist_ok=True)
     application.mount(
         "/static/agent-material-library",
-        StaticFiles(directory=agent_media_library_dir()),
+        PublicMediaFiles(directory=agent_media_library_dir()),
         name="agent-material-library",
     )
     video_storage_dir().mkdir(parents=True, exist_ok=True)
@@ -56,12 +57,12 @@ def _mount_static_files(application: FastAPI) -> None:
     )
     application.mount(
         "/static/workbench-media",
-        StaticFiles(directory=workbench_media_storage_dir()),
+        PublicMediaFiles(directory=workbench_media_storage_dir()),
         name="workbench-media",
     )
     application.mount(
         "/static/link-card-thumbs",
-        StaticFiles(directory=link_card_thumbnail_storage_dir()),
+        PublicMediaFiles(directory=link_card_thumbnail_storage_dir()),
         name="link-card-thumbnails",
     )
     application.mount(

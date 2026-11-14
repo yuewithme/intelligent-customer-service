@@ -34,6 +34,7 @@ from app.integrations.youzan.services.youzan_order_sync_service import (
     youzan_order_sync_worker,
 )
 from app.integrations.mcp.server import run_sales_mcp_session_manager
+from app.integrations.web.services.public_media_storage import public_media_worker
 
 
 logger = logging.getLogger("wechat_rag_bot.lifecycle")
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
         stop_event = asyncio.Event()
         app.state.eyun_risk_control_stop_event = stop_event
         app.state.reply_draft_task = asyncio.create_task(reply_draft_worker(stop_event))
+        app.state.public_media_task = asyncio.create_task(public_media_worker(stop_event))
         app.state.eyun_risk_control_task = asyncio.create_task(
             eyun_risk_control_worker(stop_event)
         )
@@ -94,6 +96,7 @@ async def lifespan(app: FastAPI):
                 yield
             finally:
                 stop_event.set()
+                await app.state.public_media_task
                 await app.state.reply_draft_task
                 await app.state.eyun_risk_control_task
                 await app.state.eyun_login_monitor_task

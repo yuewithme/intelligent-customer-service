@@ -154,6 +154,11 @@ def prepare_video_bytes(source: bytes, thumbnail: bytes = b"") -> dict[str, Any]
 
 
 def local_media_path(url: str) -> Path | None:
+    from app.integrations.web.services.public_media_storage import local_public_media_path
+
+    public_file = local_public_media_path(url)
+    if public_file is not None:
+        return public_file
     parsed = urlsplit(url)
     settings = get_settings()
     origins = [urlsplit(base.strip()) for base in (settings.app_public_base_url, settings.video_touch_public_base_url) if base.strip()]
@@ -198,11 +203,16 @@ def public_media_url(path: str) -> str:
 
 
 def publish_video_file(content: bytes, suffix: str) -> str:
-    directory = PROJECT_ROOT / "data" / "media"
+    from app.integrations.web.services.public_media_storage import public_media_url_sync
+
+    settings = get_settings()
+    directory = (Path(settings.upload_dir) / "workbench-media" if settings.cos_public_media_enabled
+                 else PROJECT_ROOT / "data" / "media")
     directory.mkdir(parents=True, exist_ok=True)
     name = f"eyun-video-{hashlib.sha256(content).hexdigest()}{suffix}"
     target = directory / name
-    url = public_media_url(f"/static/media/{name}")
+    prefix = "/static/workbench-media/" if settings.cos_public_media_enabled else "/static/media/"
+    url = public_media_url(prefix + name)
     if not target.exists() or target.read_bytes() != content:
         with tempfile.NamedTemporaryFile(dir=directory, delete=False) as output:
             temporary = Path(output.name)
@@ -211,4 +221,4 @@ def publish_video_file(content: bytes, suffix: str) -> str:
             temporary.replace(target)
         finally:
             temporary.unlink(missing_ok=True)
-    return url
+    return public_media_url_sync(target, url)

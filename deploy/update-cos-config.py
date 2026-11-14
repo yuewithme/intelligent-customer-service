@@ -27,7 +27,7 @@ def values(payload: dict) -> dict[str, str]:
            for key, pattern in patterns.items()):
         raise ValueError("Invalid COS credential input")
     return dict(payload, COS_BUCKET="wohu-lanhua-cdn-1311448032", COS_REGION="ap-shanghai",
-                COS_CDN_BASE_URL="https://lanhua-cdn.hzwohu.com")
+                COS_CDN_BASE_URL="https://lanhua-cdn.hzwohu.com", COS_PUBLIC_MEDIA_ENABLED="true")
 
 
 def update(path: Path, configuration: dict[str, str]) -> None:
@@ -74,6 +74,7 @@ def verify(configuration: dict[str, str]) -> None:
         "import hashlib,json; from app.core.config import get_settings; s=get_settings(); "
         "v={k: getattr(s,k.lower()) for k in " + repr(list(configuration)) + "}; "
         "v={k: x.get_secret_value() if hasattr(x,'get_secret_value') else x for k,x in v.items()}; "
+        "v={k: str(x).lower() if isinstance(x,bool) else x for k,x in v.items()}; "
         "print(hashlib.sha256(json.dumps(v,sort_keys=True).encode()).hexdigest())",
     ], text=True).strip()
     if actual != expected:

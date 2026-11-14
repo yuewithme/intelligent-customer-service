@@ -990,7 +990,7 @@ const copyFromMenu = () => {
 const fetchMedia = (message: ConversationMessage) => {
   const source = mediaSource(message)
   if (source.startsWith('data:')) return fetch(source).then(response => response.blob())
-  return getMessageMedia(message.id, source.startsWith('/static/') ? source : undefined)
+  return getMessageMedia(message.id)
 }
 const copyImage = async (message: ConversationMessage) => {
   closeMenu()

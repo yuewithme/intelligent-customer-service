@@ -230,18 +230,35 @@ cos:upload:production:
         echo 'ERROR: debug logging must be disabled for COS operations'
         exit 1
       fi
+      if [ -z "${COS_INVENTORY_SHA256:-}" ] && [ -f cos-inventory.json ]; then
+        COS_INVENTORY_SHA256="$(python3 -c 'import json; print(json.load(open("cos-inventory.json"))["inventory_sha256"])')"
+        export COS_INVENTORY_SHA256
+      fi
       : "${COS_INVENTORY_SHA256:?Select a reviewed inventory digest}"
-      : "${COS_APPROVED_FILE_IDS:?Supply a JSON array of reviewed file IDs}"
+      if [ "${COS_APPROVED_SCOPE:-}" != 'public-media' ]; then
+        : "${COS_APPROVED_FILE_IDS:?Supply a JSON array of reviewed file IDs}"
+      fi
       if [ "${COS_CONFIRM_PUBLIC:-}" != 'yes' ]; then
         echo 'ERROR: set COS_CONFIRM_PUBLIC=yes only for files approved for public CDN access'
         exit 1
       fi
       SSH="ssh $SSHOPT"
-      python3 -c 'import json,os,sys; json.dump({"inventory_sha256":os.environ["COS_INVENTORY_SHA256"],"file_ids":json.loads(os.environ["COS_APPROVED_FILE_IDS"]),"confirm_public":True},sys.stdout)' |
+      python3 -c 'import json,os,sys; selection={"scope":"public-media"} if os.environ.get("COS_APPROVED_SCOPE")=="public-media" else {"file_ids":json.loads(os.environ["COS_APPROVED_FILE_IDS"])}; json.dump({"inventory_sha256":os.environ["COS_INVENTORY_SHA256"],"confirm_public":True,**selection},sys.stdout)' |
         $SSH "$PROD_HOST" "cd '$PROD_DIR' && flock -w 1200 /tmp/intelligent-customer-service-deploy.lock bash deploy/cos-files.sh upload '$CI_COMMIT_SHA'" > cos-upload.json
-      python3 -c 'import json; r=json.load(open("cos-upload.json")); print("COS_UPLOAD_VERIFIED="+json.dumps({"files":len(r["verified"]),"bytes":sum(x["bytes"] for x in r["verified"])},separators=(",",":")))'
+      python3 -c 'import json; r=json.load(open("cos-upload.json")); print("COS_UPLOAD_VERIFIED="+json.dumps({"files":len(r["verified"]),"bytes":sum(x["bytes"] for x in r["verified"]),"cdn_checks":sum(x["verification"]=="cdn_sha256" for x in r["verified"]),"reused":sum(x["verification"]=="previously_verified" for x in r["verified"])},separators=(",",":")))'
   artifacts:
     access: developer
     expire_in: 7 days
     paths:
       - cos-upload.json
+
+cos:sync:production:
+  extends: cos:upload:production
+  when: on_success
+  allow_failure: false
+  needs:
+    - job: cos:inventory:production
+      artifacts: true
+  variables:
+    COS_APPROVED_SCOPE: public-media
+    COS_CONFIRM_PUBLIC: "yes"

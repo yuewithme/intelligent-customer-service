@@ -13,6 +13,7 @@ import httpx
 from PIL import Image, ImageOps
 
 from app.core.config import get_settings
+from app.integrations.web.services.public_media_storage import public_media_url
 
 
 EYUN_LINK_CARD_THUMB_MAX_BYTES = 51_200
@@ -51,7 +52,7 @@ async def compress_link_card_thumbnail(source_url: str) -> str:
     public_base_url = get_settings().app_public_base_url.strip().rstrip("/")
     if not public_base_url:
         raise RuntimeError("APP_PUBLIC_BASE_URL is required for link card compression")
-    return f"{public_base_url}/static/link-card-thumbs/{target.name}"
+    return await public_media_url(target, f"{public_base_url}/static/link-card-thumbs/{target.name}")
 
 
 def _compress_thumbnail_bytes(source: bytes) -> bytes:

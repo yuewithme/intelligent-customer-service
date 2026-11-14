@@ -71,6 +71,20 @@ def load_json(path):
         return json.load(stream)
 
 
+def verified_public_record(root, item, settings):
+    try:
+        record = load_json(root / STATE_DIRECTORY / "public-index" / (item["id"] + ".json"))
+        require(record["source"] == item, "stale public media index")
+        url = record["url"]
+        prefix = settings.cos_cdn_base_url.rstrip("/") + "/intelligent-customer-service/assets/"
+        require(isinstance(url, str) and url.startswith(prefix) and re.fullmatch(
+            r"[a-f0-9]{64}-[a-f0-9]{32}\.[a-z0-9]+", url[len(prefix):]
+        ) and url[len(prefix):].startswith(record["sha256"] + "-"), "invalid public media URL")
+        return record
+    except (OSError, ValueError, KeyError, TypeError, SafetyError):
+        return None
+
+
 @contextmanager
 def operation_lock(root):
     import fcntl
@@ -168,6 +182,12 @@ def approved_files(root, state, request, revision):
     require(digest(encoded(report)) == report_digest, "inventory checksum mismatch")
     require(report["version"] == 1 and report["root"] == str(root) and report["revision"] == revision,
             "inventory does not match this deployment")
+    if request.get("scope") == "public-media":
+        require("file_ids" not in request, "choose a scope or explicit file IDs, not both")
+        selected = report["candidates"]
+        require(all(item["size"] <= MAX_BATCH_BYTES for item in selected), "a public file exceeds 512 MiB")
+        return selected
+    require("scope" not in request, "unsupported upload scope")
     ids = request.get("file_ids")
     require(isinstance(ids, list) and 0 < len(ids) <= 100 and all(
         isinstance(item, str) and re.fullmatch(r"[a-f0-9]{64}", item) for item in ids
@@ -234,6 +254,22 @@ def verify_cdn(url, size, expected_digest):
 
 
 def upload_one(client, settings, state, root, item):
+    import fcntl
+
+    locks = private_directory(state / "file-locks")
+    descriptor = os.open(locks / (item["id"] + ".lock"), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        result = _upload_one(client, settings, state, root, item)
+        index = private_directory(state / "public-index")
+        record = {"source": item, "url": result["url"], "sha256": result["sha256"]}
+        objects = private_directory(state / "public-objects")
+        save_json(objects / (result["url"].rsplit("/", 1)[1] + ".json"), record)
+        save_json(index / (item["id"] + ".json"), record)
+        return {**result, "verification": "cdn_sha256"}
+
+
+def _upload_one(client, settings, state, root, item):
     from qcloud_cos.cos_exception import CosServiceError
 
     receipts = private_directory(state / "uploads")
@@ -265,14 +301,17 @@ def upload_one(client, settings, state, root, item):
             receipt["phase"] = "sending"
             save_json(receipt_path, receipt)
             try:
-                client.put_object(**options, Body=stream, ContentType=content_type, EnableMD5=True, ForbidOverwrite="true")
+                client.put_object(**options, Body=stream, ContentType=content_type, EnableMD5=True,
+                                  CacheControl="public, max-age=2592000, immutable", ForbidOverwrite="true")
             except CosServiceError as error:
                 # A lost success response can leave an existing object; verify it without overwriting.
                 if error.get_status_code() != 409:
                     raise
         else:
             if "upload_id" not in receipt:
-                receipt["upload_id"] = client.create_multipart_upload(**options, ContentType=content_type)["UploadId"]
+                receipt["upload_id"] = client.create_multipart_upload(
+                    **options, ContentType=content_type, CacheControl="public, max-age=2592000, immutable"
+                )["UploadId"]
                 save_json(receipt_path, receipt)
             # Local ETags avoid ListMultipartUploads/ListParts, which the upload-only key may deny.
             part_number = 0
@@ -309,22 +348,34 @@ def upload(root, state, request, revision, settings):
     for item in selected:
         with open_candidate(root, item):
             pass
+    client = None
+    results = []
+    for item in selected:
+        with open_candidate(root, item):
+            record = verified_public_record(root, item, settings) if request.get("scope") == "public-media" else None
+        if record:
+            result = {"file_id": item["id"], "url": record["url"], "sha256": record["sha256"],
+                      "bytes": item["size"], "verification": "previously_verified"}
+        else:
+            if client is None:
+                client = create_client(settings)
+            result = upload_one(client, settings, state, root, item)
+        results.append(result)
+        print(json.dumps({"verified_file_id": item["id"], "bytes": item["size"]}), file=sys.stderr, flush=True)
+    return {"inventory_sha256": request["inventory_sha256"], "verified": results}
+
+
+def create_client(settings):
     require(settings.cos_bucket == "wohu-lanhua-cdn-1311448032" and settings.cos_region == "ap-shanghai"
             and settings.cos_cdn_base_url == "https://lanhua-cdn.hzwohu.com", "unexpected COS destination")
     require(settings.cos_secret_id.get_secret_value() and settings.cos_secret_key.get_secret_value(), "COS credentials unavailable")
     from qcloud_cos import CosConfig, CosS3Client
 
-    # SDK request diagnostics may contain signed headers; do not inherit application debug logging.
-    logging.disable(logging.CRITICAL)
-    client = CosS3Client(CosConfig(Region=settings.cos_region, Scheme="https", Timeout=60,
-                                 SecretId=settings.cos_secret_id.get_secret_value(),
-                                 SecretKey=settings.cos_secret_key.get_secret_value()))
-    results = []
-    for item in selected:
-        result = upload_one(client, settings, state, root, item)
-        results.append(result)
-        print(json.dumps({"verified_file_id": item["id"], "bytes": item["size"]}), file=sys.stderr, flush=True)
-    return {"inventory_sha256": request["inventory_sha256"], "verified": results}
+    # SDK diagnostics can contain signed headers. Other application logging must remain enabled.
+    logging.getLogger("qcloud_cos").setLevel(logging.CRITICAL)
+    return CosS3Client(CosConfig(Region=settings.cos_region, Scheme="https", Timeout=60,
+                               SecretId=settings.cos_secret_id.get_secret_value(),
+                               SecretKey=settings.cos_secret_key.get_secret_value()))
 
 
 def main():

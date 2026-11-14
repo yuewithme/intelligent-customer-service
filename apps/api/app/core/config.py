@@ -410,6 +410,7 @@ class Settings(BaseSettings):
     cos_bucket: str = "wohu-lanhua-cdn-1311448032"
     cos_region: str = "ap-shanghai"
     cos_cdn_base_url: str = "https://lanhua-cdn.hzwohu.com"
+    cos_public_media_enabled: bool = False
     sop_image_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1)
     sop_video_max_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
 

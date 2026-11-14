@@ -394,6 +394,12 @@ def _local_asset_base_url() -> str:
 
 
 def _asset_url(base_url: str, relative_path: str) -> str:
+    if base_url == _local_asset_base_url():
+        from app.integrations.web.services.public_media_storage import indexed_public_url
+
+        public_url = indexed_public_url(agent_media_library_dir() / relative_path)
+        if public_url:
+            return public_url
     encoded = "/".join(quote(part) for part in relative_path.split("/") if part)
     return f"{base_url}/{encoded}"
 

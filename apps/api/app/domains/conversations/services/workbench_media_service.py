@@ -7,6 +7,7 @@ from fastapi import Request, UploadFile
 from app.core.config import get_settings
 from app.core.ids import generate_id
 from app.shared.schemas.common import AppError, ErrorCode
+from app.integrations.web.services.public_media_storage import public_media_url
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
@@ -42,10 +43,11 @@ async def store_workbench_image(request: Request, file: UploadFile) -> dict:
         target.unlink(missing_ok=True)
         raise
     relative_url = f"/static/workbench-media/{target.name}"
+    url = await public_media_url(target, _public_url(request, relative_url))
     return {
         "name": original_name,
         "size": size,
-        "url": _public_url(request, relative_url),
+        "url": url,
         "relative_url": relative_url,
     }
 
@@ -91,10 +93,12 @@ async def store_workbench_video(request: Request, file: UploadFile) -> dict:
         video.unlink(missing_ok=True)
         cover.unlink(missing_ok=True)
         raise
+    video_url = await public_media_url(video, _public_url(request, f"/static/workbench-media/{video.name}"))
+    cover_url = await public_media_url(cover, _public_url(request, f"/static/workbench-media/{cover.name}"))
     return {
         "name": original_name,
-        "url": _public_url(request, f"/static/workbench-media/{video.name}"),
-        "thumb_url": _public_url(request, f"/static/workbench-media/{cover.name}"),
+        "url": video_url,
+        "thumb_url": cover_url,
     }
 
 
