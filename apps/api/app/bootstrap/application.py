@@ -52,7 +52,7 @@ def _mount_static_files(application: FastAPI) -> None:
     video_storage_dir().mkdir(parents=True, exist_ok=True)
     application.mount(
         "/static/media",
-        StaticFiles(directory=video_storage_dir()),
+        PublicMediaFiles(directory=video_storage_dir()),
         name="video-media",
     )
     application.mount(

@@ -1,4 +1,4 @@
-"""COS storage for approved public media; never publish inbound customer attachments."""
+"""COS storage for business files explicitly approved for public CDN access."""
 
 import asyncio
 import logging
@@ -25,7 +25,9 @@ logger = logging.getLogger("wechat_rag_bot.cos")
 def public_file_item(path: Path) -> tuple[Path, dict]:
     root = Path(get_settings().upload_dir).absolute().parent.resolve()
     relative = path.absolute().relative_to(root)
-    category, eligible = category_for(relative)
+    category, eligible = category_for(
+        relative, include_customer_files=get_settings().cos_customer_files_public_enabled
+    )
     require(eligible, "not approved public media")
     info = path.lstat()
     require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and 0 < info.st_size <= MAX_BATCH_BYTES,
@@ -116,8 +118,10 @@ def pending_public_files() -> list[Path]:
     upload_dir = Path(get_settings().upload_dir)
     pending = []
     now = time.time()
-    for name in MEDIA_DIRECTORIES:
-        directory = upload_dir / name
+    directories_to_scan = ([upload_dir.parent / "media", upload_dir]
+                           if get_settings().cos_customer_files_public_enabled
+                           else [upload_dir / name for name in MEDIA_DIRECTORIES])
+    for directory in directories_to_scan:
         if directory.is_symlink():
             continue
         for current, directories, files in os.walk(directory, followlinks=False):

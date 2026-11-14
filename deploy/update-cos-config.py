@@ -27,7 +27,8 @@ def values(payload: dict) -> dict[str, str]:
            for key, pattern in patterns.items()):
         raise ValueError("Invalid COS credential input")
     return dict(payload, COS_BUCKET="wohu-lanhua-cdn-1311448032", COS_REGION="ap-shanghai",
-                COS_CDN_BASE_URL="https://lanhua-cdn.hzwohu.com", COS_PUBLIC_MEDIA_ENABLED="true")
+                COS_CDN_BASE_URL="https://lanhua-cdn.hzwohu.com", COS_PUBLIC_MEDIA_ENABLED="true",
+                COS_CUSTOMER_FILES_PUBLIC_ENABLED="true")
 
 
 def update(path: Path, configuration: dict[str, str]) -> None:

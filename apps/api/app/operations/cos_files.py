@@ -1,4 +1,4 @@
-"""Production inventory and explicitly approved public-media uploads."""
+"""Production inventory and explicitly approved business-file uploads."""
 
 import argparse
 from contextlib import contextmanager
@@ -19,6 +19,11 @@ import uuid
 PART_SIZE = 8 * 1024 * 1024
 MAX_BATCH_BYTES = 512 * 1024 * 1024
 MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".mov", ".m4v", ".webm"}
+BUSINESS_EXTENSIONS = MEDIA_EXTENSIONS | {
+    ".bmp", ".tif", ".tiff", ".heic", ".avif", ".wav", ".mp3", ".m4a", ".aac",
+    ".ogg", ".amr", ".silk", ".flac", ".opus", ".pdf", ".txt", ".md", ".doc",
+    ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv", ".rtf",
+}
 MEDIA_DIRECTORIES = {
     "agent-material-library": "marketing_media",
     "workbench-media": "workbench_media",
@@ -100,7 +105,7 @@ def fingerprint(info):
     return {key: getattr(info, "st_" + key) for key in ("size", "mtime_ns", "ctime_ns", "dev", "ino")}
 
 
-def category_for(relative):
+def category_for(relative, *, include_customer_files=False):
     parts = relative.parts
     suffix = relative.suffix.lower()
     if any(part.startswith(".") for part in parts) or suffix in {".env", ".pem", ".key", ".p12"}:
@@ -112,15 +117,15 @@ def category_for(relative):
     ):
         return "backups_logs", False
     if parts[0] == "media":
-        return "customer_attachments", False
+        return "customer_attachments", include_customer_files and suffix in BUSINESS_EXTENSIONS
     if len(parts) >= 3 and parts[0] == "uploads" and parts[1] in MEDIA_DIRECTORIES:
-        return MEDIA_DIRECTORIES[parts[1]], suffix in MEDIA_EXTENSIONS
+        return MEDIA_DIRECTORIES[parts[1]], suffix in (BUSINESS_EXTENSIONS if include_customer_files else MEDIA_EXTENSIONS)
     if parts[0] == "uploads":
-        return "documents_review", False
+        return "documents_review", include_customer_files and suffix in BUSINESS_EXTENSIONS
     return "other_runtime", False
 
 
-def inventory(root, state, revision):
+def inventory(root, state, revision, *, include_customer_files=False):
     summary = {}
     candidates = []
     skipped_links = 0
@@ -149,7 +154,7 @@ def inventory(root, state, revision):
             if not stat.S_ISREG(info.st_mode):
                 continue
             relative = path.relative_to(root)
-            category, candidate = category_for(relative)
+            category, candidate = category_for(relative, include_customer_files=include_customer_files)
             group = summary.setdefault(category, {"files": 0, "bytes": 0, "review_files": 0, "review_bytes": 0, "extensions": {}})
             group["files"] += 1
             group["bytes"] += info.st_size
@@ -174,7 +179,7 @@ def inventory(root, state, revision):
     return {"inventory_sha256": report_digest, "inventory": report}
 
 
-def approved_files(root, state, request, revision):
+def approved_files(root, state, request, revision, *, include_customer_files=False):
     require(isinstance(request, dict) and request.get("confirm_public") is True, "public-access approval required")
     report_digest = request.get("inventory_sha256", "")
     require(isinstance(report_digest, str) and re.fullmatch(r"[a-f0-9]{64}", report_digest), "invalid inventory digest")
@@ -182,9 +187,14 @@ def approved_files(root, state, request, revision):
     require(digest(encoded(report)) == report_digest, "inventory checksum mismatch")
     require(report["version"] == 1 and report["root"] == str(root) and report["revision"] == revision,
             "inventory does not match this deployment")
-    if request.get("scope") == "public-media":
+    if request.get("scope") in {"public-media", "approved-business-files"}:
         require("file_ids" not in request, "choose a scope or explicit file IDs, not both")
-        selected = report["candidates"]
+        if request["scope"] == "approved-business-files":
+            require(include_customer_files, "customer-file public access is not enabled")
+            selected = report["candidates"]
+        else:
+            selected = [item for item in report["candidates"] if item["category"] in MEDIA_DIRECTORIES.values()
+                        and PurePosixPath(item["path"]).suffix.lower() in MEDIA_EXTENSIONS]
         require(all(item["size"] <= MAX_BATCH_BYTES for item in selected), "a public file exceeds 512 MiB")
         return selected
     require("scope" not in request, "unsupported upload scope")
@@ -201,11 +211,11 @@ def approved_files(root, state, request, revision):
 
 
 @contextmanager
-def open_candidate(root, item):
+def open_candidate(root, item, *, include_customer_files=False):
     relative = PurePosixPath(item["path"])
     require(not relative.is_absolute() and ".." not in relative.parts and relative.parts,
             "invalid candidate path")
-    category, candidate = category_for(relative)
+    category, candidate = category_for(relative, include_customer_files=include_customer_files)
     require(candidate and category == item["category"], "file category is not eligible")
     descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
@@ -273,7 +283,7 @@ def _upload_one(client, settings, state, root, item):
     from qcloud_cos.cos_exception import CosServiceError
 
     receipts = private_directory(state / "uploads")
-    with open_candidate(root, item) as stream:
+    with open_candidate(root, item, include_customer_files=settings.cos_customer_files_public_enabled) as stream:
         source_digest = file_digest(stream)
         check_source(stream, item)
         receipt_path = receipts / (digest(encoded({"id": item["id"], "source": source_digest,
@@ -343,16 +353,19 @@ def _upload_one(client, settings, state, root, item):
 
 
 def upload(root, state, request, revision, settings):
-    selected = approved_files(root, state, request, revision)
+    include_customer_files = settings.cos_customer_files_public_enabled
+    selected = approved_files(root, state, request, revision, include_customer_files=include_customer_files)
     # Validate the entire selection before issuing any upload request.
     for item in selected:
-        with open_candidate(root, item):
+        with open_candidate(root, item, include_customer_files=include_customer_files):
             pass
     client = None
     results = []
     for item in selected:
-        with open_candidate(root, item):
-            record = verified_public_record(root, item, settings) if request.get("scope") == "public-media" else None
+        with open_candidate(root, item, include_customer_files=include_customer_files):
+            record = verified_public_record(root, item, settings) if request.get("scope") in {
+                "public-media", "approved-business-files"
+            } else None
         if record:
             result = {"file_id": item["id"], "url": record["url"], "sha256": record["sha256"],
                       "bytes": item["size"], "verification": "previously_verified"}
@@ -394,7 +407,8 @@ def main():
         require(root == Path("/app/data"), "COS operations are restricted to the production data mount")
         with operation_lock(root) as state:
             if args.action == "inventory":
-                result = inventory(root, state, args.revision)
+                result = inventory(root, state, args.revision,
+                                   include_customer_files=settings.cos_customer_files_public_enabled)
             else:
                 payload = sys.stdin.buffer.read(65537)
                 require(len(payload) <= 65536, "upload selection too large")
