@@ -17,6 +17,11 @@ from app.domains.catalog.services.agent_media_library_service import (
     select_scheduled_agent_media,
     select_preference_agent_video,
 )
+from app.domains.catalog.services.beginner_care_collection import (
+    BEGINNER_CARE_LIBRARY,
+    BEGINNER_CARE_TAGS,
+    daily_beginner_care_topic,
+)
 from app.domains.handoff.services.handoff_notification_service import is_sop_enabled
 from app.domains.sales.services.sop_policy_service import has_product_preferences, preference_tag_groups, eligible_sop_scopes
 from app.domains.orchestration.services.sop_flow_service import get_saved_flow, entry_matches, scheduled_nodes, load_cursor, execution_version
@@ -349,7 +354,10 @@ async def _process_service_material_touch(
                     row.status, row.last_error = "cancelled", "画布上游触发条件或分支条件未满足，已跳过"
                     session.commit()
                     return False
-                material = await select_canvas_content(configured.schedule, profile=profile_data, local_date=scheduled_date)
+                material = await select_canvas_content(
+                    configured.schedule, profile=profile_data, local_date=scheduled_date,
+                    prefer_beginner_care=touch_kind == _SERVICE_MATERIAL_KIND and purpose == "material",
+                )
             except Exception as exc:
                 session.commit()
                 _retry_service_material_touch(wakeup_id, now=now, error=f"画布触达匹配失败：{type(exc).__name__}")
@@ -373,12 +381,17 @@ async def _process_service_material_touch(
                 copy_type=slot[3],
             )
         else:
-            material = select_scheduled_agent_media(
-                local_date=scheduled_date,
-                category=slot[2],
-                copy_type=slot[3],
-                max_video_bytes=get_settings().service_material_max_video_bytes,
-            )
+            material = None
+            if (touch_kind == _SERVICE_MATERIAL_KIND and slot_id == "knowledge"
+                    and not BEGINNER_CARE_TAGS.isdisjoint(profile_data["tags"])):
+                material = daily_beginner_care_topic(scheduled_date)
+            if material is None:
+                material = select_scheduled_agent_media(
+                    local_date=scheduled_date,
+                    category=slot[2],
+                    copy_type=slot[3],
+                    max_video_bytes=get_settings().service_material_max_video_bytes,
+                )
         if material is None:
             row.status = "failed"
             row.last_error = "无同时匹配两类偏好的可用产品视频，已跳过" if touch_kind == _SEEDING_MATERIAL_KIND else f"素材库无可用的{slot[3]}内容"
@@ -691,8 +704,12 @@ def validate_service_material_touch_before_send(source_batch_key: str | None) ->
                             "facts": json.loads(current_profile.service_facts_json or "{}") if current_profile else {}}
             if snapshot.get("profile") != current_data:
                 service_tagged = False
-        if isinstance(snapshot, dict) and snapshot.get("content_reference") and not content_reference_is_available(snapshot["content_reference"]):
+        reference = snapshot.get("content_reference") if isinstance(snapshot, dict) else None
+        if reference and not content_reference_is_available(reference):
             service_tagged = False
+        if service_tagged and reference and reference.get("library") == BEGINNER_CARE_LIBRARY:
+            profile = session.get(UserProfileModel, row.customer_id)
+            service_tagged = bool(profile and not BEGINNER_CARE_TAGS.isdisjoint(_profile_tag_values(profile)))
         if service_tagged and match_preferences:
             profile = session.get(UserProfileModel, row.customer_id)
             service_tagged = preference_tag_groups(_profile_tag_values(profile)) == preference_tag_groups(old_tags)

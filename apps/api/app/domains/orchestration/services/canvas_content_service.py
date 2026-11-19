@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 
 from app.domains.catalog.services.agent_media_library_service import MEDIA_CONTENT_CATEGORIES, list_agent_content
+from app.domains.catalog.services.beginner_care_collection import BEGINNER_CARE_LIBRARY, list_beginner_care_topics
 from app.domains.orchestration.schemas.canvas_workflow import CanvasDefinition, CanvasIssue
 from app.domains.sales.services.activity_service import list_activities
 from app.domains.sales.services.care_manual_service import list_care_manuals
@@ -11,6 +12,7 @@ CONTENT_LIBRARIES = (
     ("care_manual", "养护手册", "篇", "按客户已购品种或明确的养护对象匹配手册。"),
     ("cloud_video", "云端视频", "个视频", "按分类匹配视频，使用素材配套文案。"),
     ("cloud_image", "云端图文", "张图文", "按分类匹配图片，使用素材配套文案。"),
+    (BEGINNER_CARE_LIBRARY, "L1/L2 养护图文", "个专题", "面向 L1 青铜期和 L2 白银期客户，按专题发送整组图片。"),
     ("care_course", "视频课程", "个课程", "仅使用已启用、已发布且免费的课程。"),
     ("sales_activity", "销售活动", "个活动", "仅使用有效期内、已启用且允许 AI 发送的活动，保留活动原有发送规则。"),
 )
@@ -56,6 +58,8 @@ def _content_source(library: str, name: str, unit: str, description: str) -> dic
                 for item in rows if item.get("enabled") and item.get("ai_enabled")
                 and item.get("effective_status") == "active" and item.get("item_count", 0) > 0
             ]
+        elif library == BEGINNER_CARE_LIBRARY:
+            source["items"] = list_beginner_care_topics()
         else:
             source.update(list_agent_content("video" if library == "cloud_video" else "image"))
         source["count"] = len(source["items"])

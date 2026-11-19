@@ -2,7 +2,7 @@ import request from '@/config/axios'
 
 export type CanvasNodeType = 'start' | 'general' | 'scheduled_send' | 'condition' | 'handoff' | 'end'
 export interface CanvasBranch { id: string; condition: string }
-export type CanvasContentLibrary = 'care_manual' | 'cloud_video' | 'cloud_image' | 'care_course' | 'sales_activity'
+export type CanvasContentLibrary = 'care_manual' | 'cloud_video' | 'cloud_image' | 'beginner_care' | 'care_course' | 'sales_activity'
 export interface CanvasContentSource { library: CanvasContentLibrary; category: string; selection: 'auto' | 'specific'; item_ids: string[] }
 export interface CanvasContentItem { id: string; name: string; category: string; description: string }
 export interface CanvasContentLibraryOption {

@@ -35,7 +35,7 @@ class CanvasBranch(CanvasModel):
 
 
 class CanvasContentSource(CanvasModel):
-    library: Literal["care_manual", "cloud_video", "cloud_image", "care_course", "sales_activity"]
+    library: Literal["care_manual", "cloud_video", "cloud_image", "beginner_care", "care_course", "sales_activity"]
     category: str = Field(default="", max_length=120)
     selection: Literal["auto", "specific"] = "auto"
     item_ids: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(default_factory=list, max_length=50)

@@ -175,7 +175,8 @@ def test_other_content_libraries_filter_unavailable_rows_and_include_later_pages
         {"id": "care-video", "title": "养护视频", "media_type": "video", "copy_type": "养护科普", "copy_status": "ready"},
     ])
     sources = {item["id"]: item for item in client.get("/api/v1/admin/orchestration/workbench/canvas/content-sources").json()["data"]}
-    assert set(sources) == {"care_manual", "cloud_video", "cloud_image", "care_course", "sales_activity"}
+    assert set(sources) == {"care_manual", "cloud_video", "cloud_image", "beginner_care", "care_course", "sales_activity"}
+    assert sources["beginner_care"]["count"] == 48
     assert sources["care_manual"]["count"] == 201 and sources["care_manual"]["items"][-1]["id"] == "200"
     assert [item["id"] for item in sources["care_course"]["items"]] == ["301"]
     assert [item["id"] for item in sources["sales_activity"]["items"]] == ["401"]

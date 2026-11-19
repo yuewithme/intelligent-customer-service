@@ -219,7 +219,7 @@ const typeLabels = { start: '开始', general: '一般节点', scheduled_send: '
 const typeIcons = { start: '▷', general: '◇', scheduled_send: '◷', condition: '⑂', handoff: '↗', end: '□' }
 const contentLibraries = ref<CanvasContentLibraryOption[]>([])
 const contentLoading = ref(false), contentError = ref('')
-const libraryNames: Record<CanvasContentLibrary, string> = { care_manual: '养护手册', cloud_video: '云端视频', cloud_image: '云端图文', care_course: '视频课程', sales_activity: '销售活动' }
+const libraryNames: Record<CanvasContentLibrary, string> = { care_manual: '养护手册', cloud_video: '云端视频', cloud_image: '云端图文', beginner_care: 'L1/L2 养护图文', care_course: '视频课程', sales_activity: '销售活动' }
 const libraryOptions = computed(() => (Object.keys(libraryNames) as CanvasContentLibrary[]).map(id => {
   const source = contentLibraries.value.find(item => item.id === id)
   return { id, label: source?.available ? `${source.name}（${source.count} ${source.unit}）` : libraryNames[id] }
